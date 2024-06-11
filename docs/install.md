@@ -60,7 +60,6 @@ Then the tool is available in the browser at http://localhost:9999.
 
 
 ## From source
-
 Here we use `conda` from the [miniconda](https://conda.io/en/latest/miniconda.html) package to install dependencies in a virtual environment.
 
 ```bash

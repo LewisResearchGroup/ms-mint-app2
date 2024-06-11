@@ -4,7 +4,6 @@ site_author: Soren Wacker
 nav:
   - Home: 'index.md'
   - Quickstart: 'quickstart.md'
-  - Background: 'background.md'
   - Installation: 'install.md'
   - GUI: 'gui.md'
   - Targets: 'targets.md'
