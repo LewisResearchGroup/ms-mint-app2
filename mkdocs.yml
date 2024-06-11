@@ -3,8 +3,8 @@ site_url: https://github.com/lewisresearchgroup/ms-mint-app
 site_author: Soren Wacker 
 nav:
   - Home: 'index.md'
+  - Installation: 'install.md' 
   - Quickstart: 'quickstart.md'
-  - Installation: 'install.md'
   - GUI: 'gui.md'
   - Targets: 'targets.md'
   - Developer Notes: 'developer-notes.md'

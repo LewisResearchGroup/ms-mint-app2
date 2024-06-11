@@ -7,6 +7,7 @@ MINT is a sophisticated post-processing tool designed for _liquid chromatography
 ## Links
 - [GitHub repository of ms-mint-app (the browser based application)](https://github.com/LewisResearchGroup/ms-mint-app)
 - [GitHub repository of ms-mint (the Python package)](https://github.com/LewisResearchGroup/ms-mint)
+- [GitHub repository of ms-mint-app plugin template](https://github.com/sorenwacker/ms-mint-plugin-template)
 
 ## Quickstart
 Check out the [Quickstart](quickstart.md) to jump right into it.
