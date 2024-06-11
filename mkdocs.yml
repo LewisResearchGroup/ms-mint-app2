@@ -6,7 +6,7 @@ nav:
   - Installation: 'install.md' 
   - Quickstart: 'quickstart.md'
   - GUI: 'gui.md'
-  - Targets: 'targets.md'
+  - Target lists: 'targets.md'
   - Developer Notes: 'developer-notes.md'
   - Gallery: 'gallery.md'
 extra:
