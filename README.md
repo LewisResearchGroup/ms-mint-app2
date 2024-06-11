@@ -63,6 +63,7 @@ pip install "dask[diskcache]"
 ```
 pip install diskcache
 pip install "dash[diskcache]"
+```
 
 ### Windows installer
 
