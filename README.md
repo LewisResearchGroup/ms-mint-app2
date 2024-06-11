@@ -5,11 +5,9 @@
 ![PyPI](https://img.shields.io/pypi/v/ms-mint-app?label=pypi%20package)
 ![PyPI - Downloads](https://img.shields.io/pypi/dm/ms-mint-app)
 
-
 ![](docs/image/MINT-logo.jpg)
 
 # MINT (Metabolomics Integrator)
-
 The Metabolomics Integrator (MINT) is a post-processing tool for liquid chromatography-mass spectrometry (LCMS) based metabolomics. 
 Metabolomics is the study of all metabolites (small chemical compounds) in a biological sample e.g. from bacteria or a human blood sample. 
 The metabolites can be used to define biomarkers used in medicine to find treatments for diseases or for the development of diagnostic tests 
@@ -18,10 +16,6 @@ More information on how to install and run the program can be found in the [Docu
 [Tutorial](https:///LewisResearchGroup.github.io/ms-mint-app/quickstart/) to jump right into it.
 
 ![Screenshot](docs/gallery/MINT-interface-1.png)
-
-# Quickstart
-## Installation
-You can find installation instructions [here](https://lewisresearchgroup.github.io/ms-mint-app/install/).
 
 ## Contributions
 All contributions, bug reports, code reviews, bug fixes, documentation improvements, enhancements, and ideas are welcome.
