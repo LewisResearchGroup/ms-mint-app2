@@ -17,6 +17,9 @@ More information on how to install and run the program can be found in the [Docu
 
 ![Screenshot](docs/gallery/MINT-interface-1.png)
 
+## Installation
+You can find installation instructions [here](https://lewisresearchgroup.github.io/ms-mint-app/install/)
+
 ## Contributions
 All contributions, bug reports, code reviews, bug fixes, documentation improvements, enhancements, and ideas are welcome.
 Before you modify the code please reach out to us using the [issues](https://github.com/LewisResearchGroup/ms-mint/issues) page.
@@ -27,7 +30,7 @@ The project follows PEP8 standard and uses Black and Flake8 to ensure a consiste
 ## Get in touch
 Open an [issue](https://github.com/LewisResearchGroup/ms-mint-app/issues) or join the [slack](https://ms-mint.slack.com/) channel.
 
-# Acknowledgements
+## Acknowledgements
 This project would not be possible without the help of the open-source community. 
 The tools and resources provided by GitHub, Docker-Hub, the Python Package Index, as well the answers from dedicated users on [Stackoverflow](stackoverflow.com)
 and the [Plotly community](https://community.plotly.com/), as well as the free open-source packages used are the foundation of this project.

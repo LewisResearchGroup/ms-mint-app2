@@ -4,6 +4,10 @@
 
 MINT is a sophisticated post-processing tool designed for _liquid chromatography-mass spectrometry_ (LCMS) based _metabolomics_. Metabolomics, the comprehensive study of small molecule metabolites within biological samples, plays a pivotal role in biomedical research. These metabolites serve as crucial biomarkers for disease diagnostics, therapeutic interventions, and pathogen identification, including methicillin-resistant _Staphylococcus aureus_ (MRSA).
 
+## Links
+- [GitHub repository of ms-mint-app (the browser based application)](https://github.com/LewisResearchGroup/ms-mint-app)
+- [GitHub repository of ms-mint (the Python package)](https://github.com/LewisResearchGroup/ms-mint)
+
 ## Quickstart
 Check out the [Quickstart](quickstart.md) to jump right into it.
 

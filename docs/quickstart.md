@@ -1,5 +1,8 @@
 
-## 1. Install `ms-mint-app` and start the application.
+# Quickstart Guide for ms-mint-app
+Welcome to the ms-mint-app quickstart guide! This guide will help you get up and running with the application, allowing you to start analyzing mass spectrometry data efficiently. Follow the steps below to install the app, create a workspace, and begin processing your data.
+
+## 1. Install `ms-mint-app`
 
 If you know how to use `pip` run:
 
@@ -7,7 +10,7 @@ If you know how to use `pip` run:
 pip install ms-mint-app
 ```
 
-or follow the instruction [here](https://github.com/LewisResearchGroup/ms-mint-app).
+or follow the instruction [here](https://lewisresearchgroup.github.io/ms-mint-app/install/).
 
 Then start the application with
 
@@ -145,7 +148,7 @@ Now, you can download the results in long-format or the dense peak_max values.
 The tidy format contains all results, while the `DENSE PEAK_MAX` only contians the `peak_max` values as a matrix. 
 
 
-## 8. Switch to `Analysis`.
+## 8. Analyze the results.
 
 Once the results are generated the 'Heatmap` tab will show an interactive heatmap.
 You can change the size of the heatmap by changing your browser window and `UPDATE` the plot.
