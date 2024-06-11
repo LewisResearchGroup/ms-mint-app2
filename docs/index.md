@@ -10,7 +10,7 @@ MINT is a sophisticated post-processing tool designed for _liquid chromatography
 ## Quickstart
 Check out the [Quickstart](quickstart.md) to jump right into it.
 
-## What is LCMS?
+## What problem(s) does this tool solve?
 A typical biological sample, such as human blood or agar with bacteria, can contain thousands of [metabolites](https://en.wikipedia.org/wiki/Metabolite) such as sugars, alcohols, amino acids, nucleotides, and more. To measure the composition of such a sample, [mass spectrometry](https://en.wikipedia.org/wiki/Mass_spectrometry) can be used.
 
 However, many metabolites share exact masses with other metabolites and therefore would be indistinguishable in the mass spectrometer. Therefore, compounds are sorted using [column chromatography](https://en.wikipedia.org/wiki/Column_chromatography) and spread out over time. The metabolites that enter the column at the same time interact with the column in different ways based on their specific stereochemistry. These interactions let compounds move faster or slower through the column, and therefore the compounds will elute at different times. That way, various metabolites can be analyzed successively over a certain timeframe rather than simultaneously.
