@@ -1,5 +1,3 @@
-![](image/MINT-logo.jpg)
-
 # MINT - Metabolomics Integrator
 
 MINT is a sophisticated post-processing tool designed for _liquid chromatography-mass spectrometry_ (LCMS) based _metabolomics_. Metabolomics, the comprehensive study of small molecule metabolites within biological samples, plays a pivotal role in biomedical research. These metabolites serve as crucial biomarkers for disease diagnostics, therapeutic interventions, and pathogen identification, including methicillin-resistant _Staphylococcus aureus_ (MRSA).
