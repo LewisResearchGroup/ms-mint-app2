@@ -2,6 +2,10 @@
 
 MINT is a sophisticated post-processing tool designed for _liquid chromatography-mass spectrometry_ (LCMS) based _metabolomics_. Metabolomics, the comprehensive study of small molecule metabolites within biological samples, plays a pivotal role in biomedical research. These metabolites serve as crucial biomarkers for disease diagnostics, therapeutic interventions, and pathogen identification, including methicillin-resistant _Staphylococcus aureus_ (MRSA).
 
+
+![Screenshot](quickstart/peak-preview.png)
+_**Figure 1:**_ Screenshot of the MINT browser interface.
+
 ## Links
 - [GitHub repository of ms-mint-app (the browser based application)](https://github.com/LewisResearchGroup/ms-mint-app)
 - [GitHub repository of ms-mint (the Python package)](https://github.com/LewisResearchGroup/ms-mint)
@@ -18,12 +22,12 @@ However, many metabolites share exact masses with other metabolites and therefor
 The mass spectrometer that follows the chromatographic column measures the masses given at each point in time and returns a time-dependent spectrogram. An example of an LCMS measurement is visualized in the following figure:
 
 ![](image/demo_Saureus_sample_raw.png)<br/>
-_**Figure 1:**_ A 2D-histogram of MS1 recorded intensities taken over a time span of 10 minutes. Shown are m/z values between 100 and 600 [Da/z].
+_**Figure 2:**_ A 2D-histogram of MS1 recorded intensities taken over a time span of 10 minutes. Shown are m/z values between 100 and 600 [Da/z].
 
 If we zoom into this figure to a very narrow band of masses, the traces of individual metabolites can be observed. The trace of succinate (or [succinic acid](https://en.wikipedia.org/wiki/Succinic_acid)) is shown here:
 
 ![](image/demo_Saureus_sample_raw_succinate.png)<br/>
-_**Figure 2:**_ A zoom into the 2D histogram shown in Figure 1.
+_**Figure 3:**_ A zoom into the 2D histogram shown in Figure 1.
 
 This illustrates how dense and precise the information in an LCMS measurement is. For comparison, the M/Z value of an electron is 5.489e-4.
 
@@ -35,7 +39,7 @@ Instead of analyzing the raw LCMS data, it is common practice to deconvolute the
 The binning transforms the semi-structured data into a structured format where each column stands for one particular metabolite. Often the data is normalized for each metabolite to reflect the relative intensities across multiple samples. The structured data can then be subjected to common data analyses such as dimensionality reduction or clustering analysis.
 
 ![](image/hierarchical_clustering.png)<br/>
-_**Figure 3:**_ Clustering analysis for a small set of metabolites across 12 different samples including 3 different pathogens (EC: _E. coli_, SA: _S. aureus_, CA: _C. albicans_).
+_**Figure 4:**_ Clustering analysis for a small set of metabolites across 12 different samples including 3 different pathogens (EC: _E. coli_, SA: _S. aureus_, CA: _C. albicans_).
 
 ## Future Directions
 MINT is continually evolving to incorporate new features and improvements. Future developments include enhanced data visualization tools, integration with other omics data, and improved user interface design to cater to a broader range of users. Community support is vital for the ongoing development of MINT, and we encourage users to contribute their feedback and engage with the development team.
