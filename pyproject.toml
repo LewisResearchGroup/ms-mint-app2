@@ -33,6 +33,7 @@ dependencies = [
   "dash_extensions",
   "dash_bootstrap_components",
   "flask_login",
+  "flask_migrate",
   "urllib3",
   "dash_tabulator",
   "dash_uploader==0.7.0a1",
