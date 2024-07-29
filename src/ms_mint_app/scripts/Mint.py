@@ -40,7 +40,7 @@ welcome = r"""
 """
 
 
-def _create_get_distribution(is_frozen, true_get_distribution):
+def _create_get_distribution(is_frozen, true_get_distribution, _Dist):
     def _get_distribution(dist):
         if is_frozen and dist == "flask-compress":
             return _Dist("1.5.0")
@@ -61,7 +61,7 @@ def main():
     _Dist = namedtuple("_Dist", ["version"])
     
     # Create the distribution getter function with the necessary context
-    get_distribution = _create_get_distribution(is_frozen, true_get_distribution)
+    get_distribution = _create_get_distribution(is_frozen, true_get_distribution, _Dist)
     
     # Monkey patch the function so it can work once frozen and pkg_resources is of
     # no help
