@@ -1,0 +1,65 @@
+[build-system]
+requires = ["setuptools>=45", "wheel", "setuptools_scm[toml]>=6.2"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ms-mint-app"
+description = "Metabolomics Integrator (Mint)"
+readme = "README.md"
+requires-python = ">=3.9"
+license = {file = "LICENSE"}
+authors = [
+  {name = "Soren Wacker", email = "swacker@ucalgary.ca"}
+]
+maintainers = [
+  {name = "Soren Wacker", email = "swacker@ucalgary.ca"}
+]
+keywords = ["metabolomics", "integrator", "mint"]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.9",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "License :: OSI Approved :: Apache Software License",
+  "Operating System :: OS Independent"
+]
+dependencies = [
+  "ms-mint>=1.0.0",
+  "xlsxwriter",
+  "waitress",
+  "dash",
+  "dash[diskcache]",
+  "dash_extensions",
+  "dash_bootstrap_components",
+  "flask_login",
+  "urllib3",
+  "dash_tabulator",
+  "dash_uploader==0.7.0a1",
+  "beautifulsoup4",
+  "dask[diskcache]",
+  "h5py",
+  "hdf5plugin",
+  "werkzeug==3.0.1",
+  "packaging==21.3.0"
+]
+dynamic = ["version"]
+
+[project.urls]
+Homepage = "https://github.com/LewisResearchGroup/ms-mint-app"
+Documentation = "https://github.com/LewisResearchGroup/ms-mint-app#readme"
+Repository = "https://github.com/LewisResearchGroup/ms-mint-app.git"
+"Bug Tracker" = "https://github.com/LewisResearchGroup/ms-mint-app/issues"
+
+[tool.setuptools_scm]
+write_to = "src/ms_mint_app/_version.py"
+version_scheme = "guess-next-dev"
+local_scheme = "dirty-tag"
+
+[project.scripts]
+Mint = "ms_mint_app.scripts.Mint:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["ms_mint_app*"]
