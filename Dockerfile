@@ -11,8 +11,6 @@ RUN /usr/local/bin/python -m pip install --upgrade pip
 
 COPY requirements.txt .
 
-RUN pip3 install -r requirements.txt
-
 COPY . /app
 
 RUN cd /app && pip3 install -e .
