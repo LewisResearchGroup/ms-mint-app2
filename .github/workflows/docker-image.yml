@@ -3,15 +3,22 @@ name: Docker Image CI
 on:
   release:
     types: [published]
-  
+  workflow_dispatch: # This enables manual triggering of the workflow
+
 jobs:
-
   build:
-
     runs-on: ubuntu-latest
 
     steps:
     - uses: actions/checkout@v3
+    - name: Set up Docker Build Context
+      run: |
+        echo "Branch: ${{ github.ref }}"
+        if [[ ${{ github.ref }} == 'refs/heads/develop' ]]; then
+          echo "This is the develop branch."
+        else
+          echo "This is not the develop branch."
+        fi
     - name: docker login
       env: 
         DOCKER_USER: ${{secrets.DOCKER_USER}}
