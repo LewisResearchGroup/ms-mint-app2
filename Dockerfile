@@ -36,4 +36,4 @@ WORKDIR /app
 RUN pip install .
 
 # Make the entrypoint script executable and run it
-CMD ["chmod", "+x", "entrypoint.sh", "&&", "./entrypoint.sh"]
+CMD ["./entrypoint.sh"]
