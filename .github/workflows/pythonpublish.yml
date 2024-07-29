@@ -30,4 +30,4 @@ jobs:
         TWINE_USERNAME: ${{ secrets.PYPI_MS_MINT_APP_USERNAME }}
         TWINE_PASSWORD: ${{ secrets.PYPI_TOKEN_MS_MINT_APP }}
       run: |
-        twine upload --repository-url https://upload.pypi.org/legacy/ dist/*
+        twine upload --repository ms-mint-app dist/*
