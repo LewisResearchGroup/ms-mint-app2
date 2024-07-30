@@ -76,7 +76,7 @@ _layout = html.Div([
                     "minWidth": "100%",
                 },
             ),
-            style={'width': '50%', 'margin': 'auto'}
+            style={'width': '100%', 'margin': 'auto'}
         ),
     ),       
     
