@@ -49,7 +49,7 @@ dynamic = ["version"]
 
 [project.urls]
 Homepage = "https://github.com/LewisResearchGroup/ms-mint-app"
-Documentation = "https://github.com/LewisResearchGroup/ms-mint-app#readme"
+Documentation = "https://lewisresearchgroup.github.io/ms-mint-app/"
 Repository = "https://github.com/LewisResearchGroup/ms-mint-app.git"
 "Bug Tracker" = "https://github.com/LewisResearchGroup/ms-mint-app/issues"
 

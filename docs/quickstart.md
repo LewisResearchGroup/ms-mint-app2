@@ -184,4 +184,4 @@ This way you can look at the whole dataset at once, sliced by `Batch` and `Label
 
 ![](quickstart/05-demo-plot.png)
 
-[Read more][gui.md]
+[Read more](gui.md)
