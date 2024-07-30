@@ -290,10 +290,7 @@ With great power comes great responsibility. The plotting tool can generate impr
 - Scatter plots
 - and more...
 
-![Plot setting](image/plotting_settings.png "Plot settings")
-
-![Bar plot](image/plotting_results_bar.png "Bar plot")
-
-![Boxen plot](image/plotting_results_boxen.png "Boxen plot")
+### Example: Compare z-scaled peak_area_top3 for between LC columns for all metabolites.
+![](image/plotting-example-1.png)
 
 
