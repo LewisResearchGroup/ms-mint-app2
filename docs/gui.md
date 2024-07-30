@@ -54,7 +54,7 @@ You want to edit metadata table to:
 - Rename peaks definitions or change parameters
 - Delete peak definitions
 
-![Targetlists](image/peaklist.png "Peaklist")
+![Targetlists](image/targets.png "Peaklist")
 
 Targetlists are collection of peak definitions for the extraction of MS intensities beloning to individual metabolites. 
 Targetlists can be provided as Excel or CSV files. Targetlists are explained in more detail [here](targets.md).
