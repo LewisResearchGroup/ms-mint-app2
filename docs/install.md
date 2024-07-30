@@ -18,7 +18,7 @@ Should download and install all necessary dependencies and Mint.
 Start the app via:
 
 ```
-Mint.py
+Mint
 ```
 
 ## Docker
@@ -57,8 +57,8 @@ pip install -e .
 After installation `Mint` can be started by running `Mint.py`.
 
 ```console
-Mint.py --help
-usage: Mint.py [-h] [--no-browser] [--version] [--data-dir DATA_DIR] [--debug] [--port PORT] [--serve-path SERVE_PATH]
+Mint --help
+usage: Mint [-h] [--no-browser] [--version] [--data-dir DATA_DIR] [--debug] [--port PORT] [--serve-path SERVE_PATH]
 
 MINT frontend.
 
