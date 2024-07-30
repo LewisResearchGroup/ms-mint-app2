@@ -54,7 +54,7 @@ pip install -e .
 ```
 
 ## Options
-After installation `Mint` can be started by running `Mint.py`.
+After installation Mint can be started by running `Mint`.
 
 ```console
 Mint --help
