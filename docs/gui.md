@@ -290,7 +290,8 @@ With great power comes great responsibility. The plotting tool can generate impr
 - Scatter plots
 - and more...
 
-### Example: Compare z-scaled peak_area_top3 for between LC columns for all metabolites.
+### Example: Compare log2 transformed and then z-scaled peak_area_top3 for between LC columns for all metabolites.
+
 ![](image/plotting-example-1.png)
 
 
