@@ -43,7 +43,8 @@ dependencies = [
   "h5py",
   "hdf5plugin",
   "werkzeug==2.2.2",
-  "packaging==21.3.0"
+  "packaging==21.3.0",
+  "email-validator",
 ]
 dynamic = ["version"]
 
