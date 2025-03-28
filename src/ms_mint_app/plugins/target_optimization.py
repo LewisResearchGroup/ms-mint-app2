@@ -100,7 +100,7 @@ _layout = html.Div(
             dbc.Col(dbc.Button("Remove target", id="pko-delete", style={"width": "100%"}, color='danger')),
         ]),
 
-        dcc.Loading(dcc.Graph("pko-figure")),
+        dcc.Loading(dcc.Graph("pko-figure", style={'width': '90vw', 'height': '80vh'})),
         dcc.Checklist(
             id="pko-figure-options",
             options=[{"value": "log", "label": "Logarithmic y-scale"}],
@@ -228,7 +228,7 @@ def callbacks(app, fsc, cache, cpu=None):
             fig.update_layout(
                 yaxis_title="Intensity",
                 xaxis_title="Scan Time [s]",
-                xaxis=dict(rangeslider=dict(visible=True)),
+                xaxis=dict(rangeslider=dict(visible=True, thickness=0.8)),
             )
             fig.update_layout(title=label)
             if "log" in options:
