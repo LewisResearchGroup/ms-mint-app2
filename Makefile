@@ -8,4 +8,7 @@ doc:
 	mkdocs build && mkdocs gh-deploy
 
 devel:
-	python scripts/Mint.py --debug --no-browser --data-dir /data/MINT
+	Mint --debug --no-browser
+
+serve:
+	Mint --no-browser

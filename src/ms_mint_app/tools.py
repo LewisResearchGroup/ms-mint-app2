@@ -224,7 +224,7 @@ def create_chromatograms(ms_files, targets, wdir):
                 create_chromatogram(fn, mz_mean, mz_width, fn_chro)
 
 
-def create_chromatogram(ms_file, mz_mean, mz_width, fn_out, time_step=0.1):
+def create_chromatogram(ms_file, mz_mean, mz_width, fn_out, time_step=0.25):
     
     # Convert MS file to DataFrame
     df = ms_file_to_df(ms_file)
