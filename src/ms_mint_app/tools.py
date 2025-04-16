@@ -224,18 +224,53 @@ def create_chromatograms(ms_files, targets, wdir):
                 create_chromatogram(fn, mz_mean, mz_width, fn_chro)
 
 
-def create_chromatogram(ms_file, mz_mean, mz_width, fn_out):
+def create_chromatogram(ms_file, mz_mean, mz_width, fn_out, time_step=0.25):
+    
+    # Convert MS file to DataFrame
     df = ms_file_to_df(ms_file)
+    
+    # Create output directory if not exists
     dirname = os.path.dirname(fn_out)
     if not os.path.isdir(dirname):
         os.makedirs(dirname)
+    
+    # Calculate m/z tolerance
     dmz = mz_mean * 1e-6 * mz_width
+    
+    # Filter DataFrame to specific m/z range
     chrom = df[(df["mz"] - mz_mean).abs() <= dmz]
-    chrom["scan_time"] = chrom["scan_time"].round(3)
+    
+    # Group by scan time and get max intensity
     chrom = chrom.groupby("scan_time").max().reset_index()
+    
+    # Determine start and end times
+    start_time = chrom['scan_time'].min()
+    end_time = chrom['scan_time'].max()
+    
+    # Create equidistant time points
+    time_points = np.arange(start_time, end_time + time_step, time_step)
+    
+    # Interpolate intensities
+    interpolated_intensities = np.interp(
+        time_points, 
+        chrom['scan_time'], 
+        chrom['intensity']
+    )
+    
+    # Create new equidistant DataFrame
+    equidistant_chrom = pd.DataFrame({
+        'scan_time': time_points,
+        'intensity': interpolated_intensities
+    })
+    
+    # Round scan time to 3 decimal places
+    equidistant_chrom['scan_time'] = equidistant_chrom['scan_time'].round(3)
+    
+    # Save to Feather file
     with lock(fn_out):
-        chrom[["scan_time", "intensity"]].to_feather(fn_out)
-    return chrom
+        equidistant_chrom[["scan_time", "intensity"]].to_feather(fn_out)
+    
+    return equidistant_chrom
 
 
 def get_chromatogram(ms_file, mz_mean, mz_width, wdir):

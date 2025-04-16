@@ -13,13 +13,12 @@ matplotlib.use("Agg")
 
 import dash
 
-from dash import html, dcc
+from dash import html, dcc, DiskcacheManager
 
 from dash.dependencies import Input, Output, State
 from dash.exceptions import PreventUpdate
 from dash.dcc import Download
 from dash_extensions.enrich import FileSystemCache
-from dash.long_callback import DiskcacheLongCallbackManager
 
 from .plugin_manager import PluginManager
 from .plugin_interface import PluginInterface
@@ -65,7 +64,7 @@ from uuid import uuid4
 import diskcache
 launch_uid = uuid4()
 cache = diskcache.Cache(CACHEDIR)
-long_callback_manager = DiskcacheLongCallbackManager(
+long_callback_manager = DiskcacheManager(
     cache, cache_by=[lambda: launch_uid], expire=60,
 )
 
@@ -267,7 +266,7 @@ def create_app(**kwargs):
 
     app = dash.Dash(
         __name__,
-        long_callback_manager=long_callback_manager,
+        background_callback_manager=long_callback_manager,
         external_stylesheets=[
             dbc.themes.MINTY,
             "https://codepen.io/chriddyp/pen/bWLwgP.css",

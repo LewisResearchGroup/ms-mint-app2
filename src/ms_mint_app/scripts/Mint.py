@@ -152,7 +152,7 @@ def main():
     print("Configuration done starting server...")
 
     if args.debug:
-        app.run_server(
+        app.run(
             debug=args.debug,
             port=args.port,
             host=args.host,
