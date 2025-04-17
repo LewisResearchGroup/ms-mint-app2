@@ -529,7 +529,7 @@ def callbacks(app, fsc, cache, cpu=None):
             )
 
         targets = T.get_targets(wdir)
-
+        
         file_colors = T.file_colors(wdir)
 
         n_total = len(targets)
