@@ -11,6 +11,7 @@ import pandas as pd
 
 from tqdm import tqdm
 from glob import glob
+import pathlib
 from pathlib import Path as P
 
 import urllib3, ftplib
@@ -18,6 +19,7 @@ from urllib.parse import urlparse
 from bs4 import BeautifulSoup
 
 import matplotlib as mpl
+from typing import Union, Optional
 
 mpl.use("Agg")
 
@@ -224,41 +226,82 @@ def create_chromatograms(ms_files, targets, wdir):
                 create_chromatogram(fn, mz_mean, mz_width, fn_chro)
 
 
-def create_chromatogram(ms_file, mz_mean, mz_width, fn_out, time_step=0.25):
+def create_chromatogram(
+    ms_file: Union[str, pathlib.Path],
+    mz_mean: float,
+    mz_width: float,
+    fn_out: Union[str, pathlib.Path],
+    time_step: float = 0.25
+) -> pd.DataFrame:
+    """
+    Create a chromatogram from mass spectrometry data.
+    
+    Args:
+        ms_file: Path to the mass spectrometry file
+        mz_mean: Mean m/z value for filtering
+        mz_width: Width of m/z window in ppm
+        fn_out: Output file path for the Feather file
+        time_step: Time step for equidistant time points (default: 0.25)
+        
+    Returns:
+        pd.DataFrame: Processed chromatogram data with equidistant time points
+                     Returns empty DataFrame if no data is found
+    """
     
     # Convert MS file to DataFrame
-    df = ms_file_to_df(ms_file)
+    df: pd.DataFrame = ms_file_to_df(ms_file)
     
     # Create output directory if not exists
-    dirname = os.path.dirname(fn_out)
+    dirname: str = os.path.dirname(str(fn_out))
     if not os.path.isdir(dirname):
         os.makedirs(dirname)
     
     # Calculate m/z tolerance
-    dmz = mz_mean * 1e-6 * mz_width
+    dmz: float = mz_mean * 1e-6 * mz_width
     
     # Filter DataFrame to specific m/z range
-    chrom = df[(df["mz"] - mz_mean).abs() <= dmz]
+    chrom: pd.DataFrame = df[(df["mz"] - mz_mean).abs() <= dmz]
+    
+    # If no data found, return empty DataFrame
+    if chrom.empty:
+        empty_result: pd.DataFrame = pd.DataFrame(columns=["scan_time", "intensity"])
+        
+        # Save empty DataFrame to Feather file
+        with lock(fn_out):
+            empty_result.to_feather(fn_out)
+            
+        return empty_result
     
     # Group by scan time and get max intensity
     chrom = chrom.groupby("scan_time").max().reset_index()
     
     # Determine start and end times
-    start_time = chrom['scan_time'].min()
-    end_time = chrom['scan_time'].max()
+    start_time: float = chrom['scan_time'].min()
+    end_time: float = chrom['scan_time'].max()
+    
+    # Check if start_time or end_time is NaN
+    if np.isnan(start_time) or np.isnan(end_time):
+        empty_result: pd.DataFrame = pd.DataFrame(columns=["scan_time", "intensity"])
+        
+        # Save empty DataFrame to Feather file
+        with lock(fn_out):
+            empty_result.to_feather(fn_out)
+            
+        return empty_result
     
     # Create equidistant time points
-    time_points = np.arange(start_time, end_time + time_step, time_step)
+    print(start_time, end_time, time_step)
+    time_points: np.ndarray = np.arange(start_time, end_time + time_step, time_step)
     
     # Interpolate intensities
-    interpolated_intensities = np.interp(
+    interpolated_intensities: np.ndarray = np.interp(
         time_points, 
         chrom['scan_time'], 
         chrom['intensity']
     )
     
     # Create new equidistant DataFrame
-    equidistant_chrom = pd.DataFrame({
+    equidistant_chrom: pd.DataFrame = pd.DataFrame({
         'scan_time': time_points,
         'intensity': interpolated_intensities
     })
