@@ -12,12 +12,13 @@ import dash_bootstrap_components as dbc
 from .. import tools as T
 from ..plugin_interface import PluginInterface
 
-
+_label = "Workspaces"
 
 class WorkspacesPlugin(PluginInterface):
     def __init__(self):
         self._label = _label
         self._order = 0
+        print(f'Initiated {_label} plugin')
 
     def layout(self):
         return _layout
@@ -28,8 +29,6 @@ class WorkspacesPlugin(PluginInterface):
     def outputs(self):
         return _outputs
         
-_label = "Workspaces"
-
 ws_table = html.Div(
     id="ws-table-container",
     style={"minHeight": 100, "margin": "5%"},
@@ -45,7 +44,6 @@ ws_table = html.Div(
         )
     ],
 )
-
 
 _layout = html.Div(
     [
@@ -103,7 +101,6 @@ _layout = html.Div(
     ]
 )    
 
-
 _outputs = html.Div(
     id="ws-outputs",
     children=[
@@ -112,7 +109,6 @@ _outputs = html.Div(
         html.Div(id={"index": "ws-delete-output", "type": "output"}),
     ],
 )
-
 
 def callbacks(app, fsc, cache):
     @app.callback(

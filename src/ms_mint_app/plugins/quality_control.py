@@ -16,11 +16,13 @@ from ms_mint import Mint
 from .. import tools as T
 from ..plugin_interface import PluginInterface
 
+_label = "Quality Control"
 
 class QualityControlPlugin(PluginInterface):
     def __init__(self):
         self._label = _label
         self._order = 8
+        print(f'Initiated {_label} plugin')
 
     def layout(self):
         return _layout
@@ -30,9 +32,6 @@ class QualityControlPlugin(PluginInterface):
     
     def outputs(self):
         return _outputs
-    
-
-_label = "Quality Control"
 
 _info = """
 **peak_mass_diff_50pc**: This observable represents the median difference in mass between expected and observed values, normalized to the mass of the compound and expressed in ppm. 

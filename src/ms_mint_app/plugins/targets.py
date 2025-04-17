@@ -13,11 +13,13 @@ import dash_bootstrap_components as dbc
 from .. import tools as T
 from ..plugin_interface import PluginInterface
 
+_label = "Targets"
 
 class TargetsPlugin(PluginInterface):
     def __init__(self):
         self._label = _label
         self._order = 4
+        print(f'Initiated {_label} plugin')
 
     def layout(self):
         return _layout
@@ -91,8 +93,6 @@ pkl_table = html.Div(
         )
     ],
 )
-
-_label = "Targets"
 
 _layout = html.Div(
     [

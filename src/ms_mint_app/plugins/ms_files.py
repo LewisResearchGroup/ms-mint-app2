@@ -24,11 +24,13 @@ import dash_uploader as du
 from .. import tools as T
 from ..plugin_interface import PluginInterface
 
+_label = "MS-Files"
 
 class MsFilesPlugin(PluginInterface):
     def __init__(self):
         self._label = _label
         self._order = 2
+        print(f'Initiated {_label} plugin')
 
     def layout(self):
         return _layout
@@ -39,11 +41,9 @@ class MsFilesPlugin(PluginInterface):
     def outputs(self):
         return _outputs
 
-
 upload_root = os.getenv("MINT_DATA_DIR", tempfile.gettempdir())
 upload_dir = str(P(upload_root) / "MINT-Uploads")
 UPLOAD_FOLDER_ROOT = upload_dir
-
 
 options = {
     "selectable": True,
@@ -110,8 +110,6 @@ ms_table = html.Div(
         )
     ],
 )
-
-_label = "MS-Files"
 
 _layout = html.Div(
     [

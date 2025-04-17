@@ -12,12 +12,14 @@ from dash_tabulator import DashTabulator
 from .. import tools as T
 from ..plugin_interface import PluginInterface
 
+_label = "Metadata"
 
 class MetadataPlugin(PluginInterface):
     def __init__(self):
         self._label = _label
         self._order = 3
-
+        print(f'Initiated {_label} plugin')
+        
     def layout(self):
         return _layout
 
@@ -72,8 +74,6 @@ options = [
     {"label": "Type", "value": "Type"},
     {"label": "Concentration", "value": "Concentration"},
 ]
-
-_label = "Metadata"
 
 _layout = html.Div(
     [

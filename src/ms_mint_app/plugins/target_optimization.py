@@ -28,11 +28,13 @@ import pandas as pd
 from .. import tools as T
 from ..plugin_interface import PluginInterface
 
+_label = "Optimization"
 
 class TargetOptimizationPlugin(PluginInterface):
     def __init__(self):
         self._label = _label
         self._order = 6
+        print(f'Initiated {_label} plugin')
 
     def layout(self):
         return _layout
@@ -49,11 +51,6 @@ Creating chromatograms from mzXML/mzML files can last
 a long time the first time. Try converting your files to 
 _feather_ format first.'
 """
-
-_label = "Optimization"
-
-
-
 
 def create_preview_peakshape(
     ms_files, mz_mean, mz_width, rt, rt_min, rt_max, image_label, wdir, peak_label, colors

@@ -19,11 +19,13 @@ from dash import dcc
 
 from ms_mint.standards import RESULTS_COLUMNS
 
+_label = "Processing"
 
 class ProcessingPlugin(PluginInterface):
     def __init__(self):
         self._label = _label
         self._order = 7
+        print(f'Initiated {_label} plugin')
 
     def layout(self):
         return _layout
@@ -33,9 +35,6 @@ class ProcessingPlugin(PluginInterface):
     
     def outputs(self):
         return _outputs
-    
-
-_label = "Processing"
 
 _property_options = T.list_to_options(RESULTS_COLUMNS)
 

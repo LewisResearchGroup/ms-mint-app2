@@ -15,12 +15,13 @@ from .analysis_tools import plotting
 from .. import tools as T
 from ..plugin_interface import PluginInterface
 
-
+_label = "Analysis"
 
 class AnalysisPlugin(PluginInterface):
     def __init__(self):
         self._label = _label
         self._order = 9
+        print(f'Initiated {_label} plugin')
 
     def layout(self):
         return _layout
@@ -30,8 +31,6 @@ class AnalysisPlugin(PluginInterface):
     
     def outputs(self):
         return _outputs
-    
-
 
 _modules = [heatmap, distributions, pca, hierachical_clustering, plotting]
 
@@ -132,9 +131,6 @@ _layout = html.Div(
         html.Div(id="ana-secondary-tab-content"),
     ]
 )
-
-
-_label = "Analysis"
 
 _outputs = None
 
