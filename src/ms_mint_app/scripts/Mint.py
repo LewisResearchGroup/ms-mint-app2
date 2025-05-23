@@ -111,22 +111,36 @@ def main():
 
     url = f"http://{args.host}:{args.port}"
 
-    if not args.no_browser:
-        if os.name == "nt":
-            # https://github.com/pyinstaller/pyinstaller/wiki/Recipe-Multiprocessing
-            print('Using Windows')
-            multiprocessing.freeze_support()
+    def wait_and_open_browser():
+        import socket
+        import time
+        import webbrowser
 
-        # Open the browser
-        if sys.platform in ["win32", "nt"]:
-            os.startfile(url)
-        elif sys.platform == "darwin":
-            subprocess.Popen(["open", url])
-        else:
+        def wait_for_server(host, port, timeout=30):
+            start_time = time.time()
+            while True:
+                try:
+                    with socket.create_connection((host, port), timeout=1):
+                        return True
+                except OSError:
+                    time.sleep(0.5)
+                    if time.time() - start_time > timeout:
+                        return False
+
+        if wait_for_server(args.host, args.port):
             try:
-                subprocess.Popen(["xdg-open", url])
-            except OSError:
-                print("Please open a browser on: ", url)
+                if sys.platform in ["win32", "nt"]:
+                    os.startfile(url)
+                elif sys.platform == "darwin":
+                    subprocess.Popen(["open", url])
+                else:
+                    subprocess.Popen(["xdg-open", url])
+            except Exception:
+                print(f"Please open your browser manually: {url}")
+
+    if not args.no_browser:
+        import threading
+        threading.Thread(target=wait_and_open_browser).start()
 
     if args.data_dir is not None:
         os.environ["MINT_DATA_DIR"] = args.data_dir
