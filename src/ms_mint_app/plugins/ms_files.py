@@ -73,13 +73,23 @@ columns = [
         "headerFilter": True,
         "headerSort": True,
         "editor": None,
-        "width": "80%",
+        "width": "60%",
         "sorter": "string",
         "frozen": True,
     },
     {
         "title": "ms_file_size_mb",
         "field": "file_size",
+        "headerFilter": True,
+        "headerSort": True,
+        "editor": None,
+        "width": "20%",
+        "sorter": "string",
+        "frozen": True,
+    },
+    {
+        "title": "File Type",
+        "field": "file_type",
         "headerFilter": True,
         "headerSort": True,
         "editor": None,
@@ -195,6 +205,7 @@ def callbacks(app, fsc, cache):
                 "file_size": [
                     np.round(os.path.getsize(fn) / 1024 / 1024, 2) for fn in ms_files
                 ],
+                "file_type": [T.get_ms_level_from_filename(fn) for fn in ms_files],
             }
         )
 
