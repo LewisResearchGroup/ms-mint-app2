@@ -251,7 +251,9 @@ _layout = html.Div(
             dropdown,
             debug_toggle,
         ], style={"marginTop": "20px"}),
-        html.Div(id="channel-fragment-plot-container", style={"marginTop": "30px"})
+        dcc.Loading(
+            html.Div(id="channel-fragment-plot-container", style={"marginTop": "30px"})
+        )
     ]
 )
 
@@ -278,6 +280,7 @@ def callbacks(app, fsc, cache):
     @app.callback(
         Output("content-table", "data"),
         Output("channel-selector", "options"),
+        Output("channel-selector", "value"),
         Input("wdir", "children"),
         Input("ms2-table", "rowClicked"),
     )
@@ -293,7 +296,7 @@ def callbacks(app, fsc, cache):
         clean_values = [v for v in values if isinstance(v, str) and pd.notna(v)]
         channel_options = sorted(list(np.unique(clean_values)))
 
-        return df.to_dict("records"), channel_options
+        return df.to_dict("records"), channel_options, channel_options[0]
 
     @app.callback(
         Output("channel-fragment-plot-container", "children"),
