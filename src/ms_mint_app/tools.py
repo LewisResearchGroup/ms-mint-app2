@@ -37,6 +37,16 @@ from datetime import date
 from .filelock import FileLock
 
 
+def get_ms_level_from_filename(filename):
+    fn = P(filename)
+    if fn.stem.split("_")[-1] == "ms1":
+        return "ms1"
+    elif fn.stem.split("_")[-1] == "ms2":
+        return "ms2"
+
+    return "msunknown"
+
+
 def list_to_options(x):
     return [{"label": e, "value": e} for e in x]
 
