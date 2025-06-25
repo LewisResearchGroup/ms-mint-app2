@@ -111,98 +111,184 @@ logout_button = (
     ),
 )
 logout_button = html.A(href="/logout", children=logout_button)
+SIDEBAR_WIDTH = "300px"
+tab_style = {
+    'borderBottom': '1px solid #d6d6d6',
+    'fontWeight': 'bold',
+    'borderLeft': 'none'
+}
+
+tab_selected_style = {
+    'borderTop': '1px solid #d6d6d6',
+    'borderBottom': '1px solid #d6d6d6',
+    'backgroundColor': '#119DFF',
+    'color': 'white',
+}
+
 
 _layout = html.Div(
     [
-        html.Div(logout_button),
+        Download(id="res-download-data"),
+        html.Div(id="tmpdir", children=str(TMPDIR), style={"visibility": "hidden", "height": "0px"}),
         dcc.Interval(
             id="progress-interval", n_intervals=0, interval=2000, disabled=False
         ),
-        html.A(
-            href="https://lewisresearchgroup.github.io/ms-mint-app/gui/",
-            children=[
-                html.Button(
-                    "Documentation",
-                    id="B_help",
-                    style={"float": "right", "color": "info"},
-                )
-            ],
-            target="_blank",
-        ),
-        html.A(
-            href=f"https://github.com/LewisResearchGroup/ms-mint-app/issues/new?body={T.get_issue_text()}",
-            children=[
-                html.Button(
-                    "Issues", id="B_issues", style={"float": "right", "color": "info"}
-                )
-            ],
-            target="_blank",
-        ),
-        # dbc.Progress(
-        #     id="progress-bar",
-        #     value=100,
-        #     style={"marginBottom": "20px", "width": "100%", "marginTop": "20px"},
-        # ),
-        Download(id="res-download-data"),
-        html.Div(id="tmpdir", children=str(TMPDIR), style={"visibility": "hidden"}),
 
-        dbc.Row([
-            dbc.Col(
+        html.Div(
+            [
+                dbc.Row(
+                    [
+                        dbc.Col(
+                            [
+                                html.Div(
+                                    [
+                                        html.Img(
+                                            src="/assets/MINT-logo.jpg",
+                                            style={"width": "80px"},
+                                        ),
+                                    ],
+                                ),
+                            ],
+                        ),
+                        dbc.Col(
+                            [
+                                html.Div(logout_button,
+                                         style={
+                                             "display": "flex",
+                                             "justifyContent": "flex-end",
+                                             "margin-bottom": "10px",
+                                         }),
+                            ],
+                        ),
+                    ],
+                    align="center",
+                ),
                 dbc.Alert(
                     [
-                        html.H6("Workspace: ", style={"display": "inline"}),
-                        html.H6(id="active-workspace", style={"display": "inline"}),
-                    ]
-                , color='info', style={'text-align': 'center'}),
-            ),
-            dbc.Col(
-                dbc.Alert(
+                        html.Strong("Workspace: ", style={"display": "inline"}),
+                        html.Span(id="active-workspace", style={"display": "inline"}),
+                        html.Br(),
+                        html.Span(
+                            id="wdir",
+                            style={
+                                "display": "inline-block",         # ❗ obligatorio para truncado
+                                "maxWidth": "260px",
+                                "wordBreak": "break-all",
+                                "whiteSpace": "normal",            # ❗ evita el salto de línea
+                            },
+                        )
+                    ],
+                    color='info',
+                ),
+
+                dcc.Tabs(
+                    id="tab",
+                    value=list(plugins.keys())[0],
+                    vertical=True,
+                    children=[
+                        dcc.Tab(
+                            id=plugin_id,
+                            value=plugin_id,
+                            label=plugin_instance.label,
+                            style=tab_style,
+                            selected_style=tab_selected_style,
+
+                        )
+                        for plugin_id, plugin_instance in plugins.items()
+                    ],
+                    style={
+                        "width": "100%"
+                    }
+                ),
+                html.Div(style={"flexGrow": 1}),
+                dbc.Row(
                     [
-                        html.H6(id="wdir", style={"display": "inline"}),
+                        dbc.Col(
+                            [
+                                html.A(
+                                    href="https://lewisresearchgroup.github.io/ms-mint-app/gui/",
+                                    children=[
+                                        html.Button(
+                                            "Docs",
+                                            id="B_help",
+                                            style={"color": "info", "width": "100%"},
+                                        )
+                                    ],
+                                    target="_blank",
+                                ),
+                            ]
+                        ),
+                        dbc.Col(
+                            [
+                                html.A(
+                                    href=f"https://github.com/LewisResearchGroup/ms-mint-app/issues/new?body={T.get_issue_text()}",
+                                    children=[
+                                        html.Button(
+                                            "Issues",
+                                            id="B_issues",
+                                            style={"color": "info", "width": "100%"}
+                                        )
+                                    ],
+                                    target="_blank",
+                                ),
+                            ]
+                        )
                     ]
-                , color='info', style={'text-align': 'center'}),
-            ),
-        ], style={'marginTop': '5px', "marginBottom": "30px"}),
-
-        html.Div(id="pko-creating-chromatograms"),
-
-        dcc.Tabs(
-            id="tab",
-            value=list(plugins.keys())[0],
-            children=[
-                dcc.Tab(
-                    id=plugin_id,
-                    value=plugin_id,
-                    label=plugin_instance.label,
-                )
-                for plugin_id, plugin_instance in plugins.items()
+                ),
+                html.Hr(style={"margin": "1rem 0"}),
+                html.Div(f'ms-mint: {ms_mint.__version__}'),
+                html.Div(f'ms-mint-app: {ms_mint_app.__version__}'),
             ],
+            style={
+                "position": "fixed",
+                "top": 0,
+                "bottom": 0,
+                "left": 0,
+                "width": SIDEBAR_WIDTH,
+                "backgroundColor": "#f9f9f9",
+                "borderRight": "1px solid #ccc",
+                "padding": "1rem",
+                "display": "flex",
+                "flexDirection": "column",
+                "boxSizing": "border-box"
+            }
         ),
 
-        messages.layout(),
+        html.Div(
+            [
+                messages.layout(),
+                html.Div(id="tab-content"),
+                html.Div(id="pko-creating-chromatograms"),
+            ],
+            id="tab-content-container",
+            style={
+                "marginLeft": SIDEBAR_WIDTH,
+                "height": "100vh",
+                "overflowY": "auto",
+                "padding-top": "0.5rem",
+                "padding-inline": "2rem",
+                "padding-bottom": "2rem",
+                "boxSizing": "border-box",
+                "flex": 1
+            }
+        ),
 
         html.Div(id="pko-image-store", style={"visibility": "hidden", "height": "0px"}),
-        html.Div(id="tab-content"),
         html.Div(id="viewport-container", style={"visibility": "hidden"}),
         _outputs,
-        html.Div(f'ms-mint: {ms_mint.__version__}'),
-        html.Div(f'ms-mint-app: {ms_mint_app.__version__}'),
 
-        dcc.Store(id="toast-channel", data=[]),
         html.Div(id="global-toast-container",
                  className="position-fixed top-0 end-0 p-3",
                  style={
                      "position": "fixed",
-                     "top": "1rem",
+                     "bottom": "5rem",
                      "right": "1rem",
                      "zIndex": 9999,
                      "width": "auto",
                  },
                  children=[],
-                 # style={"zIndex": 9999, "position": "fixed", "top": 66, "right": 10, "width": 350, "display": "none"}
                  ),
     ],
-    style={"margin": "4rem"},
 
 )
 

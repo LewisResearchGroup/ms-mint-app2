@@ -139,6 +139,7 @@ def callbacks(app, fsc, cache):
         Input({"index": "ws-created-output", "type": "output"}, "children"),
         State("ws-table", "data"),
         State("tmpdir", "children"),
+        prevent_initial_call=True
     )
     def ws_activate(ndx, deleted, created, data, tmpdir):
         prop_id = dash.callback_context.triggered[0]["prop_id"]
