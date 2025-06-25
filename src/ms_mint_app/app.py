@@ -138,11 +138,11 @@ _layout = html.Div(
             ],
             target="_blank",
         ),
-        dbc.Progress(
-            id="progress-bar",
-            value=100,
-            style={"marginBottom": "20px", "width": "100%", "marginTop": "20px"},
-        ),
+        # dbc.Progress(
+        #     id="progress-bar",
+        #     value=100,
+        #     style={"marginBottom": "20px", "width": "100%", "marginTop": "20px"},
+        # ),
         Download(id="res-download-data"),
         html.Div(id="tmpdir", children=str(TMPDIR), style={"visibility": "hidden"}),
 
@@ -187,6 +187,20 @@ _layout = html.Div(
         _outputs,
         html.Div(f'ms-mint: {ms_mint.__version__}'),
         html.Div(f'ms-mint-app: {ms_mint_app.__version__}'),
+
+        dcc.Store(id="toast-channel", data=[]),
+        html.Div(id="global-toast-container",
+                 className="position-fixed top-0 end-0 p-3",
+                 style={
+                     "position": "fixed",
+                     "top": "1rem",
+                     "right": "1rem",
+                     "zIndex": 9999,
+                     "width": "auto",
+                 },
+                 children=[],
+                 # style={"zIndex": 9999, "position": "fixed", "top": 66, "right": 10, "width": 350, "display": "none"}
+                 ),
     ],
     style={"margin": "2%"},
 
@@ -257,6 +271,26 @@ def register_callbacks(app, cache, fsc):
             return tmpdir, {"visibility": "visible"}
         return str(TMPDIR / "Local"), {"visibility": "hidden"}
     logging.info("Done registering callbacks")
+
+    @app.callback(
+        Output("global-toast-container", "children"),
+        Input("toast-channel", "data")
+    )
+    def render_toasts(toast_data):
+        return [
+            dbc.Toast(
+                toast["message"],
+                id=toast["id"],
+                header=toast["header"],
+                icon=toast.get("icon", "info"),
+                dismissable=True,
+                is_open=True,
+                duration=5000,
+                key = toast["id"],
+                style = {"marginBottom": "0.5rem", "minWidth": "250px", 'fontSize': '14px'}
+            )
+            for toast in toast_data
+        ]
 
 
 def create_app(**kwargs):
