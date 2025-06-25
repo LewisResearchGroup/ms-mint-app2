@@ -346,9 +346,9 @@ def callbacks(cls, app, fsc, cache):
         Input("wdir", "children"),
         Input("ms-files-table", "rowClicked"),
     )
-    def ms_convert(n_clicks, rows, wdir):
-        target_dir = os.path.join(wdir, "ms_files")
-        if n_clicks is None:
+    def content_table(wdir, row):
+        ff = {fo.stem: fo for fo in P(wdir).joinpath("ms_files").glob("*.feather")}
+        if row is None or f'{row["ms_file_label"]}_{row["file_type"]}' not in ff:
             raise PreventUpdate
         fn = f'{row["ms_file_label"]}_{row["file_type"]}'
         df = pd.read_feather(ff[fn])
@@ -427,12 +427,43 @@ def callbacks(cls, app, fsc, cache):
         return updated_toasts, len(rows)
 
     @du.callback(
-        output=Output('ms-uploader-fns', 'children'),
-        id='ms-uploader',
+        output=[Output("ms-uploader-fns", "children"),
+                Output("ms-progress-bar", "max"),
+                Output("ms-uploader-store", "data")]                ,
+        id="ms-uploader",
     )
-    def upload_completed(status):
-        logging.warning(f'Upload status: {status} ({type(status)})')
-        return [str(fn) for fn in status.uploaded_files]
+    def ms_upload_completed(status):
+        logging.warning(f"Upload status: {status} ({type(status)})")
+        return [str(fn) for fn in status.uploaded_files], status.n_total, status.n_total
+
+    @du.callback(
+        output=Output("metadata-uploader-store", "data"),
+        id="metadata-uploader",
+    )
+    def metadata_upload_completed(status):
+        logging.warning(f"Upload status: {status} ({type(status)})")
+        return [str(fn) for fn in status.uploaded_files], status.n_total, status.n_total
+
+    @app.callback(
+        Output("toast-channel", "data", allow_duplicate=True),
+        Input("ms-files-table", "cellEdited"),
+        State("ms-files-table", "data"),
+        State("wdir", "children"),
+        State("toast-channel", "data"),
+        prevent_initial_call=True,
+    )
+    def save_table_on_edit(cell_edited, data, wdir, current_toasts):
+        """
+        This callback saves the table on cell edits.
+        This saves some bandwidth.
+        """
+        if data is None or cell_edited is None:
+            raise PreventUpdate
+        df = pd.DataFrame(data)
+        T.write_metadata(df, wdir)
+        new_toast = create_toast("Metadata saved.", "Success metadata saved", "success")
+        updated_toasts = current_toasts + [new_toast]
+        return updated_toasts
 
     @app.callback(
         Output("toast-channel", "data", allow_duplicate=True),
@@ -449,18 +480,6 @@ def callbacks(cls, app, fsc, cache):
         State("wdir", "children"),
         prevent_initial_call=True
     )
-    def move_uploaded_files(fns, wdir):
-        if fns is None or len(fns)==0:
-            raise PreventUpdate
-        ms_dir = T.get_ms_dirname(wdir)
-        for fn in fns:
-            if not P(fn).is_file():
-                continue
-            fn_new = P(ms_dir) / P(fn).name
-            shutil.move(fn, fn_new)
-            T.fix_first_emtpy_line_after_upload_workaround(fn_new)
-            logging.info(f"Move {fn} to {fn_new}")
-        return dbc.Alert("Upload finished", color="success")
     def process_ms_files(n_interval, n_total, fns, current_toasts, wdir):
         ctx = dash.callback_context
         if not ctx.triggered:
@@ -504,7 +523,39 @@ def callbacks(cls, app, fsc, cache):
                     metadata_uploader_disabled)
         raise PreventUpdate
 
-    @app.callback(Output("ms-n-files", "children"), Input("ms-table", "data"))
+    @app.callback(
+        # Output("global-toast-container", "children", allow_duplicate=True),
+        Output("toast-channel", "data", allow_duplicate=True),
+        Output("metadata-processed-store", "data"),
+        Input("metadata-uploader-store", "data"),
+        State("wdir", "children"),
+        State("toast-channel", "data"),
+        # State("global-toast-container", "children"),
+        prevent_initial_call=True,
+    )
+    def process_metadata_files(files, wdir, current_toasts):
+
+        print(f"{files = }")
+
+        if not files:
+            raise PreventUpdate
+        df = T.get_metadata(wdir)
+        new_df = pd.read_csv(files[0][0])
+        df = T.merge_metadata(df, new_df)
+        if "index" not in df.columns:
+            df = df.reset_index()
+
+        print(f"{df = }")
+        T.write_metadata(df, wdir)
+        new_toast = create_toast("Metadata file added successfully.", "Success Metadata Added", "success")
+        print(f"{new_toast = }")
+        updated_toasts = current_toasts + [new_toast]
+        return updated_toasts, 1
+
+
+
+    @app.callback(Output("ms-n-files", "children"),
+                  Input("ms-files-table", "data"))
     def n_files(data):
         n_files = len(data)
         return dbc.Alert(f"{n_files} files in current workspace.", color="info")
