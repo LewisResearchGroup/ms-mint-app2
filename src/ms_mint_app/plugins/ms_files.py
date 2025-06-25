@@ -83,8 +83,6 @@ columns = [
         "frozen": True,
     },
     {
-        "title": "ms_file",
-        "field": "ms_file",
         "title": "MS-Files",
         "field": "ms_file_label",
         "headerFilter": True,
@@ -197,6 +195,32 @@ ms_files_table = html.Div(
         )
     ],
 )
+
+
+modal_confirmation = dbc.Modal(
+    [
+        dbc.ModalHeader("Delete confirmation"),
+        dbc.ModalBody("Are you sure you want to delete the selected files?"),
+        dbc.ModalFooter([
+            dbc.Button("Cancel", id="ms-mc-cancel", className="ml-auto"),
+            dbc.Button("Delete", id="ms-mc-confirm", color="danger"),
+        ]),
+    ],
+    id="modal-confirmation",
+    is_open=False,
+)
+
+
+def get_upload_component(uid, file_stypes, text, disabled=False, max_files=10000):
+    return du.Upload(
+        id=uid,
+        max_file_size=1800,  # 1800 MB
+        max_files=max_files,
+        filetypes=file_stypes,
+        upload_id=str(uuid.uuid1()),  # Unique session id
+        text=text,
+        disabled=disabled
+    )
 
 _layout = html.Div(
     [
@@ -331,21 +355,75 @@ def callbacks(cls, app, fsc, cache):
         return dbc.Alert("Files converted to feather format.", color="info")
 
     @app.callback(
-        Output({"index": "ms-delete-output", "type": "output"}, "children"),
+        Output("modal-confirmation", "is_open"),
         Input("ms-delete", "n_clicks"),
-        State("ms-table", "multiRowsClicked"),
-        State("wdir", "children"),
+        Input("ms-mc-cancel", "n_clicks"),
+        Input("ms-mc-confirm", "n_clicks"),
+        State("modal-confirmation", "is_open"),
+        State("ms-files-table", "multiRowsClicked"),
     )
-    def ms_delete(n_clicks, rows, wdir):
-        if n_clicks is None:
-            raise PreventUpdate
-        target_dir = os.path.join(wdir, "ms_files")
-        for row in rows:
-            fn = row["ms_file"]
-            fn = P(target_dir) / fn
-            os.remove(fn)
-        return dbc.Alert(f"{len(rows)} files deleted", color="info")
+    def toggle_modal(n_delete, n_cancel, n_confirm, is_open, rows):
+        ctx = dash.callback_context
+        if not ctx.triggered:
+            return is_open
+        if not rows:
+            return False
 
+        trigger_id = ctx.triggered[0]["prop_id"].split(".")[0]
+        if trigger_id == "ms-delete":
+            return True  # open modal
+        elif trigger_id in ["ms-mc-cancel", "ms-mc-confirm"]:
+            return False  # Close modal
+
+        return is_open
+
+    @app.callback(
+        Output("toast-channel", "data", allow_duplicate=True),
+        Output("ms-delete-store", "data"),
+        Input("ms-mc-confirm", "n_clicks"),
+        State("ms-files-table", "multiRowsClicked"),
+        State("wdir", "children"),
+        State("toast-channel", "data"),
+        prevent_initial_call=True,
+    )
+    def confirm_and_delete(n_confirm, rows, wdir, current_toasts):
+        if n_confirm is None or not rows:
+            raise PreventUpdate
+
+        target_dir = os.path.join(wdir, "ms_files")
+
+        removed_files = []
+        failed_files = []
+        for row in rows:
+            filename = row["ms_file_label"]
+            ft = row["file_type"]
+            fn = f"{filename}_{ft}.feather"
+            file_path = Path(target_dir) / fn
+            try:
+                if file_path.exists():
+                    os.remove(file_path)
+                    removed_files.append(fn)
+            except Exception as e:
+                logging.error(f"Error al eliminar {fn}: {str(e)}")
+                failed_files.append(fn)
+
+        dfl = "\n".join(f"- {m}" for m in removed_files)
+        ffl = "\n".join(f"- {m}" for m in failed_files)
+        msd = dcc.Markdown(
+            f"Successfully deleted {len(rows)} files.\n"
+            f"{dfl}\n"
+        )
+        msf = dcc.Markdown(
+            f"Failed to delete {len(rows)} files.\n"
+            f"{ffl}"
+        )
+        new_toasts = []
+        if removed_files:
+            new_toasts.append(create_toast(msd,"Success deletion", "success"))
+        if failed_files:
+            new_toasts.append(create_toast(msf,"Failed deletion", "danger"))
+        updated_toasts = current_toasts + new_toasts
+        return updated_toasts, len(rows)
 
     @du.callback(
         output=Output('ms-uploader-fns', 'children'),
