@@ -262,7 +262,6 @@ _layout = html.Div(
                              style={"text-align": "right"}), ]),
             dcc.Loading(ms_files_table)]
         ),
-        dcc.Loading(ms_table),
         html.Div(id="ms-n-files", style={"max-width": "300px"}),
         html.Div(id="ms-uploader-fns", style={"visibility": "hidden"}),
     ]
@@ -272,7 +271,6 @@ _layout = html.Div(
 _outputs = html.Div(
     id="ms-outputs",
     children=[
-        html.Div(id={"index": "ms-convert-output", "type": "output"}),
         html.Div(id={"index": "ms-delete-output", "type": "output"}),
         html.Div(id={"index": "ms-save-output", "type": "output"}),
         html.Div(id={"index": "ms-import-from-url-output", "type": "output"}),
@@ -286,6 +284,16 @@ _outputs = html.Div(
 def layout():
     return _layout
 
+#
+def process_file(file_path: Path, output_dir):
+    # move converted file to processed folder
+    file_path = Path(file_path)
+    output_file = Path(output_dir).joinpath(file_path.name).with_suffix(".feather")
+    ff = convert_ms_file_to_feather(file_path, output_file)
+    # remove original file
+    if os.path.isfile(ff):
+        os.remove(file_path)
+    return ff
 
 
 def callbacks(cls, app, fsc, cache):
@@ -334,25 +342,18 @@ def callbacks(cls, app, fsc, cache):
         return df.to_dict("records")
 
     @app.callback(
-        Output({"index": "ms-convert-output", "type": "output"}, "children"),
-        Input("ms-convert", "n_clicks"),
-        State("ms-table", "multiRowsClicked"),
-        State("wdir", "children"),
+        Output("ms-data-table", "data"),
+        Input("wdir", "children"),
+        Input("ms-files-table", "rowClicked"),
     )
     def ms_convert(n_clicks, rows, wdir):
         target_dir = os.path.join(wdir, "ms_files")
         if n_clicks is None:
             raise PreventUpdate
-        fns = [row["ms_file"] for row in rows]
-        fns = [fn for fn in fns if not fn.endswith(".feather")]
-        fns = [os.path.join(target_dir, fn) for fn in fns]
-        n_total = len(fns)
-        for i, fn in enumerate(fns):
-            fsc.set("progress", int(100 * (i + 1) / n_total))
-            new_fn = convert_ms_file_to_feather(fn)
-            if os.path.isfile(new_fn):
-                os.remove(fn)
-        return dbc.Alert("Files converted to feather format.", color="info")
+        fn = f'{row["ms_file_label"]}_{row["file_type"]}'
+        df = pd.read_feather(ff[fn])
+        return df.to_dict("records")
+
 
     @app.callback(
         Output("modal-confirmation", "is_open"),
@@ -434,9 +435,19 @@ def callbacks(cls, app, fsc, cache):
         return [str(fn) for fn in status.uploaded_files]
 
     @app.callback(
-        Output({"index": "ms-uploader-output", "type": "output"}, "children"),
+        Output("toast-channel", "data", allow_duplicate=True),
+        Output("ms-uploader-output", "data"),
+        Output("ms-poll-interval", "disabled"),
+        Output('ms-progress-bar', 'value'),
+        Output('ms-progress-bar', 'label'),
+        Output("progress-container", "style"),
+        Output("metadata-uploader", "disabled"),
+        Input("ms-poll-interval", "n_intervals"),
+        Input("ms-uploader-store", "data"),
         Input("ms-uploader-fns", "children"),
+        State("toast-channel", "data"),
         State("wdir", "children"),
+        prevent_initial_call=True
     )
     def move_uploaded_files(fns, wdir):
         if fns is None or len(fns)==0:
@@ -450,6 +461,48 @@ def callbacks(cls, app, fsc, cache):
             T.fix_first_emtpy_line_after_upload_workaround(fn_new)
             logging.info(f"Move {fn} to {fn_new}")
         return dbc.Alert("Upload finished", color="success")
+    def process_ms_files(n_interval, n_total, fns, current_toasts, wdir):
+        ctx = dash.callback_context
+        if not ctx.triggered:
+            raise PreventUpdate
+        trigger_id = ctx.triggered[0]["prop_id"].split(".")[0]
+
+        if trigger_id == "ms-uploader-fns":
+            if fns is None or len(fns) == 0:
+                raise PreventUpdate
+            if len(fns) == 1:
+                cls.executor = concurrent.futures.ProcessPoolExecutor(max_workers=4)
+            ms_dir = T.get_ms_dirname(wdir)
+            for fn in fns[len(cls.futures):]:
+                T.fix_first_emtpy_line_after_upload_workaround(fn)
+                cls.futures.append(cls.executor.submit(process_file, fn, ms_dir))
+            return [], dash.no_update, False, 0, '', {"display": "block"}, True
+        elif trigger_id == "ms-poll-interval":
+            value = sum(future.done() for future in cls.futures)
+            ms_poll_interval_disabled = False
+            metadata_uploader_disabled = True
+            style = {"display": "block"}
+            new_toast = []
+            if value == n_total:
+                cls.executor.shutdown()
+                cls.futures = []
+                ms_poll_interval_disabled = True
+                style = {"display": "none"}
+                metadata_uploader_disabled = False
+                # create the metadata file
+                metadata_df = T.get_metadata(wdir)
+                T.write_metadata(metadata_df, wdir)
+
+                new_toast = create_toast(f"{n_total} files processed", "Success files processing", "success")
+            updated_toasts = current_toasts + [new_toast]
+
+            return (updated_toasts, dbc.Alert(f"Processing {n_total} uploaded files...", color="info"),
+                    ms_poll_interval_disabled,
+                    value,
+                    f"Processed {value}/{n_total} files...",
+                    style,
+                    metadata_uploader_disabled)
+        raise PreventUpdate
 
     @app.callback(Output("ms-n-files", "children"), Input("ms-table", "data"))
     def n_files(data):
