@@ -9,6 +9,7 @@ from dash.exceptions import PreventUpdate
 from dash.dependencies import Input, Output, State
 import dash_bootstrap_components as dbc
 
+from .utils import create_toast
 from .. import tools as T
 from ..plugin_interface import PluginInterface
 
@@ -176,12 +177,12 @@ def callbacks(app, fsc, cache):
 
         return dbc.Alert(message, color="success"), wdir, ws_name
 
-    @app.callback(
-        Output("progress-bar", "value"),
-        Input("progress-interval", "n_intervals"),
-    )
-    def set_progress(n):
-        return fsc.get("progress")
+    # @app.callback(
+    #     Output("progress-bar", "value"),
+    #     Input("progress-interval", "n_intervals"),
+    # )
+    # def set_progress(n):
+    #     return fsc.get("progress")
 
     @app.callback(
         Output("ws-delete-popup", "is_open"),
@@ -198,21 +199,26 @@ def callbacks(app, fsc, cache):
         return is_open
 
     @app.callback(
+        Output("global-toast-container", "children", allow_duplicate=True),
         Output({"index": "ws-delete-output", "type": "output"}, "children"),
         Input("ws-delete-confirm", "n_clicks"),
         State("ws-table", "derived_virtual_selected_rows"),
         State("ws-table", "data"),
         State("tmpdir", "children"),
+        State("global-toast-container", "children"),
+        prevent_initial_call=True,
     )
-    def ws_delete_confirmed(n_clicks, ndxs, data, tmpdir):
+    def ws_delete_confirmed(n_clicks, ndxs, data, tmpdir, current_toasts):
         if n_clicks is None or len(ndxs) == 0:
             raise PreventUpdate
         for ndx in ndxs:
             ws_name = data[ndx]["Workspace"]
             dirname = T.workspace_path(tmpdir, ws_name)
             shutil.rmtree(dirname)
-        message = f"Worskpace {ws_name} deleted."
-        return dbc.Alert(message, color="success")
+        message = f"Workspace {ws_name} deleted."
+        new_toast = create_toast(message, "Success workspace deleted", "success")
+        updated_toasts = current_toasts + [new_toast]
+        return updated_toasts, dbc.Alert(message, color="success")
 
     @app.callback(
         Output("ws-create-popup", "is_open"),
