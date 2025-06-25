@@ -474,9 +474,7 @@ def get_metadata(wdir):
     return df
 
 
-def init_metadata(ms_files):
-    ms_files = list(ms_files)
-    ms_files = [filename_to_label(fn) for fn in ms_files]
+def init_metadata(ms_files: list[str]):
     df = pd.DataFrame({"ms_file_label": ms_files})
     df["in_analysis"] = True
     df["label"] = ""
@@ -670,7 +668,7 @@ def gen_tabulator_columns(
             "title": col,
             "field": col,
             "headerFilter": True,
-            "width": col_width,
+            # "width": col_width,
             "editor": editor,
         }
 
@@ -780,7 +778,7 @@ def get_ms_fns_for_peakopt(wdir):
     """Extract the filenames for peak optimization from
     the metadata table and recreate the complete filename."""
     df = get_metadata(wdir)
-    fns = df[df.use_for_optimization.astype(bool) == True]["ms_file_label"]
+    fns = df[(df.use_for_optimization.astype(bool)) & (df.file_type != 'ms2')]["ms_file_label"]
     ms_files = get_ms_fns(wdir)
     mapping = {filename_to_label(fn): fn for fn in ms_files}
     fns = [mapping[fn] for fn in fns]
@@ -803,7 +801,7 @@ def write_targets(targets, wdir):
 
 def filename_to_label(fn: str):
     if is_ms_file(fn):
-        fn = os.path.splitext(fn)[0]
+        fn = os.path.splitext(fn)[0][:-4]
     return os.path.basename(fn)
 
 
