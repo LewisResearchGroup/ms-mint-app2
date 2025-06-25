@@ -2,10 +2,12 @@ import os
 import shutil
 import uuid
 import logging
+
+import dash
 import numpy as np
 import tempfile
 
-from pathlib import Path as P
+from pathlib import Path as P, Path
 
 import pandas as pd
 
@@ -21,8 +23,11 @@ from dash_tabulator import DashTabulator
 
 import dash_uploader as du
 
+from .utils import create_toast
 from .. import tools as T
 from ..plugin_interface import PluginInterface
+
+import concurrent.futures
 
 _label = "MS-Files"
 
@@ -30,14 +35,16 @@ class MsFilesPlugin(PluginInterface):
     def __init__(self):
         self._label = _label
         self._order = 2
-        print(f'Initiated {_label} plugin')
+        self.executor: concurrent.futures.ProcessPoolExecutor = None
+        self.futures: list[concurrent.futures.Future] = []
+        print(f"Initiated {_label} plugin")
 
     def layout(self):
         return _layout
 
     def callbacks(self, app, fsc, cache):
-        callbacks(app, fsc, cache)
-    
+        callbacks(self, app, fsc, cache)
+
     def outputs(self):
         return _outputs
 
@@ -46,10 +53,19 @@ upload_dir = str(P(upload_root) / "MINT-Uploads")
 UPLOAD_FOLDER_ROOT = upload_dir
 
 options = {
+    "groupBy": ["file_type"],
     "selectable": True,
     "headerFilterLiveFilterDelay": 3000,
-    "layout": "fitDataFill",
-    "height": "900px",
+    "layout": "fitColumns",
+    # "layout":"fitDataStretch",
+    # "height": "500px",
+    # "reactiveData": True,  # Solo actualiza lo necesario
+    # "dataChangedTest": True,
+    # "pagination": "local",
+    # "paginationSize": 10,
+    # "movableColumns": True,
+    # "resizableColumns": True,
+
 }
 
 clearFilterButtonType = {"css": "btn btn-outline-dark", "text": "Clear Filters"}
@@ -64,101 +80,163 @@ columns = [
         },
         "hozAlign": "center",
         "headerSort": False,
-        "width": "1px",
         "frozen": True,
     },
     {
         "title": "ms_file",
         "field": "ms_file",
+        "title": "MS-Files",
+        "field": "ms_file_label",
         "headerFilter": True,
         "headerSort": True,
         "editor": None,
-        "width": "60%",
-        "sorter": "string",
+        # "width": "80%",
+        # "sorter": "string",
         "frozen": True,
+        "widthGrow": 3
     },
     {
-        "title": "ms_file_size_mb",
-        "field": "file_size",
-        "headerFilter": True,
-        "headerSort": True,
-        "editor": None,
-        "width": "20%",
-        "sorter": "string",
-        "frozen": True,
-    },
-    {
-        "title": "File Type",
-        "field": "file_type",
-        "headerFilter": True,
-        "headerSort": True,
-        "editor": None,
-        "width": "20%",
-        "sorter": "string",
-        "frozen": True,
-    },
-    {
-        "title": "",
-        "field": "",
+        "title": "Color",
+        "field": "color",
         "headerFilter": False,
+        "editor": None,
         "formatter": "color",
-        "width": "3px",
+        # "width": "3px",
         "headerSort": False,
     },
+    {
+        "title": "Use for Optimization",
+        "field": "use_for_optimization",
+        "headerFilter": False,
+        "formatter": "tickCross",
+        # "width": "6px",
+        "headerSort": True,
+        "hozAlign": "center",
+        "editor": "tickCross",
+        "widthGrow": 2,
+    },
+    {
+        "title": "In Analysis",
+        "field": "in_analysis",
+        "headerFilter": True,
+        "formatter": "tickCross",
+        # "width": "6px",
+        "headerSort": True,
+        "hozAlign": "center",
+        "editor": True,
+        "headerTooltip": "This is a tooltip",
+    },
+    {
+        "title": "Label",
+        "field": "label",
+        "headerFilter": True,
+        "headerSort": True,
+        "hozAlign": "center",
+        "editor": True,
+        "headerTooltip": "This is a tooltip",
+    },
+    {
+        "title": "Sample Type",
+        "field": "sample_type",
+        "headerFilter": True,
+        "headerSort": True,
+        "hozAlign": "center",
+        "editor": True,
+        "headerTooltip": "This is a tooltip",
+        "widthGrow": 3
+    },
+    {
+        "title": "Run Order",
+        "field": "run_order",
+        "headerFilter": True,
+        "headerSort": True,
+        "hozAlign": "center",
+        "editor": True,
+        "headerTooltip": "This is a tooltip",
+    },
+    {
+        "title": "Plate",
+        "field": "plate",
+        "headerFilter": True,
+        "headerSort": True,
+        "hozAlign": "center",
+        "editor": True,
+        "headerTooltip": "This is a tooltip",
+    },
+    {
+        "title": "Plate Row",
+        "field": "plate_row",
+        "headerFilter": True,
+        "headerSort": True,
+        "hozAlign": "center",
+        "editor": True,
+        "headerTooltip": "This is a tooltip",
+    },
+    {
+        "title": "Plate Column",
+        "field": "plate_column",
+        "headerFilter": True,
+        "headerSort": True,
+        "hozAlign": "center",
+        "editor": True,
+        "headerTooltip": "This is a tooltip",
+    },
+
 ]
 
 
-ms_table = html.Div(
-    id="ms-table-container",
-    style={"Height": 0, "marginTop": "10%"},
+ms_files_table = html.Div(
+    id="ms-files-table-container",
+    # style={"Height": 0, "marginTop": "20px"},
     children=[
         DashTabulator(
-            id="ms-table",
+            id="ms-files-table",
             columns=columns,
             options=options,
-            clearFilterButtonType=clearFilterButtonType,
+            # clearFilterButtonType=clearFilterButtonType,
         )
     ],
 )
 
 _layout = html.Div(
     [
-        html.H3("Upload MS-files"),
-        html.Div(
-            du.Upload(
-                id="ms-uploader",
-                filetypes=["tar", "zip", "mzxml", "mzml", "mzXML", "mzML", "mzMLb", "feather", "parquet"],
-                upload_id=uuid.uuid1(),
-                max_files=10000,
-                max_file_size=50000,
-                chunk_size=1,
-                pause_button=True,
-                cancel_button=True,
-                text="Upload mzXML/mzML files.",
-            ),
-            style={
-                "textAlign": "center",
-                "width": "100%",
-                "padding": "0px",
-                "marginBottom": "20px",
-                "display": "inline-block",
-            },
-        ),
-        dcc.Markdown("##### Actions"),
+        html.H4("Upload Mass Spec / Metadata files"),
         dbc.Row(
-            [
-                dbc.Col(
-                    [
-                        dbc.Button("Convert selected files to Feather", id="ms-convert"),
-                        # dbc.Button("Convert selected files to Parquet", id="ms-convert-parquet"),
-                    ]
+            [dbc.Col(
+                get_upload_component(
+                    uid="ms-uploader",
+                    file_stypes=["tar", "zip", "mzxml", "mzml", "mzXML", "mzML", "mzMLb", "feather", "parquet"],
+                    text="Upload mzXML/mzML files.",
                 ),
-                dbc.Col(
-                    [
-                        dbc.Button("Delete selected files", id="ms-delete", color='danger')
-                    ]
-                , style={"text-align": 'right'}),
-            ]
+            ),
+            dbc.Col(
+                get_upload_component(
+                    uid="metadata-uploader",
+                    file_stypes=["csv"],
+                    text="Upload METADATA files.",
+                    # disabled=True,
+                    max_files=1
+                ),
+            )]
+        ),
+        dcc.Store(id="ms-uploader-store"),
+        dcc.Store(id="metadata-uploader-store"),
+        dcc.Store(id="metadata-processed-store"),
+        html.Div(
+                id="progress-container",
+                style={"display": "none"},
+                children=[
+                    html.P("Progreso del procesamiento"),
+                    dbc.Progress(id="ms-progress-bar", animated=True, striped=True, label="Processing files...")
+                ]
+            ),
+        dcc.Interval(id="ms-poll-interval", interval=1000, n_intervals=0, disabled=True),
+        modal_confirmation,
+        dcc.Store(id="ms-delete-store"),
+        html.Div([
+            dbc.Row([dbc.Col([dbc.Button("Delete selected file", id="ms-delete", color="danger")],
+                             style={"text-align": "right"}), ]),
+            dcc.Loading(ms_files_table)]
         ),
         dcc.Loading(ms_table),
         html.Div(id="ms-n-files", style={"max-width": "300px"}),
@@ -174,7 +252,8 @@ _outputs = html.Div(
         html.Div(id={"index": "ms-delete-output", "type": "output"}),
         html.Div(id={"index": "ms-save-output", "type": "output"}),
         html.Div(id={"index": "ms-import-from-url-output", "type": "output"}),
-        html.Div(id={"index": "ms-uploader-output", "type": "output"}),
+        dcc.Store(id="ms-uploader-output"),
+        html.Div(id={"index": "metadata-uploader-output", "type": "output"}),
         html.Div(id={"index": "ms-new-target-output", "type": "output"}),
     ],
 )
@@ -184,39 +263,51 @@ def layout():
     return _layout
 
 
-def callbacks(app, fsc, cache):
+
+def callbacks(cls, app, fsc, cache):
     @app.callback(
-        Output("ms-table", "data"),
-        Output("ms-table", "downloadButtonType"),
-        Input({"index": "ms-uploader-output", "type": "output"}, "children"),
+        Output("ms-files-table", "data"),
+        Input("ms-uploader-output", "data"),
+        Input("metadata-processed-store", "data"),
         Input("wdir", "children"),
-        Input({"index": "ms-delete-output", "type": "output"}, "children"),
-        Input({"index": "ms-convert-output", "type": "output"}, "children"),
+        Input("ms-delete-store", "data"),
         State("active-workspace", "children"),
+        State("ms-files-table", "data"),
     )
-    def ms_table(value, wdir, files_deleted, files_converted, workspace):
+    def ms_files_table(value, value2, wdir, files_deleted, workspace, current_data):
 
         ms_files = T.get_ms_fns(wdir)
-        logging.info(f'# Files in {wdir} {workspace} {len(ms_files)}')
-        
-        data = pd.DataFrame(
+        logging.info(f"# Files in {wdir} {workspace} {len(ms_files)}")
+
+        ms_files_names = []
+        files_type = []
+        for fn in ms_files:
+            fn_p = Path(fn)
+            if fn_p.stem[-4:] not in ['_ms1', '_ms2']:
+                ms_files_names.append(fn_p.stem)
+            else:
+                ms_files_names.append(fn_p.stem[:-4])
+            files_type.append(T.get_ms_level_from_filename(fn))
+
+        df = pd.DataFrame(
             {
-                "ms_file": [os.path.basename(fn) for fn in ms_files],
-                "file_size": [
-                    np.round(os.path.getsize(fn) / 1024 / 1024, 2) for fn in ms_files
-                ],
-                "file_type": [T.get_ms_level_from_filename(fn) for fn in ms_files],
+                "ms_file_label": ms_files_names,
+                "file_type": files_type,
             }
         )
+        mdf = T.get_metadata(wdir)
 
-        downloadButtonType = {
-            "css": "btn btn-primary",
-            "text": "Export",
-            "type": "csv",
-            "filename": f"{T.today()}__MINT__{workspace}__ms-files",
-        }
+        if value2 is not None or not mdf.empty:
+            df = T.merge_metadata(df, mdf)
 
-        return data.to_dict("records"), downloadButtonType
+        if df.empty and files_deleted is None:
+            raise PreventUpdate
+
+        if current_data is not None:
+            prev_df = pd.DataFrame(current_data)
+            if df.reset_index(drop=True).equals(prev_df.reset_index(drop=True)):
+                raise PreventUpdate
+        return df.to_dict("records")
 
     @app.callback(
         Output({"index": "ms-convert-output", "type": "output"}, "children"),
