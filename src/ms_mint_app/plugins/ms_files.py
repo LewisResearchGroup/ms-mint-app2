@@ -379,12 +379,12 @@ def callbacks(cls, app, fsc, cache):
         return is_open
 
     @app.callback(
-        Output("toast-channel", "data", allow_duplicate=True),
+        Output("global-toast-container", "children", allow_duplicate=True),
         Output("ms-delete-store", "data"),
         Input("ms-mc-confirm", "n_clicks"),
         State("ms-files-table", "multiRowsClicked"),
         State("wdir", "children"),
-        State("toast-channel", "data"),
+        State("global-toast-container", "children"),
         prevent_initial_call=True,
     )
     def confirm_and_delete(n_confirm, rows, wdir, current_toasts):
@@ -445,11 +445,11 @@ def callbacks(cls, app, fsc, cache):
         return [str(fn) for fn in status.uploaded_files], status.n_total, status.n_total
 
     @app.callback(
-        Output("toast-channel", "data", allow_duplicate=True),
+        Output("global-toast-container", "children", allow_duplicate=True),
         Input("ms-files-table", "cellEdited"),
         State("ms-files-table", "data"),
         State("wdir", "children"),
-        State("toast-channel", "data"),
+        State("global-toast-container", "children"),
         prevent_initial_call=True,
     )
     def save_table_on_edit(cell_edited, data, wdir, current_toasts):
@@ -466,7 +466,7 @@ def callbacks(cls, app, fsc, cache):
         return updated_toasts
 
     @app.callback(
-        Output("toast-channel", "data", allow_duplicate=True),
+        Output("global-toast-container", "children", allow_duplicate=True),
         Output("ms-uploader-output", "data"),
         Output("ms-poll-interval", "disabled"),
         Output('ms-progress-bar', 'value'),
@@ -476,7 +476,7 @@ def callbacks(cls, app, fsc, cache):
         Input("ms-poll-interval", "n_intervals"),
         Input("ms-uploader-store", "data"),
         Input("ms-uploader-fns", "children"),
-        State("toast-channel", "data"),
+        State("global-toast-container", "children"),
         State("wdir", "children"),
         prevent_initial_call=True
     )
@@ -524,19 +524,14 @@ def callbacks(cls, app, fsc, cache):
         raise PreventUpdate
 
     @app.callback(
-        # Output("global-toast-container", "children", allow_duplicate=True),
-        Output("toast-channel", "data", allow_duplicate=True),
+        Output("global-toast-container", "children", allow_duplicate=True),
         Output("metadata-processed-store", "data"),
         Input("metadata-uploader-store", "data"),
         State("wdir", "children"),
-        State("toast-channel", "data"),
-        # State("global-toast-container", "children"),
+        State("global-toast-container", "children"),
         prevent_initial_call=True,
     )
     def process_metadata_files(files, wdir, current_toasts):
-
-        print(f"{files = }")
-
         if not files:
             raise PreventUpdate
         df = T.get_metadata(wdir)
@@ -544,14 +539,10 @@ def callbacks(cls, app, fsc, cache):
         df = T.merge_metadata(df, new_df)
         if "index" not in df.columns:
             df = df.reset_index()
-
-        print(f"{df = }")
         T.write_metadata(df, wdir)
         new_toast = create_toast("Metadata file added successfully.", "Success Metadata Added", "success")
-        print(f"{new_toast = }")
         updated_toasts = current_toasts + [new_toast]
         return updated_toasts, 1
-
 
 
     @app.callback(Output("ms-n-files", "children"),

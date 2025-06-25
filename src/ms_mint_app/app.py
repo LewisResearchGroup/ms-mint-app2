@@ -272,26 +272,6 @@ def register_callbacks(app, cache, fsc):
         return str(TMPDIR / "Local"), {"visibility": "hidden"}
     logging.info("Done registering callbacks")
 
-    @app.callback(
-        Output("global-toast-container", "children"),
-        Input("toast-channel", "data")
-    )
-    def render_toasts(toast_data):
-        return [
-            dbc.Toast(
-                toast["message"],
-                id=toast["id"],
-                header=toast["header"],
-                icon=toast.get("icon", "info"),
-                dismissable=True,
-                is_open=True,
-                duration=5000,
-                key = toast["id"],
-                style = {"marginBottom": "0.5rem", "minWidth": "250px", 'fontSize': '14px'}
-            )
-            for toast in toast_data
-        ]
-
 
 def create_app(**kwargs):
     logging.info('Create application')
