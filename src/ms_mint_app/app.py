@@ -202,7 +202,7 @@ _layout = html.Div(
                  # style={"zIndex": 9999, "position": "fixed", "top": 66, "right": 10, "width": 350, "display": "none"}
                  ),
     ],
-    style={"margin": "2%"},
+    style={"margin": "4rem"},
 
 )
 
