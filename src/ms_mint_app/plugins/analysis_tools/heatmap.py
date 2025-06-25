@@ -35,8 +35,8 @@ _layout = html.Div(
         ),
         dcc.Loading(
             html.Div(
-                [dcc.Graph(id="heatmap-figure")],
-                style={"height": "100vh", "marginTop": "50px"},
+                [dcc.Graph(id="heatmap-figure", style={"height": "90vh"})],
+                style={"marginTop": "50px"},
             ),
         ),
     ]
@@ -70,7 +70,6 @@ def callbacks(app, fsc, cache):
         State("ana-peak-labels-exclude", "value"),
         State("ana-ms-order", "value"),
         State("heatmap-options", "value"),
-        State("viewport-container", "children"),
         State("wdir", "children"),
     )
     def heat_heatmap(
@@ -84,12 +83,9 @@ def callbacks(app, fsc, cache):
         exclude_labels,
         ms_order,
         options,
-        viewport,
         wdir,
     ):
         mint = Mint()
-
-        width, height = [int(e) for e in viewport.split(",")]
 
         df = T.get_complete_results(
             wdir,
@@ -115,8 +111,8 @@ def callbacks(app, fsc, cache):
 
         fig = plotly_heatmap(
             df,
-            height=height,
-            width=width,
+            # height=height,
+            # width=width - 300,
             #normed_by_cols="normed_by_cols" in options,
             transposed="transposed" in options,
             clustered="clustered" in options,
