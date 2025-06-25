@@ -38,7 +38,8 @@ INFO = dcc.Markdown(
 ---    
 
 -   **peak_label**: string, Label of the peak (must be unique).
--   **mz_mean**: numeric value, theoretical m/z value of the target ion to extract.
+-   **mz_mean**: numeric value. **MS1:** theoretical m/z value of the target ion to extract. **MS2:** m/z value of the 
+precursor.
 -   **mz_width**: numeric value, width of the peak in \[ppm\]. It is used to calculate the width of the mass window  according to the formula: `Δm = m/z * 1e-6 * mz_width`.
 -   **rt**: numeric value, (optional), expected time of the peak. This value is not used during processing, but it can inform the peak optimization procedure.
 -   **rt_min**: numeric value, starting time for peak integration.
@@ -52,11 +53,11 @@ INFO = dcc.Markdown(
 columns = [{"name": i, "id": i, "selectable": True} for i in TARGETS_COLUMNS]
 
 tabulator_options = {
-    "groupBy": "Label",
+    "groupBy": "ms_type",
     "selectable": True,
     "headerFilterLiveFilterDelay": 3000,
     "layout": "fitDataFill",
-    "height": "900px",
+    # "height": "900px",
 }
 
 downloadButtonType = {
@@ -74,19 +75,25 @@ pkl_table = html.Div(
     children=[
         DashTabulator(
             id="pkl-table",
-            columns=T.gen_tabulator_columns(
-                [
-                    "peak_label",
-                    "mz_mean",
-                    "mz_width",
-                    "rt",
-                    "rt_min",
-                    "rt_max",
-                    "rt_unit",
-                    "intensity_threshold",
-                    "target_filename",
-                ]
-            ),
+            columns=[
+                {"formatter": "rowSelection", "titleFormatter": "rowSelection",
+                 "titleFormatterParams": { "rowRange": "active"},  # only toggle the values of the active filtered rows,
+                "hozAlign": "center", "headerSort": False, "width": "1px", "frozen": True,},
+                {"title":"peak_label", "field":"peak_label", "headerTooltip": "This is a tooltip", },
+                {"title":"mz_mean", "field":"mz_mean", "hozAlign": "right", "headerTooltip": "This is a tooltip"},
+                {"title":"mz_width", "field":"mz_width", "hozAlign": "right", "headerTooltip": "This is a tooltip"},
+                {"title":"mz", "field":"mz", "hozAlign": "right", "headerTooltip": "This is a tooltip"},
+                {"title":"rt", "field":"rt", "hozAlign": "right", "headerTooltip": "This is a tooltip"},
+                {"title":"rt_min", "field":"rt_min", "hozAlign": "right", "headerTooltip": "This is a tooltip"},
+                {"title":"rt_max", "field":"rt_max", "hozAlign": "right", "headerTooltip": "This is a tooltip"},
+                {"title":"rt_unit", "field":"rt_unit", "hozAlign": "center", "headerTooltip": "This is a tooltip"},
+                {"title":"intensity_threshold", "field":"intensity_threshold", "hozAlign": "right", "headerTooltip": "This is a tooltip"},
+                {"title":"polarity", "field":"polarity", "hozAlign": "center", "headerTooltip": "This is a tooltip"},
+                {"title":"filterLine", "field":"filterLine", "hozAlign": "center", "headerTooltip": "This is a tooltip"},
+                {"title":"ms_type", "field":"ms_type", "hozAlign": "center", "headerTooltip": "This is a tooltip"},
+                {"title":"category", "field":"category", "headerTooltip": "This is a tooltip"},
+                {"title":"target_filename", "field":"target_filename", "headerTooltip": "This is a tooltip"},
+            ],
             options=tabulator_options,
             downloadButtonType=downloadButtonType,
             clearFilterButtonType=clearFilterButtonType,
