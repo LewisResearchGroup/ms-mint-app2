@@ -250,7 +250,7 @@ _layout = html.Div(
                 id="progress-container",
                 style={"display": "none"},
                 children=[
-                    html.P("Progreso del procesamiento"),
+                    html.P("Processing files..."),
                     dbc.Progress(id="ms-progress-bar", animated=True, striped=True, label="Processing files...")
                 ]
             ),
