@@ -263,11 +263,11 @@ _layout = html.Div(
             id="tab-content-container",
             style={
                 "marginLeft": SIDEBAR_WIDTH,
-                "height": "100vh",
+                # "height": "100vh",
                 "overflowY": "auto",
                 "padding-top": "0.5rem",
                 "padding-inline": "2rem",
-                "padding-bottom": "2rem",
+                "padding-bottom": "0.5rem",
                 "boxSizing": "border-box",
                 "flex": 1
             }

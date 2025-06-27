@@ -45,7 +45,7 @@ tabulator_options = {
     "selectable": True,
     "headerFilterLiveFilterDelay": 3000,
     "layout": "fitDataFill",
-    # "height": "900px",
+    "height": "600px",
 }
 
 downloadButtonType = {
@@ -60,7 +60,7 @@ clearFilterButtonType = {"css": "btn btn-outline-dark", "text": "Clear Filters"}
 
 results_table = html.Div(
     id="results-table-container",
-    style={"minHeight": 100, "margin": "50px 50px 0px 0px"},
+    style={"height": "100%"},
     children=[
         DashTabulator(
             id="results-table",
@@ -92,14 +92,14 @@ results_table = html.Div(
                 {"title":"peak_median", "field":"peak_median", "hozAlign": "right", "headerTooltip": "This is a tooltip"},
                 {"title":"peak_mean", "field":"peak_mean", "hozAlign": "right", "headerTooltip": "This is a tooltip"},
                 {"title":"peak_delta_int", "field":"peak_delta_int", "hozAlign": "right", "headerTooltip": "This is a tooltip"},
-                {"title":"peak_shape_rt", "field":"peak_shape_rt", "headerTooltip": "This is a tooltip"},
-                {"title":"peak_shape_int", "field":"peak_shape_int", "headerTooltip": "This is a tooltip"},
+                # {"title":"peak_shape_rt", "field":"peak_shape_rt", "headerTooltip": "This is a tooltip"},
+                # {"title":"peak_shape_int", "field":"peak_shape_int", "headerTooltip": "This is a tooltip"},
                 {"title":"peak_mass_diff_25pc", "field":"peak_mass_diff_25pc", "hozAlign": "right", "headerTooltip": "This is a tooltip"},
                 {"title":"peak_mass_diff_50pc", "field":"peak_mass_diff_50pc", "hozAlign": "right", "headerTooltip": "This is a tooltip"},
                 {"title":"peak_mass_diff_75pc", "field":"peak_mass_diff_75pc", "hozAlign": "right", "headerTooltip": "This is a tooltip"},
                 {"title":"peak_score", "field":"peak_score", "hozAlign": "right", "headerTooltip": "This is a tooltip"},
                 {"title":"total_intensity", "field":"total_intensity", "hozAlign": "right", "headerTooltip": "This is a tooltip"},
-                {"title":"ms_file_size_MB", "field":"ms_file_size_MB", "hozAlign": "right", "headerTooltip": "This is a tooltip"},
+                # {"title":"ms_file_size_MB", "field":"ms_file_size_MB", "hozAlign": "right", "headerTooltip": "This is a tooltip"},
             ],
             options=tabulator_options,
             downloadButtonType=downloadButtonType,
@@ -134,7 +134,8 @@ _layout = html.Div(
             ),
         dcc.Interval(id="processing-poll-interval", interval=500, n_intervals=0, disabled=False),
         dcc.Loading(results_table)
-    ]
+    ],
+    style={"height": "100%"},
 )
 
 _outputs = html.Div(
