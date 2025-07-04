@@ -416,7 +416,8 @@ def callbacks(app, fsc, cache, cpu=None):
             raise PreventUpdate
         rt_min, rt_max = fig["layout"]["xaxis"]["range"]
         rt_min, rt_max = np.round(rt_min, 4), np.round(rt_max, 4)
-        T.update_targets(wdir, peak_label, rt_min, rt_max)
+        rt = np.mean([rt_min, rt_max])
+        T.update_targets(wdir, peak_label, rt_min, rt_max, rt)
         return dbc.Alert(f"Set RT span to ({rt_min},{rt_max})", color="info")
 
     @app.callback(
