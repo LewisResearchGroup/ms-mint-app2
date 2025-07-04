@@ -365,7 +365,7 @@ def callbacks(app, fsc, cache, cpu=None):
             fig.update_layout(
                 yaxis_title="Intensity",
                 xaxis_title="Scan Time [s]",
-                xaxis=dict(rangeslider=dict(visible=True, thickness=0.8)),
+                xaxis=dict(rangeslider=dict(visible=True, thickness=0.33)),
             )
             fig.update_layout(title=label)
             if "log" in options:
