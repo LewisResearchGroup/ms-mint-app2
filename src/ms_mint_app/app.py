@@ -111,7 +111,7 @@ logout_button = (
     ),
 )
 logout_button = html.A(href="/logout", children=logout_button)
-SIDEBAR_WIDTH = "300px"
+SIDEBAR_WIDTH = "250px"
 tab_style = {
     'borderBottom': '1px solid #d6d6d6',
     'fontWeight': 'bold',
