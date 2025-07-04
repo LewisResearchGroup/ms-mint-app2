@@ -259,29 +259,28 @@ def create_chromatogram(
     """
     
     # Convert MS file to DataFrame
-    df: pd.DataFrame = ms_file_to_df(ms_file)
-    
+    df = ms_file_to_df(ms_file)
     # Create output directory if not exists
     dirname: str = os.path.dirname(str(fn_out))
     if not os.path.isdir(dirname):
         os.makedirs(dirname)
-    
-    # Calculate m/z tolerance
-    dmz: float = mz_mean * 1e-6 * mz_width
-    
-    # Filter DataFrame to specific m/z range
-    chrom: pd.DataFrame = df[(df["mz"] - mz_mean).abs() <= dmz]
-    
+
+    if mz_width:
+        # Calculate m/z tolerance
+        dmz = mz_mean * 1e-6 * mz_width
+        # Filter DataFrame to specific m/z range
+        chrom = df[(df["mz"] - mz_mean).abs() <= dmz]
+    else:
+        chrom = df
+
     # If no data found, return empty DataFrame
     if chrom.empty:
-        empty_result: pd.DataFrame = pd.DataFrame(columns=["scan_time", "intensity"])
-        
+        empty_result = pd.DataFrame(columns=["scan_time", "intensity"])
+
         # Save empty DataFrame to Feather file
         with lock(fn_out):
             empty_result.to_feather(fn_out)
-            
         return empty_result
-    
     # Group by scan time and get max intensity
     chrom = chrom.groupby("scan_time").max().reset_index()
     
@@ -385,12 +384,15 @@ def update_targets(wdir, peak_label, rt_min=None, rt_max=None, rt=None):
 
     if isinstance(peak_label, int):
         targets = targets.reset_index()
-        if rt_min is not None and not np.isnan(rt_min):
-            targets.loc[peak_label, "rt_min"] = rt_min
-        if rt_max is not None and not np.isnan(rt_max):
-            targets.loc[peak_label, "rt_max"] = rt_max
-        if rt is not None and not np.isnan(rt):
-            targets.loc[peak_label, "rt"] = rt
+
+    if rt_min is not None and not np.isnan(rt_min):
+        targets.loc[peak_label, "rt_min"] = rt_min
+    if rt_max is not None and not np.isnan(rt_max):
+        targets.loc[peak_label, "rt_max"] = rt_max
+    if rt is not None and not np.isnan(rt):
+        targets.loc[peak_label, "rt"] = rt
+
+    if isinstance(peak_label, int):
         targets = targets.set_index("peak_label")
 
     fn = get_targets_fn(wdir)
