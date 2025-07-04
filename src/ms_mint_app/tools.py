@@ -780,7 +780,7 @@ def get_ms_fns_for_peakopt(wdir):
     """Extract the filenames for peak optimization from
     the metadata table and recreate the complete filename."""
     df = get_metadata(wdir)
-    fns = df[(df.use_for_optimization.astype(bool)) & (df.file_type != 'ms2')]["ms_file_label"]
+    fns = df[df.use_for_optimization.astype(bool)]["ms_file_label"]
     ms_files = get_ms_fns(wdir)
     mapping = {filename_to_label(fn): fn for fn in ms_files}
     fns = [mapping[fn] for fn in fns]
