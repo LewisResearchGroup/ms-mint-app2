@@ -523,8 +523,8 @@ def callbacks(app, fsc, cache, cpu=None):
 
         if len(ms_files) == 0:
             return dbc.Alert(
-                'No MS1 files selected for peak optimization in MS-Files tab. '
-                'Please, select some MS1files in column "use_for_optimization". This does not apply to MS2 files.',
+                'No files selected for peak optimization in MS-Files tab. '
+                'Please, select some files in column "use_for_optimization".',
                 color="warning",
             )
         else:
