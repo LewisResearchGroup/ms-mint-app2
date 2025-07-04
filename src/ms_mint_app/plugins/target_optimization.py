@@ -69,6 +69,8 @@ def create_preview_peakshape(
         ]
         ax.plot(fn_chro["scan_time"], fn_chro["intensity"], lw=1, color=color)
         y_max = max(y_max, fn_chro["intensity"].max())
+    if not rt:
+        rt = np.mean([rt_min, rt_max])
     if (not np.isnan(rt)) and not (np.isnan(rt_max)) and not (np.isnan(rt_min)):
         x = max(min(rt, rt_max), rt_min)
         rt_mean = np.mean([rt_min, rt_max])
