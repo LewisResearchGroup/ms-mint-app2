@@ -226,10 +226,19 @@ _layout = dbc.Container([
         dbc.Col([
             # Peak Preview Images (Now directly above the main figure)
             html.Div(
-                id="pko-peak-preview-images",
-                className="overflow-auto mb-2",
-                style={"maxHeight": "150px"}
+                style={"minHeight": "0", "display": "inline-block", "width": "100%"},
+                children=[
+                    dcc.Loading(
+                        html.Div(
+                            id="pko-peak-preview-images",
+                            className="overflow-auto",
+                            style={"maxHeight": "150px", "minHeight": "0"}
+                        ),
+                        style={"minHeight": "0", "height": "auto"}
+                    )
+                ]
             ),
+
 
             multi_figure_layout,
             
