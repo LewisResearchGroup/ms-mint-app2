@@ -282,6 +282,9 @@ def create_chromatogram(
             empty_result.to_feather(fn_out)
         return empty_result
     # Group by scan time and get max intensity
+    cols_to_drop_list = ["polarity", 'filterLine', 'filterLine_to_ELMAVEN']
+    if cols_to_drop := [col for col in cols_to_drop_list if col in df.columns]:
+        chrom = chrom.drop(columns=cols_to_drop)
     chrom = chrom.groupby("scan_time").max().reset_index()
     
     # Determine start and end times
