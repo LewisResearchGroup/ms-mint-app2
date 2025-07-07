@@ -377,14 +377,6 @@ def get_targets(wdir):
 def update_targets(wdir, peak_label, rt_min=None, rt_max=None, rt=None):
     targets = get_targets(wdir)
 
-    if isinstance(peak_label, str):
-        if rt_min is not None and not np.isnan(rt_min):
-            targets.loc[peak_label, "rt_min"] = rt_min
-        if rt_max is not None and not np.isnan(rt_max):
-            targets.loc[peak_label, "rt_max"] = rt_max
-        if rt is not None and not np.isnan(rt):
-            targets.loc[peak_label, "rt"] = rt
-
     if isinstance(peak_label, int):
         targets = targets.reset_index()
 
