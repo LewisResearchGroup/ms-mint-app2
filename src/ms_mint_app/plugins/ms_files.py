@@ -299,14 +299,12 @@ def process_file(file_path: Path, output_dir):
 def callbacks(cls, app, fsc, cache):
     @app.callback(
         Output("ms-files-table", "data"),
-        Output("ms-delete-store", "data", allow_duplicate=True),
         Input("ms-uploader-output", "data"),
         Input("metadata-processed-store", "data"),
         Input("wdir", "children"),
         Input("ms-delete-store", "data"),
         State("active-workspace", "children"),
         State("ms-files-table", "data"),
-        prevent_initial_call=True
     )
     def ms_files_table(value, value2, wdir, files_deleted, workspace, current_data):
 
@@ -337,11 +335,14 @@ def callbacks(cls, app, fsc, cache):
         if df.empty and files_deleted is None:
             return dash.no_update
 
-        if current_data:
+        ctx = dash.callback_context
+        trigger_id = ctx.triggered[0]["prop_id"].split(".")[0]
+
+        if current_data and trigger_id != "metadata-processed-store":
             prev_df = pd.DataFrame(current_data)
             if df['ms_file_label'].equals(prev_df['ms_file_label']):
                 raise PreventUpdate
-        return df.to_dict("records"), None
+        return df.to_dict("records")
 
     @app.callback(
         Output("ms-data-table", "data"),
@@ -548,8 +549,7 @@ def callbacks(cls, app, fsc, cache):
 
 
     @app.callback(Output("ms-n-files", "children"),
-                  Input("ms-files-table", "data"),
-                  prevent_initial_call=True)
+                  Input("ms-files-table", "data"))
     def n_files(data):
         n_files = len(data)
         return dbc.Alert(f"{n_files} files in current workspace.", color="info")
