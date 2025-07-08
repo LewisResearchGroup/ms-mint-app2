@@ -93,7 +93,7 @@ def parse_pkl_files(contents, filename, date, target_dir, ms_mode=None):
     content_type, content_string = contents.split(",")
     decoded = base64.b64decode(content_string)
     df = pd.read_csv(io.StringIO(decoded.decode("utf-8")))
-    df = standardize_targets(df, ms_mode=ms_mode)
+    df = standardize_targets(df, ms_mode=ms_mode, filename=filename)
     df = df.drop_duplicates()
     return df
 
