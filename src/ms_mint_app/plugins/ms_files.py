@@ -498,7 +498,11 @@ def callbacks(cls, app, fsc, cache):
             for fn in fns[len(cls.futures):]:
                 T.fix_first_emtpy_line_after_upload_workaround(fn)
                 cls.futures.append(cls.executor.submit(process_file, fn, ms_dir))
-            return [], dash.no_update, False, 0, '', {"display": "block"}, True
+
+            value = sum(future.done() for future in cls.futures)
+            if value:
+                raise PreventUpdate
+            return [], dash.no_update, False, n_total, f"Processing {n_total} files...", {"display": "block"}, True
         elif trigger_id == "ms-poll-interval":
             value = sum(future.done() for future in cls.futures)
             ms_poll_interval_disabled = False
@@ -516,12 +520,15 @@ def callbacks(cls, app, fsc, cache):
                 T.write_metadata(metadata_df, wdir)
 
                 new_toast = create_toast(f"{n_total} files processed", "Success files processing", "success")
+            elif value == 0:
+                value = n_total
+
             updated_toasts = current_toasts + [new_toast]
 
             return (updated_toasts, dbc.Alert(f"Processing {n_total} uploaded files...", color="info"),
                     ms_poll_interval_disabled,
                     value,
-                    f"Processed {value}/{n_total} files...",
+                    f"Processed {value}/{n_total} files..." if value < n_total else f"Processing {value} files...",
                     style,
                     metadata_uploader_disabled)
         raise PreventUpdate
