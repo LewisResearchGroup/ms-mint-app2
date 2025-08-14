@@ -45,8 +45,8 @@ _layout = html.Div(
             ]),      
             
             dbc.Col([
-                dbc.Row([dbc.Label('Metric X'), dcc.Dropdown(id='hc-metric-x', options=metrics_options, value='cosine')]),
-                dbc.Row([dbc.Label('Metric Y'), dcc.Dropdown(id='hc-metric-y', options=metrics_options, value='cosine')]),
+                dbc.Row([dbc.Label('Metric X'), dcc.Dropdown(id='hc-metric-x', options=metrics_options, value='euclidean')]),
+                dbc.Row([dbc.Label('Metric Y'), dcc.Dropdown(id='hc-metric-y', options=metrics_options, value='euclidean')]),
             ]),            
         ]),
 
