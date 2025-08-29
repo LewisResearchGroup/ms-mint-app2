@@ -549,6 +549,16 @@ def callbacks(cls, app, fsc, cache):
         df = T.merge_metadata(df, new_df)
         if "index" not in df.columns:
             df = df.reset_index()
+
+        hvs_colors = T.get_hsv_colors(len(df))
+        new_colors = []
+        for i, color in enumerate(df['color']):
+            if pd.isna(color) or color.strip() == '':
+                new_colors.append(hvs_colors[i])
+            else:
+                new_colors.append(color)
+
+        df['color'] = new_colors
         T.write_metadata(df, wdir)
         new_toast = create_toast("Metadata file added successfully.", "Success Metadata Added", "success")
         updated_toasts = current_toasts + [new_toast]
