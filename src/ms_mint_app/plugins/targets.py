@@ -1,17 +1,17 @@
-import os
 import logging
-
-import pandas as pd
-
+import uuid
 import dash
 from dash import html, dcc
 from dash.dependencies import Input, Output, State
+from dash.exceptions import PreventUpdate
 from dash_tabulator import DashTabulator
 
 import dash_bootstrap_components as dbc
 
 from .. import tools as T
 from ..plugin_interface import PluginInterface
+import dash_uploader as du
+import feffery_antd_components as fac
 
 _label = "Targets"
 
@@ -71,7 +71,7 @@ clearFilterButtonType = {"css": "btn btn-outline-dark", "text": "Clear Filters"}
 
 pkl_table = html.Div(
     id="pkl-table-container",
-    style={"minHeight": 100, "margin": "50px 50px 0px 0px"},
+    style={"minHeight": 100, "padding-bottom": "3rem"},
     children=[
         DashTabulator(
             id="pkl-table",
@@ -97,71 +97,64 @@ pkl_table = html.Div(
             options=tabulator_options,
             downloadButtonType=downloadButtonType,
             clearFilterButtonType=clearFilterButtonType,
-        )
+        ),
+        dbc.Button("Remove selected targets", id="pkl-clear", style={"float": "right"}, color='danger'),
     ],
 )
 
 _layout = html.Div(
     [
-        html.H3(_label),
+        html.H4(_label),
 
         dbc.Row([
-                    
-                dcc.Upload(
-                    id="pkl-upload",
-                    children=html.Div(["Drag and Drop or ", html.A("Select Files")]),
-                    style={
-                        "width": "100%",
-                        "height": "60px",
-                        "lineHeight": "60px",
-                        "borderWidth": "1px",
-                        "borderStyle": "dashed",
-                        "borderRadius": "5px",
-                        "textAlign": "center",
-                        "margin": "10px",
-                    },
-                    # Allow multiple files to be uploaded
-                    multiple=True,
-                ),
+            dbc.Col([
+                html.Div([html.Label('Upload options'),
+                          dcc.Dropdown(
+                              id="pkl-ms-mode",
+                              options=[{"value": "positive",
+                                        "label": "Add proton mass to formula (positive mode)"},
+                                       {"value": "negative",
+                                        "label": "Subtract proton mass from formula (negative mode)"}],
+                          )],
+                         ),
 
-                html.Div(
-                    [
-                        html.Label('Upload options'),
-                        dcc.Dropdown(
-                            id="pkl-ms-mode",
-                            options=[
-                                {
-                                    "value": "positive",
-                                    "label": "Add proton mass to formula (positive mode)",
-                                },
-                                {
-                                    "value": "negative",
-                                    "label": "Subtract proton mass from formula (negative mode)",
-                                },
-                            
-                            ],
-                            value=None,
-                        ),
-                    ],
+            ], width=4),
+            dbc.Col([
+                du.Upload(
+                    id="targets-uploader",
+                    max_file_size=1800,  # 1800 MB
+                    max_files=1,
+                    filetypes=["csv"],
+                    upload_id=str(uuid.uuid4()),  # Unique session id
+                    text="Upload TARGETS files.",
                 ),
-            ], style={"marginBottom": "30px"}
+            ]),
+        ], style={"marginBottom": "30px"}
         ),
-
-        dcc.Markdown("##### Table actions"),
-        dbc.Button("Save changes", id="pkl-save"),
-        dbc.Button("Clear targets table", id="pkl-clear", style={"float": "right"}, color='danger'),
         pkl_table,
-        INFO
-    ]
+        INFO,
+        fac.AntdModal(
+            "Are you sure you want to delete the selected targets?",
+            id="delete-table-targets-modal",
+            title="Delete target",
+            visible=False,
+            closable=False,
+            width=400,
+            renderFooter=True,
+            okText="Delete",
+            okButtonProps={"danger": True},
+            cancelText="Cancel"
+        )
+    ],
+    style={"padding": "3rem"}
 )
 
 
 _outputs = html.Div(
     id="pkl-outputs",
     children=[
-        html.Div(id={"index": "pkl-upload-output", "type": "output"}),
-        html.Div(id={"index": "pkl-save-output", "type": "output"}),
-        html.Div(id={"index": "pkl-clear-output", "type": "output"}),
+        html.Div(id={"index": "drop-table-target-output", "type": "output"}),
+        dcc.Store(id="targets-uploader-store"),
     ],
 )
 
@@ -171,50 +164,136 @@ def layout():
 
 
 def callbacks(app, fsc=None, cache=None):
-    @app.callback(
-        Output("pkl-table", "data"),
-        Input("pkl-upload", "contents"),
-        Input("pkl-ms-mode", "value"),
-        Input("pkl-clear", "n_clicks"),
-        State("pkl-upload", "filename"),
-        State("pkl-upload", "last_modified"),
-        State("wdir", "children"),
+    @du.callback(
+        output=Output("targets-uploader-store", "data"),
+        id="targets-uploader",
     )
-    def pkl_upload(
-        list_of_contents, ms_mode, clear, list_of_names, list_of_dates, wdir
-    ):
-        prop_id = dash.callback_context.triggered[0]["prop_id"]
-        if prop_id.startswith("pkl-clear"):
-            return pd.DataFrame(columns=TARGETS_COLUMNS).to_dict("records")
-        target_dir = os.path.join(wdir, "target")
-        fn = T.get_targets_fn(wdir)
-        if list_of_contents is not None:
-            # process data in drag n drop field
-            dfs = [
-                T.parse_pkl_files(c, n, d, target_dir, ms_mode=ms_mode)
-                for c, n, d in zip(list_of_contents, list_of_names, list_of_dates)
-            ]
-            data = dfs[0].to_dict("records")
-            return data
-        elif os.path.isfile(fn):
-            # read from harddrive
-            return T.read_targets(fn).to_dict("records")
-        else:
-            logging.warning(f"Targets file not found: {fn}")
+    def targets_upload_completed(status):
+        logging.warning(f"Upload status: {status} ({type(status)})")
+        return [str(fn) for fn in status.uploaded_files]
 
     @app.callback(
-        Output({"index": "pkl-save-output", "type": "output"}, "children"),
-        Input("pkl-save", "n_clicks"),
-        Input("pkl-table", "data"),
-        Input("pkl-table", "dataChanged"),
+        Output("notifications-container", "children", allow_duplicate=True),
+        Output("pkl-table", "data"),
+
+        Input("targets-uploader-store", "data"),
+        Input("pkl-ms-mode", "value"),
+        Input({"index": "drop-table-target-output", "type": "output"}, 'children'),
+        State("pkl-table", "multiRowsClicked"),
         State("wdir", "children"),
+        prevent_initial_call=True,
     )
-    def plk_save(n_clicks, data, data_changed, wdir):
-        df = pd.DataFrame(data)
-        if len(df) == 0:
-            df = pd.DataFrame(columns=TARGETS_COLUMNS)
-        T.write_targets(df, wdir)
-        return dbc.Alert("Target list saved.", color="success")
+    def process_targets_files(files, ms_mode, delete_clicked, selected_rows, wdir):
+
+
+        ctx = dash.callback_context
+        if not ctx.triggered:
+            raise PreventUpdate
+        trigger_id = ctx.triggered[0]["prop_id"].split(".")[0]
+
+        if trigger_id == "targets-uploader-store":
+            if not files:
+                raise PreventUpdate
+
+            targets_df, target_failed, dropped_targets = T.get_targets_from_upload(files, ms_mode)
+            T.write_targets(targets_df, wdir)
+
+            notifications = [fac.AntdNotification(message="Load targets.",
+                                                  description="Targets file added successfully.", duration=3,
+                                                  type="success", placement='bottom', showProgress=True, stack=True)]
+            if target_failed:
+                notifications.append(fac.AntdNotification(message="Failed to add targets.",
+                                                          description='\n, -'.join(target_failed),
+                                                          type="error", duration=3, placement='bottom',
+                                                          showProgress=True, stack=True))
+            if dropped_targets:
+                notifications.append(fac.AntdNotification(message="Dropped targets.",
+                                                          description=f"Dropped {dropped_targets} targets",
+                                                          type="warning", duration=3, placement='bottom',
+                                                          showProgress=True, stack=True))
+            return notifications, targets_df.to_dict('records')
+
+
+        targets_df = T.get_targets(wdir)
+
+        if trigger_id == "pkl-ms-mode" and ms_mode:
+            targets_df = T.standardize_targets(targets_df, ms_mode)
+            T.write_targets(targets_df, wdir)
+            return (
+                [fac.AntdNotification(message="Changed MS mode.", description=f"MS mode changed to {ms_mode}",
+                                      duration=3, placement='bottom', type="success", showProgress=True, stack=True)],
+                targets_df.to_dict('records')
+            )
+
+        return dash.no_update, targets_df.to_dict('records')
+
+    @app.callback(
+        Output('delete-table-targets-modal', 'visible'),
+        Input("pkl-clear", 'n_clicks'),
+        State('pkl-table', 'multiRowsClicked'),
+        prevent_initial_call=True
+    )
+    def show_delete_modal(delete_clicks, selected_rows):
+        if not selected_rows:
+            raise PreventUpdate
+        return True
+
+    @app.callback(
+        Output('notifications-container', 'children', allow_duplicate=True),
+        Output({"index": "drop-table-target-output", "type": "output"}, "children"),
+        Input('delete-table-targets-modal', 'okCounts'),
+        Input('delete-table-targets-modal', 'cancelCounts'),
+        Input('delete-table-targets-modal', 'closeCounts'),
+        State('pkl-table', 'multiRowsClicked'),
+        State('wdir', 'children'),
+        prevent_initial_call=True
+    )
+    def plk_delete(okCounts, cancelCounts, closeCounts, selected_rows, wdir):
+
+        """
+        Delete targets from the table.
+
+        Triggered by the delete button in the target table, this function will delete the selected targets from the
+        table and write the updated table to the targets file.
+
+        Parameters
+        ----------
+        okCounts : int
+            The number of times the ok button was clicked.
+        cancelCounts : int
+            The number of times the cancel button was clicked.
+        closeCounts : int
+            The number of times the close button was clicked.
+        selected_rows : list
+            A list of dictionaries, where each dictionary represents a selected row in the table.
+        wdir : str
+            The working directory.
+
+        Returns
+        -------
+        notifications : list
+            A list of notifications to be displayed in the notification container.
+        drop_table_output : boolean
+            A boolean indicating whether the delete button was clicked.
+        """
+        if not okCounts or cancelCounts or closeCounts or not selected_rows:
+            raise PreventUpdate
+
+        targets_df = T.get_targets(wdir)
+        remove_targets = [tr['peak_label'] for tr in selected_rows]
+        targets_df = targets_df[~targets_df['peak_label'].isin(remove_targets)]
+        T.write_targets(targets_df, wdir)
+
+        return (fac.AntdNotification(message=f"Delete Targets",
+                                    description=f"Deleted {len(remove_targets)} targets",
+                                    type="success",
+                                    duration=3,
+                                    placement='bottom',
+                                    showProgress=True,
+                                    stack=True
+                                    ),
+                True)
+
 
     @app.callback(
         Output("pkl-table", "downloadButtonType"),
