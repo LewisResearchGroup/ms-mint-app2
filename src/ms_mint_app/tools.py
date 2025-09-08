@@ -368,7 +368,7 @@ def get_targets_fn(wdir):
 def get_targets(wdir):
     fn = get_targets_fn(wdir)
     if os.path.isfile(fn):
-        targets = read_targets(fn).set_index("peak_label")
+        targets = read_targets(fn)
     else:
         targets = pd.DataFrame(columns=TARGETS_COLUMNS)
     return targets

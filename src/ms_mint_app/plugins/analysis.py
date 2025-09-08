@@ -201,6 +201,6 @@ def callbacks(app, fsc, cache):
     def peak_labels(tab, wdir):
         if tab != _label:
             raise PreventUpdate
-        peaklist = T.get_targets(wdir).reset_index()
+        peaklist = T.get_targets(wdir)
         options = [{"value": i, "label": i} for i in peaklist.peak_label]
         return options, options

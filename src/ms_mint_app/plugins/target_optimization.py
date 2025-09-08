@@ -350,6 +350,7 @@ def callbacks(app, fsc, cache, cpu=None):
             ms_files = T.get_ms_fns_for_peakopt(wdir)
         elif ms_selection == "all":
             ms_files = T.get_ms_fns(wdir)
+        targets = T.get_targets(wdir)
 
         cols = ["mz_mean", "mz_width", "rt", "rt_min", "rt_max", "peak_label"]
 
