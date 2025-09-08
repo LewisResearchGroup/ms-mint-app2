@@ -156,7 +156,7 @@ _layout = html.Div(
                                          style={
                                              "display": "flex",
                                              "justifyContent": "flex-end",
-                                             "margin-bottom": "10px",
+                                             "marginBottom": "10px",
                                          }),
                             ],
                         ),
@@ -256,38 +256,22 @@ _layout = html.Div(
 
         html.Div(
             [
-                messages.layout(),
                 html.Div(id="tab-content"),
                 html.Div(id="pko-creating-chromatograms"),
             ],
             id="tab-content-container",
             style={
                 "marginLeft": SIDEBAR_WIDTH,
-                # "height": "100vh",
-                "overflowY": "auto",
-                "padding-top": "0.5rem",
-                "padding-inline": "2rem",
-                "padding-bottom": "0.5rem",
+                "height": "100vh",
+                "padding": "1rem",
                 "boxSizing": "border-box",
                 "flex": 1
             }
         ),
-
         html.Div(id="pko-image-store", style={"visibility": "hidden", "height": "0px"}),
-        html.Div(id="viewport-container", style={"visibility": "hidden"}),
+        html.Div(id='notifications-container'),
+        dcc.Store(id="viewport-container"),
         _outputs,
-
-        html.Div(id="global-toast-container",
-                 className="position-fixed top-0 end-0 p-3",
-                 style={
-                     "position": "fixed",
-                     "bottom": "5rem",
-                     "right": "1rem",
-                     "zIndex": 9999,
-                     "width": "auto",
-                 },
-                 children=[],
-                 ),
     ],
 
 )
@@ -316,7 +300,7 @@ def register_callbacks(app, cache, fsc):
             return `${w},${h}` ;
         }
         """,
-        Output("viewport-container", "children"),
+        Output("viewport-container", "data"),
         Input("progress-interval", "n_intervals"),
     )
 
