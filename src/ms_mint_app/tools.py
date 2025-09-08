@@ -98,6 +98,35 @@ def parse_pkl_files(contents, filename, date, target_dir, ms_mode=None):
     return df
 
 
+def get_targets_from_upload(file_path: str, ms_mode=None):
+    """
+    Read a target CSV file and return a DataFrame.
+
+    Args:
+        file_path: Path to the target CSV file.
+
+    Returns:
+        DataFrame containing the target data.
+    """
+    targets_df_list = []
+    target_failed = []
+
+    for file_path in file_path:
+        try:
+            df = pd.read_csv(file_path)
+            df = standardize_targets(df, ms_mode=ms_mode, filename=os.path.basename(file_path))
+            targets_df_list.append(df[TARGETS_COLUMNS])
+        except Exception as e:
+            print(f"Error reading {file_path}: {e}")
+            target_failed.append(file_path)
+
+    total_targets = sum([len(df) for df in targets_df_list])
+    combined_df = pd.concat(targets_df_list, ignore_index=True)
+    combined_df = combined_df.drop_duplicates()
+    dropped_targets = len(combined_df) - total_targets
+    return combined_df, target_failed, dropped_targets
+
+
 def get_dirnames(path):
     dirnames = [f.name for f in os.scandir(path) if f.is_dir()]
     return dirnames
@@ -734,6 +763,26 @@ def file_colors(wdir):
             co = None
         colors[fn] = co
     return colors
+
+def get_hsv_colors(n_colors, saturation=0.8, value=0.9):
+    import colorsys
+    colores_hex = []
+
+    for i in range(n_colors):
+        # Distribuir uniformemente los tonos en el círculo HSV (0-1)
+        tono = i / n_colors
+        # Convertir HSV a RGB (todos los valores entre 0-1)
+        r, g, b = colorsys.hsv_to_rgb(tono, saturation, value)
+        # Convertir a valores enteros 0-255
+        r_int = int(r * 255)
+        g_int = int(g * 255)
+        b_int = int(b * 255)
+        # Convertir a hexadecimal
+        hex_color = f"#{r_int:02x}{g_int:02x}{b_int:02x}"
+        colores_hex.append(hex_color)
+
+    return colores_hex
+
 
 
 def get_figure_fn(kind, wdir, label, format):
