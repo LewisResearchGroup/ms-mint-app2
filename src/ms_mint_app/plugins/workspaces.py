@@ -12,6 +12,7 @@ import dash_bootstrap_components as dbc
 from .utils import create_toast
 from .. import tools as T
 from ..plugin_interface import PluginInterface
+import feffery_antd_components as fac
 
 _label = "Workspaces"
 
@@ -32,16 +33,21 @@ class WorkspacesPlugin(PluginInterface):
         
 ws_table = html.Div(
     id="ws-table-container",
-    style={"minHeight": 100, "margin": "5%"},
+    style={"minHeight": 100, "margin": "3rem 0"},
     children=[
-        dash_table.DataTable(
-            id="ws-table",
-            columns=[{"name": i, "id": i, "selectable": True} for i in ["Workspace"]],
-            data=[],
-            row_selectable="single",
-            row_deletable=False,
-            style_cell={"textAlign": "left"},
-            sort_action="native",
+        dbc.Button("Create Workspace", id="ws-create"),
+        dbc.Button("Delete Workspace", id="ws-delete", style={"float": "right"}, color='danger'),
+        html.Div(
+            dash_table.DataTable(
+                id="ws-table",
+                columns=[{"name": i, "id": i, "selectable": True} for i in ["Workspace"]],
+                data=[],
+                row_selectable="single",
+                row_deletable=False,
+                style_cell={"textAlign": "left"},
+                sort_action="native",
+            ),
+            style={"marginTop": "2rem"},
         )
     ],
 )
@@ -49,8 +55,6 @@ ws_table = html.Div(
 _layout = html.Div(
     [
         html.H3("Workspaces"),
-        dbc.Button("Create Workspace", id="ws-create"),
-        dbc.Button("Delete Workspace", id="ws-delete", style={"float": "right"}, color='danger'),
         ws_table,
         dbc.Modal(
             [
@@ -99,7 +103,9 @@ _layout = html.Div(
             ],
             id="ws-delete-popup",
         ),
-    ]
+    ],
+    id="ws-container",
+    style={"padding": "3rem"},
 )    
 
 _outputs = html.Div(
@@ -108,6 +114,7 @@ _outputs = html.Div(
         html.Div(id={"index": "ws-created-output", "type": "output"}),
         html.Div(id={"index": "ws-activate-output", "type": "output"}),
         html.Div(id={"index": "ws-delete-output", "type": "output"}),
+        dcc.Store(id="ws_created"),
     ],
 )
 
@@ -142,7 +149,36 @@ def callbacks(app, fsc, cache):
         prevent_initial_call=True
     )
     def ws_activate(ndx, deleted, created, data, tmpdir):
-        prop_id = dash.callback_context.triggered[0]["prop_id"]
+        ctx = dash.callback_context
+        if not ctx.triggered:
+            raise PreventUpdate
+        prop_id = ctx.triggered[0]["prop_id"]
+
+        if ndx is None or len(ndx) == 0:
+            raise PreventUpdate
+        if "ws-delete-output" in prop_id:
+            raise PreventUpdate
+        if "ws-created-output" in prop_id:
+            if created is None:
+                raise PreventUpdate
+            ws_name = created
+            wdir = T.workspace_path(tmpdir, ws_name)
+            T.save_activated_workspace(tmpdir, ws_name)
+            message = f"Workspace {ws_name} created and activated."
+            return (
+                fac.AntdNotification(message=message,
+                                   type="success",
+                                   duration=3,
+                                   placement='bottom',
+                                   showProgress=True,
+                                   stack=True),
+                wdir, 
+                ws_name
+            )
+        if "ws-table.derived_virtual_selected_rows" in prop_id:
+            if ndx is None and (data is None or len(data) == 0):
+                raise PreventUpdate
+
         if tmpdir is None:
             raise PreventUpdate
         ws_names = T.get_workspaces(tmpdir)
@@ -176,14 +212,14 @@ def callbacks(app, fsc, cache):
 
         T.maybe_update_workpace_scheme(wdir)
 
-        return dbc.Alert(message, color="success"), wdir, ws_name
+        return (fac.AntdNotification(message=message,
+                                     type="success",
+                                     duration=3,
+                                     placement='bottom',
+                                     showProgress=True,
+                                     stack=True),
+                wdir, ws_name)
 
-    # @app.callback(
-    #     Output("progress-bar", "value"),
-    #     Input("progress-interval", "n_intervals"),
-    # )
-    # def set_progress(n):
-    #     return fsc.get("progress")
 
     @app.callback(
         Output("ws-delete-popup", "is_open"),
@@ -200,26 +236,26 @@ def callbacks(app, fsc, cache):
         return is_open
 
     @app.callback(
-        Output("global-toast-container", "children", allow_duplicate=True),
         Output({"index": "ws-delete-output", "type": "output"}, "children"),
         Input("ws-delete-confirm", "n_clicks"),
         State("ws-table", "derived_virtual_selected_rows"),
         State("ws-table", "data"),
         State("tmpdir", "children"),
-        State("global-toast-container", "children"),
         prevent_initial_call=True,
     )
-    def ws_delete_confirmed(n_clicks, ndxs, data, tmpdir, current_toasts):
+    def ws_delete_confirmed(n_clicks, ndxs, data, tmpdir):
         if n_clicks is None or len(ndxs) == 0:
             raise PreventUpdate
-        for ndx in ndxs:
-            ws_name = data[ndx]["Workspace"]
-            dirname = T.workspace_path(tmpdir, ws_name)
-            shutil.rmtree(dirname)
+        ws_name = data[ndxs[0]]["Workspace"]
+        dirname = T.workspace_path(tmpdir, ws_name)
+        shutil.rmtree(dirname)
         message = f"Workspace {ws_name} deleted."
-        new_toast = create_toast(message, "Success workspace deleted", "success")
-        updated_toasts = current_toasts + [new_toast]
-        return updated_toasts, dbc.Alert(message, color="success")
+        return fac.AntdNotification(message=message,
+                                   type="warning",
+                                   duration=3,
+                                   placement='bottom',
+                                   showProgress=True,
+                                   stack=False)
 
     @app.callback(
         Output("ws-create-popup", "is_open"),
@@ -264,15 +300,21 @@ def callbacks(app, fsc, cache):
 
     @app.callback(
         Output({"index": "ws-created-output", "type": "output"}, "children"),
+        Output("ws-table", "selected_rows", allow_duplicate=True),
+        Output("ws-create-input", "value"),
         Input("ws-create-confirm", "n_clicks"),
         State("ws-create-input", "value"),
         State("tmpdir", "children"),
+        prevent_initial_call=True,
     )
     def ws_create_confirmed(n_clicks, ws_name, tmpdir):
         if n_clicks is None:
             raise PreventUpdate
         T.create_workspace(tmpdir, ws_name)
-        return dbc.Alert(f"Workspace {ws_name} created.", color="success")
+        ws_names = T.get_workspaces(tmpdir)
+        ws_names.sort()
+        ndx = ws_names.index(ws_name)
+        return ws_name, [ndx], ""
 
     @app.callback(
         Output("ws-table", "selected_rows"),
