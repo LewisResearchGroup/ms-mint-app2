@@ -23,9 +23,9 @@ from dash_tabulator import DashTabulator
 
 import dash_uploader as du
 
-from .utils import create_toast
 from .. import tools as T
 from ..plugin_interface import PluginInterface
+import feffery_antd_components as fac
 
 import concurrent.futures
 
@@ -81,6 +81,7 @@ columns = [
         "hozAlign": "center",
         "headerSort": False,
         "frozen": True,
+        "width": 20,
     },
     {
         "title": "MS-Files",
@@ -91,7 +92,8 @@ columns = [
         # "width": "80%",
         # "sorter": "string",
         "frozen": True,
-        "widthGrow": 3
+        "widthGrow": 3,
+        "headerTooltip": "This is a tooltip"
     },
     {
         "title": "Color",
@@ -99,7 +101,7 @@ columns = [
         "headerFilter": False,
         "editor": None,
         "formatter": "color",
-        # "width": "3px",
+        "width": 50,
         "headerSort": False,
     },
     {
@@ -107,7 +109,7 @@ columns = [
         "field": "use_for_optimization",
         "headerFilter": False,
         "formatter": "tickCross",
-        # "width": "6px",
+        "width": 120,
         "headerSort": True,
         "hozAlign": "center",
         "editor": "tickCross",
@@ -179,20 +181,20 @@ columns = [
         "editor": True,
         "headerTooltip": "This is a tooltip",
     },
-
 ]
 
 
 ms_files_table = html.Div(
     id="ms-files-table-container",
-    # style={"Height": 0, "marginTop": "20px"},
+    style={"padding": "3rem 0"},
     children=[
         DashTabulator(
             id="ms-files-table",
             columns=columns,
             options=options,
-            # clearFilterButtonType=clearFilterButtonType,
-        )
+        ),
+        dbc.Button("Delete selected file", id="ms-delete", color="danger",
+                               style={"text-align": "right"}, className="float-end"),
     ],
 )
 
@@ -210,36 +212,28 @@ modal_confirmation = dbc.Modal(
     is_open=False,
 )
 
-
-def get_upload_component(uid, file_stypes, text, disabled=False, max_files=10000):
-    return du.Upload(
-        id=uid,
-        max_file_size=1800,  # 1800 MB
-        max_files=max_files,
-        filetypes=file_stypes,
-        upload_id=str(uuid.uuid1()),  # Unique session id
-        text=text,
-        disabled=disabled
-    )
-
 _layout = html.Div(
     [
         html.H4("Upload Mass Spec / Metadata files"),
-        dbc.Row(
-            [dbc.Col(
-                get_upload_component(
-                    uid="ms-uploader",
-                    file_stypes=["tar", "zip", "mzxml", "mzml", "mzXML", "mzML", "mzMLb", "feather", "parquet"],
+        dbc.Row([
+            dbc.Col(
+                du.Upload(
+                    id="ms-uploader",
+                    max_file_size=1800,  # 1800
+                    max_files=10000,
+                    filetypes=["tar", "zip", "mzxml", "mzml", "mzXML", "mzML", "mzMLb", "feather", "parquet"],
+                    upload_id=str(uuid.uuid4()),  # Unique session id
                     text="Upload mzXML/mzML files.",
                 ),
             ),
             dbc.Col(
-                get_upload_component(
-                    uid="metadata-uploader",
-                    file_stypes=["csv"],
+                du.Upload(
+                    id="metadata-uploader",
+                    max_file_size=1800,  # 1800 MB
+                    max_files=1,
+                    filetypes=["csv"],
+                    upload_id=str(uuid.uuid4()),  # Unique session id
                     text="Upload METADATA files.",
-                    # disabled=True,
-                    max_files=1
                 ),
             )]
         ),
@@ -257,14 +251,10 @@ _layout = html.Div(
         dcc.Interval(id="ms-poll-interval", interval=1000, n_intervals=0, disabled=True),
         modal_confirmation,
         dcc.Store(id="ms-delete-store"),
-        html.Div([
-            dbc.Row([dbc.Col([dbc.Button("Delete selected file", id="ms-delete", color="danger")],
-                             style={"text-align": "right"}), ]),
-            dcc.Loading(ms_files_table)]
-        ),
-        html.Div(id="ms-n-files", style={"max-width": "300px"}),
+        dcc.Loading(ms_files_table),
         html.Div(id="ms-uploader-fns", style={"visibility": "hidden"}),
-    ]
+    ],
+    style={"padding": "3rem"}
 )
 
 
@@ -344,19 +334,6 @@ def callbacks(cls, app, fsc, cache):
                 raise PreventUpdate
         return df.to_dict("records")
 
-    @app.callback(
-        Output("ms-data-table", "data"),
-        Input("wdir", "children"),
-        Input("ms-files-table", "rowClicked"),
-    )
-    def content_table(wdir, row):
-        ff = {fo.stem: fo for fo in P(wdir).joinpath("ms_files").glob("*.feather")}
-        if row is None or f'{row["ms_file_label"]}_{row["file_type"]}' not in ff:
-            raise PreventUpdate
-        fn = f'{row["ms_file_label"]}_{row["file_type"]}'
-        df = pd.read_feather(ff[fn])
-        return df.to_dict("records")
-
 
     @app.callback(
         Output("modal-confirmation", "is_open"),
@@ -382,15 +359,14 @@ def callbacks(cls, app, fsc, cache):
         return is_open
 
     @app.callback(
-        Output("global-toast-container", "children", allow_duplicate=True),
+        Output("notifications-container", "children", allow_duplicate=True),
         Output("ms-delete-store", "data"),
         Input("ms-mc-confirm", "n_clicks"),
         State("ms-files-table", "multiRowsClicked"),
         State("wdir", "children"),
-        State("global-toast-container", "children"),
         prevent_initial_call=True,
     )
-    def confirm_and_delete(n_confirm, rows, wdir, current_toasts):
+    def confirm_and_delete(n_confirm, rows, wdir):
         if n_confirm is None or not rows:
             raise PreventUpdate
 
@@ -411,23 +387,24 @@ def callbacks(cls, app, fsc, cache):
                 logging.error(f"Error al eliminar {fn}: {str(e)}")
                 failed_files.append(fn)
 
-        dfl = "\n".join(f"- {m}" for m in removed_files)
-        ffl = "\n".join(f"- {m}" for m in failed_files)
-        msd = dcc.Markdown(
-            f"Successfully deleted {len(rows)} files.\n"
-            f"{dfl}\n"
-        )
-        msf = dcc.Markdown(
-            f"Failed to delete {len(rows)} files.\n"
-            f"{ffl}"
-        )
-        new_toasts = []
+        dfl = "\n - ".join(f"- {m}" for m in removed_files)
+        ffl = "\n - ".join(f"- {m}" for m in failed_files)
+        notifications = []
         if removed_files:
-            new_toasts.append(create_toast(msd,"Success deletion", "success"))
+            notifications.append(fac.AntdNotification(message=f"Successfully deleted {len(rows)} files.",
+                                                      description=f"{dfl}", type="success", duration=3,
+                                                      placement='bottom',
+                                                      showProgress=True,
+                                                      stack=True
+                                                      ))
         if failed_files:
-            new_toasts.append(create_toast(msf,"Failed deletion", "danger"))
-        updated_toasts = current_toasts + new_toasts
-        return updated_toasts, len(rows)
+            notifications.append(fac.AntdNotification(message=f"Failed to delete {len(rows)} files.",
+                                                      description=f"{ffl}", type="error", duration=3,
+                                                      placement='bottom',
+                                                      showProgress=True,
+                                                      stack=True
+                                                      ))
+        return notifications, len(rows)
 
     @du.callback(
         output=[Output("ms-uploader-fns", "children"),
@@ -448,14 +425,13 @@ def callbacks(cls, app, fsc, cache):
         return [str(fn) for fn in status.uploaded_files], status.n_total, status.n_total
 
     @app.callback(
-        Output("global-toast-container", "children", allow_duplicate=True),
+        Output("notifications-container", "children", allow_duplicate=True),
         Input("ms-files-table", "cellEdited"),
         State("ms-files-table", "data"),
         State("wdir", "children"),
-        State("global-toast-container", "children"),
         prevent_initial_call=True,
     )
-    def save_table_on_edit(cell_edited, data, wdir, current_toasts):
+    def save_table_on_edit(cell_edited, data, wdir):
         """
         This callback saves the table on cell edits.
         This saves some bandwidth.
@@ -464,30 +440,36 @@ def callbacks(cls, app, fsc, cache):
             raise PreventUpdate
         df = pd.DataFrame(data)
         T.write_metadata(df, wdir)
-        new_toast = create_toast("Metadata saved.", "Success metadata saved", "success")
-        updated_toasts = current_toasts + [new_toast]
-        return updated_toasts
+        return fac.AntdNotification(message="Successfully saved metadata.",
+                                    type="success",
+                                    duration=3,
+                                    placement='bottom',
+                                    showProgress=True,
+                                    stack=True
+                                    )
 
     @app.callback(
-        Output("global-toast-container", "children", allow_duplicate=True),
+        Output("notifications-container", "children", allow_duplicate=True),
         Output("ms-uploader-output", "data"),
         Output("ms-poll-interval", "disabled"),
         Output('ms-progress-bar', 'value'),
         Output('ms-progress-bar', 'label'),
         Output("progress-container", "style"),
         Output("metadata-uploader", "disabled"),
+
         Input("ms-poll-interval", "n_intervals"),
         Input("ms-uploader-store", "data"),
         Input("ms-uploader-fns", "children"),
-        State("global-toast-container", "children"),
         State("wdir", "children"),
         prevent_initial_call=True
     )
-    def process_ms_files(n_interval, n_total, fns, current_toasts, wdir):
+    def process_ms_files(n_interval, n_total, fns, wdir):
         ctx = dash.callback_context
         if not ctx.triggered:
             raise PreventUpdate
         trigger_id = ctx.triggered[0]["prop_id"].split(".")[0]
+
+        new_toast = dash.no_update
 
         if trigger_id == "ms-uploader-fns":
             if fns is None or len(fns) == 0:
@@ -502,7 +484,7 @@ def callbacks(cls, app, fsc, cache):
             value = sum(future.done() for future in cls.futures)
             if value:
                 raise PreventUpdate
-            return [], dash.no_update, False, n_total, f"Processing {n_total} files...", {"display": "block"}, True
+            return dash.no_update, dash.no_update, False, n_total, f"Processing {n_total} files...", {"display": "block"}, True
         elif trigger_id == "ms-poll-interval":
             value = sum(future.done() for future in cls.futures)
             ms_poll_interval_disabled = False
@@ -518,14 +500,15 @@ def callbacks(cls, app, fsc, cache):
                 # create the metadata file
                 metadata_df = T.get_metadata(wdir)
                 T.write_metadata(metadata_df, wdir)
-
-                new_toast = create_toast(f"{n_total} files processed", "Success files processing", "success")
+                new_toast = fac.AntdNotification(message=f"{n_total} files processed", type="success", duration=3,
+                                                 placement='bottom',
+                                                 showProgress=True,
+                                                 stack=True
+                                                 )
             elif value == 0:
                 value = n_total
 
-            updated_toasts = current_toasts + [new_toast]
-
-            return (updated_toasts, dbc.Alert(f"Processing {n_total} uploaded files...", color="info"),
+            return (new_toast, True,
                     ms_poll_interval_disabled,
                     value,
                     f"Processed {value}/{n_total} files..." if value < n_total else f"Processing {value} files...",
@@ -534,14 +517,13 @@ def callbacks(cls, app, fsc, cache):
         raise PreventUpdate
 
     @app.callback(
-        Output("global-toast-container", "children", allow_duplicate=True),
+        Output("notifications-container", "children", allow_duplicate=True),
         Output("metadata-processed-store", "data"),
         Input("metadata-uploader-store", "data"),
         State("wdir", "children"),
-        State("global-toast-container", "children"),
         prevent_initial_call=True,
     )
-    def process_metadata_files(files, wdir, current_toasts):
+    def process_metadata_files(files, wdir):
         if not files:
             raise PreventUpdate
         df = T.get_metadata(wdir)
@@ -560,14 +542,11 @@ def callbacks(cls, app, fsc, cache):
 
         df['color'] = new_colors
         T.write_metadata(df, wdir)
-        new_toast = create_toast("Metadata file added successfully.", "Success Metadata Added", "success")
-        updated_toasts = current_toasts + [new_toast]
-        return updated_toasts, 1
-
-
-    @app.callback(Output("ms-n-files", "children"),
-                  Input("ms-files-table", "data"))
-    def n_files(data):
-        n_files = len(data)
-        return dbc.Alert(f"{n_files} files in current workspace.", color="info")
+        return (fac.AntdNotification(message="Saved metadata.", description="Metadata file added successfully.",
+                                    type="success", duration=3,
+                                     placement='bottom',
+                                     showProgress=True,
+                                     stack=True
+                                     ),
+                1)
 
