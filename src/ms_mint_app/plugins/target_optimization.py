@@ -1,3 +1,4 @@
+import json
 import uuid
 import math
 import logging
@@ -822,17 +823,14 @@ def callbacks(app, fsc, cache, cpu=None):
             raise PreventUpdate
 
         ctx = dash.callback_context
-        trigger_id = ctx.triggered[0]["prop_id"]
 
-        clicked = ctx.triggered[0]["prop_id"]
-        clicked = clicked.replace('{"index":"', "")
-        clicked = clicked.split('","type":')[0].replace("\\", "")
-        if len(dash.callback_context.triggered) > 1:
-            raise PreventUpdate
-        if "plot-card-preview" not in trigger_id:
-            raise PreventUpdate
+        ctx_trigger = json.loads(ctx.triggered[0]['prop_id'].split('.')[0])
+        trigger_id = ctx_trigger['index']
+        trigger_type = ctx_trigger['type']
 
-        return clicked
+        if len(ctx.triggered) > 1 or trigger_type != "plot-card-preview":
+            raise PreventUpdate
+        return trigger_id
 
     @app.callback(
         Output('delete-modal', 'visible'),
@@ -844,13 +842,13 @@ def callbacks(app, fsc, cache, cpu=None):
     def show_delete_modal(delete_clicks):
 
         ctx = dash.callback_context
-        clicked = ctx.triggered[0]["prop_id"]
-        clicked = clicked.replace('{"index":"', "")
-        clicked = clicked.split('","type":')[0].replace("\\", "")
+        ctx_trigger = json.loads(ctx.triggered[0]['prop_id'].split('.')[0])
+        trigger_id = ctx_trigger['index']
+
         if len(dash.callback_context.triggered) > 1:
             raise PreventUpdate
 
-        return True, fac.AntdParagraph(f"Are you sure you want to delete `{clicked}` target?"), clicked
+        return True, fac.AntdParagraph(f"Are you sure you want to delete `{trigger_id}` target?"), trigger_id
 
     @app.callback(
         Output({"index": "pko-drop-target-output", "type": "output"}, "children"),
