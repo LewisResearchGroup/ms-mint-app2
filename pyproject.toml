@@ -44,7 +44,8 @@ dependencies = [
   "hdf5plugin",
   "werkzeug==3.0.6",
   "packaging==21.3.0",
-  "email-validator"
+  "email-validator",
+  "feffery-antd-components==0.4.2"
 ]
 dynamic = ["version"]
 
