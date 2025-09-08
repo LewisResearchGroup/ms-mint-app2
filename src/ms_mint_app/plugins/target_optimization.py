@@ -794,6 +794,7 @@ def callbacks(app, fsc, cache, cpu=None):
                             id={'type': 'rate-target-card', 'index': peak_label},
                             count=1,
                             defaultValue=0,
+                            value=targets.loc[targets['peak_label'] == peak_label, 'bookmark'].values[0],
                             allowHalf=False,
                             tooltips=['Bookmark this target'],
                             style={'position': 'absolute', 'top': '8px', 'right': '8px', 'zIndex': 10},)
@@ -813,11 +814,10 @@ def callbacks(app, fsc, cache, cpu=None):
         Output("pko-image-clicked", "children"),
         [Input({"type": "plot-card-preview", "index": ALL}, "nClicks")],
         [Input({"type": "delete-target-btn", "index": ALL}, "nClicks")],
+        [Input({"type": "rate-target-card", "index": ALL}, "value")],
         prevent_initial_call=True,
     )
-    def pko_image_clicked(ndx, dt_ndx):
-
-        print(f"pko_image_clicked {ndx = }")
+    def pko_image_clicked(ndx, dt_ndx, b_ndx):
 
         if ndx is None or len(ndx) == 0:
             raise PreventUpdate
@@ -873,3 +873,34 @@ def callbacks(app, fsc, cache, cpu=None):
                                     showProgress=True,
                                     stack=True
                                     )
+
+    @app.callback(
+        Output('notifications-container', "children", allow_duplicate=True),
+        Input({"type": "rate-target-card", "index": ALL}, "value"),
+        State('wdir', 'children'),
+        prevent_initial_call=True
+    )
+    def bookmark_target(value, wdir):
+
+        ctx = dash.callback_context
+        if not ctx.triggered or len(dash.callback_context.triggered) > 1:
+            raise PreventUpdate
+
+        targets = T.get_targets(wdir)
+
+        ctx_trigger = json.loads(ctx.triggered[0]['prop_id'].split('.')[0])
+        trigger_id = ctx_trigger['index']
+
+        if targets['bookmark'].values.tolist() == value:
+            raise PreventUpdate
+
+        targets['bookmark'] = value
+        T.write_targets(targets, wdir)
+        new_value = targets.loc[targets['peak_label'] == trigger_id, 'bookmark'].values[0]
+
+        return fac.AntdNotification(message=f"Target {trigger_id} {'' if new_value else 'un'}bookmarked", duration=3,
+                                    placement='bottom', type="success", showProgress=True, stack=True)
+
+
+
+
