@@ -224,6 +224,7 @@ _layout = html.Div(
                     filetypes=["tar", "zip", "mzxml", "mzml", "mzXML", "mzML", "mzMLb", "feather", "parquet"],
                     upload_id=str(uuid.uuid4()),  # Unique session id
                     text="Upload mzXML/mzML files.",
+                    cancel_button=False,
                 ),
             ),
             dbc.Col(
@@ -234,6 +235,7 @@ _layout = html.Div(
                     filetypes=["csv"],
                     upload_id=str(uuid.uuid4()),  # Unique session id
                     text="Upload METADATA files.",
+                    cancel_button=False
                 ),
             )]
         ),
@@ -252,7 +254,7 @@ _layout = html.Div(
         modal_confirmation,
         dcc.Store(id="ms-delete-store"),
         dcc.Loading(ms_files_table),
-        html.Div(id="ms-uploader-fns", style={"visibility": "hidden"}),
+        dcc.Store(id="ms-uploader-fns")
     ],
     style={"padding": "3rem"}
 )
@@ -411,7 +413,7 @@ def callbacks(cls, app, fsc, cache):
         return notifications, len(rows)
 
     @du.callback(
-        output=[Output("ms-uploader-fns", "children"),
+        output=[Output("ms-uploader-fns", "data"),
                 Output("ms-progress-bar", "max"),
                 Output("ms-uploader-store", "data")]                ,
         id="ms-uploader",
@@ -463,7 +465,7 @@ def callbacks(cls, app, fsc, cache):
 
         Input("ms-poll-interval", "n_intervals"),
         Input("ms-uploader-store", "data"),
-        Input("ms-uploader-fns", "children"),
+        Input("ms-uploader-fns", "data"),
         State("wdir", "children"),
         prevent_initial_call=True
     )
