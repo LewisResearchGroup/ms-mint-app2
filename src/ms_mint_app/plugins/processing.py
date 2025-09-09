@@ -111,7 +111,7 @@ results_table = html.Div(
 
 _layout = html.Div(
     [
-        html.H3("Run MINT"),
+        html.H4("Run MINT"),
         dbc.Row([
             dbc.Col(dbc.Button("Run MINT", id="run-mint", style={"width": "100%"})),
             dbc.Col(dbc.Button("Download all results", id="res-download", style={"width": "100%"}, color='secondary')),
@@ -135,7 +135,7 @@ _layout = html.Div(
         dcc.Interval(id="processing-poll-interval", interval=500, n_intervals=0, disabled=False),
         dcc.Loading(results_table)
     ],
-    style={"height": "100%"},
+    style={"padding": "3rem"}
 )
 
 _outputs = html.Div(
