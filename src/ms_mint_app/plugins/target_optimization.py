@@ -748,14 +748,14 @@ def callbacks(app, fsc, cache, cpu=None):
                 ms_files_selection.append(ms_files_fs[ms_name])
 
         if not ms_files_selection:
-            return fac.AntdNotification(
+            return (fac.AntdNotification(
                 message='No files selected for peak optimization in MS-Files tab. Please, mark some files in the '
                         'Sample Type tree. "use_for_optimization" is use as the initial selection only',
                 type="error", duration=None,
                 placement='bottom',
                 showProgress=True,
                 stack=True
-            )
+            ), no_update)
         logging.info(f"Using {len(ms_files_selection)} files for peak preview. ({ms_files_selection = })")
 
         targets = T.get_targets(wdir)
