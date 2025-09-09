@@ -463,10 +463,11 @@ def callbacks(cls, app, fsc, cache):
         Input("ms-poll-interval", "n_intervals"),
         Input("ms-uploader-store", "data"),
         Input("ms-uploader-fns", "data"),
+        State('ms-progress-bar', 'value'),
         State("wdir", "children"),
         prevent_initial_call=True
     )
-    def process_ms_files(n_interval, n_total, fns, wdir):
+    def process_ms_files(n_interval, n_total, fns, current_progress, wdir):
         ctx = dash.callback_context
         if not ctx.triggered:
             raise PreventUpdate
@@ -510,6 +511,8 @@ def callbacks(cls, app, fsc, cache):
                                                  )
             elif value == 0:
                 value = n_total
+            elif value == current_progress:
+                raise PreventUpdate
 
             return (new_toast, True,
                     ms_poll_interval_disabled,
