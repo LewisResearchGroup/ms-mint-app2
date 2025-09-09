@@ -320,9 +320,6 @@ def callbacks(cls, app, fsc, cache):
             }
         )
 
-        if current_data and len(df) == len(current_data):
-            raise PreventUpdate
-
         mdf = T.get_metadata(wdir)
 
         if value2 is not None or not mdf.empty:

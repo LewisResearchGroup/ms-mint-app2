@@ -440,77 +440,64 @@ def get_metadata(wdir):
     fn_path = os.path.dirname(fn)
     ms_files = get_ms_fns(wdir, abs_path=False)
     ms_files = [filename_to_label(fn) for fn in ms_files]
-    df = None
+    df = pd.DataFrame()
     if not os.path.isdir(fn_path):
         os.makedirs(fn_path)
     if os.path.isfile(fn):
         df = pd.read_csv(fn)
         if "ms_file_label" not in df.columns:
-            df = None
+            df = pd.DataFrame()
 
-    if df is None or len(df) == 0:
-        df = init_metadata(ms_files)
+    df = init_metadata(df, ms_files)
 
-    for col in [
-        "color",
-        "plate_column",
-        "plate_row",
-        "plate",
-        "label",
-        "in_analysis",
-        "use_for_optimization",
-        "ms_file_label",
-        "ms_column",
-        "ionization_mode",
-    ]:
-        if col not in df.columns:
-            df[col] = None
 
     df = df[df["ms_file_label"] != ""]
 
     new_files = [e for e in ms_files if e not in df['ms_file_label'].values]
 
     df = df.groupby("ms_file_label").first().reindex(ms_files, ).reset_index()
-    
+
     if new_files :
         # Default for use_for_optimization for new files should be False
         ndx = df[df['ms_file_label'].isin(new_files)].index
         df.loc[ndx, 'use_for_optimization'] = False
 
-    if "use_for_optimization" not in df.columns:
-        df["use_for_optimization"] = False
+    return df
 
-    else:
-        df["use_for_optimization"] = df["use_for_optimization"].astype(bool)
 
-    if "in_analysis" not in df.columns:
-        df["in_analysis"] = True
-    else:
-        df["in_analysis"] = df["in_analysis"].astype(bool)
+def init_metadata(df, ms_files: list[str]):
+    if df.empty:
+        df = pd.DataFrame({"ms_file_label": ms_files})
+
+    ref_cols = {
+        "ms_file_label": "string",
+        "color": "string",
+        "use_for_optimization": bool,
+        "in_analysis": bool,
+        "label": "string",
+        "sample_type": "string",
+        "run_order": "Int8",
+        "plate": "string",
+        "plate_column": "Int8",
+        "plate_row": "string",
+        "ionization_mode": "string",
+    }
+
+    for col, dt in ref_cols.items():
+
+        if col in df.columns:
+            df[col] = df[col].astype(dt)
+        elif dt == bool:
+            df[col] = col == 'in_analysis'
+            df[col] = df[col].astype(bool)
+        else:
+            df[col] = pd.Series(pd.NA, index=df.index, dtype=dt)
 
     if "index" in df.columns:
         del df["index"]
 
-    df["plate_column"] = df["plate_column"].apply(format_columns)
-
     df["sample_type"] = df["sample_type"].fillna("Not set")
 
-    df.reset_index(inplace=True)
-
-    return df
-
-
-def init_metadata(ms_files: list[str]):
-    df = pd.DataFrame({"ms_file_label": ms_files})
-    df["in_analysis"] = True
-    df["label"] = ""
-    df["color"] = None
-    df["sample_type"] = "Unknown"
-    df["run_order"] = ""
-    df["plate"] = ""
-    df["plate_row"] = ""
-    df["plate_column"] = ""
-    df["use_for_optimization"] = ""
     return df
 
 
@@ -721,7 +708,7 @@ def fig_to_src(fig, dpi=100):
     return "data:image/png;base64,{}".format(encoded)
 
 
-def merge_metadata(old: pd.DataFrame, new: pd.DataFrame, index_col='ms_file_label') -> pd.DataFrame:
+def merge_metadata(old_df: pd.DataFrame, new_df: pd.DataFrame, index_col='ms_file_label') -> pd.DataFrame:
     """
     This function updates one existing dataframe 
     with information from a second dataframe.
@@ -735,24 +722,16 @@ def merge_metadata(old: pd.DataFrame, new: pd.DataFrame, index_col='ms_file_labe
     Returns:
     pd.DataFrame: The merged DataFrame.
 
-    """    
-    old = old.set_index(index_col)
+    """
+    old_df = old_df.set_index(index_col)
+    new_df = new_df.groupby(index_col).first().replace("null", None)
 
-    new = new.groupby(index_col).first().replace("null", None)
+    if old_df.columns.intersection(new_df.columns).tolist():
+        old_df.update(new_df)  # actualiza solo donde hay match
+    else:
+        old_df = old_df.merge(new_df, on=["ms_file_label"], how="left")
 
-    for col in new.columns:
-        if col == "" or col.startswith("Unnamed"):
-            continue
-        if not col in old.columns:
-            old[col] = None
-        for ndx in new.index:
-            value = new.loc[ndx, col]
-            if value is None:
-                continue
-            if ndx in old.index:
-                old.loc[ndx, col] = value
-
-    return old.reset_index()
+    return old_df.reset_index()
 
 
 def file_colors(wdir):
