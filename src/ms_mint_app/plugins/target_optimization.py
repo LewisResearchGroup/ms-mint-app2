@@ -269,7 +269,6 @@ _layout = dbc.Container([
                                     config={'displayModeBar': True},
                                     style={'width': '100%', 'height': '600px'}
                                 ),
-
                                 dbc.Row([
                                     dbc.Col([
                                         html.Div([
@@ -296,53 +295,53 @@ _layout = dbc.Container([
                                                    "font-size": "16px",
                                                    }
                                         )],
-                                        width=2),
-                                ],
+                                        width=2
+                                    )],
                                     className="justify-content-center",
-                                style={'align-items': 'center',}),
-                                html.Div(
-                                    id="action-buttons-container",
-                                    children=[
-                                        html.Hr(style={'margin': '10px 0 10px 0'}),
-                                        fac.AntdAlert(
-                                            message="RT values have been changed. Save or reset the changes.",
-                                            type="warning",
-                                            showIcon=False,
-                                            style={
-                                                "width": "600px",
-                                                "align-items": "center",
-                                                "margin": "5px auto",
-                                                "text-align": "center"
-                                            }
-                                        ),
-                                        fac.AntdSpace([
-                                            fac.AntdButton(
-                                                "Reset",
-                                                id="reset-btn",
-                                                icon=fac.AntdIcon(icon='antd-reload'),
-                                                style={'marginRight': '10px'}
-                                            ),
-                                            fac.AntdButton(
-                                                "Save",
-                                                id="save-btn",
-                                                type="primary",
-                                                icon=fac.AntdIcon(icon="antd-save")
-                                            )
-                                        ], style={'width': '100%', 'justifyContent': 'center'})
-                                    ],
-                                    style={
-                                           "visibility": "hidden",
-                                           'opacity': '0',
-                                           'transition': 'opacity 0.3s ease-in-out',
-                                           'margin': '10px 0'
-                                           }
-                                )
+                                    style={'align-items': 'center', }
+                                ),
                             ]),
+                            html.Div(
+                                id="action-buttons-container",
+                                children=[
+                                    html.Hr(style={'margin': '10px 0 10px 0'}),
+                                    fac.AntdAlert(
+                                        message="RT values have been changed. Save or reset the changes.",
+                                        type="warning",
+                                        showIcon=False,
+                                        style={
+                                            "width": "600px",
+                                            "align-items": "center",
+                                            "margin": "5px auto",
+                                            "text-align": "center"
+                                        }
+                                    ),
+                                    fac.AntdSpace([
+                                        fac.AntdButton(
+                                            "Reset",
+                                            id="reset-btn",
+                                            icon=fac.AntdIcon(icon='antd-reload'),
+                                            style={'marginRight': '10px'}
+                                        ),
+                                        fac.AntdButton(
+                                            "Save",
+                                            id="save-btn",
+                                            type="primary",
+                                            icon=fac.AntdIcon(icon="antd-save")
+                                        )
+                                    ], style={'width': '100%', 'justifyContent': 'center'})
+                                ],
+                                style={
+                                    "visibility": "hidden",
+                                    'opacity': '0',
+                                    'transition': 'opacity 0.3s ease-in-out',
+                                    'margin': '10px 0'
+                                }
+                            ),
                             html.Div(
                                 fac.AntdButton(
                                     "Close",
                                     id="close-modal-btn",
-
                                 ),
                                 style={
                                     'display': 'flex',
@@ -822,16 +821,15 @@ def callbacks(app, fsc, cache, cpu=None):
                         color='red',
                         placement='bottom',
                     ),
-                        fac.AntdRate(
-                            id={'type': 'rate-target-card', 'index': peak_label},
-                            count=1,
-                            defaultValue=0,
-                            value=targets.loc[targets['peak_label'] == peak_label, 'bookmark'].values[0],
-                            allowHalf=False,
-                            tooltips=['Bookmark this target'],
-                            style={'position': 'absolute', 'top': '8px', 'right': '8px', 'zIndex': 10},)
-
-                ],
+                    fac.AntdRate(
+                        id={'type': 'rate-target-card', 'index': peak_label},
+                        count=1,
+                        defaultValue=0,
+                        value=targets.loc[targets['peak_label'] == peak_label, 'bookmark'].values[0],
+                        allowHalf=False,
+                        tooltips=['Bookmark this target'],
+                        style={'position': 'absolute', 'top': '8px', 'right': '8px', 'zIndex': 10},
+                    )],
                     id={'type': 'plot-card-preview', 'index': peak_label},
                     style={'cursor': 'pointer'},
                     styles={'header': {'display': 'none'}, 'body': {'padding': '5px'}},
