@@ -235,16 +235,22 @@ _layout = dbc.Container([
                             style={
                                 "width": "100%",
                                 'overflowY': 'auto',
-                                "height": "98vh",
-                                "alignItems": "center",
-                                "justifyContent": "center",
+                                "height": "94vh",
                             },
-                            wrap=True
+                            wrap=True,
+                            align='start'
                         ),
                         style={"height": "100%", "alignContent": "center"},
                         text="Loading plots...",
                         size="large",
                         delay=500
+                    ),
+                    fac.AntdPagination(
+                        id='plot-preview-pagination',
+                        defaultPageSize=30,
+                        locale='en-us',
+                        align='center',
+                        showTotalSuffix='targets'
                     ),
                     # main modal
                     fac.AntdModal(
@@ -711,6 +717,10 @@ def callbacks(app, fsc, cache, cpu=None):
 
     @app.callback(
         Output("pko-peak-preview-images", "children"),
+        Output('plot-preview-pagination', 'total'),
+
+        Input('plot-preview-pagination', 'current'),
+        Input('plot-preview-pagination', 'pageSize'),
 
         Input('sample-type-tree', 'checkedKeys'),
         Input("pko-figure-options", "value"),
@@ -718,11 +728,11 @@ def callbacks(app, fsc, cache, cpu=None):
         Input({"index": "pko-drop-target-output", "type": "output"}, "children"),
         State("wdir", "children"),
     )
-    def peak_preview(checkedkeys, options, selection, dropped_target, wdir):
+    def peak_preview(current_page, page_size, checkedkeys, options, selection, dropped_target, wdir):
         logging.info(f'Create peak previews {wdir}')
 
         ms_files_fs = {T.filename_to_label(f): f  for f in T.get_ms_fns(wdir)}
-        print(f"{ms_files_fs = }")
+
         ms_files_selection = []
         for ms_name in checkedkeys:
             if ms_name in ms_files_fs:
@@ -749,12 +759,15 @@ def callbacks(app, fsc, cache, cpu=None):
         else:
             target_selection = targets.query('bookmark == 0')
 
+
+        start = (current_page - 1) * page_size
+        end = min(current_page * page_size, len(target_selection) + 1)
+
         plots = []
-        for i, (_, row) in enumerate(target_selection.iterrows()):
+        for _, row in target_selection.iloc[start:end].iterrows():
             peak_label, mz_mean, mz_width, rt, rt_min, rt_max, bookmark, score = row[
                 ["peak_label", "mz_mean", "mz_width", "rt", "rt_min", "rt_max", 'bookmark', 'score']
             ]
-
             fig = create_preview_peakshape_plotly(
                 ms_files_selection,
                 mz_mean,
@@ -825,7 +838,7 @@ def callbacks(app, fsc, cache, cpu=None):
                     className='peak-card-container',
                 )
             )
-        return plots
+        return plots, len(target_selection)
 
     @app.callback(
         Output("pko-image-clicked", "children"),
