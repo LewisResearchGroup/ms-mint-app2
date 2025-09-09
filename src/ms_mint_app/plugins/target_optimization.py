@@ -183,6 +183,18 @@ _layout = dbc.Container([
                             }
                         ),
                         html.Div([
+                            html.Label("Selection"),
+                            dcc.Dropdown(
+                                id="card-plot-selection",
+                                options={
+                                    'all': 'All',
+                                    'bookmarked': 'Bookmarked',
+                                    'unmarked': 'Unmarked'
+                                },
+                                value='all',
+                                className="mt-2",
+                                style={'marginBottom': '80px'}
+                            ),
                             dcc.Checklist(
                                 id="pko-figure-options",
                                 options=[{"value": "log", "label": "  Logarithmic y-scale"}],
@@ -702,10 +714,11 @@ def callbacks(app, fsc, cache, cpu=None):
 
         Input('sample-type-tree', 'checkedKeys'),
         Input("pko-figure-options", "value"),
+        Input('card-plot-selection', 'value'),
         Input({"index": "pko-drop-target-output", "type": "output"}, "children"),
         State("wdir", "children"),
     )
-    def peak_preview(checkedkeys, options, dropped_target, wdir):
+    def peak_preview(checkedkeys, options, selection, dropped_target, wdir):
         logging.info(f'Create peak previews {wdir}')
 
         ms_files_fs = {T.filename_to_label(f): f  for f in T.get_ms_fns(wdir)}
@@ -728,13 +741,18 @@ def callbacks(app, fsc, cache, cpu=None):
 
         targets = T.get_targets(wdir)
         file_colors = T.file_colors(wdir)
-        n_total = len(targets)
+
+        if selection == 'all':
+            target_selection = targets
+        elif selection == 'bookmarked':
+            target_selection = targets.query('bookmark == 1')
+        else:
+            target_selection = targets.query('bookmark == 0')
 
         plots = []
-        for i, (_, row) in tqdm(enumerate(targets.iterrows()), total=n_total):
-            fsc.set("progress", int(100 * (i + 1) / n_total))
-            peak_label, mz_mean, mz_width, rt, rt_min, rt_max = row[
-                ["peak_label", "mz_mean", "mz_width", "rt", "rt_min", "rt_max"]
+        for i, (_, row) in enumerate(target_selection.iterrows()):
+            peak_label, mz_mean, mz_width, rt, rt_min, rt_max, bookmark, score = row[
+                ["peak_label", "mz_mean", "mz_width", "rt", "rt_min", "rt_max", 'bookmark', 'score']
             ]
 
             fig = create_preview_peakshape_plotly(
@@ -753,7 +771,7 @@ def callbacks(app, fsc, cache, cpu=None):
             plots.append(
                 fac.AntdCard([
                     dcc.Graph(
-                        id={'type': 'graph-card-preview', 'index': f"{peak_label}-{uuid.uuid4().hex[:6]}"},  # ID único
+                        id={'type': 'graph-card-preview', 'index': f"{peak_label}-{uuid.uuid4().hex[:6]}"},
                         figure=fig,
                         style={'height': '150px', 'width': '200px', 'margin': '0px'},
                         config={
@@ -762,7 +780,7 @@ def callbacks(app, fsc, cache, cpu=None):
                             'doubleClick': False,
                             'showTips': False,
                             'responsive': False  # Tamaño fijo
-                        }
+                        },
                     ),
                     fac.AntdTooltip(
                         fac.AntdButton(
@@ -807,7 +825,6 @@ def callbacks(app, fsc, cache, cpu=None):
                     className='peak-card-container',
                 )
             )
-        fsc.set(f"{wdir}-updating", False)
         return plots
 
     @app.callback(
