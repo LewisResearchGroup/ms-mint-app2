@@ -54,7 +54,7 @@ ws_table = html.Div(
 
 _layout = html.Div(
     [
-        html.H3("Workspaces"),
+        html.H4("Workspaces"),
         ws_table,
         dbc.Modal(
             [
