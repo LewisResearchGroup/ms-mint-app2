@@ -193,6 +193,7 @@ _layout = dbc.Container([
                                 },
                                 value='all',
                                 className="mt-2",
+                                clearable=False,
                                 style={'marginBottom': '80px'}
                             ),
                             dcc.Checklist(
@@ -880,6 +881,8 @@ def callbacks(app, fsc, cache, cpu=None):
     def show_delete_modal(delete_clicks):
 
         ctx = dash.callback_context
+        if not delete_clicks or not ctx.triggered:
+            raise PreventUpdate
         ctx_trigger = json.loads(ctx.triggered[0]['prop_id'].split('.')[0])
         trigger_id = ctx_trigger['index']
 
