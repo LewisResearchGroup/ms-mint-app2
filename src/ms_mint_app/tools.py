@@ -331,7 +331,6 @@ def create_chromatogram(
         return empty_result
     
     # Create equidistant time points
-    print(start_time, end_time, time_step)
     time_points: np.ndarray = np.arange(start_time, end_time + time_step, time_step)
     
     # Interpolate intensities
