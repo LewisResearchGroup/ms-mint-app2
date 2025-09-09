@@ -58,8 +58,8 @@ options = {
     "headerFilterLiveFilterDelay": 3000,
     "layout": "fitColumns",
     # "layout":"fitDataStretch",
-    # "height": "500px",
-    # "reactiveData": True,  # Solo actualiza lo necesario
+    "height": "calc(100vh - 22rem - 86px)",
+    "reactiveData": True,  # Solo actualiza lo necesario
     # "dataChangedTest": True,
     # "pagination": "local",
     # "paginationSize": 10,
@@ -317,6 +317,10 @@ def callbacks(cls, app, fsc, cache):
                 "file_type": files_type,
             }
         )
+
+        if current_data and len(df) == len(current_data):
+            raise PreventUpdate
+
         mdf = T.get_metadata(wdir)
 
         if value2 is not None or not mdf.empty:
