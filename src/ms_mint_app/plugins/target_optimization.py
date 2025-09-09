@@ -250,7 +250,8 @@ _layout = dbc.Container([
                         defaultPageSize=30,
                         locale='en-us',
                         align='center',
-                        showTotalSuffix='targets'
+                        showTotalSuffix='targets',
+                        hideOnSinglePage=True
                     ),
                     # main modal
                     fac.AntdModal(
