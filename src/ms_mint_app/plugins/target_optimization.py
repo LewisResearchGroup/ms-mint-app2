@@ -453,11 +453,18 @@ def callbacks(app, fsc, cache, cpu=None):
                 sample_type_dict[sample_type] = [ms_file]
 
         checkedkeys = metadata[metadata['use_for_optimization']]['ms_file_label'].tolist()
-        tree_data = [
-            {'title': k, 'key': k, 'children': [{'title': ms, 'key': ms} for ms in v if ms in checkedkeys]}
-            for k, v in sample_type_dict.items()]
 
-        expandedKeys = [k for k, v in sample_type_dict.items() if any([ms in checkedkeys for ms in v])]
+        tree_data = []
+        for k, v in sample_type_dict.items():
+            children = [{'title': ms, 'key': ms} for ms in v if ms in checkedkeys]
+            if children:
+                tree_data.append({'title': k, 'key': k, 'children': children})
+
+        expandedKeys = [
+            k
+            for k, v in sample_type_dict.items()
+            if any(ms in checkedkeys for ms in v)
+        ]
         return tree_data, checkedkeys, expandedKeys
 
     @app.callback(
