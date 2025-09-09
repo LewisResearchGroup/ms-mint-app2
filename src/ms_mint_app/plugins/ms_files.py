@@ -394,15 +394,17 @@ def callbacks(cls, app, fsc, cache):
         ffl = "\n - ".join(f"- {m}" for m in failed_files)
         notifications = []
         if removed_files:
-            notifications.append(fac.AntdNotification(message=f"Successfully deleted {len(rows)} files.",
-                                                      description=f"{dfl}", type="success", duration=3,
+            notifications.append(fac.AntdNotification(message="Delete files.",
+                                                      description=f"Successfully deleted {len(dfl)}", type="success",
+                                                      duration=3,
                                                       placement='bottom',
                                                       showProgress=True,
                                                       stack=True
                                                       ))
         if failed_files:
-            notifications.append(fac.AntdNotification(message=f"Failed to delete {len(rows)} files.",
-                                                      description=f"{ffl}", type="error", duration=3,
+            notifications.append(fac.AntdNotification(message="Failed to delete files.",
+                                                      description=f"Failed to delete {len(ffl)} files", type="error",
+                                                      duration=3,
                                                       placement='bottom',
                                                       showProgress=True,
                                                       stack=True
