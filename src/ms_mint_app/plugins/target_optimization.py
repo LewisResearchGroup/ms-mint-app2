@@ -538,6 +538,7 @@ def callbacks(app, fsc, cache, cpu=None):
         Output("rt-range-slider", "max"),
         Output("rt-range-slider", "value"),
         Output("rt-range-slider", "marks"),
+        Output("rt-range-slider", "tooltip"),
         Output('has-unsaved-changes', 'data', allow_duplicate=True),
 
         Input("pko-image-clicked", "children"),
@@ -607,6 +608,7 @@ def callbacks(app, fsc, cache, cpu=None):
         return (fig, buttons_style, slider_min, slider_max,
                 [rt_slider_min, st_slider, rt_slider_max],
                 slider_marks,
+                {"placement": "bottom", "always_visible": False},
                 has_changes,
                 )
 
