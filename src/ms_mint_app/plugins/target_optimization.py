@@ -221,7 +221,7 @@ _layout = dbc.Container([
                     # className="overflow-auto",
                 )],
                 # className="mb-5",
-                style={'max-height': '98vh'}
+                style={'maxHeight': '98vh'}
             ),
         ], width=2),  # Reduced width for side panel
         
@@ -396,7 +396,7 @@ _layout = dbc.Container([
                     'height': '98vh',
                     'margin': '0',
                     "alignItems": "center",
-                    "align-content": "center",
+                    "alignContent": "center",
                 }
             ),
             # Hidden div for image click tracking
