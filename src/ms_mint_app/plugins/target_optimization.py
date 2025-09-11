@@ -270,85 +270,89 @@ _layout = dbc.Container([
                                     config={'displayModeBar': True},
                                     style={'width': '100%', 'height': '600px'}
                                 ),
-                                dbc.Row([
-                                    dbc.Col([
+                                html.Div(
+                                    [
                                         html.Div([
                                             dcc.RangeSlider(
                                                 id='rt-range-slider',
                                                 step=1,
                                                 tooltip={"placement": "bottom", "always_visible": False},
-                                                pushable=15,
+                                                pushable=1,
                                                 allowCross=False,
                                                 updatemode="drag",
-                                            ),
-                                        ],
-                                            style={'align-items': 'center',
-                                                   "align-content": 'center',
+                                            )],
+                                            id='rslider',
+                                            style={'alignItems': 'center',
+                                                   "alignContent": 'center',
+                                                   "width": "100%"
                                                    }
-                                        )],
-                                        width=7),
-                                    dbc.Col([
+                                        ),
                                         html.Div(
                                             id="rt-values-span",
                                             style={"display": "flex",
-                                                   "flex-direction": "column",
-                                                   "font-weight": "bold",
-                                                   "font-size": "16px",
+                                                   "flexDirection": "column",
+                                                   "fontWeight": "bold",
+                                                   "fontSize": "16px",
+                                                   "minWidth": "100px"
                                                    }
-                                        )],
-                                        width=2
-                                    )],
-                                    className="justify-content-center",
-                                    style={'align-items': 'center', }
+                                        )
+                                    ],
+                                    style={"display": "flex",}
                                 ),
                             ]),
-                            html.Div(
-                                id="action-buttons-container",
-                                children=[
-                                    html.Hr(style={'margin': '10px 0 10px 0'}),
-                                    fac.AntdAlert(
-                                        message="RT values have been changed. Save or reset the changes.",
-                                        type="warning",
-                                        showIcon=False,
+                            html.Hr(style={'margin': '10px 0 10px 0'}),
+                            dbc.Row([
+                                dbc.Col(
+                                    dbc.Row([
+                                        dbc.Col(
+                                            fac.AntdAlert(
+                                                message="RT values have been changed. Save or reset the changes.",
+                                                type="warning",
+                                                showIcon=True,
+                                            ),
+                                            width=8
+                                        ),
+                                        dbc.Col(
+                                            fac.AntdButton(
+                                                "Reset",
+                                                id="reset-btn",
+                                                icon=fac.AntdIcon(icon='antd-reload'),
+                                            ),
+                                            width=2,
+                                            style={'textAlign': 'right',
+                                                   "alignContent": "center"}
+                                        ),
+                                        dbc.Col(
+                                            fac.AntdButton(
+                                                "Save",
+                                                id="save-btn",
+                                                type="primary",
+                                                icon=fac.AntdIcon(icon="antd-save")
+                                            ),
+                                            width=2,
+                                            style={'textAlign': 'left',
+                                                   "alignContent": "center"}
+                                        )],
+                                        id='action-buttons-container',
                                         style={
-                                            "width": "600px",
-                                            "align-items": "center",
-                                            "margin": "5px auto",
-                                            "text-align": "center"
+                                            "visibility": "hidden",
+                                            'opacity': '0',
+                                            'transition': 'opacity 0.3s ease-in-out',
                                         }
                                     ),
-                                    fac.AntdSpace([
-                                        fac.AntdButton(
-                                            "Reset",
-                                            id="reset-btn",
-                                            icon=fac.AntdIcon(icon='antd-reload'),
-                                            style={'marginRight': '10px'}
-                                        ),
-                                        fac.AntdButton(
-                                            "Save",
-                                            id="save-btn",
-                                            type="primary",
-                                            icon=fac.AntdIcon(icon="antd-save")
-                                        )
-                                    ], style={'width': '100%', 'justifyContent': 'center'})
-                                ],
-                                style={
-                                    "visibility": "hidden",
-                                    'opacity': '0',
-                                    'transition': 'opacity 0.3s ease-in-out',
-                                    'margin': '10px 0'
-                                }
-                            ),
-                            html.Div(
-                                fac.AntdButton(
-                                    "Close",
-                                    id="close-modal-btn",
+                                    width=11
                                 ),
-                                style={
-                                    'display': 'flex',
-                                    'justifyContent': 'flex-end',
-                                }
-                            )]
+                                dbc.Col(
+                                    fac.AntdButton(
+                                        "Close",
+                                        id="close-modal-btn",
+                                    ),
+                                    width=1,
+                                    style={"alignContent": "center",
+                                           "textAlign": "right"}
+                                ),
+                            ]),
+                        ]
                     ),
                     # confirmation modal
                     fac.AntdModal(
@@ -435,6 +439,36 @@ def layout():
 
 
 def callbacks(app, fsc, cache, cpu=None):
+
+    # clientside callback for set width rangeslider == plot bglayer
+    app.clientside_callback(
+        """
+        function(relayoutData) {
+            const root = document.getElementById("pko-plot");
+            if (!root) return window.dash_clientside.no_update;
+            console.log(root);
+            // plotly DOM: tres divs -> svg -> g.bglayer -> rect
+            const bg = root.querySelector("div > div > div svg > g.draglayer > g.xy > rect");
+            console.log(bg);
+            if (!bg) return window.dash_clientside.no_update;
+
+            const rw = root.offsetWidth;
+            const w = bg.width.baseVal.value;
+            const pl = bg.x.baseVal.value - 25;
+            const pr = rw - pl - w - 150;
+            console.log("rw:", rw, "w:", w, "pl:", pl, "pr:", pr);
+
+            if (!isFinite(w) || w <= 0) return window.dash_clientside.no_update;
+
+
+            return {"paddingLeft": pl + "px", "paddingRight": pr + "px", "width": "100%"};
+        }
+        """,
+        Output("rslider", "style"),
+        Input("pko-plot", "relayoutData"),
+        prevent_initial_call=True
+    )
+
     @app.callback(
         Output('sample-type-tree', 'treeData'),
         Output('sample-type-tree', 'checkedKeys'),
@@ -674,7 +708,6 @@ def callbacks(app, fsc, cache, cpu=None):
             buttons_style = {
                 'visibility': 'hidden',
                 'opacity': '0',
-                'margin': '10px 0',
                 'transition': 'opacity 0.3s ease-in-out'
             }
 
@@ -723,7 +756,6 @@ def callbacks(app, fsc, cache, cpu=None):
             buttons_style = {
                 'visibility': 'hidden',
                 'opacity': '0',
-                'margin': '10px 0',
                 'transition': 'opacity 0.3s ease-in-out'
             }
             return [int(rt_min), int(rt), int(rt_max)], False, buttons_style
