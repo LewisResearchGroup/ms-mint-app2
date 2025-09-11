@@ -5,7 +5,7 @@ import logging
 from tqdm import tqdm
 
 import dash
-from dash import html, dcc, no_update
+from dash import html, dcc, no_update, Patch
 from dash.exceptions import PreventUpdate
 from dash.dependencies import Input, Output, State, ALL
 import dash_bootstrap_components as dbc
@@ -564,61 +564,74 @@ def callbacks(app, fsc, cache, cpu=None):
         # reset slider values when is not an update to avoid use stored values from other plots
         if trigger_id != 'rt-range-slider':
             slider_values = None
-
         if image_clicked is None:
             raise PreventUpdate
         targets = T.get_targets(wdir)
-
-        ms_files_fs = {T.filename_to_label(f): f for f in T.get_ms_fns(wdir)}
-
-        ms_files_selection = []
-        for ms_name in checkedkeys:
-            if ms_name in ms_files_fs:
-                ms_files_selection.append(ms_files_fs[ms_name])
-
         cols = ["mz_mean", "mz_width", "rt", "rt_min", "rt_max", "peak_label"]
-
         mz_mean, mz_width, rt, rt_min, rt_max, label = targets.loc[targets['peak_label'] == image_clicked, cols].iloc[0]
-
         # round values to int because the slider steps are int
         orig_values = [int(rt_min), int(rt), int(rt_max)]
-        print(f"{orig_values = }")
 
+        if trigger_id == 'pko-image-clicked':
+            ms_files_fs = {T.filename_to_label(f): f for f in T.get_ms_fns(wdir)}
 
-        rt_slider_min, st_slider,rt_slider_max = slider_values or orig_values
+            ms_files_selection = []
+            for ms_name in checkedkeys:
+                if ms_name in ms_files_fs:
+                    ms_files_selection.append(ms_files_fs[ms_name])
 
-        file_colors = T.file_colors(wdir)
+            rt_slider_min, st_slider,rt_slider_max = slider_values or orig_values
+            file_colors = T.file_colors(wdir)
 
-        fig, slider_min, slider_max = create_plot(
-            ms_files=T.get_ms_fns(wdir),
-            ms_files_selection=ms_files_selection,
-            checkedkeys=checkedkeys,
-            mz_mean=mz_mean,
-            mz_width=mz_width,
-            wdir=wdir,
-            rt_min=rt_slider_min,
-            rt=st_slider,
-            rt_max=rt_slider_max,
-            label=label,
-            log='log' in options,
-            colors=file_colors
-        )
-        slider_marks = {i: str(i) for i in range(slider_min, slider_max, (int(slider_max - slider_min)//5))}
-        has_changes = slider_values != orig_values if slider_values else False
+            fig, slider_min, slider_max = create_plot(
+                ms_files=T.get_ms_fns(wdir),
+                ms_files_selection=ms_files_selection,
+                checkedkeys=checkedkeys,
+                mz_mean=mz_mean,
+                mz_width=mz_width,
+                wdir=wdir,
+                rt_min=rt_slider_min,
+                rt=st_slider,
+                rt_max=rt_slider_max,
+                label=label,
+                log='log' in options,
+                colors=file_colors
+            )
+            slider_marks = {i: str(i) for i in range(slider_min, slider_max, (int(slider_max - slider_min)//5))}
+            has_changes = slider_values != orig_values if slider_values else False
 
-        buttons_style = {
-            'visibility': 'visible' if has_changes else 'hidden',
-            'opacity': '1' if has_changes else '0',
-            'margin': '10px 0',
-            'transition': 'opacity 0.3s ease-in-out'
-        }
+            buttons_style = {
+                'visibility': 'visible' if has_changes else 'hidden',
+                'opacity': '1' if has_changes else '0',
+                'transition': 'opacity 0.3s ease-in-out'
+            }
+            return (fig, buttons_style, slider_min, slider_max,
+                    [rt_slider_min, st_slider, rt_slider_max],
+                    slider_marks,
+                    {"placement": "bottom", "always_visible": False},
+                    has_changes,
+                    )
 
-        return (fig, buttons_style, slider_min, slider_max,
-                [rt_slider_min, st_slider, rt_slider_max],
-                slider_marks,
-                {"placement": "bottom", "always_visible": False},
-                has_changes,
-                )
+        elif trigger_id == 'rt-range-slider':
+            patch_fig = Patch()
+            if slider_values[0]:
+                patch_fig['layout']['shapes'][1]['x0'] = slider_values[0]
+            if slider_values[2]:
+                patch_fig['layout']['shapes'][1]['x1'] = slider_values[2]
+            if slider_values[1]:
+                patch_fig['layout']['shapes'][0]['x0'] = slider_values[1]
+                patch_fig['layout']['shapes'][0]['x1'] = slider_values[1]
+                patch_fig['layout']['annotations'][0]['x'] = slider_values[1]
+
+            has_changes = slider_values != orig_values if slider_values else False
+            buttons_style = {
+                'visibility': 'visible' if has_changes else 'hidden',
+                'opacity': '1' if has_changes else '0',
+                'transition': 'opacity 0.3s ease-in-out'
+            }
+
+            return (patch_fig, buttons_style, no_update, no_update, no_update, no_update, no_update, has_changes)
+        return (no_update, no_update, no_update, no_update, no_update, no_update, no_update, no_update)
 
     @app.callback(
         Output('rt-values-span', 'children'),
