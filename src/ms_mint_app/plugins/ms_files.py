@@ -395,8 +395,6 @@ def callbacks(cls, app, fsc, cache):
                 logging.error(f"Error al eliminar {fn}: {str(e)}")
                 failed_files.append(fn)
 
-        dfl = "\n - ".join(f"- {m}" for m in removed_files)
-        ffl = "\n - ".join(f"- {m}" for m in failed_files)
         notifications = []
         if removed_files:
             notifications.append(fac.AntdNotification(message="Delete files.",
