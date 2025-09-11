@@ -143,7 +143,7 @@ columns = [
         "hozAlign": "center",
         "editor": True,
         "headerTooltip": "This is a tooltip",
-        "widthGrow": 3
+        "widthGrow": 2
     },
     {
         "title": "Run Order",
