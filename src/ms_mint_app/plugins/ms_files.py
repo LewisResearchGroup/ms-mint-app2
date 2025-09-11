@@ -322,7 +322,7 @@ def callbacks(cls, app, fsc, cache):
 
         mdf = T.get_metadata(wdir)
 
-        if value2 is not None or not mdf.empty:
+        if not df.empty:
             df = T.merge_metadata(df, mdf)
 
         if df.empty and files_deleted is None:
@@ -386,6 +386,11 @@ def callbacks(cls, app, fsc, cache):
                 if file_path.exists():
                     os.remove(file_path)
                     removed_files.append(fn)
+                # remove file from metadata
+                mdf = T.get_metadata(wdir)
+                mdf = mdf[mdf['ms_file_label'] != filename]
+                T.write_metadata(mdf, wdir)
+
             except Exception as e:
                 logging.error(f"Error al eliminar {fn}: {str(e)}")
                 failed_files.append(fn)
@@ -395,7 +400,8 @@ def callbacks(cls, app, fsc, cache):
         notifications = []
         if removed_files:
             notifications.append(fac.AntdNotification(message="Delete files.",
-                                                      description=f"Successfully deleted {len(dfl)}", type="success",
+                                                      description=f"Successfully deleted {len(removed_files)} files",
+                                                      type="success",
                                                       duration=3,
                                                       placement='bottom',
                                                       showProgress=True,
@@ -403,7 +409,8 @@ def callbacks(cls, app, fsc, cache):
                                                       ))
         if failed_files:
             notifications.append(fac.AntdNotification(message="Failed to delete files.",
-                                                      description=f"Failed to delete {len(ffl)} files", type="error",
+                                                      description=f"Failed to delete {len(failed_files)} files",
+                                                      type="error",
                                                       duration=3,
                                                       placement='bottom',
                                                       showProgress=True,
@@ -475,8 +482,6 @@ def callbacks(cls, app, fsc, cache):
             raise PreventUpdate
         trigger_id = ctx.triggered[0]["prop_id"].split(".")[0]
 
-        new_toast = dash.no_update
-
         if trigger_id == "ms-uploader-fns":
             if fns is None or len(fns) == 0:
                 raise PreventUpdate
@@ -496,7 +501,7 @@ def callbacks(cls, app, fsc, cache):
             ms_poll_interval_disabled = False
             metadata_uploader_disabled = True
             style = {"display": "block"}
-            new_toast = []
+            new_toast = dash.no_update
             if value == n_total:
                 cls.executor.shutdown()
                 cls.futures = []

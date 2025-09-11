@@ -724,12 +724,13 @@ def merge_metadata(old_df: pd.DataFrame, new_df: pd.DataFrame, index_col='ms_fil
     """
     old_df = old_df.set_index(index_col)
     new_df = new_df.groupby(index_col).first().replace("null", None)
+    if 'file_type' in new_df.columns:
+        new_df = new_df.drop(columns=['file_type'])
 
-    if old_df.columns.intersection(new_df.columns).tolist():
+    if len(old_df.columns.intersection(new_df.columns).tolist()) > 1:
         old_df.update(new_df)  # actualiza solo donde hay match
     else:
-        old_df = old_df.merge(new_df, on=["ms_file_label"], how="left")
-
+        old_df = old_df.join(new_df, on=index_col)
     return old_df.reset_index()
 
 
