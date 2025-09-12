@@ -233,30 +233,52 @@ _layout = dbc.Container([
             # Peak Preview Images (Now directly above the main figure)
             html.Div(
                 children=[
+                    html.Div([
+                        html.H6("Getting chromatograms..."),
+                        fac.AntdProgress(
+                            id='chromatograms-progress',
+                            percent=0,
+                        )],
+                        id='chromatograms-progress-container',
+                        style={
+                            "display": "flex",
+                            "justifyContent": "center",
+                            "alignItems": "center",
+                            "flexDirection": "column",
+                            "minWidth": "200px",
+                            "maxWidth": "500px",
+                            "margin": "auto",
+                        }
+                    ),
                     fac.AntdSpin(
-                        fac.AntdSpace(
-                            id="pko-peak-preview-images",
-                            style={
-                                "width": "100%",
-                                'overflowY': 'auto',
-                                "height": "94vh",
-                            },
-                            wrap=True,
-                            align='start'
+                        html.Div([
+                            fac.AntdSpace(
+                                id="pko-peak-preview-images",
+                                style={
+                                    "width": "100%",
+                                    'overflowY': 'auto',
+                                    "height": "94vh",
+                                },
+                                wrap=True,
+                                align='start'
+                            ),
+                            fac.AntdPagination(
+                                id='plot-preview-pagination',
+                                defaultPageSize=30,
+                                locale='en-us',
+                                align='center',
+                                showTotalSuffix='targets',
+                                hideOnSinglePage=True
+                            )]
                         ),
                         style={"height": "100%", "alignContent": "center"},
                         text="Loading plots...",
                         size="large",
-                        delay=500
+                        delay=500,
+                        includeProps=['pko-peak-preview-images.children']
                     ),
-                    fac.AntdPagination(
-                        id='plot-preview-pagination',
-                        defaultPageSize=30,
-                        locale='en-us',
-                        align='center',
-                        showTotalSuffix='targets',
-                        hideOnSinglePage=True
-                    ),
+
+
                     # main modal
                     fac.AntdModal(
                         id="pko-info-modal",
@@ -434,6 +456,7 @@ _outputs = html.Div(
         dcc.Store(id='saved-range', data=[None, None, None]),
         dcc.Store(id='current-range', data=[None, None, None]),
         dcc.Store(id='has-unsaved-changes', data=False),
+        dcc.Store(id='chromatograms', data={}),
     ],
 )
 
@@ -611,6 +634,12 @@ def callbacks(app, fsc, cache, cpu=None):
 
         if trigger_id == 'pko-image-clicked':
             ms_files_fs = {T.filename_to_label(f): f for f in T.get_ms_fns(wdir)}
+            metadata = T.get_metadata(wdir)
+            samples_selected = [
+                ms_files_fs[ss]
+                for ss in metadata[metadata['use_for_optimization'] == True]['ms_file_label'].tolist()
+                if ss in ms_files_fs
+            ]
 
             ms_files_selection = []
             for ms_name in checkedkeys:
@@ -621,7 +650,7 @@ def callbacks(app, fsc, cache, cpu=None):
             file_colors = T.file_colors(wdir)
 
             fig, slider_min, slider_max = create_plot(
-                ms_files=T.get_ms_fns(wdir),
+                ms_files=samples_selected,
                 ms_files_selection=ms_files_selection,
                 checkedkeys=checkedkeys,
                 mz_mean=mz_mean,
@@ -773,9 +802,79 @@ def callbacks(app, fsc, cache, cpu=None):
     def handle_confirm_modal(stay_clicks, close_clicks):
         return False
 
+    # callback to compute or read the chromatograms
+    @app.callback(
+        Output('chromatograms', 'data'),
+        # Output('chromatograms-progress-container', 'style'),
+        Input('tab', 'value'),
+        Input('chromatograms', 'data'),
+        State('wdir', 'children'),
+        background=True,
+        running=[
+            (
+                    Output("chromatograms-progress-container", "style"),
+                    {"display": "flex",
+                     "justifyContent": "center",
+                     "alignItems": "center",
+                     "flexDirection": "column",
+                     "minWidth": "200px",
+                     "maxWidth": "500px",
+                     "margin": "auto",},
+                    {"display": "none"},
+            ),
+        ],
+        progress=[Output("chromatograms-progress", "percent"),
+                  ],
+        prevent_initial_call=True
+    )
+    def compute_chromatograms(set_progress, tab, chromatograms, wdir):
+
+        ctx = dash.callback_context
+        prop_id = ctx.triggered[0]['prop_id']
+        print(f"{prop_id = }")
+
+        if tab != 'Optimization':
+            raise PreventUpdate
+
+
+        metadata = T.get_metadata(wdir)
+        samples_selected = metadata[metadata['use_for_optimization'] == True]['ms_file_label'].tolist()
+        ms_files_fs = {T.filename_to_label(f): f for f in T.get_ms_fns(wdir)}
+        targets = T.get_targets(wdir)
+        ms_files_selection = []
+        for ms_name in samples_selected:
+            if ms_name in ms_files_fs:
+                ms_files_selection.append(ms_files_fs[ms_name])
+
+        total = 0
+        for target in targets['peak_label']:
+            if target not in chromatograms:
+                chromatograms[target] = []
+            total += len(set(samples_selected) - set(chromatograms[target]))
+        data = {}
+        count = 0
+        for ti, target in targets.iterrows():
+            peak_label, mz_mean, mz_width, rt, rt_min, rt_max, bookmark, score = target[
+                ["peak_label", "mz_mean", "mz_width", "rt", "rt_min", "rt_max", 'bookmark', 'score']
+            ]
+            if peak_label not in data:
+                data[peak_label] = []
+            for i, sample in enumerate(ms_files_selection, start=1):
+                if sample not in data[peak_label]:
+                    T.get_chromatogram(sample, mz_mean, mz_width, wdir)
+                    data[peak_label].append(sample)
+                    count += 1
+                    set_progress((round(count / total * 100, 2)))
+
+
+        return data
+
+
     @app.callback(
         Output("pko-peak-preview-images", "children"),
         Output('plot-preview-pagination', 'total'),
+
+        Input('chromatograms', 'data'),
 
         Input('plot-preview-pagination', 'current'),
         Input('plot-preview-pagination', 'pageSize'),
@@ -786,8 +885,11 @@ def callbacks(app, fsc, cache, cpu=None):
         Input({"index": "pko-drop-target-output", "type": "output"}, "children"),
         State("wdir", "children"),
     )
-    def peak_preview(current_page, page_size, checkedkeys, options, selection, dropped_target, wdir):
+    def peak_preview(chromatograms, current_page, page_size, checkedkeys, options, selection, dropped_target, wdir):
         logging.info(f'Create peak previews {wdir}')
+
+        if not chromatograms:
+            raise PreventUpdate
 
         ms_files_fs = {T.filename_to_label(f): f  for f in T.get_ms_fns(wdir)}
 
