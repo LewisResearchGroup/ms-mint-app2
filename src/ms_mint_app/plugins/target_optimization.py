@@ -2,6 +2,8 @@ import json
 import uuid
 import math
 import logging
+
+from plotly_resampler import FigureResampler
 from tqdm import tqdm
 
 import dash
@@ -45,8 +47,9 @@ def create_preview_peakshape_plotly(
     """Create peak shape previews."""
     logging.info(f'Create_preview_peakshape {peak_label}')
 
-    fig = go.Figure()
-    y_max = 0
+    fig = FigureResampler(go.Figure())
+    y_max = -999999
+    y_min = 10e10
 
 
     for ms_file in ms_files:
@@ -54,17 +57,19 @@ def create_preview_peakshape_plotly(
         if color is None or color == "":
             color = "grey"
         fn_chro = T.get_chromatogram(ms_file, mz_mean, mz_width, wdir)
+        y_max = max(y_max, fn_chro["intensity"].max())
+        y_min = min(y_min, fn_chro["intensity"].min())
+
         fn_chro = fn_chro[(rt_min < fn_chro["scan_time"]) & (fn_chro["scan_time"] < rt_max)]
         fig.add_trace(
-            go.Scatter(x=fn_chro["scan_time"], y=fn_chro["intensity"],
+            go.Scatter(
                        mode='lines', line=dict(color=color, width=1),
                        name=T.filename_to_label(ms_file),
-                       hoverinfo='skip')
+                       hoverinfo='skip'), hf_x=fn_chro["scan_time"], hf_y=fn_chro["intensity"]
         )
-        y_max = max(y_max, fn_chro["intensity"].max())
 
     fig.add_vline(rt, line=dict(color='black', width=2))
-
+    fig.update_yaxes(range=[y_min, y_max])
 
     if log:
         fig.update_yaxes(type="log")
@@ -102,7 +107,7 @@ def create_preview_peakshape_plotly(
 def create_plot(*, ms_files, ms_files_selection, checkedkeys, mz_mean, mz_width, wdir, rt_min, rt, rt_max, label,
                 log, colors):
     """Crear gráfico con rango y línea central"""
-    fig = go.Figure()
+    fig = FigureResampler(go.Figure())
     fig.layout.hovermode = "closest"
 
     fig.update_layout(
@@ -139,12 +144,10 @@ def create_plot(*, ms_files, ms_files_selection, checkedkeys, mz_mean, mz_width,
         print(f"{checkedkeys = }")
 
         fig.add_trace(
-            go.Scattergl(x=chrom["scan_time"], y=chrom["intensity"], name=ms_label,
+            go.Scattergl(name=ms_label,
                        visible='legendonly' if ms_label not in checkedkeys else True,
                          line_color=color,
-                         # mode='markers',
-                         # fill='tozeroy',
-                         )
+                         ), hf_x=chrom["scan_time"], hf_y=chrom["intensity"],
         )
     fig.update_layout(hoverlabel=dict(namelength=-1))
     fig.layout.xaxis.range = [slider_min, slider_max]
