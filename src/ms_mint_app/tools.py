@@ -292,7 +292,7 @@ def create_chromatogram(
     # Create output directory if not exists
     dirname: str = os.path.dirname(str(fn_out))
     if not os.path.isdir(dirname):
-        os.makedirs(dirname)
+        os.makedirs(dirname, exist_ok=True)
 
     if mz_width:
         # Calculate m/z tolerance
