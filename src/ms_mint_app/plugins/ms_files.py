@@ -107,7 +107,7 @@ columns = [
     {
         "title": "Use for Optimization",
         "field": "use_for_optimization",
-        "headerFilter": False,
+        "headerFilter": True,
         "formatter": "tickCross",
         "width": 120,
         "headerSort": True,
