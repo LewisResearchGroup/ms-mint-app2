@@ -62,11 +62,7 @@ logging.info(f'TMPDIR: {TMPDIR}')
 ## Diskcache
 from uuid import uuid4
 import diskcache
-launch_uid = uuid4()
-cache = diskcache.Cache(CACHEDIR)
-long_callback_manager = DiskcacheManager(
-    cache, cache_by=[lambda: launch_uid], expire=60,
-)
+
 
 pd.options.display.max_colwidth = 1000
 
@@ -348,9 +344,23 @@ def create_app(**kwargs):
     logging.info(f'ms-mint: {ms_mint.__version__}, ({ms_mint.__file__})')
     logging.info(f'ms-mint-app: {ms_mint_app.__version__}, ({ms_mint.__file__})')
 
+    if 'REDIS_URL' in os.environ:
+        # Use Redis & Celery if REDIS_URL set as an env variable
+        from celery import Celery
+        celery_app = Celery(__name__, broker=os.environ['REDIS_URL'], backend=os.environ['REDIS_URL'])
+        background_callback_manager = CeleryManager(celery_app)
+
+    else:
+        # Diskcache for non-production apps when developing locally
+        launch_uid = uuid4()
+        cache = diskcache.Cache(CACHEDIR)
+        background_callback_manager = DiskcacheManager(
+            cache, expire=60,
+        )
+
     app = dash.Dash(
         __name__,
-        background_callback_manager=long_callback_manager,
+        background_callback_manager=background_callback_manager,
         external_stylesheets=[
             dbc.themes.MINTY,
             "https://codepen.io/chriddyp/pen/bWLwgP.css",
