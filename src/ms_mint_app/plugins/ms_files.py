@@ -287,9 +287,8 @@ def callbacks(cls, app, fsc, cache):
         Input("wdir", "children"),
         Input("ms-delete-store", "data"),
         State("active-workspace", "children"),
-        State("ms-files-table", "data"),
     )
-    def ms_files_table(value, value2, wdir, files_deleted, workspace, current_data):
+    def ms_files_table(value, value2, wdir, files_deleted, workspace):
 
         if wdir is None:
             raise PreventUpdate
@@ -297,15 +296,8 @@ def callbacks(cls, app, fsc, cache):
         with duckdb_connection(wdir) as conn:
             if conn is None:
                 return pd.DataFrame().to_dict('records')
-            n_tables = conn.execute("SHOW TABLES").fetchall()
-
             data = conn.execute("SELECT * FROM samples_metadata").df()
-        if not current_data:
-            return data.to_dict("records")
-
-        table_data = Patch()
-        table_data.extend(data.to_dict("records"))
-        return table_data
+        return data.to_dict("records")
 
     @app.callback(
         Output("modal-confirmation", "is_open"),
