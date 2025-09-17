@@ -104,7 +104,17 @@ pkl_table = html.Div(
 
 _layout = html.Div(
     [
-        html.H4(_label),
+        html.Div(
+            [
+                html.H4(_label),
+                fac.AntdIcon(
+                    id='targets-tour-icon',
+                    icon='pi-info',
+                    style={"cursor": "pointer"},
+                    )
+            ],
+            style={"display": "flex", "alignItems": "center", "gap": "10px"}
+        ),
 
         dbc.Row([
             dbc.Col([
@@ -144,6 +154,24 @@ _layout = html.Div(
             okText="Delete",
             okButtonProps={"danger": True},
             cancelText="Cancel"
+        ),
+        fac.AntdTour(
+            locale='en-us',
+            steps=[
+                {
+                    'title': 'Targets Tour',
+                    'description': 'This is a tour of the targets plugin.',
+                },
+                {
+                    'title': 'Table Columns info',
+                    'description': 'To access the information related to each column, I can position the mouse over '
+                                   'the column and an information box will be displayed with the most important '
+                                   'aspects of the column, such as description, definition, types, etc.',
+                    # 'targetId': 'upload-btn-tour-demo-1',
+                    'targetSelector': "#pkl-table-container div.tabulator-col:nth-of-type(2)"
+                },
+            ],
+            id='targets-tour',
         )
     ],
     style={"padding": "3rem"}
@@ -164,6 +192,17 @@ def layout():
 
 
 def callbacks(app, fsc=None, cache=None):
+
+    @app.callback(
+        Output('targets-tour', 'current'),
+        Output('targets-tour', 'open'),
+        Input('targets-tour-icon', 'nClicks'),
+        prevent_initial_call = True,
+    )
+    def targets_tour(n_clicks):
+        print(f"{n_clicks = }")
+        return 0, True
+
     @du.callback(
         output=Output("targets-uploader-store", "data"),
         id="targets-uploader",
