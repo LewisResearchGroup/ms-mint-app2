@@ -276,17 +276,6 @@ _outputs = html.Div(
 def layout():
     return _layout
 
-#
-def process_file(file_path: Path, output_dir):
-    # move converted file to processed folder
-    file_path = Path(file_path)
-    output_file = Path(output_dir).joinpath(file_path.name).with_suffix(".feather")
-    ff = convert_ms_file_to_feather(file_path, output_file)
-    # remove original file
-    if os.path.isfile(ff):
-        os.remove(file_path)
-    return ff
-
 
 def callbacks(cls, app, fsc, cache):
     @app.callback(
