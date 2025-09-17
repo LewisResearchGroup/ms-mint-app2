@@ -385,18 +385,21 @@ def callbacks(cls, app, fsc, cache):
     @app.callback(
         Output("notifications-container", "children", allow_duplicate=True),
         Input("ms-files-table", "cellEdited"),
-        State("ms-files-table", "data"),
         State("wdir", "children"),
         prevent_initial_call=True,
     )
-    def save_table_on_edit(cell_edited, data, wdir):
+    def save_table_on_edit(cell_edited, wdir):
         """
         This callback saves the table on cell edits.
         This saves some bandwidth.
         """
-        if data is None or cell_edited is None:
+        ctx = dash.callback_context
+        if not ctx.triggered:
             raise PreventUpdate
-        df = pd.DataFrame(data)
+
+        if cell_edited is None:
+            raise PreventUpdate
+
         with duckdb_connection(wdir) as conn:
             if conn is None:
                 raise PreventUpdate
