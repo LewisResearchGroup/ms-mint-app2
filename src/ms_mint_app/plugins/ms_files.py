@@ -119,7 +119,7 @@ columns = [
     },
     {
         "title": "In Analysis",
-        "field": "in_analysis",
+        "field": "use_for_analysis",
         "headerFilter": True,
         "formatter": "tickCross",
         # "width": "6px",
@@ -530,9 +530,8 @@ def callbacks(cls, app, fsc, cache):
                             logging.error(f"Error processing future: {e}")
 
                 try:
-                    conn.executemany("INSERT INTO samples_metadata(ms_file_label, name, ms_level, "
-                                     "file_type, use_for_analysis, "
-                                 "polarity) VALUES (?, ?, ?, ?, ?, ?)", values)
+                    conn.executemany("INSERT INTO samples_metadata(ms_file_label, label, ms_level, file_type, "
+                                     "use_for_analysis, polarity) VALUES (?, ?, ?, ?, ?, ?)", values)
                 except Exception as e:
                     logging.error(f"DB error: {e}")
 

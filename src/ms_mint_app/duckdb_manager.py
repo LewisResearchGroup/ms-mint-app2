@@ -37,7 +37,6 @@ def _create_tables(conn: duckdb.DuckDBPyConnection):
                  CREATE TABLE IF NOT EXISTS samples_metadata
                  (
                      ms_file_label        VARCHAR PRIMARY KEY,
-                     name                 VARCHAR,
                      ms_level             INTEGER,
                      file_type            VARCHAR,
                      use_for_optimization BOOLEAN DEFAULT false,
@@ -49,7 +48,7 @@ def _create_tables(conn: duckdb.DuckDBPyConnection):
                      run_order            INTEGER,
                      plate                VARCHAR,
                      plate_row            VARCHAR,
-                     plate_column         VARCHAR
+                     plate_column         INTEGER
                  );
                  """)
 
