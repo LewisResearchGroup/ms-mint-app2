@@ -9,7 +9,7 @@ from dash.exceptions import PreventUpdate
 from dash.dependencies import Input, Output, State
 import dash_bootstrap_components as dbc
 
-from .utils import create_toast
+from ..duckdb_manager import duckdb_connection
 from .. import tools as T
 from ..plugin_interface import PluginInterface
 import feffery_antd_components as fac
@@ -163,6 +163,8 @@ def callbacks(app, fsc, cache):
                 raise PreventUpdate
             ws_name = created
             wdir = T.workspace_path(tmpdir, ws_name)
+            with duckdb_connection(wdir) as conn:
+                pass
             T.save_activated_workspace(tmpdir, ws_name)
             message = f"Workspace {ws_name} created and activated."
             return (
@@ -203,6 +205,8 @@ def callbacks(app, fsc, cache):
         wdir = T.workspace_path(tmpdir, ws_name)
 
         if ws_name is not None:
+            with duckdb_connection(wdir) as conn:
+                pass
             T.save_activated_workspace(tmpdir, ws_name)
         else:
             raise PreventUpdate
