@@ -1,10 +1,8 @@
 import os
-import shutil
 import uuid
 import logging
 
 import dash
-import numpy as np
 import tempfile
 
 from pathlib import Path as P, Path
@@ -32,6 +30,7 @@ import concurrent.futures
 
 _label = "MS-Files"
 
+
 class MsFilesPlugin(PluginInterface):
     def __init__(self):
         self._label = _label
@@ -49,6 +48,7 @@ class MsFilesPlugin(PluginInterface):
 
     def outputs(self):
         return _outputs
+
 
 upload_root = os.getenv("MINT_DATA_DIR", tempfile.gettempdir())
 upload_dir = str(P(upload_root) / "MINT-Uploads")
@@ -71,7 +71,6 @@ options = {
 }
 
 clearFilterButtonType = {"css": "btn btn-outline-dark", "text": "Clear Filters"}
-
 
 columns = [
     {
@@ -185,7 +184,6 @@ columns = [
     },
 ]
 
-
 ms_files_table = html.Div(
     id="ms-files-table-container",
     style={"padding": "3rem 0"},
@@ -196,10 +194,9 @@ ms_files_table = html.Div(
             options=options,
         ),
         dbc.Button("Delete selected file", id="ms-delete", color="danger",
-                               style={"text-align": "right"}, className="float-end"),
+                   style={"text-align": "right"}, className="float-end"),
     ],
 )
-
 
 modal_confirmation = dbc.Modal(
     [
@@ -245,13 +242,13 @@ _layout = html.Div(
         dcc.Store(id="metadata-uploader-store"),
         dcc.Store(id="metadata-processed-store"),
         html.Div(
-                id="progress-container",
-                style={"display": "none"},
-                children=[
-                    html.P("Processing files..."),
-                    dbc.Progress(id="ms-progress-bar", animated=True, striped=True, label="Processing files...")
-                ]
-            ),
+            id="progress-container",
+            style={"display": "none"},
+            children=[
+                html.P("Processing files..."),
+                dbc.Progress(id="ms-progress-bar", animated=True, striped=True, label="Processing files...")
+            ]
+        ),
         dcc.Interval(id="ms-poll-interval", interval=1000, n_intervals=0, disabled=True),
         modal_confirmation,
         dcc.Store(id="ms-delete-store"),
@@ -260,7 +257,6 @@ _layout = html.Div(
     ],
     style={"padding": "3rem"}
 )
-
 
 _outputs = html.Div(
     id="ms-outputs",
