@@ -23,7 +23,7 @@ from dash_tabulator import DashTabulator
 
 import dash_uploader as du
 
-from .. import tools as T
+from ..colors import assign_to_ms_files
 from ..plugin_interface import PluginInterface
 import feffery_antd_components as fac
 
@@ -386,15 +386,6 @@ def callbacks(cls, app, fsc, cache):
         set_props("ms-progress-bar", {"max": status.n_total})
         return [status.latest_file.as_posix(), status.n_uploaded, status.n_total]
 
-
-    @du.callback(
-        output=Output("metadata-uploader-store", "data"),
-        id="metadata-uploader",
-    )
-    def metadata_upload_completed(status):
-        logging.warning(f"Upload status: {status} ({type(status)})")
-        return [str(fn) for fn in status.uploaded_files], status.n_total, status.n_total
-
     @app.callback(
         Output("notifications-container", "children", allow_duplicate=True),
         Input("ms-files-table", "cellEdited"),
@@ -555,6 +546,14 @@ def callbacks(cls, app, fsc, cache):
             print(f"{sm_df = }")
         return notification, uploader_output, ms_poll_interval_disabled, progress_container_style, metadata_uploader_disabled
 
+    @du.callback(
+        output=Output("metadata-uploader-store", "data"),
+        id="metadata-uploader",
+    )
+    def metadata_upload_completed(status):
+        logging.warning(f"Upload status: {status} ({type(status)})")
+        return [status.latest_file.as_posix(), status.n_uploaded, status.n_total]
+
     @app.callback(
         Output("notifications-container", "children", allow_duplicate=True),
         Output("metadata-processed-store", "data"),
@@ -562,30 +561,71 @@ def callbacks(cls, app, fsc, cache):
         State("wdir", "children"),
         prevent_initial_call=True,
     )
-    def process_metadata_files(files, wdir):
-        if not files:
+    def process_metadata_files(uploaded_data, wdir):
+        if not uploaded_data:
             raise PreventUpdate
-        df = T.get_metadata(wdir)
-        new_df = pd.read_csv(files[0][0])
-        df = T.merge_metadata(df, new_df)
-        if "index" not in df.columns:
-            df = df.reset_index()
 
-        hvs_colors = T.get_hsv_colors(len(df))
-        new_colors = []
-        for i, color in enumerate(df['color']):
-            if pd.isna(color) or color.strip() == '':
-                new_colors.append(hvs_colors[i])
-            else:
-                new_colors.append(color)
+        latest_file, n_uploaded, n_total = uploaded_data
+        # TODO: check if file contains correct columns and minimum data
+        df = pd.read_csv(latest_file)
+        # rename in_analysis to use_for_analysis
+        df.rename(columns={"in_analysis": "use_for_analysis"}, inplace=True)
 
-        df['color'] = new_colors
-        T.write_metadata(df, wdir)
+        pd.set_option("display.max_columns", None)
+        pd.set_option("display.width", None)
+
+        with duckdb_connection(wdir) as conn:
+            if conn is None:
+                raise PreventUpdate
+
+            conn.register('metadata_df', df)
+
+            columns_to_update = {"use_for_optimization": "BOOLEAN", "use_for_analysis": "BOOLEAN", "color": "VARCHAR",
+                                 "label": "VARCHAR", "sample_type": "VARCHAR", "run_order": "INTEGER",
+                                 "plate": "VARCHAR", "plate_row": "VARCHAR", "plate_column": "INTEGER"}
+
+            set_clauses = []
+            for col, cast in columns_to_update.items():
+                set_clauses.append(f"""
+                        {col} = CASE 
+                            WHEN metadata_df.{col} IS NOT NULL 
+                            THEN CAST(metadata_df.{col} AS {cast}) 
+                            ELSE samples_metadata.{col} 
+                        END
+                    """)
+            set_clause = ", ".join(set_clauses)
+            stmt = f"""
+                    UPDATE samples_metadata 
+                    SET {set_clause}
+                    FROM metadata_df 
+                    WHERE samples_metadata.ms_file_label = metadata_df.ms_file_label
+                """
+
+            conn.execute(stmt)
+            conn.unregister('metadata_df')
+
+            ms_colors = conn.execute("SELECT ms_file_label, color FROM samples_metadata").df()
+            assigned_colors = {row['ms_file_label']: row['color'] for _, row in ms_colors.iterrows() if row['color']}
+
+            if len(assigned_colors) != len(ms_colors):
+                colors = assign_to_ms_files(ms_colors['ms_file_label'], existing_map=assigned_colors)
+                colors_df = pd.DataFrame(colors.items(), columns=['ms_file_label', 'color'])
+                conn.register('colors_df', colors_df)
+                conn.execute("""
+                             UPDATE samples_metadata
+                             SET color = colors_df.color
+                             FROM colors_df
+                             WHERE samples_metadata.ms_file_label = colors_df.ms_file_label"""
+                             )
+                conn.unregister('colors_df')
+        # TODO:
+        # 1. check if any file is marked as use_for_optimization with not color
+        # 2. check for duplicate labels or colors
+
         return (fac.AntdNotification(message="Saved metadata.", description="Metadata file added successfully.",
-                                    type="success", duration=3,
+                                     type="success", duration=3,
                                      placement='bottom',
                                      showProgress=True,
                                      stack=True
                                      ),
                 1)
-
