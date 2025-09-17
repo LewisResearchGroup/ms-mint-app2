@@ -69,17 +69,20 @@ def _create_tables(conn: duckdb.DuckDBPyConnection):
     conn.execute("""
                  CREATE TABLE IF NOT EXISTS targets
                  (
-                     peak_label              VARCHAR, -- Label for the peak
+                     peak_label              VARCHAR PRIMARY KEY, -- Label for the peak
                      mz_mean                 DOUBLE,  -- Mean mass-to-charge ratio
+                     mz                      DOUBLE,  -- Mass-to-charge ratio
                      mz_width                DOUBLE,  -- Width of the m/z window
                      rt                      DOUBLE,  -- Retention time
                      rt_min                  DOUBLE,  -- Minimum retention time
                      rt_max                  DOUBLE,  -- Maximum retention time
-                     target_filename         VARCHAR, -- Filename of the target list
+                     rt_unit                 VARCHAR, -- Unit of retention time
                      intensity_threshold     DOUBLE,  -- Intensity threshold
-                     peak_integration_method VARCHAR, -- Peak integration method
+                     category                VARCHAR, -- Category of the target
+                     bookmark                BOOLEAN, -- Bookmark the target
+                     score                   DOUBLE,  -- Score of the target
+                     preselected_processing  BOOLEAN, -- Preselected target
+                     source                  VARCHAR, -- Filename of the target list
                      ms_level                INTEGER, -- MS level
-                     target_type             VARCHAR, -- Type of target
-                     PRIMARY KEY (peak_label, target_filename)
                  );
                  """)
