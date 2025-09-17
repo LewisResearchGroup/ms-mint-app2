@@ -11,13 +11,13 @@ from pathlib import Path as P, Path
 
 import pandas as pd
 
-from dash import html, dcc
+from dash import html, dcc, set_props, Patch
 from dash.exceptions import PreventUpdate
 from dash.dependencies import Input, Output, State
 
 import dash_bootstrap_components as dbc
 
-from ms_mint.io import convert_ms_file_to_feather
+from ms_mint.io import convert_mzxml_to_parquet
 
 from dash_tabulator import DashTabulator
 
@@ -27,6 +27,7 @@ from .. import tools as T
 from ..plugin_interface import PluginInterface
 import feffery_antd_components as fac
 
+from ..duckdb_manager import duckdb_connection
 import concurrent.futures
 
 _label = "MS-Files"
@@ -37,6 +38,7 @@ class MsFilesPlugin(PluginInterface):
         self._order = 2
         self.executor: concurrent.futures.ProcessPoolExecutor = None
         self.futures: list[concurrent.futures.Future] = []
+        self.processed = 0
         print(f"Initiated {_label} plugin")
 
     def layout(self):
@@ -289,43 +291,21 @@ def callbacks(cls, app, fsc, cache):
     )
     def ms_files_table(value, value2, wdir, files_deleted, workspace, current_data):
 
-        ms_files = T.get_ms_fns(wdir)
-        logging.info(f"# Files in {wdir} {workspace} {len(ms_files)}")
+        if wdir is None:
+            raise PreventUpdate
 
-        ms_files_names = []
-        files_type = []
-        for fn in ms_files:
-            fn_p = Path(fn)
-            if fn_p.stem[-4:] not in ['_ms1', '_ms2']:
-                ms_files_names.append(fn_p.stem)
-            else:
-                ms_files_names.append(fn_p.stem[:-4])
-            files_type.append(T.get_ms_level_from_filename(fn))
+        with duckdb_connection(wdir) as conn:
+            if conn is None:
+                return pd.DataFrame().to_dict('records')
+            n_tables = conn.execute("SHOW TABLES").fetchall()
 
-        df = pd.DataFrame(
-            {
-                "ms_file_label": ms_files_names,
-                "file_type": files_type,
-            }
-        )
+            data = conn.execute("SELECT * FROM samples_metadata").df()
+        if not current_data:
+            return data.to_dict("records")
 
-        mdf = T.get_metadata(wdir)
-
-        if not df.empty:
-            df = T.merge_metadata(df, mdf)
-
-        if df.empty and files_deleted is None:
-            return dash.no_update
-
-        ctx = dash.callback_context
-        trigger_id = ctx.triggered[0]["prop_id"].split(".")[0]
-
-        if current_data and trigger_id != "metadata-processed-store":
-            prev_df = pd.DataFrame(current_data)
-            if df['ms_file_label'].equals(prev_df['ms_file_label']):
-                raise PreventUpdate
-        return df.to_dict("records")
-
+        table_data = Patch()
+        table_data.extend(data.to_dict("records"))
+        return table_data
 
     @app.callback(
         Output("modal-confirmation", "is_open"),
@@ -376,10 +356,10 @@ def callbacks(cls, app, fsc, cache):
                     os.remove(file_path)
                     removed_files.append(fn)
                 # remove file from metadata
-                mdf = T.get_metadata(wdir)
-                mdf = mdf[mdf['ms_file_label'] != filename]
-                T.write_metadata(mdf, wdir)
-
+                with duckdb_connection(wdir) as conn:
+                    if conn is None:
+                        raise PreventUpdate
+                    conn.execute("DELETE FROM samples_metadata WHERE ms_file_label = ?", (filename,))
             except Exception as e:
                 logging.error(f"Error al eliminar {fn}: {str(e)}")
                 failed_files.append(fn)
@@ -406,14 +386,14 @@ def callbacks(cls, app, fsc, cache):
         return notifications, len(rows)
 
     @du.callback(
-        output=[Output("ms-uploader-fns", "data"),
-                Output("ms-progress-bar", "max"),
-                Output("ms-uploader-store", "data")]                ,
+        output=Output("ms-uploader-fns", "data"),
         id="ms-uploader",
     )
     def ms_upload_completed(status):
         logging.warning(f"Upload status: {status} ({type(status)})")
-        return [str(fn) for fn in status.uploaded_files], status.n_total, status.n_total
+        set_props("ms-progress-bar", {"max": status.n_total})
+        return [status.latest_file.as_posix(), status.n_uploaded, status.n_total]
+
 
     @du.callback(
         output=Output("metadata-uploader-store", "data"),
@@ -438,7 +418,15 @@ def callbacks(cls, app, fsc, cache):
         if data is None or cell_edited is None:
             raise PreventUpdate
         df = pd.DataFrame(data)
-        T.write_metadata(df, wdir)
+        with duckdb_connection(wdir) as conn:
+            if conn is None:
+                raise PreventUpdate
+            _column = cell_edited['column']
+            _value = cell_edited['value']
+            _ms_file_label = cell_edited['row']['ms_file_label']
+            query = f"UPDATE samples_metadata SET {_column} = ? WHERE ms_file_label = ?"
+            conn.execute(query, [_value, _ms_file_label])
+
         return fac.AntdNotification(message="Successfully saved metadata.",
                                     type="success",
                                     duration=3,
@@ -449,72 +437,132 @@ def callbacks(cls, app, fsc, cache):
 
     @app.callback(
         Output("notifications-container", "children", allow_duplicate=True),
+        Output("ms-poll-interval", "disabled", allow_duplicate=True),
+
+        Input("ms-uploader-fns", "data"),
+        State("wdir", "children"),
+        prevent_initial_call=True
+    )
+    def check_ms_files(fns, wdir):
+        ctx = dash.callback_context
+        if not ctx.triggered:
+            raise PreventUpdate
+
+        latest_file, n_uploaded, n_total = fns if fns is not None else (None, 0, 0)
+        if not latest_file or n_uploaded == 0:
+            raise PreventUpdate
+
+        latest_file = Path(latest_file)
+        # check if latest_file is in the db
+        with duckdb_connection(wdir) as conn:
+            if conn is None:
+                raise PreventUpdate
+            duplicated_file_sele = conn.execute("SELECT COUNT(*) FROM samples_metadata WHERE ms_file_label = ?", (latest_file.stem,)).fetchone()
+
+        if duplicated_file_sele is not None and duplicated_file_sele[0] > 0:
+            cls.processed += 1
+
+            return fac.AntdNotification(message="Duplicated file",
+                                        description=f"{latest_file.stem} already loaded. Skipping...",
+                                        type="error",
+                                        duration=3,
+                                        placement='bottom',
+                                        showProgress=True,
+                                        stack=True
+                                        ), False
+        else:
+            if n_uploaded == 1 and not cls.executor:
+                cls.executor = concurrent.futures.ProcessPoolExecutor(max_workers=4)
+            cls.futures.append(cls.executor.submit(convert_mzxml_to_parquet, latest_file, wdir))
+
+        return dash.no_update, False
+
+
+    @app.callback(
+        Output("notifications-container", "children", allow_duplicate=True),
         Output("ms-uploader-output", "data"),
-        Output("ms-poll-interval", "disabled"),
-        Output('ms-progress-bar', 'value'),
-        Output('ms-progress-bar', 'label'),
+        Output("ms-poll-interval", "disabled", allow_duplicate=True),
         Output("progress-container", "style"),
         Output("metadata-uploader", "disabled"),
 
         Input("ms-poll-interval", "n_intervals"),
-        Input("ms-uploader-store", "data"),
         Input("ms-uploader-fns", "data"),
         State('ms-progress-bar', 'value'),
+
         State("wdir", "children"),
         prevent_initial_call=True
     )
-    def process_ms_files(n_interval, n_total, fns, current_progress, wdir):
-        ctx = dash.callback_context
-        if not ctx.triggered:
+    def get_processed_files(n_interval, uploaded_data, current_progress, wdir):
+
+        notification = dash.no_update
+        uploader_output = dash.no_update
+        ms_poll_interval_disabled = False
+        progress_container_style = {"display": "block"}
+        metadata_uploader_disabled = True
+
+
+        latest_file, n_uploaded, n_total = uploaded_data if uploaded_data is not None else (None, 0, 0)
+
+        futures_done = sum(future.done() for future in cls.futures)
+        
+        
+        processed_files = cls.processed + futures_done
+
+        # check if not futures
+        if not cls.futures:
             raise PreventUpdate
-        trigger_id = ctx.triggered[0]["prop_id"].split(".")[0]
 
-        if trigger_id == "ms-uploader-fns":
-            if fns is None or len(fns) == 0:
+        with duckdb_connection(wdir) as conn:
+            if conn is None:
                 raise PreventUpdate
-            if len(fns) == 1:
-                cls.executor = concurrent.futures.ProcessPoolExecutor(max_workers=4)
-            ms_dir = T.get_ms_dirname(wdir)
-            for fn in fns[len(cls.futures):]:
-                T.fix_first_emtpy_line_after_upload_workaround(fn)
-                cls.futures.append(cls.executor.submit(process_file, fn, ms_dir))
+            if futures_done:
+                values = []
+                # Iterate over a copy of the futures list to allow safe removal
+                for future in cls.futures[:]:
+                    if future.done():
+                        try:
+                            _ms_file_label, _ms_level, _polarity, _output_file_df = future.result()
+                            values.append((_ms_file_label, _ms_file_label, _ms_level, f"ms{_ms_level}", True, _polarity))
+                            print(f"{_ms_file_label = }")
+                            cls.futures.remove(future)
+                            cls.processed += 1
+                        except Exception as e:
+                            logging.error(f"Error processing future: {e}")
 
-            value = sum(future.done() for future in cls.futures)
-            if value:
-                raise PreventUpdate
-            return dash.no_update, dash.no_update, False, n_total, f"Processing {n_total} files...", {"display": "block"}, True
-        elif trigger_id == "ms-poll-interval":
-            value = sum(future.done() for future in cls.futures)
-            ms_poll_interval_disabled = False
-            metadata_uploader_disabled = True
-            style = {"display": "block"}
-            new_toast = dash.no_update
-            if value == n_total:
-                cls.executor.shutdown()
-                cls.futures = []
-                ms_poll_interval_disabled = True
-                style = {"display": "none"}
-                metadata_uploader_disabled = False
-                # create the metadata file
-                metadata_df = T.get_metadata(wdir)
-                T.write_metadata(metadata_df, wdir)
-                new_toast = fac.AntdNotification(message=f"{n_total} files processed", type="success", duration=3,
-                                                 placement='bottom',
-                                                 showProgress=True,
-                                                 stack=True
-                                                 )
-            elif value == 0:
-                value = n_total
-            elif value == current_progress:
-                raise PreventUpdate
+                try:
+                    conn.executemany("INSERT INTO samples_metadata(ms_file_label, name, ms_level, "
+                                     "file_type, use_for_analysis, "
+                                 "polarity) VALUES (?, ?, ?, ?, ?, ?)", values)
+                except Exception as e:
+                    logging.error(f"DB error: {e}")
 
-            return (new_toast, True,
-                    ms_poll_interval_disabled,
-                    value,
-                    f"Processed {value}/{n_total} files..." if value < n_total else f"Processing {value} files...",
-                    style,
-                    metadata_uploader_disabled)
-        raise PreventUpdate
+
+        if processed_files < n_total:
+            set_props("ms-progress-bar",
+                      {"value": processed_files, "label": f"Processed {processed_files}/{n_total} files..."})
+        elif processed_files == 0:
+            set_props("ms-progress-bar",
+                      {"value": n_total, "label": "Processing MS files..."})
+        elif processed_files == current_progress:
+            raise PreventUpdate
+        else:
+            notification = fac.AntdNotification(message="Files processed",
+                                                description=f"Successful processed {n_total} files",
+                                                type="success", duration=3,
+                                                placement='bottom', showProgress=True, stack=True)
+            uploader_output = True
+            ms_poll_interval_disabled = True
+            progress_container_style = {"display": "none"}
+            metadata_uploader_disabled = False
+            if cls.executor:
+                try:
+                    cls.executor.shutdown()
+                except Exception as e:
+                    pass
+        with duckdb_connection(wdir) as conn:
+            sm_df = conn.execute("SELECT * FROM samples_metadata").df()
+            print(f"{sm_df = }")
+        return notification, uploader_output, ms_poll_interval_disabled, progress_container_style, metadata_uploader_disabled
 
     @app.callback(
         Output("notifications-container", "children", allow_duplicate=True),
