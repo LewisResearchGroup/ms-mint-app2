@@ -182,7 +182,7 @@ table_columns = [
 
 
 pkl_table = html.Div(
-    id="pkl-table-container",
+    id="targets-table-container",
     style={"minHeight": 100, "padding-bottom": "3rem"},
     children=[
         DashTabulator(
@@ -262,7 +262,7 @@ _layout = html.Div(
                                    'the column and an information box will be displayed with the most important '
                                    'aspects of the column, such as description, definition, types, etc.',
                     # 'targetId': 'upload-btn-tour-demo-1',
-                    'targetSelector': "#pkl-table-container div.tabulator-col:nth-of-type(2)"
+                    'targetSelector': "#targets-table-container div.tabulator-col:nth-of-type(2)"
                 },
             ],
             id='targets-tour',
@@ -275,8 +275,9 @@ _layout = html.Div(
 _outputs = html.Div(
     id="pkl-outputs",
     children=[
-        html.Div(id={"index": "drop-table-target-output", "type": "output"}),
-        dcc.Store(id="targets-uploader-store"),
+        dcc.Store(id="uploaded-targets-store"),
+        dcc.Store(id="processed-targets-store"),
+        dcc.Store(id="removed-targets-store"),
     ],
 )
 
@@ -298,18 +299,18 @@ def callbacks(app, fsc=None, cache=None):
         return 0, True
 
     @du.callback(
-        output=Output("targets-uploader-store", "data"),
+        output=Output("uploaded-targets-store", "data"),
         id="targets-uploader",
     )
     def targets_upload_completed(status):
         logging.warning(f"Upload status: {status} ({type(status)})")
-        return [str(fn) for fn in status.uploaded_files]
+        return [status.latest_file.as_posix(), status.n_uploaded, status.n_total]
 
     @app.callback(
         Output("notifications-container", "children", allow_duplicate=True),
-        Output("pkl-table", "data"),
+        Output("processed-targets-store", "data"),
 
-        Input("targets-uploader-store", "data"),
+        Input("uploaded-targets-store", "data"),
         Input("pkl-ms-mode", "value"),
         Input({"index": "drop-table-target-output", "type": "output"}, 'children'),
         State("pkl-table", "multiRowsClicked"),
@@ -363,7 +364,7 @@ def callbacks(app, fsc=None, cache=None):
     @app.callback(
         Output('delete-table-targets-modal', 'visible'),
         Input("pkl-clear", 'n_clicks'),
-        State('pkl-table', 'multiRowsClicked'),
+        State('targets-table', 'multiRowsClicked'),
         prevent_initial_call=True
     )
     def show_delete_modal(delete_clicks, selected_rows):
@@ -373,16 +374,16 @@ def callbacks(app, fsc=None, cache=None):
 
     @app.callback(
         Output('notifications-container', 'children', allow_duplicate=True),
-        Output({"index": "drop-table-target-output", "type": "output"}, "children"),
+        Output('removed-targets-store', "data"),
+
         Input('delete-table-targets-modal', 'okCounts'),
         Input('delete-table-targets-modal', 'cancelCounts'),
         Input('delete-table-targets-modal', 'closeCounts'),
-        State('pkl-table', 'multiRowsClicked'),
+        State('targets-table', 'multiRowsClicked'),
         State('wdir', 'children'),
         prevent_initial_call=True
     )
-    def plk_delete(okCounts, cancelCounts, closeCounts, selected_rows, wdir):
-
+    def target_delete(okCounts, cancelCounts, closeCounts, selected_rows, wdir):
         """
         Delete targets from the table.
 
