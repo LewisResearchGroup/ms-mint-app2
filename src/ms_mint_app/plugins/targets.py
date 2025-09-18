@@ -69,31 +69,125 @@ downloadButtonType = {
 
 clearFilterButtonType = {"css": "btn btn-outline-dark", "text": "Clear Filters"}
 
+table_columns = [
+    {
+        "formatter": "rowSelection",
+        "titleFormatter": "rowSelection",
+        "titleFormatterParams": {"rowRange": "active"},  # only toggle the values of the active filtered rows,
+        "hozAlign": "center",
+        "headerSort": False,
+        "width": "1px",
+        "frozen": True,
+    },
+    {
+        "title": "peak_label",
+        "field": "peak_label",
+        "editor": True,
+        "headerTooltip": "This is a tooltip",
+        "frozen": True,
+    },
+    {
+        "title": "mz_mean",
+        "field": "mz_mean",
+        "editor": True,
+        "hozAlign": "right",
+        "headerTooltip": "This is a tooltip"
+    },
+    {
+        "title": "mz_width",
+        "field": "mz_width",
+        "editor": True,
+        "hozAlign": "right",
+        "headerTooltip": "This is a tooltip"
+    },
+    {
+        "title": "mz",
+        "field": "mz",
+        "editor": True,
+        "hozAlign": "right",
+        "headerTooltip": "This is a tooltip"
+    },
+    {
+        "title": "rt",
+        "field": "rt",
+        "editor": True,
+        "hozAlign": "right",
+        "headerTooltip": "This is a tooltip"
+    },
+    {
+        "title": "rt_min",
+        "field": "rt_min",
+        "editor": True,
+        "hozAlign": "right",
+        "headerTooltip": "This is a tooltip"
+    },
+    {
+        "title": "rt_max",
+        "field": "rt_max",
+        "editor": True,
+        "hozAlign": "right",
+        "headerTooltip": "This is a tooltip"
+    },
+    {
+        "title": "rt_unit",
+        "field": "rt_unit",
+        "hozAlign": "center",
+        "headerTooltip": "This is a tooltip"
+    },
+    {
+        "title": "intensity_threshold",
+        "field": "intensity_threshold",
+        "editor": True,
+        "hozAlign": "right",
+        "headerTooltip": "This is a tooltip"
+    },
+    {
+        "title": "polarity",
+        "field": "polarity",
+        "hozAlign": "center",
+        "headerTooltip": "This is a tooltip"
+    },
+    {
+        "title": "filterLine",
+        "field": "filterLine",
+        "hozAlign": "center",
+        "headerTooltip": "This is a tooltip"
+    },
+    {
+        "title": "ms_type",
+        "field": "ms_type",
+        "hozAlign": "center",
+        "headerTooltip": "This is a tooltip"
+    },
+    {
+        "title": "category",
+        "field": "category",
+        "editor": True,
+        "headerTooltip": "This is a tooltip"
+    },
+    {
+        "title": "preselected_processing",
+        "field": "preselected_processing",
+        "editor": True,
+        "formatter": "tickCross",
+        "hozAlign": "center",
+        "headerTooltip": "This is a tooltip",
+    },
+    {
+        "title": "source",
+        "field": "source",
+        "headerTooltip": "This is a tooltip"
+    },
+]
+
+
 pkl_table = html.Div(
     id="pkl-table-container",
     style={"minHeight": 100, "padding-bottom": "3rem"},
     children=[
         DashTabulator(
             id="pkl-table",
-            columns=[
-                {"formatter": "rowSelection", "titleFormatter": "rowSelection",
-                 "titleFormatterParams": { "rowRange": "active"},  # only toggle the values of the active filtered rows,
-                "hozAlign": "center", "headerSort": False, "width": "1px", "frozen": True,},
-                {"title":"peak_label", "field":"peak_label", "headerTooltip": "This is a tooltip", },
-                {"title":"mz_mean", "field":"mz_mean", "hozAlign": "right", "headerTooltip": "This is a tooltip"},
-                {"title":"mz_width", "field":"mz_width", "hozAlign": "right", "headerTooltip": "This is a tooltip"},
-                {"title":"mz", "field":"mz", "hozAlign": "right", "headerTooltip": "This is a tooltip"},
-                {"title":"rt", "field":"rt", "hozAlign": "right", "headerTooltip": "This is a tooltip"},
-                {"title":"rt_min", "field":"rt_min", "hozAlign": "right", "headerTooltip": "This is a tooltip"},
-                {"title":"rt_max", "field":"rt_max", "hozAlign": "right", "headerTooltip": "This is a tooltip"},
-                {"title":"rt_unit", "field":"rt_unit", "hozAlign": "center", "headerTooltip": "This is a tooltip"},
-                {"title":"intensity_threshold", "field":"intensity_threshold", "hozAlign": "right", "headerTooltip": "This is a tooltip"},
-                {"title":"polarity", "field":"polarity", "hozAlign": "center", "headerTooltip": "This is a tooltip"},
-                {"title":"filterLine", "field":"filterLine", "hozAlign": "center", "headerTooltip": "This is a tooltip"},
-                {"title":"ms_type", "field":"ms_type", "hozAlign": "center", "headerTooltip": "This is a tooltip"},
-                {"title":"category", "field":"category", "headerTooltip": "This is a tooltip"},
-                {"title":"target_filename", "field":"target_filename", "headerTooltip": "This is a tooltip"},
-            ],
+            columns=table_columns,
             options=tabulator_options,
             downloadButtonType=downloadButtonType,
             clearFilterButtonType=clearFilterButtonType,
