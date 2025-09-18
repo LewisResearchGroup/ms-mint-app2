@@ -288,17 +288,6 @@ def layout():
 
 
 def callbacks(app, fsc=None, cache=None):
-
-    @app.callback(
-        Output('targets-tour', 'current'),
-        Output('targets-tour', 'open'),
-        Input('targets-tour-icon', 'nClicks'),
-        prevent_initial_call = True,
-    )
-    def targets_tour(n_clicks):
-        print(f"{n_clicks = }")
-        return 0, True
-
     @du.callback(
         output=Output("uploaded-targets-store", "data"),
         id="targets-uploader",
@@ -512,16 +501,11 @@ def callbacks(app, fsc=None, cache=None):
     #     return downloadButtonType
 
     @app.callback(
-        Output("pkl-table", "downloadButtonType"),
-        Input("tab", "value"),
-        State("active-workspace", "children"),
+        Output('targets-tour', 'current'),
+        Output('targets-tour', 'open'),
+        Input('targets-tour-icon', 'nClicks'),
+        prevent_initial_call=True,
     )
-    def table_export_fn(tab, ws_name):
-        fn = f"{T.today()}-MINT__{ws_name}__targets"
-        downloadButtonType = {
-            "css": "btn btn-primary",
-            "text": "Export",
-            "type": "csv",
-            "filename": fn,
-        }
-        return downloadButtonType
+    def targets_tour(n_clicks):
+        print(f"{n_clicks = }")
+        return 0, True
