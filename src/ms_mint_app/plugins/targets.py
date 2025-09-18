@@ -461,6 +461,41 @@ def callbacks(app, fsc=None, cache=None):
                                     ),
                 True)
 
+    @app.callback(
+        Output("notifications-container", "children", allow_duplicate=True),
+        Input("targets-table", "cellEdited"),
+        State("wdir", "children"),
+        prevent_initial_call=True,
+    )
+    def save_tagert_table_on_edit(cell_edited, wdir):
+        """
+        This callback saves the table on cell edits.
+        This saves some bandwidth.
+        """
+        ctx = dash.callback_context
+        if not ctx.triggered:
+            raise PreventUpdate
+
+        if cell_edited is None:
+            raise PreventUpdate
+
+        with duckdb_connection(wdir) as conn:
+            if conn is None:
+                raise PreventUpdate
+            _column = cell_edited['column']
+            _value = cell_edited['value']
+            _peak_label = cell_edited['row']['peak_label']
+            query = f"UPDATE targets SET {_column} = ? WHERE peak_label = ?"
+            conn.execute(query, [_value, _peak_label])
+
+        return fac.AntdNotification(message="Successfully saved target data.",
+                                    type="success",
+                                    duration=3,
+                                    placement='bottom',
+                                    showProgress=True,
+                                    stack=True
+                                    )
+
 
     @app.callback(
         Output("pkl-table", "downloadButtonType"),
