@@ -71,18 +71,20 @@ def _create_tables(conn: duckdb.DuckDBPyConnection):
                  (
                      peak_label              VARCHAR PRIMARY KEY, -- Label for the peak
                      mz_mean                 DOUBLE,  -- Mean mass-to-charge ratio
-                     mz                      DOUBLE,  -- Mass-to-charge ratio
                      mz_width                DOUBLE,  -- Width of the m/z window
+                     mz                      DOUBLE,  -- Mass-to-charge ratio
                      rt                      DOUBLE,  -- Retention time
                      rt_min                  DOUBLE,  -- Minimum retention time
                      rt_max                  DOUBLE,  -- Maximum retention time
                      rt_unit                 VARCHAR, -- Unit of retention time
                      intensity_threshold     DOUBLE,  -- Intensity threshold
+                     polarity                VARCHAR, -- Polarity of the target
+                     filterLine              VARCHAR, -- Filter line from the raw file
+                     ms_type                 VARCHAR, -- MS type (ms1 or ms2)
                      category                VARCHAR, -- Category of the target
-                     bookmark                BOOLEAN, -- Bookmark the target
                      score                   DOUBLE,  -- Score of the target
                      preselected_processing  BOOLEAN, -- Preselected target
-                     source                  VARCHAR, -- Filename of the target list
-                     ms_level                INTEGER, -- MS level
+                     bookmark                BOOLEAN, -- Bookmark the target
+                     source                  VARCHAR -- Filename of the target list
                  );
                  """)
