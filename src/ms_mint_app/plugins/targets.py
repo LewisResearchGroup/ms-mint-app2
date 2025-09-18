@@ -323,9 +323,6 @@ def callbacks(app, fsc=None, cache=None):
             raise PreventUpdate
         trigger_id = ctx.triggered[0]["prop_id"].split(".")[0]
 
-        if trigger_id == "targets-uploader-store":
-            if not files:
-                raise PreventUpdate
         latest_file, n_uploaded, n_total = uploaded_data if uploaded_data is not None else (None, 0, 0)
 
         # at the moment, only the uploaded targets are processed
@@ -372,6 +369,20 @@ def callbacks(app, fsc=None, cache=None):
                                          type="error", duration=3, placement='bottom', showProgress=True,
                                          stack=True)
             return notification, True
+
+    @app.callback(
+        Output("targets-table", "data"),
+        Input("tab", "value"),
+        Input("processed-targets-store", "data"),
+        Input("removed-targets-store", "data"),
+        State("wdir", "children"),
+    )
+    def targets_table(tab, processed_targets, removed_targets, wdir):
+
+        print(f"{tab = }")
+
+        if tab != "Targets":
+            raise PreventUpdate
 
             targets_df, target_failed, dropped_targets = T.get_targets_from_upload(files, ms_mode)
             T.write_targets(targets_df, wdir)
