@@ -384,37 +384,12 @@ def callbacks(app, fsc=None, cache=None):
         if tab != "Targets":
             raise PreventUpdate
 
-            targets_df, target_failed, dropped_targets = T.get_targets_from_upload(files, ms_mode)
-            T.write_targets(targets_df, wdir)
-
-            notifications = [fac.AntdNotification(message="Load targets.",
-                                                  description="Targets file added successfully.", duration=3,
-                                                  type="success", placement='bottom', showProgress=True, stack=True)]
-            if target_failed:
-                notifications.append(fac.AntdNotification(message="Failed to add targets.",
-                                                          description='\n, -'.join(target_failed),
-                                                          type="error", duration=3, placement='bottom',
-                                                          showProgress=True, stack=True))
-            if dropped_targets:
-                notifications.append(fac.AntdNotification(message="Dropped targets.",
-                                                          description=f"Dropped {dropped_targets} targets",
-                                                          type="warning", duration=3, placement='bottom',
-                                                          showProgress=True, stack=True))
-            return notifications, targets_df.to_dict('records')
-
-
-        targets_df = T.get_targets(wdir)
-
-        if trigger_id == "pkl-ms-mode" and ms_mode:
-            targets_df = T.standardize_targets(targets_df, ms_mode)
-            T.write_targets(targets_df, wdir)
-            return (
-                [fac.AntdNotification(message="Changed MS mode.", description=f"MS mode changed to {ms_mode}",
-                                      duration=3, placement='bottom', type="success", showProgress=True, stack=True)],
-                targets_df.to_dict('records')
-            )
-
-        return dash.no_update, targets_df.to_dict('records')
+        with duckdb_connection(wdir) as conn:
+            if conn is None:
+                raise PreventUpdate
+            targets_df = conn.execute("SELECT * FROM targets").df()
+            print(f"{targets_df.head() = }")
+        return targets_df.to_dict('records')
 
     @app.callback(
         Output('delete-table-targets-modal', 'visible'),
