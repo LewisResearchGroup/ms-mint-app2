@@ -108,23 +108,16 @@ def get_targets_from_upload(file_path: str, ms_mode=None):
     Returns:
         DataFrame containing the target data.
     """
-    targets_df_list = []
-    target_failed = []
-
-    for file_path in file_path:
-        try:
-            df = pd.read_csv(file_path)
-            df = standardize_targets(df, ms_mode=ms_mode, filename=os.path.basename(file_path))
-            targets_df_list.append(df[TARGETS_COLUMNS])
-        except Exception as e:
-            print(f"Error reading {file_path}: {e}")
-            target_failed.append(file_path)
-
-    total_targets = sum([len(df) for df in targets_df_list])
-    combined_df = pd.concat(targets_df_list, ignore_index=True)
-    combined_df = combined_df.drop_duplicates()
-    dropped_targets = len(combined_df) - total_targets
-    return combined_df, target_failed, dropped_targets
+    failed = False
+    try:
+        df = pd.read_csv(file_path)
+        df = standardize_targets(df, ms_mode=ms_mode, filename=os.path.basename(file_path))
+        df = df[TARGETS_COLUMNS]
+    except Exception as e:
+        print(f"Error reading {file_path}: {e}")
+        df = pd.DataFrame()
+        failed = True
+    return df, failed
 
 
 def get_dirnames(path):
