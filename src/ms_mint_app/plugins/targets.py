@@ -496,6 +496,20 @@ def callbacks(app, fsc=None, cache=None):
                                     stack=True
                                     )
 
+    # @app.callback(
+    #     Output("targets-table", "downloadButtonType"),
+    #     Input("tab", "value"),
+    #     State("active-workspace", "children"),
+    # )
+    # def table_export_fn(tab, ws_name):
+    #     fn = f"{T.today()}-MINT__{ws_name}__targets"
+    #     downloadButtonType = {
+    #         "css": "btn btn-primary",
+    #         "text": "Export",
+    #         "type": "csv",
+    #         "filename": fn,
+    #     }
+    #     return downloadButtonType
 
     @app.callback(
         Output("pkl-table", "downloadButtonType"),
