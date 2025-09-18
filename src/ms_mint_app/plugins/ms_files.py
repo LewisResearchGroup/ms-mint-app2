@@ -238,8 +238,8 @@ _layout = html.Div(
                 ),
             )]
         ),
-        dcc.Store(id="ms-uploader-store"),
-        dcc.Store(id="metadata-uploader-store"),
+        dcc.Store(id="ms-processed-output"),
+        dcc.Store(id="metadata-uploader-input"),
         dcc.Store(id="metadata-processed-store"),
         html.Div(
             id="progress-container",
@@ -253,7 +253,7 @@ _layout = html.Div(
         modal_confirmation,
         dcc.Store(id="ms-delete-store"),
         dcc.Loading(ms_files_table),
-        dcc.Store(id="ms-uploader-fns")
+        dcc.Store(id="ms-uploader-input")
     ],
     style={"padding": "3rem"}
 )
@@ -264,8 +264,6 @@ _outputs = html.Div(
         html.Div(id={"index": "ms-delete-output", "type": "output"}),
         html.Div(id={"index": "ms-save-output", "type": "output"}),
         html.Div(id={"index": "ms-import-from-url-output", "type": "output"}),
-        dcc.Store(id="ms-uploader-output"),
-        html.Div(id={"index": "metadata-uploader-output", "type": "output"}),
         html.Div(id={"index": "ms-new-target-output", "type": "output"}),
     ],
 )
@@ -278,13 +276,12 @@ def layout():
 def callbacks(cls, app, fsc, cache):
     @app.callback(
         Output("ms-files-table", "data"),
-        Input("ms-uploader-output", "data"),
+        Input("ms-processed-output", "data"),
         Input("metadata-processed-store", "data"),
-        Input("wdir", "children"),
         Input("ms-delete-store", "data"),
-        State("active-workspace", "children"),
+        Input("wdir", "children"),
     )
-    def ms_files_table(value, value2, wdir, files_deleted, workspace):
+    def ms_files_table(value, value2, files_deleted, wdir):
 
         if wdir is None:
             raise PreventUpdate
@@ -374,7 +371,7 @@ def callbacks(cls, app, fsc, cache):
         return notifications, len(rows)
 
     @du.callback(
-        output=Output("ms-uploader-fns", "data"),
+        output=Output("ms-uploader-input", "data"),
         id="ms-uploader",
     )
     def ms_upload_completed(status):
@@ -421,7 +418,7 @@ def callbacks(cls, app, fsc, cache):
         Output("notifications-container", "children", allow_duplicate=True),
         Output("ms-poll-interval", "disabled", allow_duplicate=True),
 
-        Input("ms-uploader-fns", "data"),
+        Input("ms-uploader-input", "data"),
         State("wdir", "children"),
         prevent_initial_call=True
     )
@@ -462,13 +459,13 @@ def callbacks(cls, app, fsc, cache):
 
     @app.callback(
         Output("notifications-container", "children", allow_duplicate=True),
-        Output("ms-uploader-output", "data"),
+        Output("ms-processed-output", "data"),
         Output("ms-poll-interval", "disabled", allow_duplicate=True),
         Output("progress-container", "style"),
         Output("metadata-uploader", "disabled"),
 
         Input("ms-poll-interval", "n_intervals"),
-        Input("ms-uploader-fns", "data"),
+        Input("ms-uploader-input", "data"),
         State('ms-progress-bar', 'value'),
 
         State("wdir", "children"),
@@ -548,7 +545,7 @@ def callbacks(cls, app, fsc, cache):
         return notification, uploader_output, ms_poll_interval_disabled, progress_container_style, metadata_uploader_disabled
 
     @du.callback(
-        output=Output("metadata-uploader-store", "data"),
+        output=Output("metadata-uploader-input", "data"),
         id="metadata-uploader",
     )
     def metadata_upload_completed(status):
@@ -558,7 +555,7 @@ def callbacks(cls, app, fsc, cache):
     @app.callback(
         Output("notifications-container", "children", allow_duplicate=True),
         Output("metadata-processed-store", "data"),
-        Input("metadata-uploader-store", "data"),
+        Input("metadata-uploader-input", "data"),
         State("wdir", "children"),
         prevent_initial_call=True,
     )
