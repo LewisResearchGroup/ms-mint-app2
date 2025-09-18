@@ -186,7 +186,7 @@ pkl_table = html.Div(
     style={"minHeight": 100, "padding-bottom": "3rem"},
     children=[
         DashTabulator(
-            id="pkl-table",
+            id="targets-table",
             columns=table_columns,
             options=tabulator_options,
             downloadButtonType=downloadButtonType,
