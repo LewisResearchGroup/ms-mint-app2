@@ -455,7 +455,7 @@ def callbacks(cls, app, fsc, cache):
         else:
             if n_uploaded == 1 and not cls.executor:
                 cls.executor = concurrent.futures.ProcessPoolExecutor(max_workers=4)
-            cls.futures.append(cls.executor.submit(convert_mzxml_to_parquet, latest_file, wdir))
+            cls.futures.append(cls.executor.submit(convert_mzxml_to_parquet, latest_file))
 
         return dash.no_update, False
 
@@ -498,25 +498,26 @@ def callbacks(cls, app, fsc, cache):
             if conn is None:
                 raise PreventUpdate
             if futures_done:
-                values = []
                 # Iterate over a copy of the futures list to allow safe removal
                 for future in cls.futures[:]:
                     if future.done():
                         try:
-                            _ms_file_label, _ms_level, _polarity, _output_file_df = future.result()
-                            values.append((_ms_file_label, _ms_file_label, _ms_level, f"ms{_ms_level}", True, _polarity))
-                            print(f"{_ms_file_label = }")
+                            _ms_file_label, _ms_level, _polarity, _ms_data_df = future.result()
+                            try:
+                                conn.execute(
+                                    "INSERT INTO samples_metadata(ms_file_label, label, ms_level, file_type, "
+                                    'use_for_analysis, polarity) VALUES (?, ?, ?, ?, True, ?)',
+                                    [_ms_file_label, _ms_file_label, _ms_level, f'ms{_ms_level}', _polarity]
+                                )
+                                conn.execute(
+                                    "INSERT INTO ms_data SELECT * FROM _ms_data_df")
+                            except Exception as e:
+                                logging.error(f"DB error: {e}")
+
                             cls.futures.remove(future)
                             cls.processed += 1
                         except Exception as e:
                             logging.error(f"Error processing future: {e}")
-
-                try:
-                    conn.executemany("INSERT INTO samples_metadata(ms_file_label, label, ms_level, file_type, "
-                                     "use_for_analysis, polarity) VALUES (?, ?, ?, ?, ?, ?)", values)
-                except Exception as e:
-                    logging.error(f"DB error: {e}")
-
 
         if processed_files < n_total:
             set_props("ms-progress-bar",
@@ -538,6 +539,7 @@ def callbacks(cls, app, fsc, cache):
             if cls.executor:
                 try:
                     cls.executor.shutdown()
+                    cls.executor = None
                 except Exception as e:
                     pass
         with duckdb_connection(wdir) as conn:
