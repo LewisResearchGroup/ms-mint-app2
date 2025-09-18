@@ -443,12 +443,15 @@ def callbacks(app, fsc=None, cache=None):
         if not okCounts or cancelCounts or closeCounts or not selected_rows:
             raise PreventUpdate
 
-        targets_df = T.get_targets(wdir)
         remove_targets = [tr['peak_label'] for tr in selected_rows]
-        targets_df = targets_df[~targets_df['peak_label'].isin(remove_targets)]
-        T.write_targets(targets_df, wdir)
 
-        return (fac.AntdNotification(message=f"Delete Targets",
+        with duckdb_connection(wdir) as conn:
+            if conn is None:
+                raise PreventUpdate
+            conn.execute("DELETE FROM targets WHERE peak_label IN ?", (remove_targets,))
+            # conn.execute("DELETE FROM results WHERE peak_label IN ?", (remove_targets,))
+
+        return (fac.AntdNotification(message="Delete Targets",
                                     description=f"Deleted {len(remove_targets)} targets",
                                     type="success",
                                     duration=3,
