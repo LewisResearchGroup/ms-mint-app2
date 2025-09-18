@@ -327,48 +327,25 @@ def callbacks(cls, app, fsc, cache):
         if n_confirm is None or not rows:
             raise PreventUpdate
 
-        target_dir = os.path.join(wdir, "ms_files")
+        remove_ms_file = [row["ms_file_label"] for row in rows]
 
-        removed_files = []
-        failed_files = []
-        for row in rows:
-            filename = row["ms_file_label"]
-            ft = row["file_type"]
-            fn = f"{filename}_{ft}.feather"
-            file_path = Path(target_dir) / fn
-            try:
-                if file_path.exists():
-                    os.remove(file_path)
-                    removed_files.append(fn)
-                # remove file from metadata
-                with duckdb_connection(wdir) as conn:
-                    if conn is None:
-                        raise PreventUpdate
-                    conn.execute("DELETE FROM samples_metadata WHERE ms_file_label = ?", (filename,))
-            except Exception as e:
-                logging.error(f"Error al eliminar {fn}: {str(e)}")
-                failed_files.append(fn)
+        with duckdb_connection(wdir) as conn:
+            if conn is None:
+                raise PreventUpdate
+            #TODO: remove data from ms_data, and results as well
+            conn.execute("DELETE FROM samples_metadata WHERE ms_file_label IN ?", (remove_ms_file,))
+            conn.execute("DELETE FROM ms_data WHERE ms_file_label IN ?", (remove_ms_file,))
+            # conn.execute("DELETE FROM results WHERE ms_file_label = ?", (filename,))
 
-        notifications = []
-        if removed_files:
-            notifications.append(fac.AntdNotification(message="Delete files.",
-                                                      description=f"Successfully deleted {len(removed_files)} files",
-                                                      type="success",
-                                                      duration=3,
-                                                      placement='bottom',
-                                                      showProgress=True,
-                                                      stack=True
-                                                      ))
-        if failed_files:
-            notifications.append(fac.AntdNotification(message="Failed to delete files.",
-                                                      description=f"Failed to delete {len(failed_files)} files",
-                                                      type="error",
-                                                      duration=3,
-                                                      placement='bottom',
-                                                      showProgress=True,
-                                                      stack=True
-                                                      ))
-        return notifications, len(rows)
+        return (fac.AntdNotification(message="Delete files",
+                                     description=f"{len(rows)} files deleted successful",
+                                     type="success",
+                                     duration=3,
+                                     placement='bottom',
+                                     showProgress=True,
+                                     stack=True
+                                     ),
+                len(rows))
 
     @du.callback(
         output=Output("ms-uploader-input", "data"),
