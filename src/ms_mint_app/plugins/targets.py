@@ -9,6 +9,7 @@ from dash_tabulator import DashTabulator
 import dash_bootstrap_components as dbc
 
 from .. import tools as T
+from ..duckdb_manager import duckdb_connection
 from ..plugin_interface import PluginInterface
 import dash_uploader as du
 import feffery_antd_components as fac
@@ -312,13 +313,10 @@ def callbacks(app, fsc=None, cache=None):
 
         Input("uploaded-targets-store", "data"),
         Input("pkl-ms-mode", "value"),
-        Input({"index": "drop-table-target-output", "type": "output"}, 'children'),
-        State("pkl-table", "multiRowsClicked"),
         State("wdir", "children"),
         prevent_initial_call=True,
     )
-    def process_targets_files(files, ms_mode, delete_clicked, selected_rows, wdir):
-
+    def process_targets_files(uploaded_data, ms_mode, wdir):
 
         ctx = dash.callback_context
         if not ctx.triggered:
@@ -328,6 +326,52 @@ def callbacks(app, fsc=None, cache=None):
         if trigger_id == "targets-uploader-store":
             if not files:
                 raise PreventUpdate
+        latest_file, n_uploaded, n_total = uploaded_data if uploaded_data is not None else (None, 0, 0)
+
+        # at the moment, only the uploaded targets are processed
+        if trigger_id == "pkl-ms-mode":
+            raise PreventUpdate
+
+        if not latest_file or n_uploaded == 0:
+            raise PreventUpdate
+
+        targets_df, failed = T.get_targets_from_upload(latest_file, ms_mode)
+
+        with duckdb_connection(wdir) as conn:
+            if conn is None:
+                raise PreventUpdate
+
+            if targets_df.empty:
+                return (fac.AntdNotification(message="Failed to add targets.",
+                                             description="No targets found in the uploaded file.",
+                                             type="error", duration=3, placement='bottom', showProgress=True,
+                                             stack=True),
+                        dash.no_update)
+            n_registered_before = conn.execute("SELECT COUNT(*) FROM targets").fetchone()[0]
+            conn.execute("INSERT INTO targets SELECT * FROM targets_df ON CONFLICT DO NOTHING;")
+            n_registered_after = conn.execute("SELECT COUNT(*) FROM targets").fetchone()[0]
+
+            failed_targets = n_registered_after - n_registered_before - len(targets_df)
+            new_targets = len(targets_df) - failed_targets
+
+            if failed_targets != 0 and new_targets != 0:
+                notification = fac.AntdNotification(message="Targets added.",
+                                     description=f"{new_targets} targets added successfully, "
+                                                 f"but {failed_targets} targets failed.",
+                                     type="warning", duration=3, placement='bottom', showProgress=True,
+                                     stack=True)
+            elif failed_targets == 0:
+                notification = fac.AntdNotification(message="Targets added successfully.",
+                                                    description=f"{new_targets} targets added successfully.",
+                                                    type="success", duration=3, placement='bottom', showProgress=True,
+                                                    stack=True
+                                                    )
+            else:
+                notification = fac.AntdNotification(message="Targets added failed.",
+                                         description=f"{failed_targets} targets failed to add.",
+                                         type="error", duration=3, placement='bottom', showProgress=True,
+                                         stack=True)
+            return notification, True
 
             targets_df, target_failed, dropped_targets = T.get_targets_from_upload(files, ms_mode)
             T.write_targets(targets_df, wdir)
