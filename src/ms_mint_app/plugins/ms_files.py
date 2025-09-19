@@ -427,7 +427,7 @@ def callbacks(cls, app, fsc, cache):
                                         stack=True
                                         ), False
         else:
-            if n_uploaded == 1 and not cls.executor:
+            if not cls.executor:
                 cls.executor = concurrent.futures.ProcessPoolExecutor(max_workers=4)
             cls.futures.append(cls.executor.submit(convert_mzxml_to_parquet, latest_file))
 
@@ -468,10 +468,10 @@ def callbacks(cls, app, fsc, cache):
         if not cls.futures:
             raise PreventUpdate
 
-        with duckdb_connection(wdir) as conn:
-            if conn is None:
-                raise PreventUpdate
-            if futures_done:
+        if futures_done:
+            with duckdb_connection(wdir) as conn:
+                if conn is None:
+                    raise PreventUpdate
                 # Iterate over a copy of the futures list to allow safe removal
                 for future in cls.futures[:]:
                     if future.done():
@@ -493,14 +493,14 @@ def callbacks(cls, app, fsc, cache):
                         except Exception as e:
                             logging.error(f"Error processing future: {e}")
 
-        if processed_files < n_total:
-            set_props("ms-progress-bar",
-                      {"value": processed_files, "label": f"Processed {processed_files}/{n_total} files..."})
+        if processed_files == current_progress:
+            raise PreventUpdate
         elif processed_files == 0:
             set_props("ms-progress-bar",
                       {"value": n_total, "label": "Processing MS files..."})
-        elif processed_files == current_progress:
-            raise PreventUpdate
+        elif processed_files < n_total:
+            set_props("ms-progress-bar",
+                      {"value": processed_files, "label": f"Processed {processed_files}/{n_total} files..."})
         else:
             notification = fac.AntdNotification(message="Files processed",
                                                 description=f"Successful processed {n_total} files",
