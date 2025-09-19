@@ -3,11 +3,8 @@
 import os
 import sys
 import subprocess
-import multiprocessing
 import argparse
 import pkg_resources
-import xlsxwriter
-import bs4
 import logging
 
 from waitress import serve

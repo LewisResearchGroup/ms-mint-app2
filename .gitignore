@@ -23,4 +23,5 @@ docs/_*
 *_version.py
 */tmp/*
 *tmp*
+.venv
 
