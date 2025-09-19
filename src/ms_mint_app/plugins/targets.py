@@ -154,12 +154,12 @@ table_columns = [
         "hozAlign": "center",
         "headerTooltip": "This is a tooltip"
     },
-    {
-        "title": "ms_type",
-        "field": "ms_type",
-        "hozAlign": "center",
-        "headerTooltip": "This is a tooltip"
-    },
+    # {
+    #     "title": "ms_type",
+    #     "field": "ms_type",
+    #     "hozAlign": "center",
+    #     "headerTooltip": "This is a tooltip"
+    # },
     {
         "title": "category",
         "field": "category",
@@ -456,7 +456,7 @@ def callbacks(app, fsc=None, cache=None):
         State("wdir", "children"),
         prevent_initial_call=True,
     )
-    def save_tagert_table_on_edit(cell_edited, wdir):
+    def save_target_table_on_edit(cell_edited, wdir):
         """
         This callback saves the table on cell edits.
         This saves some bandwidth.
@@ -476,6 +476,8 @@ def callbacks(app, fsc=None, cache=None):
             _peak_label = cell_edited['row']['peak_label']
             query = f"UPDATE targets SET {_column} = ? WHERE peak_label = ?"
             conn.execute(query, [_value, _peak_label])
+            if _column == 'preselected_processing':
+                conn.execute("UPDATE targets SET bookmark = ? WHERE peak_label = ?", [False, _peak_label])
 
         return fac.AntdNotification(message="Successfully saved target data.",
                                     type="success",
