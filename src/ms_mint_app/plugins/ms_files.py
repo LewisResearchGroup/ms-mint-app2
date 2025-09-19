@@ -21,7 +21,7 @@ from dash_tabulator import DashTabulator
 
 import dash_uploader as du
 
-from ..colors import assign_to_ms_files
+from ..colors import make_palette
 from ..plugin_interface import PluginInterface
 import feffery_antd_components as fac
 
@@ -583,7 +583,7 @@ def callbacks(cls, app, fsc, cache):
             assigned_colors = {row['ms_file_label']: row['color'] for _, row in ms_colors.iterrows() if row['color']}
 
             if len(assigned_colors) != len(ms_colors):
-                colors = assign_to_ms_files(ms_colors['ms_file_label'], existing_map=assigned_colors)
+                colors = make_palette(ms_colors['ms_file_label'], existing_map=assigned_colors)
                 colors_df = pd.DataFrame(colors.items(), columns=['ms_file_label', 'color'])
                 conn.register('colors_df', colors_df)
                 conn.execute("""
