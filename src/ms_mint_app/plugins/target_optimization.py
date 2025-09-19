@@ -15,6 +15,8 @@ import plotly.graph_objects as go
 import feffery_antd_components as fac
 
 from .. import tools as T
+from .. import duckdb_manager as DDB
+from ..duckdb_manager import duckdb_connection
 from ..plugin_interface import PluginInterface
 
 _label = "Optimization"
@@ -42,70 +44,60 @@ _feather_ format first.'
 """
 
 def create_preview_peakshape_plotly(
-    ms_files, mz_mean, mz_width, rt, rt_min, rt_max, wdir, peak_label, colors, log
+    chromatogram_data,
+    rt,
+    rt_min,
+    rt_max,
+    peak_label,
+    log=False,
 ):
-    """Create peak shape previews."""
-    logging.info(f'Create_preview_peakshape {peak_label}')
+    fig = go.Figure()
 
-    fig = FigureResampler(go.Figure())
-    y_max = -999999
-    y_min = 10e10
+    if chromatogram_data.empty:
+        return fig
 
+    intensity_min = 1e20
+    intensity_max = -1e20
+    for _, row in chromatogram_data.iterrows():
+        label, color, scan_time, intensity = row
 
-    for ms_file in ms_files:
-        color = colors[T.filename_to_label(ms_file)]
-        if color is None or color == "":
-            color = "grey"
-        fn_chro = T.get_chromatogram(ms_file, mz_mean, mz_width, wdir)
-        y_max = max(y_max, fn_chro["intensity"].max())
-        y_min = min(y_min, fn_chro["intensity"].min())
+        temp_df = pd.DataFrame({
+            'scan_time': scan_time,
+            'intensity': intensity
+        })
 
-        fn_chro = fn_chro[(rt_min < fn_chro["scan_time"]) & (fn_chro["scan_time"] < rt_max)]
-        fig.add_trace(
-            go.Scatter(
-                       mode='lines', line=dict(color=color, width=1),
-                       name=T.filename_to_label(ms_file),
-                       hoverinfo='skip'), hf_x=fn_chro["scan_time"], hf_y=fn_chro["intensity"]
-        )
+        temp_df.explode(['scan_time', 'intensity'])
 
-    fig.add_vline(rt, line=dict(color='black', width=2))
-    fig.update_yaxes(range=[y_min, y_max])
+        # check for intensity min and max before update the df
+        intensity_min = min(intensity_min, temp_df['intensity'].min())
+        intensity_max = max(intensity_max, temp_df['intensity'].max())
 
-    if log:
-        fig.update_yaxes(type="log")
+        rt_min_s = rt_min - (rt - rt_min)
+        rt_max_s = rt_max + (rt_max - rt)
+        temp_df = temp_df[(rt_min_s < temp_df["scan_time"]) & (temp_df["scan_time"] < rt_max_s)]
+
+        fig.add_trace(go.Scatter(x=temp_df['scan_time'], y=temp_df['intensity'],
+                                 mode='lines', name=label, line=dict(color=color)))
+
+    fig.layout.yaxis.range = [intensity_min, intensity_max]
+
+    fig.add_vrect(x0=rt_min, x1=rt_max, fillcolor="green", opacity=0.05, line_width=0)
+    if rt is not None:
+        fig.add_vline(x=rt, line_dash="dot", line_color="black")
 
     fig.update_layout(
-        title=dict(
-            text=peak_label,
-            font={"size": 12},
-            subtitle=dict(
-                text=f"m/z={mz_mean:.2f}",
-                font=dict(color="gray", size=10),
-            ),
-        ),
-        margin=dict(l=30, r=0, t=50, b=15),
-        # height=100,
-        hovermode=False,
-        dragmode=False,
-        xaxis=dict(
-            # visible=False,
-            fixedrange=True,
-            tickfont=dict(size=9)
-        ),
-        yaxis=dict(
-            # visible=False,
-            fixedrange=True,
-            tickfont=dict(size=9)
-        ),
+        xaxis_title="Retention Time",
+        yaxis_title="Intensity",
+        title=peak_label,
         showlegend=False,
-        xaxis_title=None,
-        yaxis_title=None,
+        margin=dict(l=40, r=5, t=40, b=40),
     )
+    if log:
+        fig.update_yaxes(type="log")
     return fig
 
 
-def create_plot(*, ms_files, ms_files_selection, checkedkeys, mz_mean, mz_width, wdir, rt_min, rt, rt_max, label,
-                log, colors):
+def create_plot(*, chromatogram_data, checkedkeys, rt, rt_min, rt_max, title, log):
     """Crear gráfico con rango y línea central"""
     fig = FigureResampler(go.Figure())
     fig.layout.hovermode = "closest"
@@ -113,8 +105,7 @@ def create_plot(*, ms_files, ms_files_selection, checkedkeys, mz_mean, mz_width,
     fig.update_layout(
         yaxis_title="Intensity",
         xaxis_title="Scan Time [s]",
-        # xaxis=dict(rangeslider=dict(visible=True, thickness=0.33)),
-        title=label
+        title=title
     )
     if log:
         fig.update_yaxes(type="log")
@@ -128,26 +119,17 @@ def create_plot(*, ms_files, ms_files_selection, checkedkeys, mz_mean, mz_width,
         x0=rt_min, x1=rt_max, line_width=0, fillcolor="green", opacity=0.1
     )
 
-    slider_min = 999999
-    slider_max = -999999
-    n_files = len(ms_files_selection)
-    for i, ms_file in tqdm(enumerate(ms_files), total=n_files, desc="PKO-figure"):
-        color = colors[T.filename_to_label(ms_file)]
-        if color is None or color == "":
-            color = "grey"
-        ms_label = T.filename_to_label(ms_file)
-        chrom = T.get_chromatogram(ms_file, mz_mean, mz_width, wdir)
-        slider_min = min(slider_min, chrom["scan_time"].min())
-        slider_max = max(slider_max, chrom["scan_time"].max())
+    temp_df = chromatogram_data.explode(['scan_time', 'intensity'])
+    slider_min = temp_df['scan_time'].min()
+    slider_max = temp_df['scan_time'].max()
 
-        print(f"{ms_label = }")
-        print(f"{checkedkeys = }")
-
+    for _, row in chromatogram_data.iterrows():
+        label, color, scan_time, intensity = row
         fig.add_trace(
-            go.Scattergl(name=ms_label,
-                       visible='legendonly' if ms_label not in checkedkeys else True,
-                         line_color=color,
-                         ), hf_x=chrom["scan_time"], hf_y=chrom["intensity"],
+            go.Scattergl(x=scan_time, y=intensity,
+                         mode='lines', name=label, line=dict(color=color),
+                         visible='legendonly' if label not in checkedkeys else True,
+                         )
         )
     fig.update_layout(hoverlabel=dict(namelength=-1))
     fig.layout.xaxis.range = [slider_min, slider_max]
@@ -499,34 +481,36 @@ def callbacks(app, fsc, cache, cpu=None):
         Output('sample-type-tree', 'treeData'),
         Output('sample-type-tree', 'checkedKeys'),
         Output('sample-type-tree', 'expandedKeys'),
-        Input("wdir", "children"),
+        Input("chromatograms", "data"),
+        State("wdir", "children"),
     )
-    def update_sample_type_tree(wdir):
-        metadata = T.get_metadata(wdir)
-        if metadata is None or 'sample_type' not in metadata.columns:
-            return []
+    def update_sample_type_tree(chromatograms, wdir):
+        if not chromatograms:
+            raise PreventUpdate
 
-        sample_type_dict = {}
-        for ms_file,  sample_type in metadata[['ms_file_label', 'sample_type']].values:
-            if sample_type in sample_type_dict:
-                sample_type_dict[sample_type].append(ms_file)
-            else:
-                sample_type_dict[sample_type] = [ms_file]
+        with duckdb_connection(wdir) as conn:
+            if conn is None:
+                return dash.no_update, dash.no_update, dash.no_update
+            metadata = conn.execute("SELECT label, sample_type, use_for_optimization FROM samples_metadata").df()
 
-        checkedkeys = metadata[metadata['use_for_optimization']]['ms_file_label'].tolist()
+        if metadata.empty:
+            return dash.no_update, dash.no_update, dash.no_update
+
+        sample_type_dict = metadata.groupby('sample_type')['label'].apply(list).to_dict()
+        checked_keys = metadata[metadata['use_for_optimization']]['label'].tolist()
 
         tree_data = []
         for k, v in sample_type_dict.items():
-            children = [{'title': ms, 'key': ms} for ms in v if ms in checkedkeys]
+            children = [{'title': ms, 'key': ms} for ms in v if ms in checked_keys]
             if children:
                 tree_data.append({'title': k, 'key': k, 'children': children})
 
-        expandedKeys = [
+        expanded_keys = [
             k
             for k, v in sample_type_dict.items()
-            if any(ms in checkedkeys for ms in v)
+            if any(ms in checked_keys for ms in v)
         ]
-        return tree_data, checkedkeys, expandedKeys
+        return tree_data, checked_keys, expanded_keys
 
     @app.callback(
         Output('pko-info-modal', 'visible'),
@@ -626,77 +610,83 @@ def callbacks(app, fsc, cache, cpu=None):
             slider_values = None
         if image_clicked is None:
             raise PreventUpdate
-        targets = T.get_targets(wdir)
-        cols = ["mz_mean", "mz_width", "rt", "rt_min", "rt_max", "peak_label"]
-        mz_mean, mz_width, rt, rt_min, rt_max, label = targets.loc[targets['peak_label'] == image_clicked, cols].iloc[0]
-        # round values to int because the slider steps are int
-        orig_values = [int(rt_min), int(rt), int(rt_max)]
 
-        if trigger_id == 'pko-image-clicked':
-            ms_files_fs = {T.filename_to_label(f): f for f in T.get_ms_fns(wdir)}
-            metadata = T.get_metadata(wdir)
-            samples_selected = [
-                ms_files_fs[ss]
-                for ss in metadata[metadata['use_for_optimization'] == True]['ms_file_label'].tolist()
-                if ss in ms_files_fs
-            ]
+        # use peak_label instead of image_clicked, more intuitive
+        peak_label = image_clicked
 
-            ms_files_selection = []
-            for ms_name in checkedkeys:
-                if ms_name in ms_files_fs:
-                    ms_files_selection.append(ms_files_fs[ms_name])
+        with duckdb_connection(wdir) as conn:
 
-            rt_slider_min, st_slider,rt_slider_max = slider_values or orig_values
-            file_colors = T.file_colors(wdir)
+            target_df = conn.execute("SELECT rt, rt_min, rt_max, peak_label FROM targets "
+                                     "WHERE peak_label = ?", [peak_label]).df()
 
-            fig, slider_min, slider_max = create_plot(
-                ms_files=samples_selected,
-                ms_files_selection=ms_files_selection,
-                checkedkeys=checkedkeys,
-                mz_mean=mz_mean,
-                mz_width=mz_width,
-                wdir=wdir,
-                rt_min=rt_slider_min,
-                rt=st_slider,
-                rt_max=rt_slider_max,
-                label=label,
-                log='log' in options,
-                colors=file_colors
-            )
-            slider_marks = {i: str(i) for i in range(slider_min, slider_max, (int(slider_max - slider_min)//5))}
-            has_changes = slider_values != orig_values if slider_values else False
+            print(f"{target_df = }")
+            rt, rt_min, rt_max, label = target_df.iloc[0]
 
-            buttons_style = {
-                'visibility': 'visible' if has_changes else 'hidden',
-                'opacity': '1' if has_changes else '0',
-                'transition': 'opacity 0.3s ease-in-out'
-            }
-            return (fig, buttons_style, slider_min, slider_max,
-                    [rt_slider_min, st_slider, rt_slider_max],
-                    slider_marks,
-                    {"placement": "bottom", "always_visible": False},
-                    has_changes,
-                    )
+            # round values to int because the slider steps are int
+            orig_values = [int(rt_min), int(rt), int(rt_max)]
 
-        elif trigger_id == 'rt-range-slider':
-            patch_fig = Patch()
-            if slider_values[0]:
-                patch_fig['layout']['shapes'][1]['x0'] = slider_values[0]
-            if slider_values[2]:
-                patch_fig['layout']['shapes'][1]['x1'] = slider_values[2]
-            if slider_values[1]:
-                patch_fig['layout']['shapes'][0]['x0'] = slider_values[1]
-                patch_fig['layout']['shapes'][0]['x1'] = slider_values[1]
-                patch_fig['layout']['annotations'][0]['x'] = slider_values[1]
+            if trigger_id == 'pko-image-clicked':
+                samples_for_optimization = conn.execute("SELECT ms_file_label, color, label FROM samples_metadata "
+                                                        "WHERE use_for_optimization = True"
+                                                        ).df()
 
-            has_changes = slider_values != orig_values if slider_values else False
-            buttons_style = {
-                'visibility': 'visible' if has_changes else 'hidden',
-                'opacity': '1' if has_changes else '0',
-                'transition': 'opacity 0.3s ease-in-out'
-            }
+                rt_slider_min, st_slider, rt_slider_max = slider_values or orig_values
 
-            return (patch_fig, buttons_style, no_update, no_update, no_update, no_update, no_update, has_changes)
+                query = f"""SELECT 
+                                sel.label,
+                                sel.color,
+                                chr.scan_time, 
+                                chr.intensity
+                            FROM chromatograms AS chr
+                            JOIN samples_for_optimization AS sel ON sel.ms_file_label = chr.ms_file_label
+                            WHERE chr.peak_label = ?"""
+
+                chrom_df = conn.execute(query, [peak_label]).df()
+
+                fig, slider_min, slider_max = create_plot(
+                    chromatogram_data=chrom_df,
+                    checkedkeys=checkedkeys,
+                    rt=st_slider,
+                    rt_min=rt_slider_min,
+                    rt_max=rt_slider_max,
+                    title=peak_label,
+                    log='log' in options,
+                )
+
+                slider_marks = {i: str(i) for i in range(slider_min, slider_max, (int(slider_max - slider_min)//5))}
+                has_changes = slider_values != orig_values if slider_values else False
+
+                buttons_style = {
+                    'visibility': 'visible' if has_changes else 'hidden',
+                    'opacity': '1' if has_changes else '0',
+                    'transition': 'opacity 0.3s ease-in-out'
+                }
+                return (fig, buttons_style, slider_min, slider_max,
+                        [rt_slider_min, st_slider, rt_slider_max],
+                        slider_marks,
+                        {"placement": "bottom", "always_visible": False},
+                        has_changes,
+                        )
+
+            elif trigger_id == 'rt-range-slider':
+                patch_fig = Patch()
+                if slider_values[0]:
+                    patch_fig['layout']['shapes'][1]['x0'] = slider_values[0]
+                if slider_values[2]:
+                    patch_fig['layout']['shapes'][1]['x1'] = slider_values[2]
+                if slider_values[1]:
+                    patch_fig['layout']['shapes'][0]['x0'] = slider_values[1]
+                    patch_fig['layout']['shapes'][0]['x1'] = slider_values[1]
+                    patch_fig['layout']['annotations'][0]['x'] = slider_values[1]
+
+                has_changes = slider_values != orig_values if slider_values else False
+                buttons_style = {
+                    'visibility': 'visible' if has_changes else 'hidden',
+                    'opacity': '1' if has_changes else '0',
+                    'transition': 'opacity 0.3s ease-in-out'
+                }
+
+                return (patch_fig, buttons_style, no_update, no_update, no_update, no_update, no_update, has_changes)
         return (no_update, no_update, no_update, no_update, no_update, no_update, no_update, no_update)
 
     @app.callback(
@@ -836,39 +826,19 @@ def callbacks(app, fsc, cache, cpu=None):
         if tab != 'Optimization':
             raise PreventUpdate
 
-
-        metadata = T.get_metadata(wdir)
-        samples_selected = metadata[metadata['use_for_optimization'] == True]['ms_file_label'].tolist()
-        ms_files_fs = {T.filename_to_label(f): f for f in T.get_ms_fns(wdir)}
-        targets = T.get_targets(wdir)
-        ms_files_selection = []
-        for ms_name in samples_selected:
-            if ms_name in ms_files_fs:
-                ms_files_selection.append(ms_files_fs[ms_name])
-
-        total = 0
-        for target in targets['peak_label']:
-            if target not in chromatograms:
-                chromatograms[target] = []
-            total += len(set(samples_selected) - set(chromatograms[target]))
-        data = {}
-        count = 0
-        for ti, target in targets.iterrows():
-            peak_label, mz_mean, mz_width, rt, rt_min, rt_max, bookmark, score = target[
-                ["peak_label", "mz_mean", "mz_width", "rt", "rt_min", "rt_max", 'bookmark', 'score']
-            ]
-            if peak_label not in data:
-                data[peak_label] = []
-            for i, sample in enumerate(ms_files_selection, start=1):
-                if sample not in data[peak_label]:
-                    T.get_chromatogram(sample, mz_mean, mz_width, wdir)
-                    data[peak_label].append(sample)
-                    count += 1
-                    set_progress((round(count / total * 100, 2)))
-
-
-        return data
-
+        with DDB.duckdb_connection(wdir) as con:
+            if con is None:
+                return "Could not connect to database."
+            start = time.perf_counter()
+            DDB.compute_and_insert_chromatograms_from_ms_data(con)
+            print(f"Chromatograms computed in {time.perf_counter() - start:.2f} seconds")
+            # DDB.compute_and_insert_chromatograms_iteratively(con, set_progress=set_progress)
+            df = con.execute("SELECT * FROM chromatograms WHERE peak_label = 'Acetoacetic acid'").df()
+            import pandas as pd
+            pd.set_option('display.max_columns', None)
+            pd.set_option('display.width', None)
+            print(f"{df.head() = }")
+        return True
 
     @app.callback(
         Output("pko-peak-preview-images", "children"),
@@ -891,113 +861,121 @@ def callbacks(app, fsc, cache, cpu=None):
         if not chromatograms:
             raise PreventUpdate
 
-        ms_files_fs = {T.filename_to_label(f): f  for f in T.get_ms_fns(wdir)}
+        with duckdb_connection(wdir) as conn:
+            ms_files_selection = conn.execute(f"SELECT ms_file_label, color, label FROM samples_metadata WHERE label IN"
+                                              f" {checkedkeys}").df()
 
-        ms_files_selection = []
-        for ms_name in checkedkeys:
-            if ms_name in ms_files_fs:
-                ms_files_selection.append(ms_files_fs[ms_name])
+            if ms_files_selection.empty:
+                return (fac.AntdNotification(
+                    message="No chromatogram to preview",
+                    description='No files selected for peak optimization in MS-Files tab. Please, mark some files in the '
+                            'Sample Type tree. "use_for_optimization" is use as the initial selection only',
+                    type="error", duration=None,
+                    placement='bottom',
+                    showProgress=True,
+                    stack=True
+                ), no_update)
+            logging.info(f"Using {len(ms_files_selection)} files for peak preview. ({ms_files_selection = })")
 
-        if not ms_files_selection:
-            return (fac.AntdNotification(
-                message='No files selected for peak optimization in MS-Files tab. Please, mark some files in the '
-                        'Sample Type tree. "use_for_optimization" is use as the initial selection only',
-                type="error", duration=None,
-                placement='bottom',
-                showProgress=True,
-                stack=True
-            ), no_update)
-        logging.info(f"Using {len(ms_files_selection)} files for peak preview. ({ms_files_selection = })")
+            if selection == 'all':
+                total_targets_query = "SELECT COUNT(*) FROM targets WHERE preselected_processing = TRUE"
+                query = "SELECT * FROM targets WHERE preselected_processing = TRUE LIMIT ? OFFSET ?"
+            elif selection == 'bookmarked':
+                total_targets_query = "SELECT COUNT(*) FROM targets WHERE bookmark = TRUE"
+                query = "SELECT * FROM targets WHERE bookmark = TRUE LIMIT ? OFFSET ?"
+            else:
+                total_targets_query = "SELECT COUNT(*) FROM targets WHERE bookmark = FALSE"
+                query = "SELECT * FROM targets WHERE bookmark = FALSE LIMIT ? OFFSET ?"
 
-        targets = T.get_targets(wdir)
-        file_colors = T.file_colors(wdir)
+            total_targets = conn.execute(total_targets_query).fetchone()[0]
+            target_selection = conn.execute(query, [page_size, (current_page - 1) * page_size]).df()
 
-        if selection == 'all':
-            target_selection = targets
-        elif selection == 'bookmarked':
-            target_selection = targets.query('bookmark == 1')
-        else:
-            target_selection = targets.query('bookmark == 0')
+            plots = []
+            for _, row in target_selection.iterrows():
+                peak_label, mz_mean, mz_width, rt, rt_min, rt_max, bookmark, score = row[
+                    ["peak_label", "mz_mean", "mz_width", "rt", "rt_min", "rt_max", 'bookmark', 'score']
+                ]
 
+                query = f"""SELECT 
+                                sel.label,
+                                sel.color,
+                                chr.scan_time, 
+                                chr.intensity
+                            FROM chromatograms AS chr
+                            JOIN ms_files_selection AS sel ON sel.ms_file_label = chr.ms_file_label
+                            WHERE chr.peak_label = ?"""
 
-        start = (current_page - 1) * page_size
-        end = min(current_page * page_size, len(target_selection) + 1)
+                all_chrom_df = conn.execute(query, [peak_label]).df()
+                pd.set_option('display.max_columns', None)
+                pd.set_option('display.width', None)
+                print(f"{all_chrom_df.head(5) = }")
 
-        plots = []
-        for _, row in target_selection.iloc[start:end].iterrows():
-            peak_label, mz_mean, mz_width, rt, rt_min, rt_max, bookmark, score = row[
-                ["peak_label", "mz_mean", "mz_width", "rt", "rt_min", "rt_max", 'bookmark', 'score']
-            ]
-            fig = create_preview_peakshape_plotly(
-                ms_files_selection,
-                mz_mean,
-                mz_width,
-                rt,
-                rt_min,
-                rt_max,
-                wdir,
-                peak_label=peak_label,
-                colors=file_colors,
-                log='log' in options
-            )
-
-            plots.append(
-                fac.AntdCard([
-                    dcc.Graph(
-                        id={'type': 'graph-card-preview', 'index': f"{peak_label}-{uuid.uuid4().hex[:6]}"},
-                        figure=fig,
-                        style={'height': '150px', 'width': '200px', 'margin': '0px'},
-                        config={
-                            'displayModeBar': False,
-                            'staticPlot': True,  # Totalmente estático para máxima performance
-                            'doubleClick': False,
-                            'showTips': False,
-                            'responsive': False  # Tamaño fijo
-                        },
-                    ),
-                    fac.AntdTooltip(
-                        fac.AntdButton(
-                            icon=fac.AntdIcon(icon='antd-delete'),
-                            type='text',
-                            size='small',
-                            id={'type': 'delete-target-btn', 'index': peak_label},
-                            style={
-                                'padding': '4px',
-                                'minWidth': '24px',
-                                'height': '24px',
-                                'borderRadius': '50%',
-                                'background': 'rgba(0, 0, 0, 0.5)',
-                                'color': 'white',
-                                'position': 'absolute',
-                                'bottom': '8px',
-                                'right': '8px',
-                                'zIndex': 10,
-                                'opacity': '0',
-                                'transition': 'opacity 0.3s ease'
-                            },
-                            className='peak-action-button',
-                        ),
-                        title='Delete target',
-                        color='red',
-                        placement='bottom',
-                    ),
-                    fac.AntdRate(
-                        id={'type': 'rate-target-card', 'index': peak_label},
-                        count=1,
-                        defaultValue=0,
-                        value=targets.loc[targets['peak_label'] == peak_label, 'bookmark'].values[0],
-                        allowHalf=False,
-                        tooltips=['Bookmark this target'],
-                        style={'position': 'absolute', 'top': '8px', 'right': '8px', 'zIndex': 10},
-                    )],
-                    id={'type': 'plot-card-preview', 'index': peak_label},
-                    style={'cursor': 'pointer'},
-                    styles={'header': {'display': 'none'}, 'body': {'padding': '5px'}},
-                    hoverable=True,
-                    className='peak-card-container',
+                fig = create_preview_peakshape_plotly(
+                    all_chrom_df,
+                    rt,
+                    rt_min,
+                    rt_max,
+                    peak_label=peak_label,
+                    log='log' in options
                 )
-            )
-        return plots, len(target_selection)
+
+                plots.append(
+                    fac.AntdCard([
+                        dcc.Graph(
+                            id={'type': 'graph-card-preview', 'index': f"{peak_label}-{uuid.uuid4().hex[:6]}"},
+                            figure=fig,
+                            style={'height': '150px', 'width': '200px', 'margin': '0px'},
+                            config={
+                                'displayModeBar': False,
+                                'staticPlot': True,  # Totalmente estático para máxima performance
+                                'doubleClick': False,
+                                'showTips': False,
+                                'responsive': False  # Tamaño fijo
+                            },
+                        ),
+                        fac.AntdTooltip(
+                            fac.AntdButton(
+                                icon=fac.AntdIcon(icon='antd-delete'),
+                                type='text',
+                                size='small',
+                                id={'type': 'delete-target-btn', 'index': peak_label},
+                                style={
+                                    'padding': '4px',
+                                    'minWidth': '24px',
+                                    'height': '24px',
+                                    'borderRadius': '50%',
+                                    'background': 'rgba(0, 0, 0, 0.5)',
+                                    'color': 'white',
+                                    'position': 'absolute',
+                                    'bottom': '8px',
+                                    'right': '8px',
+                                    'zIndex': 10,
+                                    'opacity': '0',
+                                    'transition': 'opacity 0.3s ease'
+                                },
+                                className='peak-action-button',
+                            ),
+                            title='Delete target',
+                            color='red',
+                            placement='bottom',
+                        ),
+                        fac.AntdRate(
+                            id={'type': 'rate-target-card', 'index': peak_label},
+                            count=1,
+                            defaultValue=0,
+                            value=int(bookmark),
+                            allowHalf=False,
+                            tooltips=['Bookmark this target'],
+                            style={'position': 'absolute', 'top': '8px', 'right': '8px', 'zIndex': 10},
+                        )],
+                        id={'type': 'plot-card-preview', 'index': peak_label},
+                        style={'cursor': 'pointer'},
+                        styles={'header': {'display': 'none'}, 'body': {'padding': '5px'}},
+                        hoverable=True,
+                        className='peak-card-container',
+                    )
+                )
+        return plots, total_targets
 
     @app.callback(
         Output("pko-image-clicked", "children"),
@@ -1072,7 +1050,7 @@ def callbacks(app, fsc, cache, cpu=None):
         prevent_initial_call=True
     )
     def bookmark_target(value, wdir):
-
+        # TODO: change bookmark to bool since the AntdRate component returns an int and the db require a bool
         ctx = dash.callback_context
         if not ctx.triggered or len(dash.callback_context.triggered) > 1:
             raise PreventUpdate
