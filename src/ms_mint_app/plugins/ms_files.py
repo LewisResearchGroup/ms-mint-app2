@@ -220,7 +220,6 @@ _layout = html.Div(
                     filetypes=["tar", "zip", "mzxml", "mzml", "mzXML", "mzML", "mzMLb", "feather", "parquet"],
                     upload_id=str(uuid.uuid4()),  # Unique session id
                     text="Upload mzXML/mzML files.",
-                    cancel_button=False,
                 ),
             ),
             dbc.Col(
