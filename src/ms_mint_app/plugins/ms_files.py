@@ -246,7 +246,11 @@ _layout = html.Div(
             style={"display": "none"},
             children=[
                 html.P("Processing files..."),
-                dbc.Progress(id="ms-progress-bar", animated=True, striped=True, label="Processing files...")
+                fac.AntdProgress(
+                    id="ms-progress-bar",
+                    showInfo=True,
+
+                )
             ]
         ),
         dcc.Interval(id="ms-poll-interval", interval=1000, n_intervals=0, disabled=True),
