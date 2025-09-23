@@ -354,8 +354,10 @@ def callbacks(cls, app, fsc, cache):
     )
     def ms_upload_completed(status):
         logging.warning(f"Upload status: {status} ({type(status)})")
-        set_props("ms-progress-bar", {"max": status.n_total})
-        return [status.latest_file.as_posix(), status.n_uploaded, status.n_total]
+        if status.n_uploaded == status.n_total:
+            set_props("ms-progress-bar", {"percent": 0})
+            return [[f.as_posix() for f in status.uploaded_files], status.n_total]
+        raise PreventUpdate
 
     @app.callback(
         Output("notifications-container", "children", allow_duplicate=True),
