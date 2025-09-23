@@ -834,9 +834,9 @@ def callbacks(app, fsc, cache, cpu=None):
             if con is None:
                 return "Could not connect to database."
             start = time.perf_counter()
-            DDB.compute_and_insert_chromatograms_from_ms_data(con)
+            # DDB.compute_and_insert_chromatograms_from_ms_data(con)
+            DDB.compute_and_insert_chromatograms_iteratively(con, set_progress=set_progress)
             print(f"Chromatograms computed in {time.perf_counter() - start:.2f} seconds")
-            # DDB.compute_and_insert_chromatograms_iteratively(con, set_progress=set_progress)
             df = con.execute("SELECT * FROM chromatograms WHERE peak_label = 'Acetoacetic acid'").df()
             import pandas as pd
             pd.set_option('display.max_columns', None)
