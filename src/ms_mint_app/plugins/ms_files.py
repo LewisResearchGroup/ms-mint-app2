@@ -356,6 +356,7 @@ def callbacks(cls, app, fsc, cache):
         logging.warning(f"Upload status: {status} ({type(status)})")
         if status.n_uploaded == status.n_total:
             set_props("ms-progress-bar", {"percent": 0})
+            set_props("progress-container", {"style": {"display": "block"}})
             return [[f.as_posix() for f in status.uploaded_files], status.n_total]
         raise PreventUpdate
 
@@ -395,134 +396,103 @@ def callbacks(cls, app, fsc, cache):
                                     )
 
     @app.callback(
-        Output("notifications-container", "children", allow_duplicate=True),
-        Output("ms-poll-interval", "disabled", allow_duplicate=True),
+        Output('notifications-container', "children", allow_duplicate=True),
+        Output('ms-processed-output', 'data'),
+        Output("progress-container", "style", allow_duplicate=True),
 
-        Input("ms-uploader-input", "data"),
+    Input('ms-uploader-input', 'data'),
         State("wdir", "children"),
+        background=True,
+        running=[
+            (Output("metadata-uploader", "disabled"), True, False),
+        ],
+        progress=[Output("ms-progress-bar", "percent")],
         prevent_initial_call=True
     )
-    def check_ms_files(fns, wdir):
-        ctx = dash.callback_context
-        if not ctx.triggered:
+    def background_ms_processing(set_progress, uploader_data, wdir):
+
+        prop_id = dash.callback_context.triggered[0]['prop_id']
+        print(f'background_ms_processing {prop_id = }')
+
+        if not dash.callback_context.triggered or uploader_data is None:
             raise PreventUpdate
 
-        latest_file, n_uploaded, n_total = fns if fns is not None else (None, 0, 0)
-        if not latest_file or n_uploaded == 0:
-            raise PreventUpdate
+        uploaded_files, n_total = uploader_data
+        duplicated_files = []
 
-        latest_file = Path(latest_file)
-        # check if latest_file is in the db
+        # get the ms_file_label data as df to avoid multiple queries
         with duckdb_connection(wdir) as conn:
             if conn is None:
                 raise PreventUpdate
-            duplicated_file_sele = conn.execute("SELECT COUNT(*) FROM samples_metadata WHERE ms_file_label = ?", (latest_file.stem,)).fetchone()
+            data = conn.execute("SELECT ms_file_label FROM samples_metadata").df()
 
-        if duplicated_file_sele is not None and duplicated_file_sele[0] > 0:
-            cls.processed += 1
+        futures = []
+        with concurrent.futures.ProcessPoolExecutor(max_workers=4) as executor:
+            for i, file_path in enumerate(uploaded_files):
+                if Path(file_path).stem in data['ms_file_label'].values:
+                    duplicated_files.append(file_path)
+                    set_progress(round(len(duplicated_files) / n_total * 100, 2))
+                else:
+                    futures.append(executor.submit(convert_mzxml_to_parquet, file_path))
 
-            return fac.AntdNotification(message="Duplicated file",
-                                        description=f"{latest_file.stem} already loaded. Skipping...",
-                                        type="error",
-                                        duration=3,
-                                        placement='bottom',
-                                        showProgress=True,
-                                        stack=True
-                                        ), False
-        else:
-            if not cls.executor:
-                cls.executor = concurrent.futures.ProcessPoolExecutor(max_workers=4)
-            cls.futures.append(cls.executor.submit(convert_mzxml_to_parquet, latest_file))
+            batch_ms = []
+            batch_ms_data = []
+            for i, future in enumerate(concurrent.futures.as_completed(futures)):
+                _ms_file_label, _ms_level, _polarity, _parquet_df = future.result()
+                batch_ms.append((_ms_file_label, _ms_file_label, _ms_level, f'ms{_ms_level}', _polarity))
+                batch_ms_data.append(_parquet_df)
 
-        return dash.no_update, False
-
-
-    @app.callback(
-        Output("notifications-container", "children", allow_duplicate=True),
-        Output("ms-processed-output", "data"),
-        Output("ms-poll-interval", "disabled", allow_duplicate=True),
-        Output("progress-container", "style"),
-        Output("metadata-uploader", "disabled"),
-
-        Input("ms-poll-interval", "n_intervals"),
-        Input("ms-uploader-input", "data"),
-        State('ms-progress-bar', 'value'),
-
-        State("wdir", "children"),
-        prevent_initial_call=True
-    )
-    def get_processed_files(n_interval, uploaded_data, current_progress, wdir):
-
-        notification = dash.no_update
-        uploader_output = dash.no_update
-        ms_poll_interval_disabled = False
-        progress_container_style = {"display": "block"}
-        metadata_uploader_disabled = True
-
-
-        latest_file, n_uploaded, n_total = uploaded_data if uploaded_data is not None else (None, 0, 0)
-
-        futures_done = sum(future.done() for future in cls.futures)
-        
-        
-        processed_files = cls.processed + futures_done
-
-        # check if not futures
-        if not cls.futures:
-            raise PreventUpdate
-
-        if futures_done:
-            with duckdb_connection(wdir) as conn:
-                if conn is None:
-                    raise PreventUpdate
-                # Iterate over a copy of the futures list to allow safe removal
-                for future in cls.futures[:]:
-                    if future.done():
+                if len(batch_ms) == 20:
+                    with duckdb_connection(wdir) as conn:
+                        if conn is None:
+                            raise PreventUpdate
                         try:
-                            _ms_file_label, _ms_level, _polarity, _ms_data_df = future.result()
-                            try:
-                                conn.execute(
-                                    "INSERT INTO samples_metadata(ms_file_label, label, ms_level, file_type, "
-                                    'use_for_analysis, polarity) VALUES (?, ?, ?, ?, True, ?)',
-                                    [_ms_file_label, _ms_file_label, _ms_level, f'ms{_ms_level}', _polarity]
-                                )
-                                conn.execute(
-                                    "INSERT INTO ms_data SELECT * FROM _ms_data_df")
-                            except Exception as e:
-                                logging.error(f"DB error: {e}")
-
-                            cls.futures.remove(future)
-                            cls.processed += 1
+                            conn.executemany(
+                                "INSERT INTO samples_metadata(ms_file_label, label, ms_level, file_type, polarity) "
+                                "VALUES (?, ?, ?, ?, ?)",
+                                batch_ms
+                            )
+                            conn.execute(
+                                "INSERT INTO ms_data SELECT ms_file_label, scan_id, mz, intensity, scan_time, mz_precursor, "
+                                "filterLine, filterLine_ELMAVEN FROM read_parquet(?)", [batch_ms_data])
                         except Exception as e:
-                            logging.error(f"Error processing future: {e}")
+                            logging.error(f"DB error: {e}")
+                    batch_ms = []
+                    batch_ms_data = []
+                    set_progress(round(i + len(duplicated_files) / n_total * 100, 2))
 
-        if processed_files == current_progress:
-            raise PreventUpdate
-        elif processed_files == 0:
-            set_props("ms-progress-bar",
-                      {"value": n_total, "label": "Processing MS files..."})
-        elif processed_files < n_total:
-            set_props("ms-progress-bar",
-                      {"value": processed_files, "label": f"Processed {processed_files}/{n_total} files..."})
-        else:
-            notification = fac.AntdNotification(message="Files processed",
-                                                description=f"Successful processed {n_total} files",
+            if batch_ms:
+                with duckdb_connection(wdir) as conn:
+                    if conn is None:
+                        raise PreventUpdate
+                    try:
+                        conn.executemany(
+                            "INSERT INTO samples_metadata(ms_file_label, label, ms_level, file_type, polarity) "
+                            "VALUES (?, ?, ?, ?, ?)",
+                            batch_ms
+                        )
+                        conn.execute(
+                            "INSERT INTO ms_data SELECT ms_file_label, scan_id, mz, intensity, scan_time, mz_precursor, "
+                            "filterLine, filterLine_ELMAVEN FROM read_parquet(?)", [batch_ms_data])
+                    except Exception as e:
+                        logging.error(f"DB error: {e}")
+
+                set_progress(round(n_total / n_total * 100, 2))
+
+        notifications = [
+            fac.AntdNotification(message="Files processed",
+                                                description=f"Successful processed {n_total - len(duplicated_files)} files",
                                                 type="success", duration=3,
-                                                placement='bottom', showProgress=True, stack=True)
-            uploader_output = True
-            ms_poll_interval_disabled = True
-            progress_container_style = {"display": "none"}
-            metadata_uploader_disabled = False
-            if cls.executor:
-                try:
-                    cls.executor.shutdown()
-                    cls.executor = None
-                except Exception as e:
-                    pass
-        with duckdb_connection(wdir) as conn:
-            sm_df = conn.execute("SELECT * FROM samples_metadata").df()
-            print(f"{sm_df = }")
-        return notification, uploader_output, ms_poll_interval_disabled, progress_container_style, metadata_uploader_disabled
+                                                placement='bottom', showProgress=True)]
+        if duplicated_files:
+            notifications.append(
+                fac.AntdNotification(message="Duplicated files",
+                                     description=f"There are {len(duplicated_files)} files that were "
+                                                 f"ignored",
+                                     type="warning", duration=3,
+                                     placement='bottom', showProgress=True)
+            )
+        return notifications, True, {'display': 'none'}
 
     @du.callback(
         output=Output("metadata-uploader-input", "data"),
