@@ -35,9 +35,6 @@ class MsFilesPlugin(PluginInterface):
     def __init__(self):
         self._label = _label
         self._order = 2
-        self.executor: concurrent.futures.ProcessPoolExecutor = None
-        self.futures: list[concurrent.futures.Future] = []
-        self.processed = 0
         print(f"Initiated {_label} plugin")
 
     def layout(self):
