@@ -453,8 +453,7 @@ def callbacks(cls, app, fsc, cache):
                                 batch_ms
                             )
                             conn.execute(
-                                "INSERT INTO ms_data SELECT ms_file_label, scan_id, mz, intensity, scan_time, mz_precursor, "
-                                "filterLine, filterLine_ELMAVEN FROM read_parquet(?)", [batch_ms_data])
+                                "INSERT INTO ms_data SELECT * FROM read_parquet(?)", [batch_ms_data])
                         except Exception as e:
                             logging.error(f"DB error: {e}")
                     batch_ms = []
