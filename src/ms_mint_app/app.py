@@ -7,9 +7,6 @@ import pandas as pd
 
 from pathlib import Path as P
 
-import matplotlib
-
-matplotlib.use("Agg")
 
 import dash
 

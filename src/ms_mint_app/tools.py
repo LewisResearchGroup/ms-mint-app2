@@ -18,13 +18,8 @@ import urllib3, ftplib
 from urllib.parse import urlparse
 from bs4 import BeautifulSoup
 
-import matplotlib as mpl
 from typing import Union, Optional
 
-mpl.use("Agg")
-
-from matplotlib import pyplot as plt
-import matplotlib.cm as cm
 
 import ms_mint
 from ms_mint.io import ms_file_to_df
