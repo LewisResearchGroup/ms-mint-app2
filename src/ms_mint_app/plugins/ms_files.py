@@ -220,6 +220,7 @@ _layout = html.Div(
                     filetypes=["tar", "zip", "mzxml", "mzml", "mzXML", "mzML", "mzMLb", "feather", "parquet"],
                     upload_id=str(uuid.uuid4()),  # Unique session id
                     text="Upload mzXML/mzML files.",
+                    text_completed="Upload completed.",
                 ),
             ),
             dbc.Col(
@@ -230,7 +231,7 @@ _layout = html.Div(
                     filetypes=["csv"],
                     upload_id=str(uuid.uuid4()),  # Unique session id
                     text="Upload METADATA files.",
-                    cancel_button=False
+                    text_completed="Upload completed.",
                 ),
             )]
         ),
