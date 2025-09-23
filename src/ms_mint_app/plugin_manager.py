@@ -1,6 +1,6 @@
 import logging
-
-from pkg_resources import iter_entry_points
+import sys
+from importlib import metadata
 from collections import OrderedDict
 
 from .plugin_interface import PluginInterface
@@ -38,7 +38,12 @@ class PluginManager:
 
 
         # Discover and register external plugins
-        for entry_point in iter_entry_points("ms_mint_app.plugins"):
+        if sys.version_info >= (3, 10):
+            entry_points = metadata.entry_points(group="ms_mint_app.plugins")
+        else:
+            entry_points = metadata.entry_points().get("ms_mint_app.plugins", [])
+
+        for entry_point in entry_points:
             plugin = entry_point.load()
             plugin_name = entry_point.name
             plugin_instance = plugin()
