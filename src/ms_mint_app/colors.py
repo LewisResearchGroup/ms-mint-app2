@@ -14,8 +14,8 @@ def make_palette(labels, existing_map=None):
     missing = [l for l in labels if l not in existing_map]
 
     exclude = [hex_to_rgb(c) for c in existing_map.values()]
-    new_colors = distinctipy.get_colors(len(missing), exclude_colors=exclude + [(0, 0, 0), (1, 1, 1)])
-
+    new_colors = distinctipy.get_colors(len(missing), exclude_colors=exclude + [(0, 0, 0), (1, 1, 1)],
+                                        pastel_factor=0.7)
     palette = predef.copy()
     palette.update({lab: distinctipy.get_hex(rgb) for lab, rgb in zip(missing, new_colors)})
     return palette
