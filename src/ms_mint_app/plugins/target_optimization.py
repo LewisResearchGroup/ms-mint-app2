@@ -51,7 +51,7 @@ def create_preview_peakshape_plotly(
     peak_label,
     log=False,
 ):
-    fig = go.Figure()
+    fig = FigureResampler(go.Figure())
 
     if chromatogram_data.empty:
         return fig
@@ -76,8 +76,10 @@ def create_preview_peakshape_plotly(
         rt_max_s = rt_max + (rt_max - rt)
         temp_df = temp_df[(rt_min_s < temp_df["scan_time"]) & (temp_df["scan_time"] < rt_max_s)]
 
-        fig.add_trace(go.Scatter(x=temp_df['scan_time'], y=temp_df['intensity'],
-                                 mode='lines', name=label, line=dict(color=color)))
+        fig.add_trace(go.Scatter(
+                                 mode='lines', name=label, line=dict(color=color)),
+            hf_x=temp_df['scan_time'], hf_y=temp_df['intensity'],
+        )
 
     fig.layout.yaxis.range = [intensity_min, intensity_max]
 
@@ -126,10 +128,12 @@ def create_plot(*, chromatogram_data, checkedkeys, rt, rt_min, rt_max, title, lo
     for _, row in chromatogram_data.iterrows():
         label, color, scan_time, intensity = row
         fig.add_trace(
-            go.Scattergl(x=scan_time, y=intensity,
-                         mode='lines', name=label, line=dict(color=color),
+            go.Scattergl(
+                         mode='lines+markers', name=label, line=dict(color=color),
                          visible='legendonly' if label not in checkedkeys else True,
-                         )
+                         ),
+            hf_x=scan_time,
+            hf_y=intensity,
         )
     fig.update_layout(hoverlabel=dict(namelength=-1))
     fig.layout.xaxis.range = [slider_min, slider_max]
