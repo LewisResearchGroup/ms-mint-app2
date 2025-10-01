@@ -79,7 +79,7 @@ def callbacks(app, fsc, cache):
         State("ana-file-types", "value"),
         State("ana-peak-labels-include", "value"),
         State("ana-peak-labels-exclude", "value"),
-        State("wdir", "children"),
+        State("wdir", "data"),
     )
     def qc_figures(
         n_clicks,

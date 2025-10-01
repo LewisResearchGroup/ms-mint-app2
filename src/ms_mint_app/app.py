@@ -122,7 +122,7 @@ tab_selected_style = {
 _layout = html.Div(
     [
         Download(id="res-download-data"),
-        html.Div(id="tmpdir", children=str(TMPDIR), style={"visibility": "hidden", "height": "0px"}),
+        dcc.Store(id="tmpdir", data=str(TMPDIR)),
         dcc.Interval(
             id="progress-interval", n_intervals=0, interval=2000, disabled=False
         ),
@@ -264,6 +264,7 @@ _layout = html.Div(
         html.Div(id="pko-image-store", style={"visibility": "hidden", "height": "0px"}),
         html.Div(id='notifications-container'),
         dcc.Store(id="viewport-container"),
+        dcc.Store(id="wdir"),
         _outputs,
     ],
 
@@ -300,7 +301,7 @@ def register_callbacks(app, cache, fsc):
     @app.callback(
         Output("tab-content", "children"),
         Input("tab", "value"),
-        State("wdir", "children"),
+        State("wdir", "data"),
     )
     def render_content(tab, wdir):
         func = plugins[tab].layout
@@ -323,7 +324,7 @@ def register_callbacks(app, cache, fsc):
             raise PreventUpdate
 
     @app.callback(
-        Output("tmpdir", "children"),
+        Output("tmpdir", "data"),
         Output("logout-button", "style"),
         Input("progress-interval", "n_intervals"),
     )

@@ -486,7 +486,7 @@ def callbacks(app, fsc, cache, cpu=None):
         Output('sample-type-tree', 'checkedKeys'),
         Output('sample-type-tree', 'expandedKeys'),
         Input("chromatograms", "data"),
-        State("wdir", "children"),
+        State("wdir", "data"),
     )
     def update_sample_type_tree(chromatograms, wdir):
         if not chromatograms:
@@ -526,7 +526,7 @@ def callbacks(app, fsc, cache, cpu=None):
         Input('close-without-save-btn', 'nClicks'),
         Input('sample-type-tree', 'checkedKeys'),
         State('has-unsaved-changes', 'data'),
-        State('wdir', 'children'),
+        State("wdir", "data"),
         prevent_initial_call=True
     )
     def handle_modal_open_close(image_clicked, close_clicks, close_without_save_clicks,
@@ -601,7 +601,7 @@ def callbacks(app, fsc, cache, cpu=None):
         Input("pko-figure-options", "value"),
         Input('rt-range-slider', 'value'),
         Input('sample-type-tree', 'checkedKeys'),
-        State('wdir', 'children'),
+        State("wdir", "data"),
         prevent_initial_call=True
     )
     def update_from_slider(image_clicked, options, slider_values, checkedkeys, wdir):
@@ -717,7 +717,7 @@ def callbacks(app, fsc, cache, cpu=None):
         Input('save-btn', 'nClicks'),
         Input("rt-range-slider", "value"),
         State("has-unsaved-changes", "data"),
-        State('wdir', 'children'),
+        State("wdir", "data"),
         prevent_initial_call=True
     )
     def save_changes(image_clicked, save_clicks, current_values, unsaved_changes, wdir):
@@ -761,7 +761,7 @@ def callbacks(app, fsc, cache, cpu=None):
 
         Input("pko-image-clicked", "children"),
         Input('reset-btn', 'nClicks'),
-        State('wdir', 'children'),
+        State("wdir", "data"),
         prevent_initial_call=True
     )
     def reset_changes(image_clicked, reset_clicks, wdir):
@@ -802,7 +802,7 @@ def callbacks(app, fsc, cache, cpu=None):
         # Output('chromatograms-progress-container', 'style'),
         Input('tab', 'value'),
         Input('chromatograms', 'data'),
-        State('wdir', 'children'),
+        State("wdir", "data"),
         background=True,
         running=[
             (
@@ -857,7 +857,7 @@ def callbacks(app, fsc, cache, cpu=None):
         Input("pko-figure-options", "value"),
         Input('card-plot-selection', 'value'),
         Input({"index": "pko-drop-target-output", "type": "output"}, "children"),
-        State("wdir", "children"),
+        State("wdir", "data"),
     )
     def peak_preview(chromatograms, current_page, page_size, checkedkeys, options, selection, dropped_target, wdir):
         logging.info(f'Create peak previews {wdir}')
@@ -1029,7 +1029,7 @@ def callbacks(app, fsc, cache, cpu=None):
         Input('delete-modal', 'cancelCounts'),
         Input('delete-modal', 'closeCounts'),
         Input('delete-target-clicked', 'children'),
-        State('wdir', 'children'),
+        State("wdir", "data"),
         prevent_initial_call=True
     )
     def plk_delete(okCounts, cancelCounts, closeCounts, target, wdir):
@@ -1050,7 +1050,7 @@ def callbacks(app, fsc, cache, cpu=None):
     @app.callback(
         Output('notifications-container', "children", allow_duplicate=True),
         Input({"type": "rate-target-card", "index": ALL}, "value"),
-        State('wdir', 'children'),
+        State("wdir", "data"),
         prevent_initial_call=True
     )
     def bookmark_target(value, wdir):

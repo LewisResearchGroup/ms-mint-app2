@@ -114,7 +114,7 @@ def callbacks(app, fsc, cache):
     @app.callback(
         Output("qc-fig-mz-drift-overall", "figure"),
         Input("tab", "value"),
-        State("wdir", "children"),
+        State("wdir", "data"),
     )
     def create_mz_drift_by_peak_label_overall(
         tab,
@@ -132,7 +132,7 @@ def callbacks(app, fsc, cache):
     @app.callback(
         Output("qc-fig-mz-drift-by-target", "figure"),
         Input("tab", "value"),
-        State("wdir", "children"),
+        State("wdir", "data"),
     )
     def create_mz_drift_by_peak_label(
         tab,
@@ -160,7 +160,7 @@ def callbacks(app, fsc, cache):
     @app.callback(
         Output("qc-fig-pca", "figure"),
         Input("tab", "value"),
-        State("wdir", "children"),
+        State("wdir", "data"),
     )
     def create_pca(
         tab,
@@ -187,7 +187,7 @@ def callbacks(app, fsc, cache):
     @app.callback(
         Output("qc-fig-peak-shapes", "figure"),
         Input("tab", "value"),
-        State("wdir", "children"),
+        State("wdir", "data"),
     )
     def create_peak_shapes(
         tab,

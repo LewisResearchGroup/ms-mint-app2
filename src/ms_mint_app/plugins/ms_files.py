@@ -275,12 +275,14 @@ def layout():
 
 
 def callbacks(cls, app, fsc, cache):
+        State("wdir", "data"),
     @app.callback(
         Output("ms-files-table", "data"),
         Input("ms-processed-output", "data"),
         Input("metadata-processed-store", "data"),
         Input("ms-delete-store", "data"),
         Input("wdir", "children"),
+        Input("wdir", "data"),
     )
     def ms_files_table(value, value2, files_deleted, wdir):
 
@@ -322,6 +324,7 @@ def callbacks(cls, app, fsc, cache):
         Input("ms-mc-confirm", "n_clicks"),
         State("ms-files-table", "multiRowsClicked"),
         State("wdir", "children"),
+        State("wdir", "data"),
         prevent_initial_call=True,
     )
     def confirm_and_delete(n_confirm, rows, wdir):
@@ -364,6 +367,7 @@ def callbacks(cls, app, fsc, cache):
         Output("notifications-container", "children", allow_duplicate=True),
         Input("ms-files-table", "cellEdited"),
         State("wdir", "children"),
+        State("wdir", "data"),
         prevent_initial_call=True,
     )
     def save_table_on_edit(cell_edited, wdir):
@@ -402,6 +406,7 @@ def callbacks(cls, app, fsc, cache):
 
     Input('ms-uploader-input', 'data'),
         State("wdir", "children"),
+        State("wdir", "data"),
         background=True,
         running=[
             (Output("metadata-uploader", "disabled"), True, False),

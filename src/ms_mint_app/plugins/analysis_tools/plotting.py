@@ -309,7 +309,7 @@ def callbacks(app, fsc, cache, cpu=None):
         Output("plot-size", "options"),
         Output("plot-style", "options"),
         Input("ana-secondary-tab", "value"),
-        State("wdir", "children"),
+        State("wdir", "data"),
     )
     def fill_options(tab, wdir):
         if tab != _label:
@@ -347,7 +347,7 @@ def callbacks(app, fsc, cache, cpu=None):
         State("ana-ms-order", "value"),
         State("plot-palette", "value"),
         State("plot-options", "value"),
-        State("wdir", "children"),
+        State("wdir", "data"),
         cancel=[Input("plot-update", "n_clicks")],
     )
     def create_figure(

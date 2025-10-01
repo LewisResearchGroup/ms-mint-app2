@@ -169,7 +169,7 @@ def callbacks(app, fsc, cache):
         Input("tab", "value"),
         Input("meta-upload-output", "children"),
         Input("meta-apply-output", "children"),
-        State("wdir", "children"),
+        State("wdir", "data"),
     )
     def meta_load_table(tab, upload_trigger, apply_trigger, wdir):
         if tab != "Metadata":
@@ -193,7 +193,7 @@ def callbacks(app, fsc, cache):
         Output("meta-upload-output", "children"),
         Input("meta-upload", "contents"),
         Input("meta-upload", "filename"),
-        State("wdir", "children"),
+        State("wdir", "data"),
     )
     def meta_upload(contents, filename, wdir):
         if contents is None:
@@ -232,7 +232,7 @@ def callbacks(app, fsc, cache):
         State("meta-column", "value"),
         State("meta-input", "value"),
         State("meta-input-bool", "value"),
-        State("wdir", "children"),
+        State("wdir", "data"),
     )
     def meta_apply(
         n_clicks,
@@ -289,7 +289,7 @@ def callbacks(app, fsc, cache):
         ),
         Input("meta-table", "cellEdited"),
         State("meta-table", "data"),
-        State("wdir", "children"),
+        State("wdir", "data"),
     )
     def save_table_on_edit(cell_edited, data, wdir):
         """

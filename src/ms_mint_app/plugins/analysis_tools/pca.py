@@ -88,7 +88,7 @@ def callbacks(app, fsc, cache):
         State("ana-file-types", "value"),
         State("pca-options", "value"),
         State("viewport-container", "data"),
-        State("wdir", "children"),
+        State("wdir", "data"),
     )
     def create_pca(
         n_clicks,

@@ -265,7 +265,7 @@ def layout():
 def callbacks(app, fsc, cache):
     @app.callback(
         Output("ms2-table", "data"),
-        Input("wdir", "children"),
+        Input("wdir", "data"),
         State("active-workspace", "children"),
     )
     def ms2_table(wdir, workspace):
@@ -281,7 +281,7 @@ def callbacks(app, fsc, cache):
         Output("content-table", "data"),
         Output("channel-selector", "options"),
         Output("channel-selector", "value"),
-        Input("wdir", "children"),
+        Input("wdir", "data"),
         Input("ms2-table", "rowClicked"),
     )
     def content_table(wdir, row):

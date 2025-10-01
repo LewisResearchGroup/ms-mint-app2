@@ -51,7 +51,7 @@ def callbacks(app, fsc, cache):
     @app.callback(
         Output("heatmap-controls", "children"),
         Input("ana-secondary-tab", "value"),
-        State("wdir", "children"),
+        State("wdir", "data"),
     )
     def heat_controls(tab, wdir):
         if tab != _label:
@@ -70,7 +70,7 @@ def callbacks(app, fsc, cache):
         State("ana-peak-labels-exclude", "value"),
         State("ana-ms-order", "value"),
         State("heatmap-options", "value"),
-        State("wdir", "children"),
+        State("wdir", "data"),
     )
     def heat_heatmap(
         n_clicks,

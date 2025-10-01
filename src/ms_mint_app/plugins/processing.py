@@ -158,7 +158,7 @@ def callbacks(app, fsc, cache):
         Output("results-table", "data"),
         Input({"index": "run-mint-output", "type": "output"}, "children"),
         Input("res-delete", "n_clicks"),
-        Input("wdir", "children"),
+        Input("wdir", "data"),
     )
     def get_results(value, n_clicks, wdir):
         ctx = dash.callback_context
@@ -194,7 +194,7 @@ def callbacks(app, fsc, cache):
             Input("res-download-peakmax", "n_clicks"),
             State("proc-download-property", "value"),
             State('proc-download-options', 'value'),
-            State("wdir", "children"),
+            State("wdir", "data"),
         ]
     )
     def download_results(n_clicks, n_clicks_peakmax, property, options, wdir):
@@ -228,7 +228,7 @@ def callbacks(app, fsc, cache):
         Output({"index": "run-mint-output", "type": "output"}, "children"),
         Output("processing-progress-container", "style", allow_duplicate=True),
         Input("run-mint", "n_clicks"),
-        State("wdir", "children"),
+        State("wdir", "data"),
         prevent_initial_call=True
     )
     def run_mint(n_clicks, wdir):

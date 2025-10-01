@@ -302,7 +302,7 @@ def callbacks(app, fsc=None, cache=None):
 
         Input("uploaded-targets-store", "data"),
         Input("pkl-ms-mode", "value"),
-        State("wdir", "children"),
+        State("wdir", "data"),
         prevent_initial_call=True,
     )
     def process_targets_files(uploaded_data, ms_mode, wdir):
@@ -364,7 +364,7 @@ def callbacks(app, fsc=None, cache=None):
         Input("tab", "value"),
         Input("processed-targets-store", "data"),
         Input("removed-targets-store", "data"),
-        State("wdir", "children"),
+        State("wdir", "data"),
     )
     def targets_table(tab, processed_targets, removed_targets, wdir):
 
@@ -399,7 +399,7 @@ def callbacks(app, fsc=None, cache=None):
         Input('delete-table-targets-modal', 'cancelCounts'),
         Input('delete-table-targets-modal', 'closeCounts'),
         State('targets-table', 'multiRowsClicked'),
-        State('wdir', 'children'),
+        State("wdir", "data"),
         prevent_initial_call=True
     )
     def target_delete(okCounts, cancelCounts, closeCounts, selected_rows, wdir):
@@ -453,7 +453,7 @@ def callbacks(app, fsc=None, cache=None):
     @app.callback(
         Output("notifications-container", "children", allow_duplicate=True),
         Input("targets-table", "cellEdited"),
-        State("wdir", "children"),
+        State("wdir", "data"),
         prevent_initial_call=True,
     )
     def save_target_table_on_edit(cell_edited, wdir):

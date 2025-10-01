@@ -149,7 +149,7 @@ def callbacks(app, fsc, cache):
     @app.callback(
         Output("ana-secondary-tab-content", "children"),
         Input("ana-secondary-tab", "value"),
-        State("wdir", "children"),
+        State("wdir", "data"),
     )
     def render_content(tab, wdir):
         func = modules[tab].layout
@@ -162,7 +162,7 @@ def callbacks(app, fsc, cache):
         Output("ana-file-types", "options"),
         Output("ana-file-types", "value"),
         Input("tab", "value"),
-        State("wdir", "children"),
+        State("wdir", "data"),
     )
     def file_types(tab, wdir):
         if tab != _label:
@@ -179,7 +179,7 @@ def callbacks(app, fsc, cache):
         Output("ana-ms-order", "options"),
         Output("ana-groupby", "options"),
         Input("ana-secondary-tab", "value"),
-        State("wdir", "children"),
+        State("wdir", "data"),
     )
     def ms_order_options(tab, wdir):
         cols = T.get_metadata(wdir).dropna(how="all", axis=1).columns.to_list()
@@ -196,7 +196,7 @@ def callbacks(app, fsc, cache):
         Output("ana-peak-labels-include", "options"),
         Output("ana-peak-labels-exclude", "options"),
         Input("tab", "value"),
-        State("wdir", "children"),
+        State("wdir", "data"),
     )
     def peak_labels(tab, wdir):
         if tab != _label:
