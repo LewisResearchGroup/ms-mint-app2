@@ -17,6 +17,7 @@ from dash.exceptions import PreventUpdate
 from dash.dcc import Download
 from dash_extensions.enrich import FileSystemCache
 
+import feffery_antd_components as fac
 from .plugin_manager import PluginManager
 from .plugin_interface import PluginInterface
 
@@ -119,159 +120,94 @@ tab_selected_style = {
 }
 
 
-_layout = html.Div(
+_layout = fac.AntdLayout(
     [
-        Download(id="res-download-data"),
         dcc.Store(id="tmpdir", data=str(TMPDIR)),
-        dcc.Interval(
-            id="progress-interval", n_intervals=0, interval=2000, disabled=False
-        ),
+        dcc.Store(id="wdir"),
 
-        html.Div(
+        fac.AntdSider(
             [
-                dbc.Row(
-                    [
-                        dbc.Col(
-                            [
-                                html.Div(
-                                    [
-                                        html.Img(
-                                            src="/assets/MINT-logo.jpg",
-                                            style={"width": "80px"},
-                                        ),
-                                    ],
-                                ),
-                            ],
-                        ),
-                        dbc.Col(
-                            [
-                                html.Div(logout_button,
-                                         style={
-                                             "display": "flex",
-                                             "justifyContent": "flex-end",
-                                             "marginBottom": "10px",
-                                         }),
-                            ],
-                        ),
-                    ],
-                    align="center",
+                fac.AntdFlex([
+                    fac.AntdAvatar(
+                        id='logo',
+                        mode='image',
+                        shape='square',
+                        src='assets/MINT-logo.jpg',
+                        style={'width': '50%', 'height': 'auto'},
+                    ),
+                    fac.AntdMenu(
+                        id='logout-menu',
+                        menuItems=[
+                            {
+                                'component': 'Item',
+                                'props': {
+                                    'key': 'logout',
+                                    'title': 'Logout',
+                                    'icon': 'antd-logout',
+                                    'href': "/logout",
+                                },
+                            }
+                        ],
+                        style={'display': 'none'},
+                        className='ant-menu-inline-collapsed ant-menu-vertical',
+                    )
+                ],
+                    justify='space-between',
+                    align='center',
+                    wrap=True,
                 ),
-                dbc.Alert(
-                    [
-                        html.Strong("Workspace: ", style={"display": "inline"}),
-                        html.Span(id="active-workspace", style={"display": "inline"}),
-                        html.Br(),
-                        html.Span(
-                            id="wdir",
-                            style={
-                                "display": "inline-block",         # ❗ obligatorio para truncado
-                                "maxWidth": "260px",
-                                "wordBreak": "break-all",
-                                "whiteSpace": "normal",            # ❗ evita el salto de línea
+                fac.AntdDivider(
+                    size='small'
+                ),
+                fac.AntdFlex([
+                    fac.AntdText('Workspace:', strong=True),
+                    fac.AntdCopyText(
+                        id="ws-wdir-name",
+                        locale='en-us',
+                        beforeIcon=fac.AntdText(code=True, id="ws-wdir-name-text"),
+                        afterIcon=fac.AntdIcon(icon='antd-like')
+                    )],
+                    justify='space-between',
+                    align='center',
+                    style={'height': '50px'},
+                    id='active-workspace-container'
+                ),
+                fac.AntdDivider(
+                    size='small',
+                    id='workspace-divider'
+                ),
+                fac.AntdMenu(
+                    menuItems=[
+                        {
+                            'component': 'Item',
+                            'props': {
+                                'key': plugin_id,
+                                'title': plugin_id,
+                                'icon': 'antd-home',
                             },
-                        )
-                    ],
-                    color='info',
-                ),
-
-                dcc.Tabs(
-                    id="tab",
-                    value=list(plugins.keys())[0],
-                    vertical=True,
-                    children=[
-                        dcc.Tab(
-                            id=plugin_id,
-                            value=plugin_id,
-                            label=plugin_instance.label,
-                            style=tab_style,
-                            selected_style=tab_selected_style,
-
-                        )
+                        }
                         for plugin_id, plugin_instance in plugins.items()
                     ],
-                    style={
-                        "width": "100%"
-                    }
-                ),
-                html.Div(style={"flexGrow": 1}),
-                dbc.Row(
-                    [
-                        dbc.Col(
-                            [
-                                html.A(
-                                    href="https://lewisresearchgroup.github.io/ms-mint-app/gui/",
-                                    children=[
-                                        html.Button(
-                                            "Docs",
-                                            id="B_help",
-                                            style={"color": "info", "width": "100%"},
-                                        )
-                                    ],
-                                    target="_blank",
-                                ),
-                            ]
-                        ),
-                        dbc.Col(
-                            [
-                                html.A(
-                                    href=f"https://github.com/LewisResearchGroup/ms-mint-app/issues/new?body={T.get_issue_text()}",
-                                    children=[
-                                        html.Button(
-                                            "Issues",
-                                            id="B_issues",
-                                            style={"color": "info", "width": "100%"}
-                                        )
-                                    ],
-                                    target="_blank",
-                                ),
-                            ]
-                        )
-                    ]
-                ),
-                html.Hr(style={"margin": "1rem 0"}),
-                html.Div(f'ms-mint: {ms_mint.__version__}'),
-                html.Div(f'ms-mint-app: {ms_mint_app.__version__}'),
+                    mode='inline',
+                    style={'height': '100%', 'overflow': 'hidden auto'},
+                    currentKey='Workspaces',
+                    id='sidebar-menu',
+                )
             ],
-            style={
-                "position": "fixed",
-                "top": 0,
-                "bottom": 0,
-                "left": 0,
-                "width": SIDEBAR_WIDTH,
-                "backgroundColor": "#f9f9f9",
-                "borderRight": "1px solid #ccc",
-                "padding": "1rem",
-                "display": "flex",
-                "flexDirection": "column",
-                "boxSizing": "border-box"
-            }
+            collapsible=True,
+            width=250,
+            style={'backgroundColor': 'white'},
+            id='sidebar',
         ),
-
-        html.Div(
-            [
-                html.Div(id="tab-content"),
-                html.Div(id="pko-creating-chromatograms"),
-            ],
-            id="tab-content-container",
-            style={
-                "marginLeft": SIDEBAR_WIDTH,
-                "height": "100vh",
-                "padding": "1rem",
-                "boxSizing": "border-box",
-                "flex": 1
-            }
+        fac.AntdContent(
+            id='page-content',
+            style={'backgroundColor': 'white', 'padding': '2rem'},
         ),
-        html.Div(id="pko-image-store", style={"visibility": "hidden", "height": "0px"}),
-        html.Div(id='notifications-container'),
-        dcc.Store(id="viewport-container"),
-        dcc.Store(id="wdir"),
-        _outputs,
     ],
-
+    style={'height': '100vh'},
 )
 
-
-def register_callbacks(app, cache, fsc):
+def register_callbacks(app, cache, fsc, args):
     logging.info("Register callbacks")
     upload_root = os.getenv("MINT_DATA_DIR", tempfile.gettempdir())
     upload_dir = str(P(upload_root) / "MINT-Uploads")
@@ -282,21 +218,32 @@ def register_callbacks(app, cache, fsc):
 
     for label, plugin in plugins.items():
         logging.info(f"Loading callbacks of plugin {label}")
-        plugin.callbacks(app=app, fsc=fsc, cache=cache)
+        if label in ['MS-Files']:
+            plugin.callbacks(app=app, fsc=fsc, cache=cache, args=args)
+        else:
+            plugin.callbacks(app=app, fsc=fsc, cache=cache)
 
-    logging.info(f"Define clientside callbacks")
-    # Updates the current viewport
-    app.clientside_callback(
-        """
-        function(href) {
-            var w = window.innerWidth;
-            var h = window.innerHeight;
-            return `${w},${h}` ;
-        }
-        """,
-        Output("viewport-container", "data"),
-        Input("progress-interval", "n_intervals"),
+    @app.callback(
+        Output('page-content', 'children'),
+        Input('sidebar-menu', 'currentKey')
     )
+    def menu_navigation(currentKey):
+        return plugins[currentKey].layout()
+
+    @app.callback(
+        Output('logo', 'style'),
+        Output('logout-menu', 'style'),
+        Output('active-workspace-container', 'style'),
+        Output('workspace-divider', 'style'),
+        Input('sidebar', 'collapsed')
+    )
+    def toggle_sidebar(collapsed):
+        logo_style = {'width': '100%', 'height': 'auto'} if collapsed else {'width': '50%', 'height': 'auto'}
+        logout_menu_style = {'width': '100%', 'display': 'none'} if collapsed else {'width': '60px', 'display': 'none'}
+        active_workspace_container_style = {'display': 'none'} if collapsed else {'display': 'flex'}
+        ws_divider_style = {'display': 'none'} if collapsed else {'display': 'block'}
+
+        return logo_style, logout_menu_style, active_workspace_container_style, ws_divider_style
 
     @app.callback(
         Output("tab-content", "children"),
