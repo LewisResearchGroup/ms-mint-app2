@@ -306,10 +306,6 @@ def create_app(**kwargs):
     app = dash.Dash(
         __name__,
         background_callback_manager=background_callback_manager,
-        external_stylesheets=[
-            dbc.themes.MINTY,
-            "https://codepen.io/chriddyp/pen/bWLwgP.css",
-        ],
         **kwargs,
     )
 
