@@ -21,6 +21,17 @@ def duckdb_connection(workspace_path: Path | str, register_activity=False):
     try:
         con = duckdb.connect(database=str(db_file), read_only=False)
         _create_tables(con)
+@contextmanager
+def duckdb_connection_mint(mint_path: Path):
+    if not mint_path:
+        yield None
+        return
+
+    db_file = Path(mint_path, 'mint.db')
+    con = None
+    try:
+        con = duckdb.connect(database=db_file, read_only=False)
+        _create_workspace_tables(con)
         yield con
     except Exception as e:
         print(f"Error connecting to DuckDB: {e}")
@@ -28,7 +39,6 @@ def duckdb_connection(workspace_path: Path | str, register_activity=False):
     finally:
         if con:
             con.close()
-
 
 def _create_tables(conn: duckdb.DuckDBPyConnection):
     # Create tables if they don't exist
@@ -102,6 +112,19 @@ def _create_tables(conn: duckdb.DuckDBPyConnection):
                  );
                  """)
 
+def _create_workspace_tables(conn: duckdb.DuckDBPyConnection):
+    conn.execute("""
+                 CREATE TABLE IF NOT EXISTS workspaces
+                 (
+                     key           UUID DEFAULT uuidv4() PRIMARY KEY,
+                     name          VARCHAR UNIQUE,
+                     description   VARCHAR,
+                     active        BOOLEAN,
+                     created_at    TIMESTAMP,
+                     last_activity TIMESTAMP
+                 )
+                 """
+                 )
 
 def compute_and_insert_chromatograms_from_ms_data(con: duckdb.DuckDBPyConnection):
     """
