@@ -255,43 +255,25 @@ def register_callbacks(app, cache, fsc, args):
 
     @app.callback(
         Output('logo', 'style'),
-        Output('logout-menu', 'style'),
+        Output('logout-menu', 'style', allow_duplicate=True),
         Output('active-workspace-container', 'style'),
         Output('workspace-divider', 'style'),
-        Input('sidebar', 'collapsed')
+        Output('doc-issues-menu', 'mode'),
+        Output('version-info', 'style'),
+
+        Input('sidebar', 'collapsed'),
+        prevent_initial_call=True
     )
     def toggle_sidebar(collapsed):
         logo_style = {'width': '100%', 'height': 'auto'} if collapsed else {'width': '50%', 'height': 'auto'}
         logout_menu_style = {'width': '100%', 'display': 'none'} if collapsed else {'width': '60px', 'display': 'none'}
         active_workspace_container_style = {'display': 'none'} if collapsed else {'display': 'flex'}
         ws_divider_style = {'display': 'none'} if collapsed else {'display': 'block'}
+        doc_issues_menu_mode = 'vertical' if collapsed else 'horizontal'
+        version_info_style = {'display': 'none'} if collapsed else {'display': 'block', 'margin': '4px'}
 
-        return logo_style, logout_menu_style, active_workspace_container_style, ws_divider_style
-
-    @app.callback(
-        Output("tab-content", "children"),
-        Input("tab", "value"),
-        State("wdir", "data"),
-    )
-    def render_content(tab, wdir):
-        func = plugins[tab].layout
-        if tab != "Workspaces" and wdir == "":
-            return dbc.Alert(
-                "Please, create and activate a workspace.", color="warning"
-            )
-        elif (
-            tab in ["Metadata", "Peak Optimization", "Processing"]
-            and len(T.get_ms_fns(wdir)) == 0
-        ):
-            return dbc.Alert("Please import MS files.", color="warning")
-        elif tab in ["Processing"] and (len(T.get_targets(wdir)) == 0):
-            return dbc.Alert("Please, define targets.", color="warning")
-        elif tab in ["Analysis"] and not P(T.get_results_fn(wdir)).is_file():
-            return dbc.Alert("Please, create results (Processing).", color="warning")
-        if func is not None:
-            return func()
-        else:
-            raise PreventUpdate
+        return (logo_style, logout_menu_style, active_workspace_container_style, ws_divider_style,
+                doc_issues_menu_mode, version_info_style)
 
     @app.callback(
         Output("tmpdir", "data"),
