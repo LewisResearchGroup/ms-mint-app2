@@ -21,6 +21,20 @@ def duckdb_connection(workspace_path: Path | str, register_activity=False):
     try:
         con = duckdb.connect(database=str(db_file), read_only=False)
         _create_tables(con)
+        yield con
+    except Exception as e:
+        print(f"Error connecting to DuckDB: {e}")
+        yield None
+    finally:
+        if con:
+            if register_activity:
+                try:
+                    with duckdb_connection_mint(workspace_path.parent.parent / 'mint.db') as mint_conn:
+                        mint_conn.execute("UPDATE workspaces SET last_activity = NOW() WHERE name = ?", (Path(workspace_path).stem))
+                except Exception as e:
+                    print(f"Error updating workspace activity: {e}")
+            con.close()
+
 @contextmanager
 def duckdb_connection_mint(mint_path: Path):
     if not mint_path:
