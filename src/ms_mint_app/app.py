@@ -125,7 +125,7 @@ _layout = fac.AntdLayout(
                                     ],
                                     justify='space-between',
                                     align='center',
-                                    # style={'height': '50px'},
+                                    style={'padding': '0 4px'},
                                     id='active-workspace-container'
                                 ),
                                 fac.AntdDivider(
@@ -267,7 +267,7 @@ def register_callbacks(app, cache, fsc, args):
     def toggle_sidebar(collapsed):
         logo_style = {'width': '100%', 'height': 'auto'} if collapsed else {'width': '50%', 'height': 'auto'}
         logout_menu_style = {'width': '100%', 'display': 'none'} if collapsed else {'width': '60px', 'display': 'none'}
-        active_workspace_container_style = {'display': 'none'} if collapsed else {'display': 'flex'}
+        active_workspace_container_style = {'display': 'none', 'padding': '0 4px'} if collapsed else {'display': 'flex', 'padding': '0 4px'}
         ws_divider_style = {'display': 'none'} if collapsed else {'display': 'block'}
         doc_issues_menu_mode = 'vertical' if collapsed else 'horizontal'
         version_info_style = {'display': 'none'} if collapsed else {'display': 'block', 'margin': '4px'}
@@ -289,9 +289,9 @@ def register_callbacks(app, cache, fsc, args):
         if hasattr(app.server, "login_manager"):
             username = current_user.username
             tmpdir = str(TMPDIR / "User" / username)
-            logout_menu_style['display']: 'block'
+            logout_menu_style['display'] = 'block'
             return tmpdir, logout_menu_style
-        logout_menu_style['display']: 'none'
+        logout_menu_style['display'] = 'none'
         return str(TMPDIR / "Local"), logout_menu_style
 
     logging.info("Done registering callbacks")
