@@ -30,7 +30,6 @@ import ms_mint
 import ms_mint_app
 
 from . import tools as T
-from . import messages
 
 import dash_uploader as du
 
@@ -291,8 +290,6 @@ def register_callbacks(app, cache, fsc, args):
     upload_dir = str(P(upload_root) / "MINT-Uploads")
     UPLOAD_FOLDER_ROOT = upload_dir
     du.configure_upload(app, UPLOAD_FOLDER_ROOT)
-
-    messages.callbacks(app=app, fsc=fsc, cache=cache)
 
     for label, plugin in plugins.items():
         logging.info(f"Loading callbacks of plugin {label}")
