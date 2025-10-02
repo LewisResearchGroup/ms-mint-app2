@@ -25,7 +25,7 @@ def make_dirs():
     os.makedirs(tmpdir, exist_ok=True)
     os.makedirs(cachedir, exist_ok=True)
     print("MAKEDIRS:", tmpdir, cachedir)
-    return P(tmpdir), P(cachedir)
+    return Path(tmpdir), Path(cachedir)
 
 
 TMPDIR, CACHEDIR = make_dirs()
@@ -42,10 +42,6 @@ logging.info(f'TMPDIR: {TMPDIR}')
 ## Diskcache
 from uuid import uuid4
 import diskcache
-
-
-pd.options.display.max_colwidth = 1000
-
 
 def load_plugins(plugin_dir, package_name):
     logging.info('Loading plugins')
@@ -64,43 +60,12 @@ def load_plugins(plugin_dir, package_name):
 
     return plugins
 
+
 # Assuming 'plugins' is a subdirectory in the same directory as this script
 plugin_manager = PluginManager()
 plugins = plugin_manager.get_plugins()
 
 logging.info(f'Plugins: {plugins.keys()}')
-
-# Collect outputs:
-_outputs = html.Div(
-    id="outputs",
-    children=[plugin.outputs() for plugin in plugins.values() if plugin.outputs is not None],
-    style={"visibility": "hidden"},
-)
-
-#logging.info(f'Outputs: {_outputs}')
-
-logout_button = (
-    dbc.Button(
-        "Logout",
-        id="logout-button",
-        style={"marginRight": "10px", "visibility": "hidden"},
-    ),
-)
-logout_button = html.A(href="/logout", children=logout_button)
-SIDEBAR_WIDTH = "250px"
-tab_style = {
-    'borderBottom': '1px solid #d6d6d6',
-    'fontWeight': 'bold',
-    'borderLeft': 'none'
-}
-
-tab_selected_style = {
-    'borderTop': '1px solid #d6d6d6',
-    'borderBottom': '1px solid #d6d6d6',
-    'backgroundColor': '#119DFF',
-    'color': 'white',
-}
-
 
 _layout = fac.AntdLayout(
     [
@@ -207,7 +172,7 @@ _layout = fac.AntdLayout(
                                                 'key': 'issues',
                                                 'title': 'Issues',
                                                 'icon': 'antd-exclamation-circle',
-                                                'href': f"https://github.com/LewisResearchGroup/ms-mint-app/issues/new?body={T.get_issue_text()}",
+                                                'href': "https://github.com/LewisResearchGroup/ms-mint-app/issues/new",
                                                 'target': '_blank',
                                             },
                                         },
@@ -270,9 +235,8 @@ _layout = fac.AntdLayout(
 def register_callbacks(app, cache, fsc, args):
     logging.info("Register callbacks")
     upload_root = os.getenv("MINT_DATA_DIR", tempfile.gettempdir())
-    upload_dir = str(P(upload_root) / "MINT-Uploads")
+    upload_dir = str(Path(upload_root) / "MINT-Uploads")
     UPLOAD_FOLDER_ROOT = upload_dir
-    du.configure_upload(app, UPLOAD_FOLDER_ROOT)
 
     for label, plugin in plugins.items():
         logging.info(f"Loading callbacks of plugin {label}")
@@ -361,7 +325,7 @@ def create_app(**kwargs):
             cache, expire=60,
         )
 
-    app = dash.Dash(
+    app = Dash(
         __name__,
         background_callback_manager=background_callback_manager,
         **kwargs,
@@ -372,7 +336,7 @@ def create_app(**kwargs):
     app.config["suppress_callback_exceptions"] = True
 
     upload_root = os.getenv("MINT_DATA_DIR", tempfile.gettempdir())
-    CACHE_DIR = str(P(upload_root) / "MINT-Cache")
+    CACHE_DIR = str(Path(upload_root) / "MINT-Cache")
 
     logging.info('Defining filesystem cache')
     cache = Cache(
@@ -382,4 +346,3 @@ def create_app(**kwargs):
     fsc = FileSystemCache(str(CACHEDIR))
     logging.info('Done creating app')
     return app, cache, fsc
-
