@@ -46,28 +46,43 @@ UPLOAD_FOLDER_ROOT = upload_dir
 
 _layout = html.Div(
     [
-        html.H4("Upload Mass Spec / Metadata files"),
-        dbc.Row([
-            dbc.Col(
-                du.Upload(
-                    id="ms-uploader",
-                    max_file_size=1800,  # 1800
-                    max_files=10000,
-                    filetypes=["tar", "zip", "mzxml", "mzml", "mzXML", "mzML", "mzMLb", "feather", "parquet"],
-                    upload_id=str(uuid.uuid4()),  # Unique session id
-                    text="Upload mzXML/mzML files.",
-                    text_completed="Upload completed.",
-                ),
-            ),
-            dbc.Col(
-                du.Upload(
-                    id="metadata-uploader",
-                    max_file_size=1800,  # 1800 MB
-                    max_files=1,
-                    filetypes=["csv"],
-                    upload_id=str(uuid.uuid4()),  # Unique session id
-                    text="Upload METADATA files.",
-                    text_completed="Upload completed.",
+        fac.AntdFlex(
+            [
+                fac.AntdFlex(
+                    [
+                        fac.AntdTitle(
+                            'MS-Files', level=4, style={'margin': '0'}
+                        ),
+                        fac.AntdIcon(
+                            id='ms-files-tour-icon',
+                            icon='pi-info',
+                            style={"cursor": "pointer", 'paddingLeft': '10px'},
+                        ),
+                        fac.AntdSpace(
+                            [
+                                fac.AntdButton(
+                                    'Load MS-Files',
+                                    id={
+                                        'action': 'file-explorer',
+                                        'type': 'ms-files',
+                                    },
+                                    style={'textTransform': 'uppercase'},
+                                ),
+                                fac.AntdButton(
+                                    'Load Metadata',
+                                    id={
+                                        'action': 'file-explorer',
+                                        'type': 'metadata',
+                                    },
+                                    style={'textTransform': 'uppercase'},
+                                ),
+                            ],
+                            addSplitLine=True,
+                            size="small",
+                            style={"margin": "0 50px"},
+                        ),
+                    ],
+                    align='center',
                 ),
             )]
         ),
@@ -77,22 +92,203 @@ _layout = html.Div(
         html.Div(
             id="progress-container",
             style={"display": "none"},
+                fac.AntdDropdown(
+                    id='ms-options',
+                    title='Options',
+                    buttonMode=True,
+                    arrow=True,
+                    menuItems=[
+                        {'title': 'Mark selected for optimization'},
+                        {'title': ''},
+                        {'isDivider': True},
+                        {'title': 'Delete selected', 'key': 'delete-selected'},
+                    ],
+                    buttonProps={'style': {'textTransform': 'uppercase'}},
+                ),
+            ],
+            justify="space-between",
+            align="center",
+            gap="middle",
+        ),
             children=[
                 html.P("Processing files..."),
                 fac.AntdProgress(
                     id="ms-progress-bar",
                     showInfo=True,
 
+        fac.AntdModal(
+            "Are you sure you want to delete the selected files?",
+            title="Delete confirmation",
+            id="delete-confirmation-modal",
+            okButtonProps={"danger": True},
+            renderFooter=True,
+            locale='en-us',
+        ),
                 )
             ]
+        html.Div(
+            [
+                fac.AntdSpin(
+                    fac.AntdTable(
+                        id='ms-files-table',
+                        containerId='table-container',
+                        columns=[
+                            {
+                                'title': 'MS-File Label',
+                                'dataIndex': 'ms_file_label',
+                                'width': '260px',
+                            },
+                            {
+                                'title': 'Label',
+                                'dataIndex': 'label',
+                                'width': '260px',
+                                'editable': True,
+                                'editOptions': {
+                                    'mode': 'text-area',
+                                    'autoSize': {'minRows': 1, 'maxRows': 3},
+                                },
+                            },
+                            {
+                                'title': 'Color',
+                                'dataIndex': 'color',
+                                'width': '80px',
+                                'renderOptions': {'renderType': 'button'},
+                            },
+                            {
+                                'title': 'For Optimization',
+                                'dataIndex': 'use_for_optimization',
+                                'renderOptions': {'renderType': 'switch'},
+                                'width': '170px',
+                            },
+                            {
+                                'title': 'For Analysis',
+                                'dataIndex': 'use_for_analysis',
+                                'renderOptions': {'renderType': 'switch'},
+                                'width': '150px',
+                            },
+                            {
+                                'title': 'Sample Type',
+                                'dataIndex': 'sample_type',
+                                'width': '150px',
+                                'editable': True,
+                            },
+                            {
+                                'title': 'Polarity',
+                                'dataIndex': 'polarity',
+                                'width': '100px',
+                            },
+                            {
+                                'title': 'MS Type',
+                                'dataIndex': 'ms_type',
+                                'width': '120px',
+                            },
+                            {
+                                'title': 'Run Order',
+                                'dataIndex': 'run_order',
+                                'width': '120px',
+                                'editable': True,
+                            },
+                            {
+                                'title': 'Plate',
+                                'dataIndex': 'plate',
+                                'width': '100px',
+                                'editable': True,
+                            },
+                            {
+                                'title': 'Plate Row',
+                                'dataIndex': 'plate_row',
+                                'width': '110px',
+                                'editable': True,
+                            },
+                            {
+                                'title': 'Plate Col.',
+                                'dataIndex': 'plate_column',
+                                'width': '110px',
+                                'editable': True,
+                            },
+                        ],
+                        titlePopoverInfo={
+                            'ms_file_label': {
+                                'title': 'ms_file_label',
+                                'content': 'This is ms_file_label field',
+                            },
+                            'label': {
+                                'title': 'label',
+                                'content': 'This is label field',
+                            },
+                            'dash_component': {
+                                'title': 'dash_component',
+                                'content': 'This is dash_component field',
+                            },
+                            'use_for_optimization': {
+                                'title': 'use_for_optimization',
+                                'content': 'This is use_for_optimization field',
+                            },
+                            'use_for_analysis': {
+                                'title': 'use_for_analysis',
+                                'content': 'This is use_for_analysis field',
+                            },
+                            'sample_type': {
+                                'title': 'sample_type',
+                                'content': 'This is sample_type field',
+                            },
+                            'polarity': {
+                                'title': 'polarity',
+                                'content': 'This is polarity field',
+                            },
+                            'file_type': {
+                                'title': 'file_type',
+                                'content': 'This is file_type field',
+                            },
+                            'run_order': {
+                                'title': 'run_order',
+                                'content': 'This is run_order field',
+                            },
+                            'plate': {
+                                'title': 'plate',
+                                'content': 'This is plate field',
+                            },
+                            'plate_row': {
+                                'title': 'plate_row',
+                                'content': 'This is plate_row field',
+                            },
+                            'plate_column': {
+                                'title': 'plate_column',
+                                'content': 'This is plate_column field',
+                            },
+                        },
+                        filterOptions={
+                            'ms_file_label': {'filterSearch': True},
+                            'ms_type': {'filterMode': 'checkbox'},
+                            'use_for_optimization': {'filterMode': 'checkbox'},
+                            'use_for_analysis': {'filterMode': 'checkbox'},
+                            'sample_type': {'filterSearch': True},
+                            'polarity': {'filterMode': 'checkbox'},
+                        },
+                        sortOptions={'sortDataIndexes': ['run_order']},
+                        pagination={'position': 'bottomCenter'},
+                        tableLayout='fixed',
+                        maxWidth="calc(100vw - 250px - 4rem)",
+                        maxHeight="calc(100vh - 140px - 4rem)",
+                        locale='en-us',
+                        rowSelectionType='checkbox',
+                        size='small',
+                        mode='server-side',
+                    ),
+                    text='Loading data...',
+                    size='small',
+                )
+            ],
+            id='ms-files-table-container',
+            style={'padding': '1rem 0'},
         ),
-        dcc.Interval(id="ms-poll-interval", interval=1000, n_intervals=0, disabled=True),
-        modal_confirmation,
+        dcc.Store(id="processing-output-store"),
+        dcc.Store(id="selected-folder-path"),
+        dcc.Store(id="selected-files", data={}),
+        dcc.Store(id='processing-type-store', data={}),
+        dcc.Store(id="color-changed-store"),
         dcc.Store(id="ms-delete-store"),
-        dcc.Loading(ms_files_table),
-        dcc.Store(id="ms-uploader-input")
-    ],
-    style={"padding": "3rem"}
+    ]
 )
 
 _outputs = html.Div(
