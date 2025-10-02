@@ -90,8 +90,8 @@ _layout = html.Div(
                     buttonMode=True,
                     arrow=True,
                     menuItems=[
-                        {'title': 'Mark selected for optimization'},
-                        {'title': ''},
+                        {'title': 'Generate colors', 'icon': 'antd-highlight', 'key': 'generate-colors'},
+                        {'title': 'Regenerate colors', 'icon': 'pi-broom', 'key': 'regenerate-colors'},
                         {'isDivider': True},
                         {'title': 'Delete selected', 'key': 'delete-selected'},
                     ],
@@ -608,9 +608,23 @@ def process_metadata(wdir, set_progress, selected_files):
         """
         conn.execute(stmt)
 
+        generate_colors(wdir)
+
+    set_progress(100)
+    return len(metadata_df), failed_files
+
+def generate_colors(wdir, regenerate=False):
+    with duckdb_connection(wdir) as conn:
+        if conn is None:
+            raise PreventUpdate
         ms_colors = conn.execute("SELECT ms_file_label, color FROM samples_metadata").df()
-        valid = ms_colors[ms_colors["color"].notna() & (ms_colors["color"].str.strip() != "")]
-        assigned_colors = dict(zip(valid["ms_file_label"], valid["color"]))
+        if regenerate:
+            assigned_colors = {}
+        else:
+            valid = ms_colors[ms_colors["color"].notna() &
+                              (ms_colors["color"].str.strip() != "") &
+                              (ms_colors["color"].str.strip() != "#ffffff")]
+            assigned_colors = dict(zip(valid["ms_file_label"], valid["color"]))
 
         if len(assigned_colors) != len(ms_colors):
             colors_map = make_palette_hsv(
@@ -626,9 +640,7 @@ def process_metadata(wdir, set_progress, selected_files):
                          FROM colors_pd
                          WHERE samples_metadata.ms_file_label = colors_pd.ms_file_label"""
                          )
-    set_progress(100)
-    return len(metadata_df), failed_files
-
+        return len(ms_colors) - len(assigned_colors)
 
 def callbacks(cls, app, fsc, cache, args_namespace):
     @app.callback(
@@ -643,7 +655,7 @@ def callbacks(cls, app, fsc, cache, args_namespace):
 
     @app.callback(
         Output('notifications-container', 'children', allow_duplicate=True),
-        Output('color-changed-store', 'data'),
+        Output('color-changed-store', 'data', allow_duplicate=True),
         Input('color-picker-modal', 'okCounts'),
         State('hex-color-picker', 'color'),
         State('ms-files-table', 'recentlyButtonClickedRow'),
@@ -688,6 +700,49 @@ def callbacks(cls, app, fsc, cache, args_namespace):
                                          stack=True
                                          ),
                     dash.no_update)
+
+    @app.callback(
+        Output('notifications-container', 'children', allow_duplicate=True),
+        Output('color-changed-store', 'data', allow_duplicate=True),
+
+        Input("ms-options", "nClicks"),
+        State("ms-options", "clickedKey"),
+        State('wdir', 'data'),
+        prevent_initial_call=True
+    )
+    def genere_color_map(nClicks, clickedKey, wdir):
+        ctx = dash.callback_context
+        if (
+                not ctx.triggered or
+                not nClicks or
+                not clickedKey or
+                clickedKey not in ['generate-colors', 'regenerate-colors']
+        ):
+            raise PreventUpdate
+        if clickedKey == "generate-colors":
+            n_colors = generate_colors(wdir)
+        else:
+            n_colors = generate_colors(wdir, regenerate=True)
+
+        if n_colors == 0:
+            notification = fac.AntdNotification(message='No colors generated',
+                                                type='warning',
+                                                duration=3,
+                                                placement='bottom',
+                                                showProgress=True,
+                                                stack=True
+                                                )
+        else:
+            notification = fac.AntdNotification(message='Colors generated successfully',
+                                     description=f'{n_colors} colors generated',
+                                     type='success',
+                                     duration=3,
+                                     placement='bottom',
+                                     showProgress=True,
+                                     stack=True
+                                     )
+        return notification, True
+
 
     @app.callback(
         Output("selection-modal", "visible"),
@@ -886,8 +941,6 @@ def callbacks(cls, app, fsc, cache, args_namespace):
                 return_dtype=pl.Object
             ).alias('use_for_analysis'),
         )
-
-        print(f"{data.to_dicts() = }")
         return data.to_dicts(), []
 
     @app.callback(
@@ -896,14 +949,13 @@ def callbacks(cls, app, fsc, cache, args_namespace):
         Input("ms-options", "nClicks"),
         State("ms-options", "clickedKey"),
         State('ms-files-table', 'selectedRows'),
+        prevent_initial_call=True
     )
     def toggle_modal(nClicks, clickedKey, selectedRows):
         ctx = dash.callback_context
-        return bool(
-            ctx.triggered
-            and len(selectedRows) != 0
-            and clickedKey == "delete-selected"
-        )
+        if not bool(ctx.triggered and selectedRows and clickedKey == "delete-selected"):
+            raise PreventUpdate
+        return True
 
     @app.callback(
         Output("notifications-container", "children", allow_duplicate=True),

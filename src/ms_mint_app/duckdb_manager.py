@@ -68,7 +68,7 @@ def _create_tables(conn: duckdb.DuckDBPyConnection):
                      use_for_optimization BOOLEAN DEFAULT false,
                      use_for_analysis     BOOLEAN DEFAULT true,
                      polarity             polarity_enum,
-                     color                VARCHAR,
+                     color                VARCHAR DEFAULT '#ffffff',
                      label                VARCHAR,
                      sample_type          VARCHAR,
                      run_order            INTEGER,
