@@ -84,14 +84,6 @@ _layout = html.Div(
                     ],
                     align='center',
                 ),
-            )]
-        ),
-        dcc.Store(id="ms-processed-output"),
-        dcc.Store(id="metadata-uploader-input"),
-        dcc.Store(id="metadata-processed-store"),
-        html.Div(
-            id="progress-container",
-            style={"display": "none"},
                 fac.AntdDropdown(
                     id='ms-options',
                     title='Options',
@@ -110,12 +102,129 @@ _layout = html.Div(
             align="center",
             gap="middle",
         ),
+        fac.AntdModal(
             children=[
-                html.P("Processing files..."),
-                fac.AntdProgress(
-                    id="ms-progress-bar",
-                    showInfo=True,
-
+                fac.AntdFlex(
+                    [
+                        html.Div(
+                            [
+                                fac.AntdBreadcrumb(
+                                    id='current-path-modal', items=[]
+                                )
+                            ],
+                            style={'margin': '10px 0', 'flexGrow': 1},
+                        ),
+                        fac.AntdTable(
+                            id="dir-content-table",
+                            maxHeight='350px',
+                            maxWidth='450px',
+                            locale='en-us',
+                            columns=[
+                                {
+                                    'title': '',
+                                    'dataIndex': 'selection',
+                                    'width': 35,
+                                    'renderOptions': {'renderType': 'button'},
+                                },
+                                {
+                                    'title': 'Name',
+                                    'dataIndex': 'file_name',
+                                    "align": 'left',
+                                    'renderOptions': {'renderType': 'button'},
+                                },
+                                {
+                                    'title': 'Files',
+                                    'dataIndex': 'files',
+                                    'width': 80,
+                                    'renderOptions': {'renderType': 'tags'},
+                                },
+                            ],
+                            pagination=False,
+                            style={'flexGrow': 4, 'minHeight': '400px'},
+                        ),
+                        html.Div(
+                            [
+                                html.Div(
+                                    [
+                                        fac.AntdFlex(
+                                            [
+                                                html.Div(
+                                                    html.Strong(
+                                                        "Selected files..."
+                                                    )
+                                                ),
+                                                html.Div(
+                                                    fac.AntdSelect(
+                                                        id='selected-files-extensions',
+                                                        size="small",
+                                                        mode="multiple",
+                                                        placeholder='extensions',
+                                                        style={
+                                                            "width": "100%",
+                                                            'minWidth': '200px',
+                                                        },
+                                                        locale="en-us",
+                                                        allowClear=False,
+                                                        disabled=True,
+                                                    ),
+                                                ),
+                                            ],
+                                            justify='space-between',
+                                        ),
+                                        fac.AntdSpace(
+                                            id='selected-files-display',
+                                            direction='horizontal',
+                                            wrap=True,
+                                            align='start',
+                                            style={
+                                                'maxHeight': '180px',
+                                                'overflowY': 'auto',
+                                            },
+                                        ),
+                                    ],
+                                )
+                            ],
+                            id="selected-files-area",
+                            style={'margin': '10px 0', 'flexGrow': 2},
+                        ),
+                    ],
+                    id='selection-container',
+                    vertical=True,
+                ),
+                html.Div(
+                    [
+                        html.H4("Processing files..."),
+                        fac.AntdProgress(
+                            id='sm-processing-progress',
+                            percent=0,
+                        ),
+                        fac.AntdButton(
+                            'Cancel',
+                            id='cancel-ms-processing',
+                            style={
+                                'alignText': 'center',
+                            },
+                        ),
+                    ],
+                    id='sm-processing-progress-container',
+                    style={'display': 'none'},
+                ),
+            ],
+            id="selection-modal",
+            title='Load MS-Files',
+            width=700,
+            renderFooter=True,
+            locale='en-us',
+            confirmAutoSpin=True,
+            loadingOkText='Processing Files...',
+            okClickClose=False,
+            closable=False,
+            maskClosable=False,
+            destroyOnClose=True,
+            okText="Process Files",
+            centered=True,
+            styles={'body': {'height': "75vh"}},
+        ),
         fac.AntdModal(
             "Are you sure you want to delete the selected files?",
             title="Delete confirmation",
@@ -124,8 +233,26 @@ _layout = html.Div(
             renderFooter=True,
             locale='en-us',
         ),
+        fac.AntdModal(
+            [
+                fac.AntdCenter(
+                    fuc.FefferyHexColorPicker(
+                        id='hex-color-picker', showAlpha=True
+                    )
                 )
-            ]
+            ],
+            id='color-picker-modal',
+            renderFooter=True,
+            width=300,
+            styles={
+                'body': {
+                    'height': 230,
+                    'alignItems': 'center',
+                    'alignContent': 'end',
+                }
+            },
+            locale='en-us',
+        ),
         html.Div(
             [
                 fac.AntdSpin(
@@ -307,7 +434,221 @@ def layout():
 
 
 def callbacks(cls, app, fsc, cache):
+def get_content_list(path, extensions):
+    """Generate the folder and files list"""
+    allow_folder = extensions != ['.csv']
+
+    current_path = Path(path)
+    data = []
+    c = 0
+    for item in sorted(current_path.iterdir(), key=lambda item: item.name):
+        if item.name.startswith('.'):
+            continue
+
+        if item.is_file() and item.suffix not in extensions:
+            continue
+        dash_comp = {}
+        if item.is_dir():
+            subfolders = sum(bool(si.is_dir() and not si.name.startswith('.'))
+                             for si in item.iterdir())
+
+            files_for_selecting = [file for ext in extensions for file in item.glob(f"*{ext}")]
+
+            if subfolders or files_for_selecting:
+                dash_comp['file_name'] = {
+                    'content': item.name,
+                    'type': 'link',
+                    'custom': {'path': item.as_posix(), 'type': 'folder', 'is_link': True},
+                    'icon': 'antd-folder'
+                }
+                dash_comp['files'] = {
+                    'tag': f"{len(files_for_selecting)}" if len(files_for_selecting) else '',
+                }
+
+                dash_comp['selection'] = {
+                    'content': '',
+                    'type': 'button',
+                    'color': 'green',
+                    'variant': 'filled',
+                    'custom': {'path': item.as_posix(), 'type': 'folder', 'is_link': False},
+                    'icon': 'antd-plus',
+                    'disabled': not allow_folder
+                }
+        else:
+            dash_comp['file_name'] = {
+                'content': item.name,
+                'type': 'link',
+                'custom': {'path': item.as_posix(), 'type': 'file', 'is_link': False},
+                'style': {'pointer-events': 'none'},
+                'icon': 'antd-file'
+            }
+            dash_comp['files'] = {
+                'content': "",
+            }
+            dash_comp['selection'] = {
+                'content': '',
+                'type': 'button',
+                'color': 'green',
+                'variant': 'filled',
+                'custom': {'path': item.as_posix(), 'type': 'file', 'is_link': False},
+                'icon': 'antd-plus'
+            }
+        if dash_comp:
+            c += 1
+            data.append(dash_comp)
+    return data
+
+
         State("wdir", "data"),
+    @app.callback(
+        Output("selection-modal", "visible"),
+        Output("selection-modal", 'title'),
+        Output('selected-files-extensions', 'options'),
+        Output('selected-files-extensions', 'value'),
+        Output('processing-type-store', 'data'),
+
+        Input({'action': 'file-explorer', 'type': ALL}, 'nClicks'),
+        prevent_initial_call=True
+    )
+    def open_selection_modal(n_clicks):
+        ctx = dash.callback_context
+        prop_id = ctx.triggered[0]['prop_id'].split('.')[0]
+        prop_data = json.loads(prop_id)
+        if prop_data['type'] == "ms-files":
+            title = "Load MS Files"
+            file_extensions = [".mzXML"]
+        elif prop_data['type'] == "metadata":
+            title = "Load Metadata"
+            file_extensions = [".csv"]
+        else:
+            title = "Load Targets"
+            file_extensions = [".csv"]
+        processing_type_store = {'type': prop_data['type'], 'extensions': file_extensions}
+        return True, title, file_extensions, file_extensions, processing_type_store
+
+    @app.callback(
+        Output('selected-folder-path', 'data', allow_duplicate=True),
+        Output('selected-files', 'data', allow_duplicate=True),
+        Output('selected-files-display', 'children', allow_duplicate=True),
+        Output("sm-processing-progress", "percent"),
+        Input('selection-modal', 'visible'),
+        prevent_initial_call=True
+    )
+    def on_modal_close(modal_visible):
+        if modal_visible:
+            raise PreventUpdate
+        return None, {}, [], 0
+
+    @app.callback(
+        Output("current-path-modal", "items"),
+        Output("dir-content-table", "data"),
+        Output('selected-folder-path', 'data'),
+
+        Input('selection-modal', 'visible'),
+        Input('dir-content-table', 'nClicksButton'),
+        State('dir-content-table', 'clickedCustom'),
+
+        Input('current-path-modal', 'clickedItem'),
+        State('selected-folder-path', 'data'),
+        State('processing-type-store', 'data'),
+
+        prevent_initial_call=True
+    )
+    def navigate_folders(modal_visible, nClicksButton, clickedCustom, bc_clicked_item, current_path, processing_type):
+        ctx = dash.callback_context
+        if not ctx.triggered or not modal_visible:
+            return dash.no_update, dash.no_update, dash.no_update
+
+        prop_id = ctx.triggered[0]['prop_id'].split('.')[0]
+        if prop_id == 'selection-modal':
+            current_modal_path = Path(current_path or home_path)
+        elif prop_id == 'current-path-modal':
+            current_modal_path = Path(bc_clicked_item['itemKey'] or home_path)
+        elif clickedCustom['is_link']:
+            current_modal_path = Path(clickedCustom['path'] or home_path)
+        else:
+            raise PreventUpdate
+
+        all_paths = [path for path in reversed(current_modal_path.parents) if path >= home_path] + [current_modal_path]
+        current_path_items = []
+        for i, path in enumerate(all_paths):
+            if i == 0:
+                current_path_items.append({'title': str(path), 'key': str(path)})
+            else:
+                current_path_items.append({'title': path.name, 'key': str(path)})
+
+        content_items = get_content_list(current_modal_path, processing_type['extensions'])
+        return current_path_items, content_items, str(current_modal_path)
+
+    @app.callback(
+        Output("selected-files-display", "children"),
+        Output('selected-files', 'data'),
+
+        Input("dir-content-table", "nClicksButton"),
+        State('dir-content-table', 'clickedCustom'),
+        State('selected-files', 'data'),
+        State('processing-type-store', 'data'),
+
+        prevent_initial_call=True
+    )
+    def add_selection(nClicksButton, clickedCustom, selected_files, processing_type):
+        if not nClicksButton or clickedCustom['is_link']:
+            raise PreventUpdate
+        unique_selected_files = {k: set(v) for k, v in selected_files.items()}
+        if clickedCustom['type'] == 'folder':
+            folder_path = clickedCustom['path']
+            ms_files = [file.as_posix() for ext in processing_type['extensions']
+                        for file in Path(clickedCustom['path']).rglob(f'*{ext}')]
+        else:
+            folder_path = Path(clickedCustom['path']).parent.as_posix()
+            ms_files = [clickedCustom['path']]
+
+        if folder_path in unique_selected_files:
+            unique_selected_files[folder_path].update(ms_files)
+        else:
+            unique_selected_files[folder_path] = set(ms_files)
+
+        children = [
+            fac.AntdTag(
+                content=f"{folder_path}: {len(folder_content)} files",
+                closeIcon=True,
+                id={'type': 'tag-ms-files', 'path': folder_path},
+                style={
+                    'fontSize': 14,
+                    'display': 'flex',
+                    'alignItems': 'center',
+                },
+            )
+            for folder_path, folder_content in unique_selected_files.items() if len(folder_content)
+        ]
+        if not children:
+            return dash.no_update, dash.no_update, None
+        # set selected_files serializable
+        selected_files = {k: list(v) for k, v in unique_selected_files.items()}
+        return children, selected_files
+
+    @app.callback(
+        Output("selected-files-display", "children", allow_duplicate=True),
+        Output('selected-files', 'data', allow_duplicate=True),
+        Input({'type': 'tag-ms-files', 'path': ALL}, "closeCounts"),
+        State("selected-files-display", "children"),
+        State('selected-files', 'data'),
+        prevent_initial_call=True
+    )
+    def delete_tags(closeCounts, children, selected_files):
+        for i in closeCounts:
+            if i is None:
+                continue
+            trigger_id = dash.ctx.triggered_id
+            for i, child in enumerate(children.copy()):
+                if 'id' in child['props'] and trigger_id == child['props']['id']:
+                    children.pop(i)
+                    try:
+                        selected_files.pop(trigger_id['path'])
+                    except KeyError:
+                        pass
+        return children, selected_files
+
     @app.callback(
         Output("ms-files-table", "data"),
         Input("ms-processed-output", "data"),
