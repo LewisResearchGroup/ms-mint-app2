@@ -127,71 +127,148 @@ _layout = fac.AntdLayout(
 
         fac.AntdSider(
             [
-                fac.AntdFlex([
-                    fac.AntdAvatar(
-                        id='logo',
-                        mode='image',
-                        shape='square',
-                        src='assets/MINT-logo.jpg',
-                        style={'width': '50%', 'height': 'auto'},
-                    ),
-                    fac.AntdMenu(
-                        id='logout-menu',
-                        menuItems=[
-                            {
-                                'component': 'Item',
-                                'props': {
-                                    'key': 'logout',
-                                    'title': 'Logout',
-                                    'icon': 'antd-logout',
-                                    'href': "/logout",
-                                },
-                            }
-                        ],
-                        style={'display': 'none'},
-                        className='ant-menu-inline-collapsed ant-menu-vertical',
-                    )
-                ],
-                    justify='space-between',
-                    align='center',
-                    wrap=True,
-                ),
-                fac.AntdDivider(
-                    size='small'
-                ),
-                fac.AntdFlex([
-                    fac.AntdText('Workspace:', strong=True),
-                    fac.AntdCopyText(
-                        id="ws-wdir-name",
-                        locale='en-us',
-                        beforeIcon=fac.AntdText(code=True, id="ws-wdir-name-text"),
-                        afterIcon=fac.AntdIcon(icon='antd-like')
-                    )],
-                    justify='space-between',
-                    align='center',
-                    style={'height': '50px'},
-                    id='active-workspace-container'
-                ),
-                fac.AntdDivider(
-                    size='small',
-                    id='workspace-divider'
-                ),
-                fac.AntdMenu(
-                    menuItems=[
-                        {
-                            'component': 'Item',
-                            'props': {
-                                'key': plugin_id,
-                                'title': plugin_id,
-                                'icon': 'antd-home',
-                            },
-                        }
-                        for plugin_id, plugin_instance in plugins.items()
+                fac.AntdFlex(
+                    [
+                        fac.AntdFlex(
+                            [
+                                html.Div(id='notifications-container'),
+                                fac.AntdFlex(
+                                    [
+                                        fac.AntdAvatar(
+                                            id='logo',
+                                            mode='image',
+                                            shape='square',
+                                            src='assets/MINT-logo.jpg',
+                                            style={'width': '50%', 'height': 'auto'},
+                                        ),
+                                        fac.AntdMenu(
+                                            id='logout-menu',
+                                            menuItems=[
+                                                {
+                                                    'component': 'Item',
+                                                    'props': {
+                                                        'key': 'logout',
+                                                        'title': 'Logout',
+                                                        'icon': 'antd-logout',
+                                                        'href': "/logout",
+                                                    },
+                                                }
+                                            ],
+                                            style={'display': 'none'},
+                                            className='ant-menu-inline-collapsed ant-menu-vertical',
+                                        )
+                                    ],
+                                    justify='space-between',
+                                    align='center',
+                                    wrap=True,
+                                ),
+                                fac.AntdDivider(
+                                    size='small'
+                                ),
+                                fac.AntdFlex(
+                                    [
+                                        fac.AntdText('Workspace:', strong=True),
+                                        fac.AntdCopyText(
+                                            id="ws-wdir-name",
+                                            locale='en-us',
+                                            beforeIcon=fac.AntdText(code=True, id="ws-wdir-name-text"),
+                                            afterIcon=fac.AntdIcon(icon='antd-like')
+                                        )
+                                    ],
+                                    justify='space-between',
+                                    align='center',
+                                    # style={'height': '50px'},
+                                    id='active-workspace-container'
+                                ),
+                                fac.AntdDivider(
+                                    size='small',
+                                    id='workspace-divider'
+                                ),
+                                fac.AntdMenu(
+                                    menuItems=[
+                                        {
+                                            'component': 'Item',
+                                            'props': {
+                                                'key': plugin_id,
+                                                'title': plugin_id,
+                                                'icon': 'antd-home',
+                                            },
+                                        }
+                                        for plugin_id, plugin_instance in plugins.items()
+                                    ],
+                                    mode='inline',
+                                    style={'overflow': 'hidden auto'},
+                                    currentKey='Workspaces',
+                                    id='sidebar-menu',
+                                ),
+                            ],
+                            vertical=True,
+                            gap=2,
+                        ),
+                        fac.AntdFlex(
+                            [
+                                fac.AntdMenu(
+                                    menuItems=[
+                                        {
+                                            'component': 'Item',
+                                            'props': {
+                                                'key': 'docs',
+                                                'title': 'Docs',
+                                                'icon': 'antd-question-circle',
+                                                'href': "https://lewisresearchgroup.github.io/ms-mint-app/gui/",
+                                                'target': '_blank',
+                                            },
+                                        },
+                                        {
+                                            'component': 'Item',
+                                            'props': {
+                                                'key': 'issues',
+                                                'title': 'Issues',
+                                                'icon': 'antd-exclamation-circle',
+                                                'href': f"https://github.com/LewisResearchGroup/ms-mint-app/issues/new?body={T.get_issue_text()}",
+                                                'target': '_blank',
+                                            },
+                                        },
+
+                                    ],
+                                    mode='horizontal',
+                                    id='doc-issues-menu',
+                                    style={'justifyContent': 'center', 'width': '100%'}
+                                ),
+                                html.Div(
+                                    [
+                                        fac.AntdFlex(
+                                            [
+                                                fac.AntdText('ms-mint:', strong=True),
+                                                fac.AntdText(str(ms_mint.__version__), code=True),
+
+                                            ],
+                                            justify='space-between',
+                                            align='center',
+                                        ),
+                                        fac.AntdFlex(
+                                            [
+                                                fac.AntdText('ms-mint-app:', strong=True),
+                                                fac.AntdText(str(ms_mint_app.__version__), code=True),
+
+                                            ],
+                                            justify='space-between',
+                                            align='center',
+                                        ),
+                                    ],
+                                    style={'margin': '4px'},
+                                    id='version-info',
+                                ),
+                            ],
+                            vertical=True,
+                            gap=2,
+                        ),
+
                     ],
-                    mode='inline',
-                    style={'height': '100%', 'overflow': 'hidden auto'},
-                    currentKey='Workspaces',
-                    id='sidebar-menu',
+                    justify='space-between',
+                    align='center',
+                    vertical=True,
+                    style={'height': '100%'}
                 )
             ],
             collapsible=True,
@@ -206,6 +283,7 @@ _layout = fac.AntdLayout(
     ],
     style={'height': '100vh'},
 )
+
 
 def register_callbacks(app, cache, fsc, args):
     logging.info("Register callbacks")
