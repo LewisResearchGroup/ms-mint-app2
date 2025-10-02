@@ -1,14 +1,10 @@
-import logging
-import sys
-from importlib import metadata
 from collections import OrderedDict
+from importlib import metadata
 
-from .plugin_interface import PluginInterface
+import sys
 
-# Import built-in plugins
-from .plugins.workspaces import WorkspacesPlugin  
+from .plugins.workspaces import WorkspacesPlugin
 from .plugins.ms_files import MsFilesPlugin
-from .plugins.metadata import MetadataPlugin
 from .plugins.targets import TargetsPlugin
 from .plugins.target_optimization import TargetOptimizationPlugin
 from .plugins.processing import ProcessingPlugin
@@ -26,7 +22,6 @@ class PluginManager:
         # Register built-in plugins with order attribute
         self.register_plugin("Workspaces", WorkspacesPlugin())
         self.register_plugin("MS-Files", MsFilesPlugin())
-        # self.register_plugin("Metadata", MetadataPlugin())
         self.register_plugin("Targets", TargetsPlugin())
         #self.register_plugin("Add Metabolites", AddMetabolitesPlugin())
         self.register_plugin("Optimization", TargetOptimizationPlugin())
@@ -35,7 +30,6 @@ class PluginManager:
         self.register_plugin("Processing", ProcessingPlugin())
         self.register_plugin("Quality Control", QualityControlPlugin())
         self.register_plugin("Analysis", AnalysisPlugin())
-
 
         # Discover and register external plugins
         if sys.version_info >= (3, 10):
