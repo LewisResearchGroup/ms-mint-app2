@@ -782,22 +782,55 @@ def process_metadata(wdir, set_progress, selected_files):
 
     @app.callback(
         Output("ms-files-table", "data"),
-        Input("ms-processed-output", "data"),
-        Input("metadata-processed-store", "data"),
+        Output("ms-files-table", "selectedRowKeys"),
+
+        Input("processing-output-store", "data"),
+        Input("processing-type-store", "data"),
         Input("ms-delete-store", "data"),
-        Input("wdir", "children"),
+        Input('color-changed-store', 'data'),
         Input("wdir", "data"),
     )
-    def ms_files_table(value, value2, files_deleted, wdir):
+    def ms_files_table(processing_output, processing_type, files_deleted, color_changed, wdir):
 
-        if wdir is None:
+        # processing_type also store info about targets selections since it is the same modal for all of them
+        if wdir is None or processing_type.get('type') == 'targets':
             raise PreventUpdate
 
         with duckdb_connection(wdir) as conn:
             if conn is None:
-                return pd.DataFrame().to_dict('records')
-            data = conn.execute("SELECT * FROM samples_metadata").df()
-        return data.to_dict("records")
+                return []
+            dfpl = conn.execute("SELECT * FROM samples_metadata").pl()
+
+        if len(dfpl) == 0:
+            raise PreventUpdate
+        data = dfpl.with_columns(
+            pl.col('color').map_elements(
+                lambda value: {
+                    'content': value,
+                    'variant': 'filled',
+                    'custom': {'color': value},
+                    'style': {'background': value, 'width': '70px'}
+                },
+                return_dtype=pl.Struct({
+                    'content': pl.String,
+                    'variant': pl.String,
+                    'custom': pl.Struct({'color': pl.String}),
+                    'style': pl.Struct({'background': pl.String, 'width': pl.String})
+                }),
+                skip_nulls=False,
+            ).alias('color'),
+            pl.col('use_for_optimization').map_elements(
+                lambda value: {'checked': value},
+                return_dtype=pl.Object  # Specify that the result is a Python object
+            ).alias('use_for_optimization'),
+            pl.col('use_for_analysis').map_elements(
+                lambda value: {'checked': value},
+                return_dtype=pl.Object
+            ).alias('use_for_analysis'),
+        )
+
+        print(f"{data.to_dicts() = }")
+        return data.to_dicts(), []
 
     @app.callback(
         Output("modal-confirmation", "is_open"),
