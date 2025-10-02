@@ -1,20 +1,19 @@
 import re
 import shutil
-
-import pandas as pd
+from pathlib import Path
 
 import dash
-from dash import html, dcc, dash_table
-from dash.exceptions import PreventUpdate
-from dash.dependencies import Input, Output, State
-import dash_bootstrap_components as dbc
-
-from ..duckdb_manager import duckdb_connection
-from .. import tools as T
-from ..plugin_interface import PluginInterface
 import feffery_antd_components as fac
+from dash import html, dcc
+from dash.dependencies import Input, Output, State
+from dash.exceptions import PreventUpdate
+
+from ..duckdb_manager import duckdb_connection_mint
+from ..plugin_interface import PluginInterface
 
 _label = "Workspaces"
+pattern = re.compile(r"^[A-Za-z0-9_]+$")
+
 
 class WorkspacesPlugin(PluginInterface):
     def __init__(self):
@@ -27,321 +26,329 @@ class WorkspacesPlugin(PluginInterface):
 
     def callbacks(self, app, fsc, cache):
         callbacks(app, fsc, cache)
-    
+
     def outputs(self):
         return _outputs
-        
-ws_table = html.Div(
-    id="ws-table-container",
-    style={"minHeight": 100, "margin": "3rem 0"},
-    children=[
-        dbc.Button("Create Workspace", id="ws-create"),
-        dbc.Button("Delete Workspace", id="ws-delete", style={"float": "right"}, color='danger'),
-        html.Div(
-            dash_table.DataTable(
-                id="ws-table",
-                columns=[{"name": i, "id": i, "selectable": True} for i in ["Workspace"]],
-                data=[],
-                row_selectable="single",
-                row_deletable=False,
-                style_cell={"textAlign": "left"},
-                sort_action="native",
-            ),
-            style={"marginTop": "2rem"},
-        )
-    ],
-)
 
-_layout = html.Div(
-    [
-        html.H4("Workspaces"),
-        ws_table,
-        dbc.Modal(
-            [
-                dbc.ModalHeader("Create Workspace"),
-                dbc.ModalBody(
-                    [
-                        dcc.Input(
-                            id="ws-create-input", placeholder="New workspace name"
-                        ),
-                        html.P(id="ws-create-output"),
-                    ]
-                ),
-                dbc.ModalFooter(
-                    html.Div(
-                        [
-                            dbc.Button(
-                                "Create",
-                                id="ws-create-confirm",
-                                style={"marginRight": "10px"},
-                            ),
-                            dbc.Button("Cancel", id="ws-create-cancel"),
-                        ]
-                    )
-                ),
+
+_layout = html.Div([
+    dcc.Store(id="ws-action-store"),
+    fac.AntdFlex([
+        fac.AntdTitle('Workspaces', level=4, style={'margin': '0'}),
+        fac.AntdIcon(
+            id='workspace-tour-icon',
+            icon='pi-info',
+            style={"cursor": "pointer", 'paddingLeft': '10px'},
+        )],
+    ),
+    html.Div([
+        fac.AntdTable(
+            id='ws-table',
+            columns=[
+                {'title': 'Name', 'dataIndex': 'name', 'align': 'left', 'width': '30%'},
+                {'title': 'Description', 'dataIndex': 'description', 'align': 'left', 'editable': True,
+                 'width': '50%'},
+                {'title': 'Created at', 'dataIndex': 'created_at', 'align': 'center', 'width': '10%'},
+                {'title': 'Last Activity', 'dataIndex': 'last_activity', 'align': 'center', 'width': '10%'},
             ],
-            id="ws-create-popup",
-        ),
-        dbc.Modal(
-            [
-                dbc.ModalHeader("Delete Workspace"),
-                dbc.ModalBody(
-                    "This will delete all files and results in the selected workspace."
-                ),
-                dbc.ModalFooter(
-                    html.Div(
-                        [
-                            dbc.Button(
-                                "Delete",
-                                id="ws-delete-confirm",
-                                style={"marginRight": "10px"},
-                            ),
-                            dbc.Button("Cancel", id="ws-delete-cancel"),
-                        ]
-                    )
-                ),
+            filterOptions={
+                'name': {'filterSearch': True},
+            },
+            sortOptions={'sortDataIndexes': ['name', 'last_activity', 'created_at']},
+            footer=[
+                fac.AntdFlex([
+                    fac.AntdButton('Create Workspace', id='ws-create', icon=fac.AntdIcon(icon='antd-plus')),
+                    fac.AntdButton('Delete Workspace', id='ws-delete', danger=True, icon=fac.AntdIcon(
+                        icon='antd-minus'))],
+                    justify='space-between'
+                )
             ],
-            id="ws-delete-popup",
-        ),
-    ],
-    id="ws-container",
-    style={"padding": "3rem"},
-)    
+            pagination={'pageSize': 10, 'hideOnSinglePage': True},
+            locale='en-us',
+            rowSelectionType='radio',
+            size='small',
+        )],
+        style={"marginTop": "2rem"},
+    ),
+    fac.AntdModal([
+        fac.AntdForm([
+            fac.AntdFormItem(
+                fac.AntdInput(id='ws-create-input', placeholder='New workspace name', value=None),
+                label='Name:',
+                hasFeedback=True,
+                id='ws-create-form-item'
+            )]
+        )],
+        title='Create Workspace',
+        id='ws-create-modal',
+        renderFooter=True,
+        okText='Create',
+        locale='en-us',
+        okButtonProps={
+            'disabled': True
+        }
+    ),
+    fac.AntdModal([
+        html.Div(fac.AntdText("This will delete all files and results in the selected workspace.")),
+
+        html.Div(fac.AntdText('Are you sure you want to delete this workspace?', strong=True))],
+        title="Delete Workspace",
+        id="ws-delete-modal",
+        okText="Delete",
+        renderFooter=True,
+        locale='en-us',
+        okButtonProps={
+            'danger': True
+        }
+    )],
+)
 
 _outputs = html.Div(
     id="ws-outputs",
     children=[
-        html.Div(id={"index": "ws-created-output", "type": "output"}),
-        html.Div(id={"index": "ws-activate-output", "type": "output"}),
-        html.Div(id={"index": "ws-delete-output", "type": "output"}),
-        dcc.Store(id="ws_created"),
+
     ],
 )
 
+
 def callbacks(app, fsc, cache):
     @app.callback(
-        Output("ws-table", "data"),
-        Input({"index": "ws-created-output", "type": "output"}, "children"),
-        Input("tab", "value"),
-        Input({"index": "ws-delete-output", "type": "output"}, "children"),
-        State("tmpdir", "children"),
-    )
-    def ws_table(value, tab, delete, tmpdir):
-        T.maybe_migrate_workspaces(tmpdir)
-        ws_names = T.get_workspaces(tmpdir)
-        ws_names.sort()
-        ws_names = [
-            {"Workspace": ws_name}
-            for ws_name in ws_names
-            if not ws_name.startswith(".")
-        ]
-        return ws_names
+        Output('ws-create-form-item', 'validateStatus'),
+        Output('ws-create-form-item', 'help'),
+        Output('ws-create-modal', 'okButtonProps'),
 
-    @app.callback(
-        Output({"index": "ws-activate-output", "type": "output"}, "children"),
-        Output("wdir", "children"),
-        Output("active-workspace", "children"),
-        Input("ws-table", "derived_virtual_selected_rows"),
-        Input({"index": "ws-delete-output", "type": "output"}, "children"),
-        Input({"index": "ws-created-output", "type": "output"}, "children"),
-        State("ws-table", "data"),
-        State("tmpdir", "children"),
+        Input('ws-create-input', 'value'),
+        State("tmpdir", "data"),
         prevent_initial_call=True
     )
-    def ws_activate(ndx, deleted, created, data, tmpdir):
+    def create_ws_input_validation(value, tmpdir):
+        if value is None:
+            raise PreventUpdate
+
+        if value is not None and bool(pattern.match(value)):
+            with duckdb_connection_mint(tmpdir) as mint_conn:
+                ws_df = mint_conn.execute("SELECT * FROM workspaces WHERE name = ?", (value,)).df()
+                if ws_df.empty:
+                    okButtonProps = {'disabled': False}
+                    validateStatus = 'success'
+                    help = None
+                else:
+                    okButtonProps = {'disabled': True}
+                    validateStatus = 'error'
+                    help = 'Workspace already exists!'
+        else:
+            okButtonProps = {'disabled': True}
+            validateStatus = 'error'
+            help = 'Workspace name can only contain: a-z, A-Z, 0-9 and _'
+        return validateStatus, help, okButtonProps
+
+    @app.callback(
+        Output('ws-action-store', 'data', allow_duplicate=True),
+        Output('ws-create-input', 'value'),
+        Output('ws-create-form-item', 'validateStatus', allow_duplicate=True),
+
+        Input('ws-create-modal', 'okCounts'),
+        State("tmpdir", "data"),
+        State('ws-create-input', 'value'),
+        prevent_initial_call=True
+    )
+    def create_workspace(okCounts, tmpdir, ws_name):
+        if not okCounts:
+            raise PreventUpdate
+        with duckdb_connection_mint(tmpdir) as mint_conn:
+            previous_active = mint_conn.execute("SELECT key FROM workspaces WHERE active = true").fetchone()
+
+            key = mint_conn.execute("INSERT INTO workspaces (name, active, created_at, last_activity) "
+                                    "VALUES (?, true, NOW(), NOW()) RETURNING key", (ws_name,)).fetchone()
+            if previous_active:
+                mint_conn.execute("UPDATE workspaces SET active = false WHERE key = ?", (previous_active[0],))
+            if key:
+                ws_path = Path(tmpdir, 'workspaces', str(key[0]))
+                ws_path.mkdir(parents=True, exist_ok=True)
+
+        return 'create', None, None
+
+    @app.callback(
+        Output('ws-create-modal', 'visible'),
+        Input("ws-create", "nClicks")
+    )
+    def create_workspace_modal(nClicks):
+        if nClicks is None:
+            raise PreventUpdate
+        return True
+
+    @app.callback(
+        Output('notifications-container', 'children', allow_duplicate=True),
+        Output('ws-action-store', 'data', allow_duplicate=True),
+
+        Input('ws-delete-modal', 'okCounts'),
+        State("tmpdir", "data"),
+        State('ws-table', 'selectedRowKeys'),
+        prevent_initial_call=True
+    )
+    def delete_workspace(okCounts, tmpdir, selectedRowKeys):
+        if not okCounts:
+            raise PreventUpdate
+
+        print(f'{selectedRowKeys = }')
+
+        with duckdb_connection_mint(tmpdir) as mint_conn:
+            next_active = mint_conn.execute("SELECT key FROM workspaces "
+                                            "WHERE active = false ORDER BY last_activity DESC LIMIT 1").fetchone()
+
+            name = mint_conn.execute("DELETE FROM workspaces WHERE key = ? RETURNING name",
+                                     (selectedRowKeys[0],)).fetchone()
+            if next_active:
+                mint_conn.execute("UPDATE workspaces SET active = true WHERE key = ?", (next_active[0],))
+
+            if name:
+                ws_path = Path(tmpdir, 'workspaces', str(selectedRowKeys[0]))
+                shutil.rmtree(ws_path)
+                ws_name = name[0]
+
+                return fac.AntdNotification(message=f"Workspace {ws_name} deleted.",
+                                            type="success",
+                                            duration=3,
+                                            placement='bottom',
+                                            showProgress=True,
+                                            stack=True), {'type': 'delete', 'status': 'success'}
+
+        return dash.no_update, {'type': 'delete', 'status': 'error'}
+
+    @app.callback(
+        Output('ws-delete-modal', 'visible'),
+        Input("ws-delete", "nClicks")
+    )
+    def delete_workspace_modal(nClicks):
+        if nClicks is None:
+            raise PreventUpdate
+        return True
+
+    @app.callback(
+        Output("ws-table", "data"),
+        Output("ws-table", "expandedRowKeyToContent"),
+        Output("ws-table", "selectedRowKeys"),
+
+        Input('sidebar-menu', 'currentKey'),
+        Input('ws-action-store', 'data'),
+        State("tmpdir", "data"),
+    )
+    def ws_table(currentKey, ws_action, tmpdir):
+
+        if currentKey != "Workspaces":
+            raise PreventUpdate
+
+        print(f'{currentKey = }')
+        print(f'{ws_action = }')
+        print(f'{tmpdir = }')
+
+
+        with duckdb_connection_mint(tmpdir) as mint_conn:
+            if ws_action is None:
+                stmt = "SELECT * FROM workspaces ORDER BY last_activity DESC"
+            else:
+                stmt = "SELECT * FROM workspaces"
+
+            data = mint_conn.execute(stmt).df()
+            print(f"{data = }")
+
+            cols = ['created_at', 'last_activity']
+            data[cols] = data[cols].apply(lambda col: col.dt.strftime("%y-%m-%d %H:%M:%S"))
+
+            row_content = mint_conn.execute("SELECT key FROM workspaces").df()
+
+            def row_comp(key):
+                _path = Path(tmpdir, 'workspaces', str(key))
+                comp = html.Div([
+                    fac.AntdText('Workspace path:', strong=True, locale='en-us', style={'marginRight': '10px'}),
+                    fac.AntdText(_path.as_posix(), copyable=True, locale='en-us')
+                ])
+                return comp
+
+            row_content['content'] = row_content['key'].apply(row_comp)
+            selectedRowKeys = mint_conn.execute("SELECT key FROM workspaces WHERE active = true").fetchone()
+
+            sk = [selectedRowKeys[0]] if selectedRowKeys else None
+        return data.to_dict('records'), row_content.to_dict('records'), sk
+
+    @app.callback(
+        Output('notifications-container', 'children', allow_duplicate=True),
+        Output("ws-wdir-name-text", "children"),
+        Output("ws-wdir-name", "text"),
+        Output("wdir", "data"),
+
+        Input("ws-table", "selectedRowKeys"),
+        State("tmpdir", "data"),
+        State("ws-action-store", "data"),
+        prevent_initial_call=True
+    )
+    def ws_activate(selectedRowKeys, tmpdir, ws_action):
+
+        if not selectedRowKeys:
+            raise PreventUpdate
+
+        with duckdb_connection_mint(tmpdir) as mint_conn:
+            mint_conn.execute("UPDATE workspaces SET active = false WHERE key != ?", (selectedRowKeys[0],))
+            name = mint_conn.execute("UPDATE workspaces SET active = true WHERE key = ? RETURNING name",
+                                     (selectedRowKeys[0],)).fetchone()
+            if name:
+                ws_name = name[0]
+                wdir = Path(tmpdir, 'workspaces', selectedRowKeys[0])
+
+            if ws_action:
+                notification = dash.no_update
+            else:
+                notification = fac.AntdNotification(message=f"Workspace {ws_name} activated.",
+                                                    type="success",
+                                                    duration=3,
+                                                    placement='bottom',
+                                                    showProgress=True,
+                                                    stack=True)
+
+        return notification, ws_name, wdir.as_posix(), wdir.as_posix()
+
+    @app.callback(
+        Output("notifications-container", "children", allow_duplicate=True),
+
+        Input("ws-table", "recentlyChangedRow"),
+        State("ws-table", "recentlyChangedColumn"),
+        State("tmpdir", "data"),
+        prevent_initial_call=True,
+    )
+    def save_ws_table_on_edit(row_edited, column_edited, tmpdir):
+        """
+        This callback saves the table on cell edits.
+        This saves some bandwidth.
+        """
         ctx = dash.callback_context
         if not ctx.triggered:
             raise PreventUpdate
-        prop_id = ctx.triggered[0]["prop_id"]
 
-        if ndx is None or len(ndx) == 0:
-            raise PreventUpdate
-        if "ws-delete-output" in prop_id:
-            raise PreventUpdate
-        if "ws-created-output" in prop_id:
-            if created is None:
-                raise PreventUpdate
-            ws_name = created
-            wdir = T.workspace_path(tmpdir, ws_name)
-            with duckdb_connection(wdir) as conn:
-                pass
-            T.save_activated_workspace(tmpdir, ws_name)
-            message = f"Workspace {ws_name} created and activated."
-            return (
-                fac.AntdNotification(message=message,
-                                   type="success",
-                                   duration=3,
-                                   placement='bottom',
-                                   showProgress=True,
-                                   stack=True),
-                wdir, 
-                ws_name
-            )
-        if "ws-table.derived_virtual_selected_rows" in prop_id:
-            if ndx is None and (data is None or len(data) == 0):
-                raise PreventUpdate
-
-        if tmpdir is None:
-            raise PreventUpdate
-        ws_names = T.get_workspaces(tmpdir)
-        if ws_names is None or len(ws_names) == 0:
-            message = "No workspace defined."
-            return dbc.Alert(message, color="danger"), "", ""
-        if prop_id == "ws-delete-output.children" or ndx is None:
-            ndx = [0]
-
-        data = pd.DataFrame(data)
-
-        if len(ndx) == 1:
-            if ndx[0] not in data.index:
-                raise PreventUpdate
-            ws_name = data.loc[ndx[0], "Workspace"]
-        else:
-            ws_name = T.get_active_workspace(tmpdir)
-
-        if ws_name is None:
-        Output("wdir", "data"),
+        if row_edited is None or column_edited is None:
             raise PreventUpdate
 
-        wdir = T.workspace_path(tmpdir, ws_name)
+        print(f"{row_edited = }")
+        print(f"{column_edited = }")
 
-        if ws_name is not None:
-            with duckdb_connection(wdir) as conn:
-                pass
-            T.save_activated_workspace(tmpdir, ws_name)
-        else:
-            raise PreventUpdate
-        message = f"Workspace {ws_name} activated."
-        if ws_name is None:
-            ws_name = ""
-
-        T.maybe_update_workpace_scheme(wdir)
-
-        return (fac.AntdNotification(message=message,
-                                     type="success",
-                                     duration=3,
-                                     placement='bottom',
-                                     showProgress=True,
-                                     stack=True),
-                wdir, ws_name)
-
-
-    @app.callback(
-        Output("ws-delete-popup", "is_open"),
-        Input("ws-delete", "n_clicks"),
-        Input("ws-delete-cancel", "n_clicks"),
-        Input("ws-delete-confirm", "n_clicks"),
-        State("ws-delete-popup", "is_open"),
-    )
-    def ws_delete(n1, n2, n3, is_open):
-        if n1 is None:
-            raise PreventUpdate
-        if n1 or n2 or n3:
-            return not is_open
-        return is_open
-
-    @app.callback(
-        Output({"index": "ws-delete-output", "type": "output"}, "children"),
-        Input("ws-delete-confirm", "n_clicks"),
-        State("ws-table", "derived_virtual_selected_rows"),
-        State("ws-table", "data"),
-        State("tmpdir", "children"),
-        prevent_initial_call=True,
-    )
-    def ws_delete_confirmed(n_clicks, ndxs, data, tmpdir):
-        if n_clicks is None or len(ndxs) == 0:
-            raise PreventUpdate
-        ws_name = data[ndxs[0]]["Workspace"]
-        dirname = T.workspace_path(tmpdir, ws_name)
-        shutil.rmtree(dirname)
-        message = f"Workspace {ws_name} deleted."
-        return fac.AntdNotification(message=message,
-                                   type="warning",
-                                   duration=3,
-                                   placement='bottom',
-                                   showProgress=True,
-                                   stack=False)
-
-    @app.callback(
-        Output("ws-create-popup", "is_open"),
-        Input("ws-create", "n_clicks"),
-        Input("ws-create-cancel", "n_clicks"),
-        Input("ws-create-confirm", "n_clicks"),
-        State("ws-create-popup", "is_open"),
-    )
-    def ws_create(n1, n2, n3, is_open):
-        if n1 is None:
-            raise PreventUpdate
-        if n1 or n2 or n3:
-            return not is_open
-        return is_open
-
-    @app.callback(
-        Output("ws-create-output", "children"),
-        Output("ws-create-confirm", "disabled"),
-        Input("ws-create-input", "value"),
-        State("tmpdir", "children"),
-    )
-    def ws_create_message(ws_name, tmpdir):
-        if ws_name is None:
-            raise PreventUpdate
-        elif ws_name == "":
-            return dbc.Alert("Name cannot be empty", color="warning"), True
-        elif not re.match(r"^[\w_-]+$", ws_name):
-            return (
-                dbc.Alert(
-                    "Name can only contain: a-z, A-Z, 0-9, -,  _ and no blanks.",
-                    color="warning",
-                ),
-                True,
-            )
-        elif T.workspace_exists(tmpdir, ws_name):
-            return dbc.Alert("Workspace already exists", color="warning"), True
-        else:
-            return (
-                dbc.Alert(f'Can create workspace "{ws_name}"', color="success"),
-                False,
-            )
-
-    @app.callback(
-        Output({"index": "ws-created-output", "type": "output"}, "children"),
-        Output("ws-table", "selected_rows", allow_duplicate=True),
-        Output("ws-create-input", "value"),
-        Input("ws-create-confirm", "n_clicks"),
-        State("ws-create-input", "value"),
-        State("tmpdir", "children"),
-        prevent_initial_call=True,
-    )
-    def ws_create_confirmed(n_clicks, ws_name, tmpdir):
-        if n_clicks is None:
-            raise PreventUpdate
-        T.create_workspace(tmpdir, ws_name)
-        ws_names = T.get_workspaces(tmpdir)
-        ws_names.sort()
-        ndx = ws_names.index(ws_name)
-        return ws_name, [ndx], ""
-
-    @app.callback(
-        Output("ws-table", "selected_rows"),
-        Input("tab", "value"),
-        Input("ws-table", "data"),
-        State("tmpdir", "children"),
-    )
-    def set_selected_row(tab, data, tmpdir):
-        if tab != _label:
-            raise PreventUpdate
-
-        ws_names = T.get_workspaces(tmpdir)
-
-        if len(ws_names) == 0:
-            raise PreventUpdate
-        data = pd.DataFrame(data)
-        active_ws = T.get_active_workspace(tmpdir)
-        if active_ws is None:
-            ndx = data.index[0]
-            active_ws = data.Workspace[0]
-        else:
-            ndx = ws_names.index(active_ws)
-        if ndx is None:
-            ndx = 0
-        return [ndx]
+        try:
+            with duckdb_connection_mint(tmpdir) as mint_conn:
+                if mint_conn is None:
+                    raise PreventUpdate
+                query = f"UPDATE workspaces SET {column_edited} = ? WHERE key = ?"
+                mint_conn.execute(query, [row_edited[column_edited], row_edited['key']])
+            return fac.AntdNotification(message="Successfully edition saved",
+                                        type="success",
+                                        duration=3,
+                                        placement='bottom',
+                                        showProgress=True,
+                                        stack=True
+                                        )
+        except Exception as e:
+            return fac.AntdNotification(message="Failed to save edition",
+                                        description=f"Failing to save edition with: {str(e)}",
+                                        type="error",
+                                        duration=3,
+                                        placement='bottom',
+                                        showProgress=True,
+                                        stack=True
+                                        )
