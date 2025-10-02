@@ -505,21 +505,36 @@ def process_ms_files(wdir, set_progress, selected_files):
     from ms_mint.io import convert_mzxml_to_parquet_pl
     import multiprocessing
 
+    # set progress to 1 to the user feedback
+    set_progress(1)
+
     # get the ms_file_label data as df to avoid multiple queries
     with duckdb_connection(wdir) as conn:
         if conn is None:
             raise PreventUpdate
-        data = conn.execute("SELECT ms_file_label FROM samples_metadata").pl()
+        data = conn.execute("SELECT ms_file_label FROM samples_metadata").df()
+
+    files_name = {Path(file_path).stem: Path(file_path) for file_path in file_list}
+
+    mask = data["ms_file_label"].isin(files_name)  # dict como conjunto de claves
+    duplicates = data.loc[mask, "ms_file_label"]  # Serie con solo las etiquetas duplicadas
+    if not duplicates.empty:
+        set_progress(round(duplicates.shape[0] / n_total * 100, 1))
+        failed_files.update({files_name[label]: "duplicate" for label in duplicates})
+        logging.info("Found %d duplicates: %s", duplicates.shape[0], duplicates.tolist())
+
+    if len(files_name) - len(duplicates) == 0:
+        set_progress(100)
+        return 0, failed_files
+
     with tempfile.TemporaryDirectory() as tmpdir:
         futures = []
         ctx = multiprocessing.get_context('spawn')
         with concurrent.futures.ProcessPoolExecutor(max_workers=4, mp_context=ctx) as executor:
-            for file_path in file_list:
-                if Path(file_path).stem in data['ms_file_label'].to_list():
-                    failed_files[file_path] = 'duplicate'
-                    set_progress(round(len(failed_files) / n_total * 100, 2))
-                else:
-                    futures.append(executor.submit(convert_mzxml_to_parquet_pl, file_path, tmp_dir=tmpdir))
+            for file_name, file_path in files_name.items():
+                if file_name in duplicates.tolist():
+                    continue
+                futures.append(executor.submit(convert_mzxml_to_parquet_pl, file_path, tmp_dir=tmpdir))
 
             batch_ms = []
             batch_ms_data = []
