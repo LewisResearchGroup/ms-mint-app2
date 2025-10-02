@@ -1,45 +1,19 @@
-import os
-import io
-import shutil
 import base64
-import subprocess
-import platform
+import io
 import logging
+import os
+import pathlib
+from glob import glob
+from typing import Union
 
 import numpy as np
 import pandas as pd
-
 from tqdm import tqdm
-from glob import glob
-import pathlib
-from pathlib import Path as P
 
-import urllib3, ftplib
-from urllib.parse import urlparse
-from bs4 import BeautifulSoup
-
-from typing import Union, Optional
-
-
-import ms_mint
 from ms_mint.io import ms_file_to_df
-from ms_mint.targets import standardize_targets, read_targets
-from ms_mint.io import convert_ms_file_to_feather
 from ms_mint.standards import TARGETS_COLUMNS
-
-from datetime import date
-
+from ms_mint.targets import standardize_targets, read_targets
 from .filelock import FileLock
-
-
-def get_ms_level_from_filename(filename):
-    fn = P(filename)
-    if fn.stem.split("_")[-1] == "ms1":
-        return "ms1"
-    elif fn.stem.split("_")[-1] == "ms2":
-        return "ms2"
-
-    return "msunknown"
 
 
 def list_to_options(x):
@@ -48,49 +22,6 @@ def list_to_options(x):
 
 def lock(fn):
     return FileLock(f"{fn}.lock", timeout=1)
-
-
-def today():
-    return date.today().strftime("%y%m%d")
-
-
-def get_versions():
-    string = ""
-    try:
-        string += subprocess.getoutput("conda env export --no-build")
-    except:
-        pass
-    return string
-
-
-def get_issue_text():
-    return f"""
-    %0A%0A%0A%0A%0A%0A%0A%0A%0A
-    MINT version: {ms_mint.__version__}%0A
-    OS: {platform.platform()}%0A
-    Versions: ---
-    """
-
-
-def parse_ms_files(contents, filename, date, target_dir):
-    content_type, content_string = contents.split(",")
-    decoded = base64.b64decode(content_string)
-    fn_abs = os.path.join(target_dir, filename)
-    with lock(fn_abs):
-        with open(fn_abs, "wb") as file:
-            file.write(decoded)
-    new_fn = convert_ms_file_to_feather(fn_abs)
-    if os.path.isfile(new_fn):
-        os.remove(fn_abs)
-
-
-def parse_pkl_files(contents, filename, date, target_dir, ms_mode=None):
-    content_type, content_string = contents.split(",")
-    decoded = base64.b64decode(content_string)
-    df = pd.read_csv(io.StringIO(decoded.decode("utf-8")))
-    df = standardize_targets(df, ms_mode=ms_mode, filename=filename)
-    df = df.drop_duplicates()
-    return df
 
 
 def get_targets_from_upload(file_path: str, ms_mode=None):
@@ -113,97 +44,6 @@ def get_targets_from_upload(file_path: str, ms_mode=None):
         df = pd.DataFrame()
         failed = True
     return df, failed
-
-
-def get_dirnames(path):
-    dirnames = [f.name for f in os.scandir(path) if f.is_dir()]
-    return dirnames
-
-
-def workspace_path(tmpdir, ws_name):
-    return os.path.join(tmpdir, "workspaces", ws_name)
-
-
-def maybe_migrate_workspaces(tmpdir):
-    if not P(tmpdir).is_dir():
-        return None
-    dir_names = get_dirnames(tmpdir)
-    ws_path = get_workspaces_path(tmpdir)
-    if not os.path.isdir(ws_path) and len(dir_names) > 0:
-        logging.info("Migrating to new directory scheme.")
-        os.makedirs(ws_path)
-        for dir_name in dir_names:
-            old_dir = os.path.join(tmpdir, dir_name)
-            new_dir = workspace_path(tmpdir, dir_name)
-            shutil.move(old_dir, new_dir)
-            logging.info("Moving", old_dir, "to", new_dir)
-
-
-def maybe_update_workpace_scheme(wdir):
-    old_pkl_fn = P(wdir) / "peaklist" / "peaklist.csv"
-    new_pkl_fn = P(get_targets_fn(wdir))
-    new_path = new_pkl_fn.parent
-    old_path = old_pkl_fn.parent
-    if old_pkl_fn.is_file():
-        logging.info(f"Moving targets file to new default location ({new_pkl_fn}).")
-        if not new_path.is_dir():
-            os.makedirs(new_path)
-        os.rename(old_pkl_fn, new_pkl_fn)
-        shutil.rmtree(old_path)
-
-
-def workspace_exists(tmpdir, ws_name):
-    path = workspace_path(tmpdir, ws_name)
-    return os.path.isdir(path)
-
-
-def get_active_workspace(tmpdir):
-    """Returns name of last activated workspace,
-    if workspace still exists. Otherwise,
-    return None.
-    """
-    fn_ws_info = os.path.join(tmpdir, ".active-workspace")
-    if not os.path.isfile(fn_ws_info):
-        return None
-    with open(fn_ws_info, "r") as file:
-        ws_name = file.read()
-    if ws_name in get_workspaces(tmpdir):
-        return ws_name
-    else:
-        return None
-
-
-def save_activated_workspace(tmpdir, ws_name):
-    fn_ws_info = os.path.join(tmpdir, ".active-workspace")
-    with open(fn_ws_info, "w") as file:
-        file.write(ws_name)
-
-
-def create_workspace(tmpdir, ws_name):
-    path = workspace_path(tmpdir, ws_name)
-    assert not os.path.isdir(path)
-    os.makedirs(path)
-    os.makedirs(os.path.join(path, "ms_files"))
-    os.makedirs(os.path.join(path, "targets"))
-    os.makedirs(os.path.join(path, "results"))
-    os.makedirs(os.path.join(path, "figures"))
-    os.makedirs(os.path.join(path, "chromato"))
-
-
-def get_workspaces_path(tmpdir):
-    # Defines the path to the workspaces
-    # relative to `tmpdir`
-    return os.path.join(tmpdir, "workspaces")
-
-
-def get_workspaces(tmpdir):
-    ws_path = get_workspaces_path(tmpdir)
-    if not P(ws_path).is_dir():
-        return []
-    ws_names = get_dirnames(ws_path)
-    ws_names = [ws for ws in ws_names if not ws.startswith(".")]
-    ws_names.sort()
-    return ws_names
 
 
 class Chromatograms:
@@ -238,143 +78,130 @@ class Chromatograms:
             chrom[["scan_time", "intensity"]].to_feather(fn_chro)
 
     def get_single(self, mz_mean, mz_width, ms_file):
-        return get_chromatogram(ms_file, mz_mean, mz_width, self.wdir)
+        return self._get_chromatogram(ms_file, mz_mean, mz_width, self.wdir)
 
+    def _get_chromatogram(self, ms_file, mz_mean, mz_width, wdir):
+        fn = self._get_chromatogram_fn(ms_file, mz_mean, mz_width, wdir)
+        if not os.path.isfile(fn):
+            chrom = self._create_chromatogram(ms_file, mz_mean, mz_width, fn)
+        else:
+            try:
+                chrom = pd.read_feather(fn)
+            except:
+                os.remove(fn)
+                logging.warning(f"Cound not read {fn}.")
+                return None
 
-def create_chromatograms(ms_files, targets, wdir):
-    for fn in tqdm(ms_files):
-        fn_out = os.path.basename(fn)
-        fn_out, _ = os.path.splitext(fn_out)
-        fn_out += ".feather"
-        for ndx, row in targets.iterrows():
-            mz_mean, mz_width = row[["mz_mean", "mz_width"]]
-            fn_chro = get_chromatogram_fn(fn, mz_mean, mz_width, wdir)
-            if not os.path.isfile(fn_chro):
-                create_chromatogram(fn, mz_mean, mz_width, fn_chro)
+        chrom = chrom.rename(
+            columns={
+                "retentionTime": "scan_time",
+                "intensity array": "intensity",
+                "m/z array": "mz",
+            }
+        )
 
+        return chrom
 
-def create_chromatogram(
-    ms_file: Union[str, pathlib.Path],
-    mz_mean: float,
-    mz_width: float,
-    fn_out: Union[str, pathlib.Path],
-    time_step: float = 0.25
-) -> pd.DataFrame:
-    """
-    Create a chromatogram from mass spectrometry data.
-    
-    Args:
-        ms_file: Path to the mass spectrometry file
-        mz_mean: Mean m/z value for filtering
-        mz_width: Width of m/z window in ppm
-        fn_out: Output file path for the Feather file
-        time_step: Time step for equidistant time points (default: 0.25)
-        
-    Returns:
-        pd.DataFrame: Processed chromatogram data with equidistant time points
-                     Returns empty DataFrame if no data is found
-    """
-    
-    # Convert MS file to DataFrame
-    df = ms_file_to_df(ms_file)
-    # Create output directory if not exists
-    dirname: str = os.path.dirname(str(fn_out))
-    if not os.path.isdir(dirname):
-        os.makedirs(dirname, exist_ok=True)
+    @staticmethod
+    def _create_chromatogram(
+            ms_file: Union[str, pathlib.Path],
+            mz_mean: float,
+            mz_width: float,
+            fn_out: Union[str, pathlib.Path],
+            time_step: float = 0.25
+    ) -> pd.DataFrame:
+        """
+        Create a chromatogram from mass spectrometry data.
 
-    if mz_width:
-        # Calculate m/z tolerance
-        dmz = mz_mean * 1e-6 * mz_width
-        # Filter DataFrame to specific m/z range
-        chrom = df[(df["mz"] - mz_mean).abs() <= dmz]
-    else:
-        chrom = df
+        Args:
+            ms_file: Path to the mass spectrometry file
+            mz_mean: Mean m/z value for filtering
+            mz_width: Width of m/z window in ppm
+            fn_out: Output file path for the Feather file
+            time_step: Time step for equidistant time points (default: 0.25)
 
-    # If no data found, return empty DataFrame
-    if chrom.empty:
-        empty_result = pd.DataFrame(columns=["scan_time", "intensity"])
+        Returns:
+            pd.DataFrame: Processed chromatogram data with equidistant time points
+                         Returns empty DataFrame if no data is found
+        """
 
-        # Save empty DataFrame to Feather file
+        # Convert MS file to DataFrame
+        df = ms_file_to_df(ms_file)
+        # Create output directory if not exists
+        dirname: str = os.path.dirname(str(fn_out))
+        if not os.path.isdir(dirname):
+            os.makedirs(dirname, exist_ok=True)
+
+        if mz_width:
+            # Calculate m/z tolerance
+            dmz = mz_mean * 1e-6 * mz_width
+            # Filter DataFrame to specific m/z range
+            chrom = df[(df["mz"] - mz_mean).abs() <= dmz]
+        else:
+            chrom = df
+
+        # If no data found, return empty DataFrame
+        if chrom.empty:
+            empty_result = pd.DataFrame(columns=["scan_time", "intensity"])
+
+            # Save empty DataFrame to Feather file
+            with lock(fn_out):
+                empty_result.to_feather(fn_out)
+            return empty_result
+        # Group by scan time and get max intensity
+        cols_to_drop_list = ["polarity", 'filterLine', 'filterLine_to_ELMAVEN']
+        if cols_to_drop := [col for col in cols_to_drop_list if col in df.columns]:
+            chrom = chrom.drop(columns=cols_to_drop)
+        chrom = chrom.groupby("scan_time").max().reset_index()
+
+        # Determine start and end times
+        start_time: float = chrom['scan_time'].min()
+        end_time: float = chrom['scan_time'].max()
+
+        # Check if start_time or end_time is NaN
+        if np.isnan(start_time) or np.isnan(end_time):
+            empty_result: pd.DataFrame = pd.DataFrame(columns=["scan_time", "intensity"])
+
+            # Save empty DataFrame to Feather file
+            with lock(fn_out):
+                empty_result.to_feather(fn_out)
+
+            return empty_result
+
+        # Create equidistant time points
+        time_points: np.ndarray = np.arange(start_time, end_time + time_step, time_step)
+
+        # Interpolate intensities
+        interpolated_intensities: np.ndarray = np.interp(
+            time_points,
+            chrom['scan_time'],
+            chrom['intensity']
+        )
+
+        # Create new equidistant DataFrame
+        equidistant_chrom: pd.DataFrame = pd.DataFrame({
+            'scan_time': time_points,
+            'intensity': interpolated_intensities
+        })
+
+        # Round scan time to 3 decimal places
+        equidistant_chrom['scan_time'] = equidistant_chrom['scan_time'].round(3)
+
+        # Save to Feather file
         with lock(fn_out):
-            empty_result.to_feather(fn_out)
-        return empty_result
-    # Group by scan time and get max intensity
-    cols_to_drop_list = ["polarity", 'filterLine', 'filterLine_to_ELMAVEN']
-    if cols_to_drop := [col for col in cols_to_drop_list if col in df.columns]:
-        chrom = chrom.drop(columns=cols_to_drop)
-    chrom = chrom.groupby("scan_time").max().reset_index()
-    
-    # Determine start and end times
-    start_time: float = chrom['scan_time'].min()
-    end_time: float = chrom['scan_time'].max()
-    
-    # Check if start_time or end_time is NaN
-    if np.isnan(start_time) or np.isnan(end_time):
-        empty_result: pd.DataFrame = pd.DataFrame(columns=["scan_time", "intensity"])
-        
-        # Save empty DataFrame to Feather file
-        with lock(fn_out):
-            empty_result.to_feather(fn_out)
-            
-        return empty_result
-    
-    # Create equidistant time points
-    time_points: np.ndarray = np.arange(start_time, end_time + time_step, time_step)
-    
-    # Interpolate intensities
-    interpolated_intensities: np.ndarray = np.interp(
-        time_points, 
-        chrom['scan_time'], 
-        chrom['intensity']
-    )
-    
-    # Create new equidistant DataFrame
-    equidistant_chrom: pd.DataFrame = pd.DataFrame({
-        'scan_time': time_points,
-        'intensity': interpolated_intensities
-    })
-    
-    # Round scan time to 3 decimal places
-    equidistant_chrom['scan_time'] = equidistant_chrom['scan_time'].round(3)
-    
-    # Save to Feather file
-    with lock(fn_out):
-        equidistant_chrom[["scan_time", "intensity"]].to_feather(fn_out)
-    
-    return equidistant_chrom
+            equidistant_chrom[["scan_time", "intensity"]].to_feather(fn_out)
 
+        return equidistant_chrom
 
-def get_chromatogram(ms_file, mz_mean, mz_width, wdir):
-    fn = get_chromatogram_fn(ms_file, mz_mean, mz_width, wdir)
-    if not os.path.isfile(fn):
-        chrom = create_chromatogram(ms_file, mz_mean, mz_width, fn)
-    else:
-        try:
-            chrom = pd.read_feather(fn)
-        except:
-            os.remove(fn)
-            logging.warning(f"Cound not read {fn}.")
-            return None
-
-    chrom = chrom.rename(
-        columns={
-            "retentionTime": "scan_time",
-            "intensity array": "intensity",
-            "m/z array": "mz",
-        }
-    )
-
-    return chrom
-
-
-def get_chromatogram_fn(ms_file, mz_mean, mz_width, wdir):
-    ms_file = os.path.basename(ms_file)
-    base, _ = os.path.splitext(ms_file)
-    fn = (
-        os.path.join(wdir, "chromato", f"{mz_mean}-{mz_width}".replace(".", "_"), base)
-        + ".feather"
-    )
-    return fn
+    @staticmethod
+    def _get_chromatogram_fn(ms_file, mz_mean, mz_width, wdir):
+        ms_file = os.path.basename(ms_file)
+        base, _ = os.path.splitext(ms_file)
+        fn = (
+                os.path.join(wdir, "chromato", f"{mz_mean}-{mz_width}".replace(".", "_"), base)
+                + ".feather"
+        )
+        return fn
 
 
 def get_targets_fn(wdir):
@@ -422,70 +249,41 @@ def get_results(wdir):
     return df
 
 
-def get_metadata(wdir):
-    fn = get_metadata_fn(wdir)
-    fn_path = os.path.dirname(fn)
-    ms_files = get_ms_fns(wdir, abs_path=False)
-    ms_files = [filename_to_label(fn) for fn in ms_files]
-    df = pd.DataFrame()
-    if not os.path.isdir(fn_path):
-        os.makedirs(fn_path)
-    if os.path.isfile(fn):
-        df = pd.read_csv(fn)
-        if "ms_file_label" not in df.columns:
-            df = pd.DataFrame()
-
-    df = init_metadata(df, ms_files)
-
-
-    df = df[df["ms_file_label"] != ""]
-
-    new_files = [e for e in ms_files if e not in df['ms_file_label'].values]
-
-    df = df.groupby("ms_file_label").first().reindex(ms_files, ).reset_index()
-
-    if new_files :
-        # Default for use_for_optimization for new files should be False
-        ndx = df[df['ms_file_label'].isin(new_files)].index
-        df.loc[ndx, 'use_for_optimization'] = False
-
-    return df
-
-
-def init_metadata(df, ms_files: list[str]):
-    if df.empty:
-        df = pd.DataFrame({"ms_file_label": ms_files})
-
+def get_metadata(files_path):
     ref_cols = {
-        "ms_file_label": "string",
-        "color": "string",
-        "use_for_optimization": bool,
-        "in_analysis": bool,
-        "label": "string",
-        "sample_type": "string",
-        "run_order": "Int8",
-        "plate": "string",
-        "plate_column": "Int8",
-        "plate_row": "string",
-        "ionization_mode": "string",
+        "ms_file_label": str,
+        "color": str,
+        "use_for_optimization": 'boolean',
+        "use_for_analysis": 'boolean',
+        "label": str,
+        "sample_type": str,
+        "run_order": 'Int32',
+        "plate": str,
+        "plate_row": str,
+        "plate_column": 'Int32'
     }
+    required = {"ms_file_label"}
 
-    for col, dt in ref_cols.items():
+    failed_files = {}
+    dfs = []
+    for file_path in files_path:
+        try:
+            df = pd.read_csv(file_path, dtype=ref_cols)
+            df['use_for_optimization'] = df['use_for_optimization'].fillna(False)
 
-        if col in df.columns:
-            df[col] = df[col].astype(dt)
-        elif dt == bool:
-            df[col] = col == 'in_analysis'
-            df[col] = df[col].astype(bool)
-        else:
-            df[col] = pd.Series(pd.NA, index=df.index, dtype=dt)
+            if missing_required := required - set(df.columns):
+                raise ValueError(f"Missing required columns: {missing_required}")
+            dfs.append(df)
+        except Exception as e:
+            failed_files[file_path] = str(e)
 
-    if "index" in df.columns:
-        del df["index"]
+    metadata_df = pd.concat(dfs).drop_duplicates(subset="ms_file_label")
 
-    df["sample_type"] = df["sample_type"].fillna("Not set")
-
-    return df
+    ref_names = list(ref_cols.keys())
+    if missing := set(ref_names) - set(metadata_df.columns):
+        for col in missing:
+            metadata_df[col] = np.nan
+    return metadata_df[ref_names], failed_files
 
 
 def write_metadata(meta, wdir):
@@ -514,42 +312,20 @@ def get_ms_fns(wdir, abs_path=True):
 
 def is_ms_file(fn: str):
     if (
-        fn.lower().endswith(".mzxml")
-        or fn.lower().endswith(".mzml")
-        or fn.lower().endswith(".feather")
+            fn.lower().endswith(".mzxml")
+            or fn.lower().endswith(".mzml")
+            or fn.lower().endswith(".feather")
     ):
         return True
     return False
 
 
-def Basename(fn):
-    fn = os.path.basename(fn)
-    fn, _ = os.path.splitext(fn)
-    return fn
-
-
-def format_columns(x):
-    try:
-        if isinstance(x, str):
-            if x in ["", "null", "None"]:
-                return None
-            else:
-                return x
-        elif x is None:
-            return None
-        elif np.isnan(x):
-            return None
-    except:
-        assert False
-    return f"{int(x):02.0f}"
-
-
 def get_complete_results(
-    wdir,
-    include_labels=None,
-    exclude_labels=None,
-    file_types=None,
-    include_excluded=False,
+        wdir,
+        include_labels=None,
+        exclude_labels=None,
+        file_types=None,
+        include_excluded=False,
 ):
     meta = get_metadata(wdir)
     resu = get_results(wdir)
@@ -570,15 +346,14 @@ def get_complete_results(
 
 
 def gen_tabulator_columns(
-    col_names=None,
-    add_ms_file_col=False,
-    add_color_col=False,
-    add_peakopt_col=False,
-    add_ms_file_active_col=False,
-    col_width="12px",
-    editor="input",
+        col_names=None,
+        add_ms_file_col=False,
+        add_color_col=False,
+        add_peakopt_col=False,
+        add_ms_file_active_col=False,
+        col_width="12px",
+        editor="input",
 ):
-
     if col_names is None:
         col_names = []
     col_names = list(col_names)
@@ -676,16 +451,6 @@ def gen_tabulator_columns(
     return columns
 
 
-def parse_table_content(content, filename):
-    content_type, content_string = content.split(",")
-    decoded = base64.b64decode(content_string)
-    if filename.lower().endswith(".csv"):
-        df = pd.read_csv(io.StringIO(decoded.decode("utf-8")))
-    elif filename.lower().endswith(".xlsx"):
-        df = pd.read_excel(io.BytesIO(decoded))
-    return df
-
-
 def fig_to_src(fig, dpi=100):
     out_img = io.BytesIO()
     fig.savefig(out_img, format="jpeg", bbox_inches="tight", dpi=dpi)
@@ -722,36 +487,6 @@ def merge_metadata(old_df: pd.DataFrame, new_df: pd.DataFrame, index_col='ms_fil
     return old_df.reset_index()
 
 
-def file_colors(wdir):
-    meta = get_metadata(wdir)
-    colors = {}
-    for ndx, (fn, co) in meta[["ms_file_label", "color"]].iterrows():
-        if not (isinstance(co, str)):
-            co = None
-        colors[fn] = co
-    return colors
-
-def get_hsv_colors(n_colors, saturation=0.8, value=0.9):
-    import colorsys
-    colores_hex = []
-
-    for i in range(n_colors):
-        # Distribuir uniformemente los tonos en el círculo HSV (0-1)
-        tono = i / n_colors
-        # Convertir HSV a RGB (todos los valores entre 0-1)
-        r, g, b = colorsys.hsv_to_rgb(tono, saturation, value)
-        # Convertir a valores enteros 0-255
-        r_int = int(r * 255)
-        g_int = int(g * 255)
-        b_int = int(b * 255)
-        # Convertir a hexadecimal
-        hex_color = f"#{r_int:02x}{g_int:02x}{b_int:02x}"
-        colores_hex.append(hex_color)
-
-    return colores_hex
-
-
-
 def get_figure_fn(kind, wdir, label, format):
     path = os.path.join(wdir, "figures", kind)
     clean_label = clean_string(label)
@@ -764,44 +499,6 @@ def clean_string(fn: str):
     for x in ['"', "'", "(", ")", "[", "]", " ", "\\", "/", "{", "}"]:
         fn = fn.replace(x, "_")
     return fn
-
-
-def savefig(fig, kind=None, wdir=None, label=None, format="png", dpi=150):
-    path, fn = get_figure_fn(kind=kind, wdir=wdir, label=label, format=format)
-    maybe_create(path)
-    try:
-        with lock(fn):
-            fig.savefig(fn, dpi=dpi, bbox_inches="tight")
-    except:
-        logging.error(f"Could not save figure {fn}, maybe no figure was created: {label}")
-    return fn
-
-
-def maybe_create(dir_name):
-    if not os.path.isdir(dir_name):
-        os.makedirs(dir_name)
-
-
-def png_fn_to_src(fn):
-    encoded_image = base64.b64encode(open(fn, "rb").read())
-    return "data:image/png;base64,{}".format(encoded_image.decode())
-
-
-def get_ms_fns_for_peakopt(wdir):
-    """Extract the filenames for peak optimization from
-    the metadata table and recreate the complete filename."""
-    df = get_metadata(wdir)
-    fns = df[df.use_for_optimization.astype(bool)]["ms_file_label"]
-    ms_files = get_ms_fns(wdir)
-    mapping = {filename_to_label(fn): fn for fn in ms_files}
-    fns = [mapping[fn] for fn in fns]
-    return fns
-
-
-def float_to_color(x, vmin=0, vmax=2, cmap=None):
-    norm = mpl.colors.Normalize(vmin=vmin, vmax=vmax)
-    m = cm.ScalarMappable(norm=norm, cmap=cmap)
-    return m.to_rgba(x)
 
 
 def write_targets(targets, wdir):
@@ -818,56 +515,6 @@ def filename_to_label(fn: str):
     return os.path.basename(fn)
 
 
-def get_filenames_from_url(url):
-    if url.startswith("ftp"):
-        return get_filenames_from_ftp_directory(url)
-    if "://" in url:
-        url = url.split("://")[1]
-    with urllib3.PoolManager() as http:
-        r = http.request("GET", url)
-    soup = BeautifulSoup(r.data, "html")
-    files = [A["href"] for A in soup.find_all("a", href=True)]
-    return files
-
-
-def get_filenames_from_ftp_directory(url):
-    url_parts = urlparse(url)
-    domain = url_parts.netloc
-    path = url_parts.path
-    ftp = ftplib.FTP(domain)
-    ftp.login()
-    ftp.cwd(path)
-    filenames = ftp.nlst()
-    ftp.quit()
-    return filenames
-
-
-def import_from_local_path(path, target_dir, fsc=None):
-    fns = glob(os.path.join(path, "**", "*.*"), recursive=True)
-    fns = [fn for fn in fns if is_ms_file(fn)]
-    fns_out = []
-    n_files = len(fns)
-    for i, fn in enumerate(tqdm(fns)):
-        if fsc is not None:
-            fsc.set("progress", int(100 * (1 + i) / n_files))
-        fn_out = P(target_dir) / P(fn).with_suffix(".feather").name
-        if P(fn_out).is_file():
-            continue
-        fns_out.append(fn_out)
-        try:
-            convert_ms_file_to_feather(fn, fn_out)
-        except:
-            logging.warning(f"Could not convert {fn}")
-    return fns_out
-
-
-def df_to_in_memory_csv_file(df):
-    buffer = io.StringIO()
-    df.to_csv(buffer)
-    buffer.seek(0)
-    return buffer.getvalue
-
-
 def df_to_in_memory_excel_file(df):
     def to_xlsx(bytes_io):
         xslx_writer = pd.ExcelWriter(bytes_io, engine="xlsxwriter")
@@ -875,10 +522,6 @@ def df_to_in_memory_excel_file(df):
         xslx_writer.close()
 
     return to_xlsx
-
-
-def has_na(df):
-    return df.isna().sum().sum() > 0
 
 
 def fix_first_emtpy_line_after_upload_workaround(file_path):
@@ -894,20 +537,19 @@ def fix_first_emtpy_line_after_upload_workaround(file_path):
     if lines[0] == "\n":
         logging.warning(f'Empty first line detected in {file_path}. Removing it.')
         lines.pop(0)
-        
+
         with open(file_path, 'w') as file:
             file.writelines(lines)
 
 
 def describe_transformation(var_name, apply, groupby, scaler):
-
     # Only apply the function if it's provided
     if apply is not None:
         apply_desc = transformations[apply]['description']
         apply_desc = apply_desc.replace('x', var_name)
     else:
         apply_desc = var_name
-    
+
     # If scaler or groupby is None, no scaling applied so return just the transformed variable
     if groupby is None or scaler is None:
         return apply_desc
@@ -921,13 +563,13 @@ def describe_transformation(var_name, apply, groupby, scaler):
         scaler_description = scaler_mapping.get(scaler.lower(), scaler)
     else:
         scaler_description = scaler.__name__
-    
+
     # Groupby can be a list or a string, so make sure it's a list for consistent handling
     if isinstance(groupby, str):
         groupby = [groupby]
-    
+
     groupby_description = ", ".join(groupby)
-    
+
     # Scaling was applied, so return the description in < >
     return f"<{apply_desc}> ({scaler_description}, grouped by {groupby_description})"
 
@@ -936,6 +578,6 @@ log2p1 = lambda x: np.log2(1 + x)
 log1p = np.log1p
 
 transformations = {
-    "log1p":  {'function': log1p,  'description': 'log10(x + 1)'},
-    "log2p1": {'function': log2p1, 'description': 'log2(x + 1)' }
+    "log1p": {'function': log1p, 'description': 'log10(x + 1)'},
+    "log2p1": {'function': log2p1, 'description': 'log2(x + 1)'}
 }
