@@ -3,7 +3,7 @@ from pathlib import Path
 from contextlib import contextmanager
 
 @contextmanager
-def duckdb_connection(workspace_path: str):
+def duckdb_connection(workspace_path: Path | str, register_activity=False):
     """
     Provides a DuckDB connection as a context manager.
 
@@ -14,13 +14,12 @@ def duckdb_connection(workspace_path: str):
     if not workspace_path:
         yield None
         return
-
-    db_file = Path(workspace_path, 'mint.db')
+    workspace_path = Path(workspace_path)
+    db_file = Path(workspace_path, 'workspace_mint.db')
     print(f"Connecting to DuckDB at: {db_file}")
     con = None
     try:
         con = duckdb.connect(database=str(db_file), read_only=False)
-        con.execute("PRAGMA enable_logging;")
         _create_tables(con)
         yield con
     except Exception as e:
@@ -33,22 +32,25 @@ def duckdb_connection(workspace_path: str):
 
 def _create_tables(conn: duckdb.DuckDBPyConnection):
     # Create tables if they don't exist
+    conn.execute("CREATE TYPE IF NOT EXISTS ms_type_enum AS ENUM ('ms1', 'ms2');")
+    conn.execute("CREATE TYPE IF NOT EXISTS polarity_enum AS ENUM ('Positive', 'Negative');")
+    conn.execute("CREATE TYPE IF NOT EXISTS unit_type_enum AS ENUM ('s', 'min');")
+
     conn.execute("""
                  CREATE TABLE IF NOT EXISTS samples_metadata
                  (
                      ms_file_label        VARCHAR PRIMARY KEY,
-                     ms_level             INTEGER,
-                     file_type            VARCHAR,
+                     ms_type              ms_type_enum,
                      use_for_optimization BOOLEAN DEFAULT false,
                      use_for_analysis     BOOLEAN DEFAULT true,
-                     polarity             VARCHAR,
+                     polarity             polarity_enum,
                      color                VARCHAR,
                      label                VARCHAR,
                      sample_type          VARCHAR,
                      run_order            INTEGER,
                      plate                VARCHAR,
                      plate_row            VARCHAR,
-                     plate_column         INTEGER
+                     plate_column         TINYINT
                  );
                  """)
 
@@ -76,11 +78,11 @@ def _create_tables(conn: duckdb.DuckDBPyConnection):
                      rt                      DOUBLE,  -- Retention time
                      rt_min                  DOUBLE,  -- Minimum retention time
                      rt_max                  DOUBLE,  -- Maximum retention time
-                     rt_unit                 VARCHAR, -- Unit of retention time
+                     rt_unit                 unit_type_enum, -- Unit of retention time
                      intensity_threshold     DOUBLE,  -- Intensity threshold
-                     polarity                VARCHAR, -- Polarity of the target
+                     polarity                polarity_enum, -- Polarity of the target
                      filterLine              VARCHAR, -- Filter line from the raw file
-                     ms_type                 VARCHAR, -- MS type (ms1 or ms2)
+                     ms_type                 ms_type_enum, -- MS type (ms1 or ms2)
                      category                VARCHAR, -- Category of the target
                      score                   DOUBLE,  -- Score of the target
                      preselected_processing  BOOLEAN, -- Preselected target
@@ -94,11 +96,8 @@ def _create_tables(conn: duckdb.DuckDBPyConnection):
                  (
                      peak_label    VARCHAR,
                      ms_file_label VARCHAR,
-                     -- ms_type         VARCHAR,           -- 'ms1' | 'ms2'
-                     -- time_step       DOUBLE,            -- para trazabilidad (p.ej. 0.25)
                      scan_time     DOUBLE[],
                      intensity     DOUBLE[],
-                     -- points_n        INTEGER,
                      PRIMARY KEY (ms_file_label, peak_label)
                  );
                  """)
