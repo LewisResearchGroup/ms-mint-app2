@@ -833,81 +833,63 @@ def process_metadata(wdir, set_progress, selected_files):
         return data.to_dicts(), []
 
     @app.callback(
-        Output("modal-confirmation", "is_open"),
-        Input("ms-delete", "n_clicks"),
-        Input("ms-mc-cancel", "n_clicks"),
-        Input("ms-mc-confirm", "n_clicks"),
-        State("modal-confirmation", "is_open"),
-        State("ms-files-table", "multiRowsClicked"),
+        Output("delete-confirmation-modal", "visible"),
+
+        Input("ms-options", "nClicks"),
+        State("ms-options", "clickedKey"),
+        State('ms-files-table', 'selectedRows'),
     )
-    def toggle_modal(n_delete, n_cancel, n_confirm, is_open, rows):
+    def toggle_modal(nClicks, clickedKey, selectedRows):
         ctx = dash.callback_context
-        if not ctx.triggered:
-            return is_open
-        if not rows:
-            return False
-
-        trigger_id = ctx.triggered[0]["prop_id"].split(".")[0]
-        if trigger_id == "ms-delete":
-            return True  # open modal
-        elif trigger_id in ["ms-mc-cancel", "ms-mc-confirm"]:
-            return False  # Close modal
-
-        return is_open
+        return bool(
+            ctx.triggered
+            and len(selectedRows) != 0
+            and clickedKey == "delete-selected"
+        )
 
     @app.callback(
         Output("notifications-container", "children", allow_duplicate=True),
         Output("ms-delete-store", "data"),
-        Input("ms-mc-confirm", "n_clicks"),
-        State("ms-files-table", "multiRowsClicked"),
-        State("wdir", "children"),
+
+        Input("delete-confirmation-modal", "okCounts"),
+        State('ms-files-table', 'selectedRows'),
         State("wdir", "data"),
         prevent_initial_call=True,
     )
-    def confirm_and_delete(n_confirm, rows, wdir):
-        if n_confirm is None or not rows:
+    def confirm_and_delete(okCounts, selectedRows, wdir):
+
+        if okCounts is None or not selectedRows:
             raise PreventUpdate
 
-        remove_ms_file = [row["ms_file_label"] for row in rows]
+        remove_ms_file = [row["ms_file_label"] for row in selectedRows]
 
         with duckdb_connection(wdir) as conn:
             if conn is None:
                 raise PreventUpdate
-            #TODO: remove data from ms_data, and results as well
+            # TODO: remove data from  results as well
             conn.execute("DELETE FROM samples_metadata WHERE ms_file_label IN ?", (remove_ms_file,))
             conn.execute("DELETE FROM ms_data WHERE ms_file_label IN ?", (remove_ms_file,))
+            conn.execute("DELETE FROM chromatograms WHERE ms_file_label IN ?", (remove_ms_file,))
             # conn.execute("DELETE FROM results WHERE ms_file_label = ?", (filename,))
 
         return (fac.AntdNotification(message="Delete files",
-                                     description=f"{len(rows)} files deleted successful",
+                                     description=f"{len(selectedRows)} files deleted successful",
                                      type="success",
                                      duration=3,
                                      placement='bottom',
                                      showProgress=True,
                                      stack=True
                                      ),
-                len(rows))
-
-    @du.callback(
-        output=Output("ms-uploader-input", "data"),
-        id="ms-uploader",
-    )
-    def ms_upload_completed(status):
-        logging.warning(f"Upload status: {status} ({type(status)})")
-        if status.n_uploaded == status.n_total:
-            set_props("ms-progress-bar", {"percent": 0})
-            set_props("progress-container", {"style": {"display": "block"}})
-            return [[f.as_posix() for f in status.uploaded_files], status.n_total]
-        raise PreventUpdate
+                len(selectedRows))
 
     @app.callback(
         Output("notifications-container", "children", allow_duplicate=True),
-        Input("ms-files-table", "cellEdited"),
-        State("wdir", "children"),
+        Input("ms-files-table", "recentlyChangedRow"),
+        State("ms-files-table", "recentlyChangedColumn"),
         State("wdir", "data"),
         prevent_initial_call=True,
     )
-    def save_table_on_edit(cell_edited, wdir):
+    def save_table_on_edit(row_edited, column_edited, wdir):
         """
         This callback saves the table on cell edits.
         This saves some bandwidth.
@@ -916,25 +898,31 @@ def process_metadata(wdir, set_progress, selected_files):
         if not ctx.triggered:
             raise PreventUpdate
 
-        if cell_edited is None:
+        if row_edited is None or column_edited is None:
             raise PreventUpdate
-
-        with duckdb_connection(wdir) as conn:
-            if conn is None:
-                raise PreventUpdate
-            _column = cell_edited['column']
-            _value = cell_edited['value']
-            _ms_file_label = cell_edited['row']['ms_file_label']
-            query = f"UPDATE samples_metadata SET {_column} = ? WHERE ms_file_label = ?"
-            conn.execute(query, [_value, _ms_file_label])
-
-        return fac.AntdNotification(message="Successfully saved metadata.",
-                                    type="success",
-                                    duration=3,
-                                    placement='bottom',
-                                    showProgress=True,
-                                    stack=True
-                                    )
+        try:
+            with duckdb_connection(wdir) as conn:
+                if conn is None:
+                    raise PreventUpdate
+                query = f"UPDATE samples_metadata SET {column_edited} = ? WHERE ms_file_label = ?"
+                conn.execute(query, [row_edited[column_edited], row_edited['ms_file_label']])
+            return fac.AntdNotification(message="Successfully edition saved",
+                                        type="success",
+                                        duration=3,
+                                        placement='bottom',
+                                        showProgress=True,
+                                        stack=True
+                                        )
+        except Exception as e:
+            logging.error(f"Error updating metadata: {e}")
+            return fac.AntdNotification(message="Failed to save edition",
+                                        description=f"Failing to save edition with: {str(e)}",
+                                        type="error",
+                                        duration=3,
+                                        placement='bottom',
+                                        showProgress=True,
+                                        stack=True
+                                        )
 
     @app.callback(
         Output('notifications-container', "children", allow_duplicate=True),
