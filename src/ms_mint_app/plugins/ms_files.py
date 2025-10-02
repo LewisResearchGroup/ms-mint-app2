@@ -433,7 +433,6 @@ def layout():
     return _layout
 
 
-def callbacks(cls, app, fsc, cache):
 def get_content_list(path, extensions):
     """Generate the folder and files list"""
     allow_folder = extensions != ['.csv']
@@ -497,6 +496,138 @@ def get_content_list(path, extensions):
             c += 1
             data.append(dash_comp)
     return data
+
+
+def process_ms_files(wdir, set_progress, selected_files):
+    file_list = [file for folder in selected_files.values() for file in folder]
+    n_total = len(file_list)
+    failed_files = {}
+    total_processed = 0
+    import concurrent.futures
+    from ms_mint.io import convert_mzxml_to_parquet_pl
+
+    # get the ms_file_label data as df to avoid multiple queries
+    with duckdb_connection(wdir) as conn:
+        if conn is None:
+            raise PreventUpdate
+        data = conn.execute("SELECT ms_file_label FROM samples_metadata").pl()
+    t1 = time.time()
+    with tempfile.TemporaryDirectory() as tmpdir:
+
+        futures = []
+        with concurrent.futures.ProcessPoolExecutor(max_workers=4) as executor:
+            for file_path in file_list:
+                if Path(file_path).stem in data['ms_file_label'].to_list():
+                    failed_files[file_path] = 'duplicate'
+                    set_progress(round(len(failed_files) / n_total * 100, 2))
+                else:
+                    futures.append(executor.submit(convert_mzxml_to_parquet_pl, file_path, tmp_dir=tmpdir))
+
+            batch_ms = []
+            batch_ms_data = []
+            batch_size = 4
+
+            for future in concurrent.futures.as_completed(futures):
+                _file_path, _ms_file_label, _ms_level, _polarity, _parquet_df = future.result()
+                batch_ms.append((_ms_file_label, _ms_file_label, f'ms{_ms_level}', _polarity))
+                batch_ms_data.append(_parquet_df)
+
+                if len(batch_ms) == batch_size:
+                    with duckdb_connection(wdir) as conn:
+                        if conn is None:
+                            raise PreventUpdate
+                        try:
+                            pldf = pl.DataFrame(batch_ms, schema=['ms_file_label', 'label', 'ms_type', 'polarity'],
+                                                orient="row")
+                            conn.execute(
+                                "INSERT INTO samples_metadata(ms_file_label, label, ms_type, polarity) "
+                                "SELECT ms_file_label, label, ms_type, polarity FROM pldf"
+                            )
+                            conn.execute(
+                                "INSERT INTO ms_data (ms_file_label, scan_id, mz, intensity, scan_time, mz_precursor, "
+                                "filterLine, filterLine_ELMAVEN) "
+                                "SELECT ms_file_label, scan_id, mz, intensity, scan_time, mz_precursor, "
+                                "filterLine, filterLine_ELMAVEN FROM read_parquet(?)", [batch_ms_data])
+                            total_processed += len(batch_ms_data)
+                        except Exception as e:
+                            failed_files[_file_path] = str(e)
+                            logging.error(f"DB error: {e}")
+                    batch_ms = []
+                    batch_ms_data = []
+                    set_progress(round(total_processed + len(failed_files) / n_total * 100, 1))
+            if batch_ms:
+                with duckdb_connection(wdir) as conn:
+                    if conn is None:
+                        raise PreventUpdate
+                    try:
+                        pldf = pl.DataFrame(batch_ms, schema=['ms_file_label', 'label', 'ms_type', 'polarity'],
+                                            orient="row")
+                        conn.execute(
+                            "INSERT INTO samples_metadata(ms_file_label, label, ms_type, polarity) "
+                            "SELECT ms_file_label, label, ms_type, polarity FROM pldf"
+                        )
+                        conn.execute(
+                            "INSERT INTO ms_data SELECT ms_file_label, scan_id, mz, intensity, scan_time, mz_precursor, "
+                            "filterLine, filterLine_ELMAVEN FROM read_parquet(?)", [batch_ms_data])
+                        total_processed += len(batch_ms_data)
+                    except Exception as e:
+                        failed_files[_file_path] = str(e)
+                        logging.error(f"DB error: {e}")
+            set_progress(round(100, 1))
+    print(f"{time.time() - t1 = }")
+    return total_processed, failed_files
+
+
+def process_metadata(wdir, set_progress, selected_files):
+    file_list = [file for folder in selected_files.values() for file in folder]
+    n_total = len(file_list)
+
+    metadata_df, failed_files = get_metadata(file_list)
+
+    with duckdb_connection(wdir) as conn:
+        if conn is None:
+            raise PreventUpdate
+        columns_to_update = {"use_for_optimization": "BOOLEAN", "use_for_analysis": "BOOLEAN", "color": "VARCHAR",
+                             "label": "VARCHAR", "sample_type": "VARCHAR", "run_order": "INTEGER",
+                             "plate": "VARCHAR", "plate_row": "VARCHAR", "plate_column": "INTEGER"}
+        set_clauses = []
+        for col, cast in columns_to_update.items():
+            set_clauses.append(f"""
+                            {col} = CASE 
+                                WHEN metadata_df.{col} IS NOT NULL 
+                                THEN CAST(metadata_df.{col} AS {cast}) 
+                                ELSE samples_metadata.{col} 
+                            END
+                        """)
+        set_clause = ", ".join(set_clauses)
+        stmt = f"""
+            UPDATE samples_metadata 
+            SET {set_clause}
+            FROM metadata_df 
+            WHERE samples_metadata.ms_file_label = metadata_df.ms_file_label
+        """
+        conn.execute(stmt)
+
+        ms_colors = conn.execute("SELECT ms_file_label, color FROM samples_metadata").df()
+        valid = ms_colors[ms_colors["color"].notna() & (ms_colors["color"].str.strip() != "")]
+        assigned_colors = dict(zip(valid["ms_file_label"], valid["color"]))
+
+        if len(assigned_colors) != len(ms_colors):
+            colors_map = make_palette_hsv(
+                ms_colors["ms_file_label"].to_list(),
+                existing_map=assigned_colors,
+                s_range=(0.90, 0.95),
+                v_range=(0.90, 0.95),
+            )
+            colors_pd = pd.DataFrame({"ms_file_label": list(colors_map.keys()), "color": list(colors_map.values())})
+            conn.execute("""
+                         UPDATE samples_metadata
+                         SET color = colors_pd.color
+                         FROM colors_pd
+                         WHERE samples_metadata.ms_file_label = colors_pd.ms_file_label"""
+                         )
+    set_progress(100)
+    return len(metadata_df), failed_files
 
 
         State("wdir", "data"),
