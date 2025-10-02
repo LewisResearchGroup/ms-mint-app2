@@ -505,17 +505,17 @@ def process_ms_files(wdir, set_progress, selected_files):
     total_processed = 0
     import concurrent.futures
     from ms_mint.io import convert_mzxml_to_parquet_pl
+    import multiprocessing
 
     # get the ms_file_label data as df to avoid multiple queries
     with duckdb_connection(wdir) as conn:
         if conn is None:
             raise PreventUpdate
         data = conn.execute("SELECT ms_file_label FROM samples_metadata").pl()
-    t1 = time.time()
     with tempfile.TemporaryDirectory() as tmpdir:
-
         futures = []
-        with concurrent.futures.ProcessPoolExecutor(max_workers=4) as executor:
+        ctx = multiprocessing.get_context('spawn')
+        with concurrent.futures.ProcessPoolExecutor(max_workers=4, mp_context=ctx) as executor:
             for file_path in file_list:
                 if Path(file_path).stem in data['ms_file_label'].to_list():
                     failed_files[file_path] = 'duplicate'
@@ -537,8 +537,8 @@ def process_ms_files(wdir, set_progress, selected_files):
                         if conn is None:
                             raise PreventUpdate
                         try:
-                            pldf = pl.DataFrame(batch_ms, schema=['ms_file_label', 'label', 'ms_type', 'polarity'],
-                                                orient="row")
+                            pldf = pd.DataFrame(batch_ms, columns=['ms_file_label', 'label', 'ms_type', 'polarity'])
+
                             conn.execute(
                                 "INSERT INTO samples_metadata(ms_file_label, label, ms_type, polarity) "
                                 "SELECT ms_file_label, label, ms_type, polarity FROM pldf"
@@ -560,8 +560,7 @@ def process_ms_files(wdir, set_progress, selected_files):
                     if conn is None:
                         raise PreventUpdate
                     try:
-                        pldf = pl.DataFrame(batch_ms, schema=['ms_file_label', 'label', 'ms_type', 'polarity'],
-                                            orient="row")
+                        pldf = pd.DataFrame(batch_ms, columns=['ms_file_label', 'label', 'ms_type', 'polarity'])
                         conn.execute(
                             "INSERT INTO samples_metadata(ms_file_label, label, ms_type, polarity) "
                             "SELECT ms_file_label, label, ms_type, polarity FROM pldf"
@@ -573,8 +572,7 @@ def process_ms_files(wdir, set_progress, selected_files):
                     except Exception as e:
                         failed_files[_file_path] = str(e)
                         logging.error(f"DB error: {e}")
-            set_progress(round(100, 1))
-    print(f"{time.time() - t1 = }")
+    set_progress(round(100, 1))
     return total_processed, failed_files
 
 
