@@ -1,34 +1,27 @@
-import os
-import uuid
+import json
 import logging
-
-import dash
+import os
 import tempfile
-
 from pathlib import Path as P, Path
 
-import pandas as pd
-
-from dash import html, dcc, set_props, Patch
-from dash.exceptions import PreventUpdate
-from dash.dependencies import Input, Output, State
-
-import dash_bootstrap_components as dbc
-
-from ms_mint.io import convert_mzxml_to_parquet
-
-from dash_tabulator import DashTabulator
-
-import dash_uploader as du
-
-from ..colors import make_palette, make_palette_hsv
-from ..plugin_interface import PluginInterface
+import dash
 import feffery_antd_components as fac
+import feffery_utils_components as fuc
+import pandas as pd
+import polars as pl
+import time
+from dash import html, dcc
+from dash.dependencies import Input, Output, State, ALL
+from dash.exceptions import PreventUpdate
 
+from ..colors import make_palette_hsv
 from ..duckdb_manager import duckdb_connection
-import concurrent.futures
+from ..plugin_interface import PluginInterface
+from ..tools import get_metadata
 
 _label = "MS-Files"
+
+home_path = Path.home()
 
 
 class MsFilesPlugin(PluginInterface):
