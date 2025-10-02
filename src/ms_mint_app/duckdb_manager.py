@@ -20,6 +20,7 @@ def duckdb_connection(workspace_path: Path | str, register_activity=False):
     con = None
     try:
         con = duckdb.connect(database=str(db_file), read_only=False)
+        con.execute("PRAGMA enable_checkpoint_on_shutdown")
         _create_tables(con)
         yield con
     except Exception as e:
