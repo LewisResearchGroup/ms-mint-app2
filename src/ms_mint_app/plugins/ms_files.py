@@ -409,12 +409,10 @@ _layout = html.Div(
             id='ms-files-table-container',
             style={'padding': '1rem 0'},
         ),
-        dcc.Store(id="processing-output-store"),
+        dcc.Store(id="ms-table-action-store", data={}),
         dcc.Store(id="selected-folder-path"),
         dcc.Store(id="selected-files", data={}),
         dcc.Store(id='processing-type-store', data={}),
-        dcc.Store(id="color-changed-store"),
-        dcc.Store(id="ms-delete-store"),
     ]
 )
 
@@ -653,7 +651,7 @@ def callbacks(cls, app, fsc, cache, args_namespace):
 
     @app.callback(
         Output('notifications-container', 'children', allow_duplicate=True),
-        Output('color-changed-store', 'data', allow_duplicate=True),
+        Output('ms-table-action-store', 'data', allow_duplicate=True),
         Input('color-picker-modal', 'okCounts'),
         State('hex-color-picker', 'color'),
         State('ms-files-table', 'recentlyButtonClickedRow'),
@@ -663,20 +661,16 @@ def callbacks(cls, app, fsc, cache, args_namespace):
     )
     def set_color(okCounts, color, recentlyButtonClickedRow, data, wdir):
 
-        print(f"{recentlyButtonClickedRow = }")
-        if recentlyButtonClickedRow is None:
+        if recentlyButtonClickedRow is None or not okCounts:
             return dash.no_update, dash.no_update
 
-        index = recentlyButtonClickedRow['key']
         previous_color = recentlyButtonClickedRow['color']['content']
         try:
             with duckdb_connection(wdir) as conn:
                 conn.execute("UPDATE samples_metadata SET color = ? WHERE ms_file_label = ?",
                              [color, recentlyButtonClickedRow['ms_file_label']])
-            data[int(index)]['color'] = {'content': color,
-                                         'variant': 'filled',
-                                         'custom': {'color': color},
-                                         'style': {'background': color, 'width': '70px'}}
+            ms_table_action_store = {'action': 'color-changed', 'status': 'success'}
+
             return (fac.AntdNotification(message='Color changed successfully',
                                          description=f'Color changed from {previous_color} to {color}',
                                          type='success',
@@ -685,7 +679,8 @@ def callbacks(cls, app, fsc, cache, args_namespace):
                                          showProgress=True,
                                          stack=True
                                          ),
-                    data)
+                    ms_table_action_store
+                    )
         except Exception as e:
             logging.error(f"DB error: {e}")
 
@@ -701,7 +696,7 @@ def callbacks(cls, app, fsc, cache, args_namespace):
 
     @app.callback(
         Output('notifications-container', 'children', allow_duplicate=True),
-        Output('color-changed-store', 'data', allow_duplicate=True),
+        Output('ms-table-action-store', 'data', allow_duplicate=True),
 
         Input("ms-options", "nClicks"),
         State("ms-options", "clickedKey"),
@@ -739,7 +734,8 @@ def callbacks(cls, app, fsc, cache, args_namespace):
                                      showProgress=True,
                                      stack=True
                                      )
-        return notification, True
+        ms_table_action_store = {'action': 'color-changed', 'status': 'success'}
+        return notification, ms_table_action_store
 
 
     @app.callback(
@@ -895,13 +891,14 @@ def callbacks(cls, app, fsc, cache, args_namespace):
         Output("ms-files-table", "data"),
         Output("ms-files-table", "selectedRowKeys"),
 
-        Input("processing-output-store", "data"),
-        Input("processing-type-store", "data"),
-        Input("ms-delete-store", "data"),
-        Input('color-changed-store', 'data'),
+        Input("ms-table-action-store", "data"),
+        Input('ms-files-table', 'pagination'),
+        Input('ms-files-table', 'filter'),
+        State('ms-files-table', 'filterOptions'),
+        State("processing-type-store", "data"),
         Input("wdir", "data"),
     )
-    def ms_files_table(processing_output, processing_type, files_deleted, color_changed, wdir):
+    def ms_files_table(processing_output, pagination, filter_, filterOptions, processing_type, wdir):
 
         # processing_type also store info about targets selections since it is the same modal for all of them
         if wdir is None or processing_type.get('type') == 'targets':
@@ -957,7 +954,7 @@ def callbacks(cls, app, fsc, cache, args_namespace):
 
     @app.callback(
         Output("notifications-container", "children", allow_duplicate=True),
-        Output("ms-delete-store", "data"),
+        Output("ms-table-action-store", "data", allow_duplicate=True),
 
         Input("delete-confirmation-modal", "okCounts"),
         State('ms-files-table', 'selectedRows'),
@@ -980,6 +977,8 @@ def callbacks(cls, app, fsc, cache, args_namespace):
             conn.execute("DELETE FROM chromatograms WHERE ms_file_label IN ?", (remove_ms_file,))
             # conn.execute("DELETE FROM results WHERE ms_file_label = ?", (filename,))
 
+        ms_table_action_store = {'action': 'delete', 'status': 'success'}
+
         return (fac.AntdNotification(message="Delete files",
                                      description=f"{len(selectedRows)} files deleted successful",
                                      type="success",
@@ -988,7 +987,7 @@ def callbacks(cls, app, fsc, cache, args_namespace):
                                      showProgress=True,
                                      stack=True
                                      ),
-                len(selectedRows))
+                ms_table_action_store)
 
     @app.callback(
         Output("notifications-container", "children", allow_duplicate=True),
@@ -1034,7 +1033,7 @@ def callbacks(cls, app, fsc, cache, args_namespace):
 
     @app.callback(
         Output('notifications-container', "children", allow_duplicate=True),
-        Output('processing-output-store', 'data'),
+        Output('ms-table-action-store', 'data', allow_duplicate=True),
         Output('selection-modal', 'visible', allow_duplicate=True),
 
         Input('selection-modal', 'okCounts'),
@@ -1087,4 +1086,6 @@ def callbacks(cls, app, fsc, cache, args_namespace):
                                             description=description,
                                             type="success", duration=3,
                                             placement='bottom', showProgress=True)
-        return notification, True, False
+        ms_table_action_store = {'action': 'processing', 'status': 'completed'}
+
+        return notification, ms_table_action_store, False
