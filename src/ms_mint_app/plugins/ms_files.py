@@ -630,7 +630,65 @@ def process_metadata(wdir, set_progress, selected_files):
     return len(metadata_df), failed_files
 
 
+def callbacks(cls, app, fsc, cache, args_namespace):
+    @app.callback(
+        Output('color-picker-modal', 'visible'),
+        Output('hex-color-picker', 'color'),
+        Input('ms-files-table', 'nClicksButton'),
+        State('ms-files-table', 'clickedCustom'),
+        prevent_initial_call=True
+    )
+    def open_color_picker(nClicksButton, clickedCustom):
+        return True, clickedCustom['color']
+
+    @app.callback(
+        Output('notifications-container', 'children', allow_duplicate=True),
+        Output('color-changed-store', 'data'),
+        Input('color-picker-modal', 'okCounts'),
+        State('hex-color-picker', 'color'),
+        State('ms-files-table', 'recentlyButtonClickedRow'),
+        State('ms-files-table', 'data'),
         State("wdir", "data"),
+        prevent_initial_call=True
+    )
+    def set_color(okCounts, color, recentlyButtonClickedRow, data, wdir):
+
+        print(f"{recentlyButtonClickedRow = }")
+        if recentlyButtonClickedRow is None:
+            return dash.no_update, dash.no_update
+
+        index = recentlyButtonClickedRow['key']
+        previous_color = recentlyButtonClickedRow['color']['content']
+        try:
+            with duckdb_connection(wdir) as conn:
+                conn.execute("UPDATE samples_metadata SET color = ? WHERE ms_file_label = ?",
+                             [color, recentlyButtonClickedRow['ms_file_label']])
+            data[int(index)]['color'] = {'content': color,
+                                         'variant': 'filled',
+                                         'custom': {'color': color},
+                                         'style': {'background': color, 'width': '70px'}}
+            return (fac.AntdNotification(message='Color changed successfully',
+                                         description=f'Color changed from {previous_color} to {color}',
+                                         type='success',
+                                         duration=3,
+                                         placement='bottom',
+                                         showProgress=True,
+                                         stack=True
+                                         ),
+                    data)
+        except Exception as e:
+            logging.error(f"DB error: {e}")
+
+            return (fac.AntdNotification(message='Failed to change color',
+                                         description=f'Color change failed with {str(e)}',
+                                         type='error',
+                                         duration=3,
+                                         placement='bottom',
+                                         showProgress=True,
+                                         stack=True
+                                         ),
+                    dash.no_update)
+
     @app.callback(
         Output("selection-modal", "visible"),
         Output("selection-modal", 'title'),
