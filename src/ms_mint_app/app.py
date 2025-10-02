@@ -71,6 +71,7 @@ _layout = fac.AntdLayout(
     [
         dcc.Store(id="tmpdir", data=str(TMPDIR)),
         dcc.Store(id="wdir"),
+        dcc.Interval(id="progress-interval", n_intervals=0, interval=20000, disabled=False),
 
         fac.AntdSider(
             [
@@ -294,15 +295,23 @@ def register_callbacks(app, cache, fsc, args):
 
     @app.callback(
         Output("tmpdir", "data"),
-        Output("logout-button", "style"),
+        Output("logout-menu", "style"),
+
         Input("progress-interval", "n_intervals"),
+        State('sidebar', 'collapsed'),
+        # prevent_initial_call=True
     )
-    def upate_tmpdir(x):
+    def update_tmpdir(x, collapsed):
+        logout_menu_style = {'width': '100%'} if collapsed else {'width': '60px'}
+
         if hasattr(app.server, "login_manager"):
             username = current_user.username
             tmpdir = str(TMPDIR / "User" / username)
-            return tmpdir, {"visibility": "visible"}
-        return str(TMPDIR / "Local"), {"visibility": "hidden"}
+            logout_menu_style['display']: 'block'
+            return tmpdir, logout_menu_style
+        logout_menu_style['display']: 'none'
+        return str(TMPDIR / "Local"), logout_menu_style
+
     logging.info("Done registering callbacks")
 
 
