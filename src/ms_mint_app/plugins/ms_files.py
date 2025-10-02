@@ -984,185 +984,57 @@ def callbacks(cls, app, fsc, cache, args_namespace):
 
     @app.callback(
         Output('notifications-container', "children", allow_duplicate=True),
-        Output('ms-processed-output', 'data'),
-        Output("progress-container", "style", allow_duplicate=True),
+        Output('processing-output-store', 'data'),
+        Output('selection-modal', 'visible', allow_duplicate=True),
 
-    Input('ms-uploader-input', 'data'),
-        State("wdir", "children"),
+        Input('selection-modal', 'okCounts'),
+        State('processing-type-store', 'data'),
+        State("selected-files", "data"),
         State("wdir", "data"),
         background=True,
         running=[
-            (Output("metadata-uploader", "disabled"), True, False),
+            (Output('sm-processing-progress-container', 'style'), {
+                "display": "flex",
+                "justifyContent": "center",
+                "alignItems": "center",
+                "flexDirection": "column",
+                "minWidth": "200px",
+                "maxWidth": "400px",
+                "margin": "auto",
+                'height': "60vh"
+            }, {'display': 'none'}),
+            (Output("selection-container", "style"), {'display': 'none'}, {'display': 'block'}),
+
+            (Output('selection-modal', 'confirmAutoSpin'), True, False),
+            (Output('selection-modal', 'cancelButtonProps'), {'disabled': True}, {'disabled': False}),
+            (Output('selection-modal', 'confirmLoading'), True, False),
         ],
-        progress=[Output("ms-progress-bar", "percent")],
+        progress=[Output("sm-processing-progress", "percent")],
+        cancel=[
+            Input('cancel-ms-processing', 'nClicks')
+        ],
         prevent_initial_call=True
     )
-    def background_ms_processing(set_progress, uploader_data, wdir):
-
-        prop_id = dash.callback_context.triggered[0]['prop_id']
-        print(f'background_ms_processing {prop_id = }')
-
-        if not dash.callback_context.triggered or uploader_data is None:
+    def background_processing(set_progress, okCounts, processing_type, selected_files, wdir):
+        if not okCounts or not selected_files or not dash.callback_context.triggered:
             raise PreventUpdate
 
-        uploaded_files, n_total = uploader_data
-        duplicated_files = []
+        if processing_type['type'] == "ms-files":
+            total_processed, failed_files = process_ms_files(wdir, set_progress, selected_files)
+            message = "MS Files processed"
+        elif processing_type['type'] == "metadata":
+            total_processed, failed_files = process_metadata(wdir, set_progress, selected_files)
+            print(f'{failed_files = }')
+            print(f'{total_processed = }')
+            message = "Metadata processed"
+        else:
+            total_processed, failed_files = process_targets(wdir, set_progress, selected_files)
+            message = "Targets processed"
 
-        # get the ms_file_label data as df to avoid multiple queries
-        with duckdb_connection(wdir) as conn:
-            if conn is None:
-                raise PreventUpdate
-            data = conn.execute("SELECT ms_file_label FROM samples_metadata").df()
+        description = f"Successful processed {total_processed} files with {len(failed_files)} failed"
 
-        futures = []
-        with concurrent.futures.ProcessPoolExecutor(max_workers=4) as executor:
-            for i, file_path in enumerate(uploaded_files):
-                if Path(file_path).stem in data['ms_file_label'].values:
-                    duplicated_files.append(file_path)
-                    set_progress(round(len(duplicated_files) / n_total * 100, 2))
-                else:
-                    futures.append(executor.submit(convert_mzxml_to_parquet, file_path))
-
-            batch_ms = []
-            batch_ms_data = []
-            for i, future in enumerate(concurrent.futures.as_completed(futures)):
-                _ms_file_label, _ms_level, _polarity, _parquet_df = future.result()
-                batch_ms.append((_ms_file_label, _ms_file_label, _ms_level, f'ms{_ms_level}', _polarity))
-                batch_ms_data.append(_parquet_df)
-
-                if len(batch_ms) == 20:
-                    with duckdb_connection(wdir) as conn:
-                        if conn is None:
-                            raise PreventUpdate
-                        try:
-                            conn.executemany(
-                                "INSERT INTO samples_metadata(ms_file_label, label, ms_level, file_type, polarity) "
-                                "VALUES (?, ?, ?, ?, ?)",
-                                batch_ms
-                            )
-                            conn.execute(
-                                "INSERT INTO ms_data SELECT * FROM read_parquet(?)", [batch_ms_data])
-                        except Exception as e:
-                            logging.error(f"DB error: {e}")
-                    batch_ms = []
-                    batch_ms_data = []
-                    set_progress(round(i + len(duplicated_files) / n_total * 100, 2))
-
-            if batch_ms:
-                with duckdb_connection(wdir) as conn:
-                    if conn is None:
-                        raise PreventUpdate
-                    try:
-                        conn.executemany(
-                            "INSERT INTO samples_metadata(ms_file_label, label, ms_level, file_type, polarity) "
-                            "VALUES (?, ?, ?, ?, ?)",
-                            batch_ms
-                        )
-                        conn.execute(
-                            "INSERT INTO ms_data SELECT ms_file_label, scan_id, mz, intensity, scan_time, mz_precursor, "
-                            "filterLine, filterLine_ELMAVEN FROM read_parquet(?)", [batch_ms_data])
-                    except Exception as e:
-                        logging.error(f"DB error: {e}")
-
-                set_progress(round(n_total / n_total * 100, 2))
-
-        notifications = [
-            fac.AntdNotification(message="Files processed",
-                                                description=f"Successful processed {n_total - len(duplicated_files)} files",
-                                                type="success", duration=3,
-                                                placement='bottom', showProgress=True)]
-        if duplicated_files:
-            notifications.append(
-                fac.AntdNotification(message="Duplicated files",
-                                     description=f"There are {len(duplicated_files)} files that were "
-                                                 f"ignored",
-                                     type="warning", duration=3,
-                                     placement='bottom', showProgress=True)
-            )
-        return notifications, True, {'display': 'none'}
-
-    @du.callback(
-        output=Output("metadata-uploader-input", "data"),
-        id="metadata-uploader",
-    )
-    def metadata_upload_completed(status):
-        logging.warning(f"Upload status: {status} ({type(status)})")
-        return [status.latest_file.as_posix(), status.n_uploaded, status.n_total]
-
-    @app.callback(
-        Output("notifications-container", "children", allow_duplicate=True),
-        Output("metadata-processed-store", "data"),
-        Input("metadata-uploader-input", "data"),
-        State("wdir", "children"),
-        prevent_initial_call=True,
-    )
-    def process_metadata_files(uploaded_data, wdir):
-        if not uploaded_data:
-            raise PreventUpdate
-
-        latest_file, n_uploaded, n_total = uploaded_data
-        # TODO: check if file contains correct columns and minimum data
-        df = pd.read_csv(latest_file)
-        # rename in_analysis to use_for_analysis
-        df.rename(columns={"in_analysis": "use_for_analysis"}, inplace=True)
-
-        pd.set_option("display.max_columns", None)
-        pd.set_option("display.width", None)
-
-        with duckdb_connection(wdir) as conn:
-            if conn is None:
-                raise PreventUpdate
-
-            conn.register('metadata_df', df)
-
-            columns_to_update = {"use_for_optimization": "BOOLEAN", "use_for_analysis": "BOOLEAN", "color": "VARCHAR",
-                                 "label": "VARCHAR", "sample_type": "VARCHAR", "run_order": "INTEGER",
-                                 "plate": "VARCHAR", "plate_row": "VARCHAR", "plate_column": "INTEGER"}
-
-            set_clauses = []
-            for col, cast in columns_to_update.items():
-                set_clauses.append(f"""
-                        {col} = CASE 
-                            WHEN metadata_df.{col} IS NOT NULL 
-                            THEN CAST(metadata_df.{col} AS {cast}) 
-                            ELSE samples_metadata.{col} 
-                        END
-                    """)
-            set_clause = ", ".join(set_clauses)
-            stmt = f"""
-                    UPDATE samples_metadata 
-                    SET {set_clause}
-                    FROM metadata_df 
-                    WHERE samples_metadata.ms_file_label = metadata_df.ms_file_label
-                """
-
-            conn.execute(stmt)
-            conn.unregister('metadata_df')
-
-            ms_colors = conn.execute("SELECT ms_file_label, color FROM samples_metadata").df()
-            assigned_colors = {row['ms_file_label']: row['color'] for _, row in ms_colors.iterrows() if row['color']}
-
-            if len(assigned_colors) != len(ms_colors):
-                colors = make_palette_hsv(ms_colors['ms_file_label'], existing_map=assigned_colors,
-                                          s_range=(0.90, 0.95), v_range=(0.90, 0.95)
-                                          )
-                colors_df = pd.DataFrame(colors.items(), columns=['ms_file_label', 'color'])
-                conn.register('colors_df', colors_df)
-                conn.execute("""
-                             UPDATE samples_metadata
-                             SET color = colors_df.color
-                             FROM colors_df
-                             WHERE samples_metadata.ms_file_label = colors_df.ms_file_label"""
-                             )
-                conn.unregister('colors_df')
-        # TODO:
-        # 1. check if any file is marked as use_for_optimization with not color
-        # 2. check for duplicate labels or colors
-
-        return (fac.AntdNotification(message="Saved metadata.", description="Metadata file added successfully.",
-                                     type="success", duration=3,
-                                     placement='bottom',
-                                     showProgress=True,
-                                     stack=True
-                                     ),
-                1)
+        notification = fac.AntdNotification(message=message,
+                                            description=description,
+                                            type="success", duration=3,
+                                            placement='bottom', showProgress=True)
+        return notification, True, False
