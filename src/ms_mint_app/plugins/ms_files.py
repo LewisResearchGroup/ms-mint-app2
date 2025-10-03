@@ -536,16 +536,35 @@ def callbacks(cls, app, fsc, cache, args_namespace):
             params = []
 
             if filter_ and any(v for v in filter_.values()):
-                for key, value in filter_.items():
-                    if value:
-                        # if keyword (LIKE)
-                        if filterOptions[key].get('filterMode') == 'keyword':
-                            where_clauses.append(f"{key} LIKE ?")
-                            params.append(f"%{value[0]}%")
-                        # if multiple selection (IN)
-                        else:
-                            where_clauses.append(f"{key} IN ({','.join(['?'] * len(value))})")
-                            params.extend(value)
+                with duckdb_connection(wdir) as conn:
+                    if conn is None:
+                        raise PreventUpdate
+
+                    schema = conn.execute("DESCRIBE samples_metadata").pl()
+                    column_types = {row['column_name']: row['column_type'] for row in schema.to_dicts()}
+
+                    for key, value in filter_.items():
+                        if value:
+                            # if keyword (LIKE)
+                            if filterOptions[key].get('filterMode') == 'keyword':
+                                column_type = column_types.get(key, '').upper()
+                                if any(numeric_type in column_type for numeric_type in
+                                       ['DOUBLE', 'FLOAT', 'INTEGER', 'BIGINT', 'DECIMAL', 'REAL', 'SMALLINT',
+                                        'TINYINT']):
+                                    try:
+                                        numeric_value = float(value[0])
+                                        where_clauses.append(f'\"{key}\" = ?')
+                                        params.append(numeric_value)
+                                    except (ValueError, TypeError):
+                                        # If casting fails, this filter won't match. Add a clause that is always false.
+                                        where_clauses.append("1=0")
+                                else:
+                                    where_clauses.append(f'\"{key}\" ILIKE ?')
+                                    params.append(f"%{value[0]}%")
+                            # if multiple selection (IN)
+                            else:
+                                where_clauses.append(f"\"{key}\" IN ({','.join(['?'] * len(value))})")
+                                params.extend(value)
 
                 where_sql = " WHERE " + " AND ".join(where_clauses) if where_clauses else ""
                 count_query = f"SELECT COUNT(*) FROM samples_metadata{where_sql}"
