@@ -414,27 +414,51 @@ def callbacks(app, fsc=None, cache=None):
 
     @app.callback(
         Output('delete-table-targets-modal', 'visible'),
-        Input("pkl-clear", 'n_clicks'),
-        State('targets-table', 'multiRowsClicked'),
+        Output('delete-table-targets-modal', 'children'),
+        Input("targets-options", "nClicks"),
+        State("targets-options", "clickedKey"),
+        State('targets-table', 'selectedRows'),
         prevent_initial_call=True
     )
-    def show_delete_modal(delete_clicks, selected_rows):
-        if not selected_rows:
+    def show_delete_modal(nClicks, clickedKey, selectedRows):
+        ctx = dash.callback_context
+        if not ctx.triggered:
             raise PreventUpdate
-        return True
+
+        if clickedKey == "delete-selected":
+            if not bool(selectedRows):
+                raise PreventUpdate
+
+        children = fac.AntdFlex(
+            [
+                fac.AntdText("This action will delete selected targets and cannot be undone?",
+                             strong=True),
+                fac.AntdText("Are you sure you want to delete the selected targets?")
+            ],
+            vertical=True,
+        )
+        if clickedKey == "delete-all":
+            children = fac.AntdFlex(
+                [
+                    fac.AntdText("This action will delete ALL targets and cannot be undone?",
+                                 strong=True, type="danger"),
+                    fac.AntdText("Are you sure you want to delete the ALL targets?")
+                ],
+                vertical=True,
+            )
+        return True, children
 
     @app.callback(
         Output('notifications-container', 'children', allow_duplicate=True),
-        Output('removed-targets-store', "data"),
+        Output('targets-action-store', "data", allow_duplicate=True),
 
         Input('delete-table-targets-modal', 'okCounts'),
-        Input('delete-table-targets-modal', 'cancelCounts'),
-        Input('delete-table-targets-modal', 'closeCounts'),
-        State('targets-table', 'multiRowsClicked'),
+        State('targets-table', 'selectedRows'),
+        State("targets-options", "clickedKey"),
         State("wdir", "data"),
         prevent_initial_call=True
     )
-    def target_delete(okCounts, cancelCounts, closeCounts, selected_rows, wdir):
+    def target_delete(okCounts, selectedRows, clickedKey, wdir):
         """
         Delete targets from the table.
 
@@ -461,26 +485,45 @@ def callbacks(app, fsc=None, cache=None):
         drop_table_output : boolean
             A boolean indicating whether the delete button was clicked.
         """
-        if not okCounts or cancelCounts or closeCounts or not selected_rows:
+        if okCounts is None:
             raise PreventUpdate
+        if clickedKey == "delete-selected" and not selectedRows:
+            targets_action_store = {'action': 'delete', 'status': 'failed'}
+            total_removed = 0
+        elif clickedKey == "delete-selected":
+            remove_targets = [row['peak_label'] for row in selectedRows]
 
-        remove_targets = [tr['peak_label'] for tr in selected_rows]
+            with duckdb_connection(wdir) as conn:
+                if conn is None:
+                    raise PreventUpdate
+                conn.execute("DELETE FROM targets WHERE peak_label IN ?", (remove_targets,))
+                conn.execute("DELETE FROM chromatograms WHERE peak_label IN ?", (remove_targets,))
+                # conn.execute("DELETE FROM results WHERE peak_label IN ?", (remove_targets,))
+            total_removed = len(remove_targets)
+            targets_action_store = {'action': 'delete', 'status': 'success'}
+        else:
+            with duckdb_connection(wdir) as conn:
+                if conn is None:
+                    raise PreventUpdate
+                total_removed_q = conn.execute("SELECT COUNT(*) FROM targets").fetchone()
+                targets_action_store = {'action': 'delete', 'status': 'failed'}
+                total_removed = 0
+                if total_removed_q:
+                    total_removed = total_removed_q[0]
 
-        with duckdb_connection(wdir) as conn:
-            if conn is None:
-                raise PreventUpdate
-            conn.execute("DELETE FROM targets WHERE peak_label IN ?", (remove_targets,))
-            # conn.execute("DELETE FROM results WHERE peak_label IN ?", (remove_targets,))
-
+                    conn.execute("DELETE FROM targets")
+                    conn.execute("DELETE FROM chromatograms")
+                    # conn.execute("DELETE FROM results")
+                    targets_action_store = {'action': 'delete', 'status': 'success'}
         return (fac.AntdNotification(message="Delete Targets",
-                                    description=f"Deleted {len(remove_targets)} targets",
-                                    type="success",
-                                    duration=3,
-                                    placement='bottom',
-                                    showProgress=True,
-                                    stack=True
-                                    ),
-                True)
+                                     description=f"Deleted {total_removed} targets",
+                                     type="success" if total_removed > 0 else "error",
+                                     duration=3,
+                                     placement='bottom',
+                                     showProgress=True,
+                                     stack=True
+                                     ),
+                targets_action_store)
 
     @app.callback(
         Output("notifications-container", "children", allow_duplicate=True),
