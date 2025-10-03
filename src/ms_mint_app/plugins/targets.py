@@ -309,14 +309,6 @@ def layout():
 
 
 def callbacks(app, fsc=None, cache=None):
-    @du.callback(
-        output=Output("uploaded-targets-store", "data"),
-        id="targets-uploader",
-    )
-    def targets_upload_completed(status):
-        logging.warning(f"Upload status: {status} ({type(status)})")
-        return [status.latest_file.as_posix(), status.n_uploaded, status.n_total]
-
     @app.callback(
         Output("notifications-container", "children", allow_duplicate=True),
         Output("processed-targets-store", "data"),
