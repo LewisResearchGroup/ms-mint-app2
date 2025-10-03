@@ -135,7 +135,7 @@ _layout = html.Div(
                 fac.AntdSpin(
                     fac.AntdTable(
                         id='ms-files-table',
-                        containerId='table-container',
+                        containerId='ms-files-table-container',
                         columns=[
                             {
                                 'title': 'MS-File Label',
@@ -269,7 +269,7 @@ _layout = html.Div(
                                                       'filterCustomItems': ['True', 'False']},
                             'user_for_analysis': {'filterMode': 'checkbox',
                                                   'filterCustomItems': ['True', 'False']},
-                            'sample_type': {'filterMode': 'checkbox',},
+                            'sample_type': {'filterMode': 'checkbox'},
                             'polarity': {'filterMode': 'checkbox',
                                          'filterCustomItems': ['Positive', 'Negative']},
                             'ms_type': {'filterMode': 'checkbox',
@@ -402,6 +402,7 @@ def generate_colors(wdir, regenerate=False):
                          )
         return len(ms_colors) - len(assigned_colors)
 
+
 def callbacks(cls, app, fsc, cache, args_namespace):
     @app.callback(
         Output('color-picker-modal', 'visible'),
@@ -524,10 +525,8 @@ def callbacks(cls, app, fsc, cache, args_namespace):
                 (processed_action and processed_action.get('status') == 'success')
         ):
             raise PreventUpdate
-
+        start_time = time.perf_counter()
         if pagination:
-            import time
-            time.sleep(0.5)
             page_size = pagination['pageSize']
             current = pagination['current']
 
@@ -590,7 +589,6 @@ def callbacks(cls, app, fsc, cache, args_namespace):
                     data_query = f"{base_query} LIMIT ? OFFSET ?"
                     dfpl = conn.execute(data_query, [page_size, (current - 1) * page_size]).pl()
 
-
             with duckdb_connection(wdir) as conn:
                 st_custom_items = filterOptions['sample_type'].get('filterCustomItems')
                 sample_type_filters = conn.execute("SELECT DISTINCT sample_type "
@@ -627,6 +625,8 @@ def callbacks(cls, app, fsc, cache, args_namespace):
                     return_dtype=pl.Object
                 ).alias('use_for_analysis'),
             )
+            end_time = time.perf_counter()
+            time.sleep(max(0.0, 0.5 - (end_time - start_time)))
 
             return [
                 data.to_dicts(),
@@ -729,6 +729,7 @@ def callbacks(cls, app, fsc, cache, args_namespace):
     @app.callback(
         Output("notifications-container", "children", allow_duplicate=True),
         Output("ms-table-action-store", "data", allow_duplicate=True),
+
         Input("ms-files-table", "recentlyChangedRow"),
         State("ms-files-table", "recentlyChangedColumn"),
         State("wdir", "data"),
