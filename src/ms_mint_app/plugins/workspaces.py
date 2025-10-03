@@ -285,7 +285,7 @@ def callbacks(app, fsc, cache):
     def ws_activate(selectedRowKeys, tmpdir, ws_action):
 
         if not selectedRowKeys:
-            raise PreventUpdate
+            return dash.no_update, '', '', None
 
         with duckdb_connection_mint(tmpdir) as mint_conn:
             mint_conn.execute("UPDATE workspaces SET active = false WHERE key != ?", (selectedRowKeys[0],))
