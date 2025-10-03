@@ -35,7 +35,7 @@ class MsFilesPlugin(PluginInterface):
         callbacks(self, app, fsc, cache)
 
     def outputs(self):
-        return _outputs
+        return None
 
 
 upload_root = os.getenv("MINT_DATA_DIR", tempfile.gettempdir())
@@ -299,16 +299,6 @@ _layout = html.Div(
         ),
         dcc.Store(id="ms-table-action-store", data={}),
     ]
-)
-
-_outputs = html.Div(
-    id="ms-outputs",
-    children=[
-        html.Div(id={"index": "ms-delete-output", "type": "output"}),
-        html.Div(id={"index": "ms-save-output", "type": "output"}),
-        html.Div(id={"index": "ms-import-from-url-output", "type": "output"}),
-        html.Div(id={"index": "ms-new-target-output", "type": "output"}),
-    ],
 )
 
 
