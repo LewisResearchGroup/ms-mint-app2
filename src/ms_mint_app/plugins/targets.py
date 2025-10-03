@@ -310,88 +310,107 @@ def layout():
 
 def callbacks(app, fsc=None, cache=None):
     @app.callback(
-        Output("notifications-container", "children", allow_duplicate=True),
-        Output("processed-targets-store", "data"),
-
-        Input("uploaded-targets-store", "data"),
-        Input("pkl-ms-mode", "value"),
-        State("wdir", "data"),
-        prevent_initial_call=True,
-    )
-    def process_targets_files(uploaded_data, ms_mode, wdir):
-
-        ctx = dash.callback_context
-        if not ctx.triggered:
-            raise PreventUpdate
-        trigger_id = ctx.triggered[0]["prop_id"].split(".")[0]
-
-        latest_file, n_uploaded, n_total = uploaded_data if uploaded_data is not None else (None, 0, 0)
-
-        # at the moment, only the uploaded targets are processed
-        if trigger_id == "pkl-ms-mode":
-            raise PreventUpdate
-
-        if not latest_file or n_uploaded == 0:
-            raise PreventUpdate
-
-        targets_df, failed = T.get_targets_from_upload(latest_file, ms_mode)
-
-        with duckdb_connection(wdir) as conn:
-            if conn is None:
-                raise PreventUpdate
-
-            if targets_df.empty:
-                return (fac.AntdNotification(message="Failed to add targets.",
-                                             description="No targets found in the uploaded file.",
-                                             type="error", duration=3, placement='bottom', showProgress=True,
-                                             stack=True),
-                        dash.no_update)
-            n_registered_before = conn.execute("SELECT COUNT(*) FROM targets").fetchone()[0]
-            conn.execute("INSERT INTO targets SELECT * FROM targets_df ON CONFLICT DO NOTHING;")
-            n_registered_after = conn.execute("SELECT COUNT(*) FROM targets").fetchone()[0]
-
-            failed_targets = n_registered_after - n_registered_before - len(targets_df)
-            new_targets = len(targets_df) - failed_targets
-
-            if failed_targets != 0 and new_targets != 0:
-                notification = fac.AntdNotification(message="Targets added.",
-                                     description=f"{new_targets} targets added successfully, "
-                                                 f"but {failed_targets} targets failed.",
-                                     type="warning", duration=3, placement='bottom', showProgress=True,
-                                     stack=True)
-            elif failed_targets == 0:
-                notification = fac.AntdNotification(message="Targets added successfully.",
-                                                    description=f"{new_targets} targets added successfully.",
-                                                    type="success", duration=3, placement='bottom', showProgress=True,
-                                                    stack=True
-                                                    )
-            else:
-                notification = fac.AntdNotification(message="Targets added failed.",
-                                         description=f"{failed_targets} targets failed to add.",
-                                         type="error", duration=3, placement='bottom', showProgress=True,
-                                         stack=True)
-            return notification, True
-
-    @app.callback(
         Output("targets-table", "data"),
-        Input("tab", "value"),
-        Input("processed-targets-store", "data"),
-        Input("removed-targets-store", "data"),
-        State("wdir", "data"),
+        Output("targets-table", "selectedRowKeys"),
+        Output("targets-table", "pagination"),
+
+        Input("targets-action-store", "data"),
+        Input("processed-action-store", "data"),  # from explorer
+        Input('targets-table', 'pagination'),
+        Input('targets-table', 'filter'),
+        State('targets-table', 'filterOptions'),
+        State("processing-type-store", "data"),  # from explorer
+        Input("wdir", "data"),
     )
-    def targets_table(tab, processed_targets, removed_targets, wdir):
-
-        print(f"{tab = }")
-
-        if tab != "Targets":
+    def targets_table(processing_output, processed_action, pagination, filter_, filterOptions, processing_type,
+                      wdir):
+        # processing_type also store info about ms-files and metadata selection since it is the same modal for all of
+        # them
+        if (
+                wdir is None or
+                (processing_type and processing_type.get('type') != 'targets') or
+                (processed_action and processed_action.get('status') != 'success')
+        ):
+            print("PreventUpdate")
             raise PreventUpdate
 
-        with duckdb_connection(wdir) as conn:
-            if conn is None:
-                raise PreventUpdate
-            targets_df = conn.execute("SELECT * FROM targets").df()
-            print(f"{targets_df.head() = }")
-        return targets_df.to_dict('records')
+        if pagination:
+            page_size = pagination['pageSize']
+            current = pagination['current']
+
+            base_query = "SELECT * FROM targets"
+            where_clauses = []
+            params = []
+
+            if filter_ and any(v for v in filter_.values()):
+                with duckdb_connection(wdir) as conn:
+                    if conn is None:
+                        raise PreventUpdate
+
+                    schema = conn.execute("DESCRIBE targets").pl()
+                    column_types = {row['column_name']: row['column_type'] for row in schema.to_dicts()}
+
+                    for key, value in filter_.items():
+                        if value:
+                            # if keyword (LIKE)
+                            if filterOptions[key].get('filterMode') == 'keyword':
+                                column_type = column_types.get(key, '').upper()
+                                if any(numeric_type in column_type for numeric_type in
+                                       ['DOUBLE', 'FLOAT', 'INTEGER', 'BIGINT', 'DECIMAL', 'REAL', 'SMALLINT',
+                                        'TINYINT']):
+                                    try:
+                                        numeric_value = float(value[0])
+                                        where_clauses.append(f'\"{key}\" = ?')
+                                        params.append(numeric_value)
+                                    except (ValueError, TypeError):
+                                        # If casting fails, this filter won't match. Add a clause that is always false.
+                                        where_clauses.append("1=0")
+                                else:
+                                    where_clauses.append(f'\"{key}\" ILIKE ?')
+                                    params.append(f"%{value[0]}%")
+                            # if multiple selection (IN)
+                            else:
+                                where_clauses.append(f"\"{key}\" IN ({','.join(['?'] * len(value))})")
+                                params.extend(value)
+
+                where_sql = " WHERE " + " AND ".join(where_clauses) if where_clauses else ""
+                count_query = f"SELECT COUNT(*) FROM targets{where_sql}"
+
+                with (duckdb_connection(wdir) as conn):
+                    if conn is None:
+                        raise PreventUpdate
+                    number_records = conn.execute(count_query, params).fetchone()[0]
+                    # fix current page if the last record is deleted and then the number of pages changes
+                    current = max(current if number_records > (current - 1) * page_size else current - 1, 1)
+                    data_query = f"{base_query}{where_sql} LIMIT ? OFFSET ?"
+                    params_data = params + [page_size, (current - 1) * page_size]
+
+                    dfpl = conn.execute(data_query, params_data).pl()
+            else:
+                with (duckdb_connection(wdir) as conn):
+                    if conn is None:
+                        raise PreventUpdate
+                    # no filters only pagination
+                    number_records = conn.execute("SELECT COUNT(*) FROM targets").fetchone()[0]
+                    # fix current page if the last record is deleted and then the number of pages changes
+                    current = max(current if number_records > (current - 1) * page_size else current - 1, 1)
+                    data_query = f"{base_query} LIMIT ? OFFSET ?"
+                    dfpl = conn.execute(data_query, [page_size, (current - 1) * page_size]).pl()
+
+            data = dfpl.with_columns(
+                pl.col('preselected_processing').map_elements(
+                    lambda value: {'checked': value},
+                    return_dtype=pl.Object  # Specify that the result is a Python object
+                ).alias('preselected_processing'),
+            )
+
+            print(data)
+            return [
+                data.to_dicts(),
+                [],
+                {**pagination, 'total': number_records, 'current': current},
+            ]
+        return dash.no_update
 
     @app.callback(
         Output('delete-table-targets-modal', 'visible'),
