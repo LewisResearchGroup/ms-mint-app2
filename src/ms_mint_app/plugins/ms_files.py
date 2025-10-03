@@ -962,7 +962,7 @@ def callbacks(cls, app, fsc, cache, args_namespace):
                         raise PreventUpdate
                     number_records = conn.execute(count_query, params).fetchone()[0]
                     # fix current page if the last record is deleted and then the number of pages changes
-                    current = max(current if number_records >= (current - 1) * page_size else current - 1, 1)
+                    current = max(current if number_records > (current - 1) * page_size else current - 1, 1)
                     data_query = f"{base_query}{where_sql} LIMIT ? OFFSET ?"
                     params_data = params + [page_size, (current - 1) * page_size]
 
@@ -974,7 +974,7 @@ def callbacks(cls, app, fsc, cache, args_namespace):
                     # no filters only pagination
                     number_records = conn.execute("SELECT COUNT(*) FROM samples_metadata").fetchone()[0]
                     # fix current page if the last record is deleted and then the number of pages changes
-                    current = max(current if number_records >= (current - 1) * page_size else current - 1, 1)
+                    current = max(current if number_records > (current - 1) * page_size else current - 1, 1)
                     data_query = f"{base_query} LIMIT ? OFFSET ?"
                     dfpl = conn.execute(data_query, [page_size, (current - 1) * page_size]).pl()
 
