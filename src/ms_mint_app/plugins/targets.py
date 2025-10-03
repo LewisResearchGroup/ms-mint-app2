@@ -30,45 +30,249 @@ class TargetsPlugin(PluginInterface):
 
 _layout = html.Div(
     [
+        fac.AntdFlex(
+            [
+                fac.AntdFlex(
+                    [
+                        fac.AntdTitle(
+                            'Targets', level=4, style={'margin': '0'}
+                        ),
+                        fac.AntdIcon(
+                            id='targets-tour-icon',
+                            icon='pi-info',
+                            style={"cursor": "pointer", 'paddingLeft': '10px'},
+                        ),
+                        fac.AntdButton(
+                            'Load Targets',
+                            id={
+                                'action': 'file-explorer',
+                                'type': 'targets',
+                            },
+                            style={'textTransform': 'uppercase', "margin": "0 50px"},
+                        ),
+                    ],
+                    align='center',
+                ),
+                fac.AntdDropdown(
+                    id='targets-options',
+                    title='Options',
+                    buttonMode=True,
+                    arrow=True,
+                    menuItems=[
+                        {'title': 'Regenerate colors', 'icon': 'pi-broom', 'key': 'regenerate-colors'},
+                        {'isDivider': True},
+                        {'title': fac.AntdText('Delete selected', strong=True, type='warning'),
+                         'key': 'delete-selected'},
+                        {'title': fac.AntdText('Clear table', strong=True, type='danger'), 'key': 'delete-all'},
+                    ],
+                    buttonProps={'style': {'textTransform': 'uppercase'}},
+                ),
+            ],
+            justify="space-between",
+            align="center",
+            gap="middle",
+        ),
         html.Div(
             [
-                html.H4(_label),
-                fac.AntdIcon(
-                    id='targets-tour-icon',
-                    icon='pi-info',
-                    style={"cursor": "pointer"},
-                    )
+                fac.AntdSpin(
+                    fac.AntdTable(
+                        id='targets-table',
+                        containerId='targets-table-container',
+                        columns=[
+                            {
+                                'title': 'Target',
+                                'dataIndex': 'peak_label',
+                                'width': '260px',
+                            },
+                            {
+                                'title': 'MZ-Mean',
+                                'dataIndex': 'mz_mean',
+                                'width': '150px',
+                            },
+                            {
+                                'title': 'MZ-Width',
+                                'dataIndex': 'mz_width',
+                                'width': '150px',
+                            },
+                            {
+                                'title': 'MZ',
+                                'dataIndex': 'mz',
+                                'width': '150px',
+                            },
+                            {
+                                'title': 'RT',
+                                'dataIndex': 'rt',
+                                'width': '150px',
+                            },
+                            {
+                                'title': 'RT-min',
+                                'dataIndex': 'rt_min',
+                                'width': '150px',
+                                'editable': True,
+                            },
+                            {
+                                'title': 'RT-max',
+                                'dataIndex': 'rt_max',
+                                'width': '150px',
+                            },
+                            {
+                                'title': 'RT-Unit',
+                                'dataIndex': 'rt_unit',
+                                'width': '120px',
+                            },
+                            {
+                                'title': 'Intensity Threshold',
+                                'dataIndex': 'intensity_threshold',
+                                'width': '200px',
+                                'editable': True,
+                            },
+                            {
+                                'title': 'Polarity',
+                                'dataIndex': 'polarity',
+                                'width': '120px',
+                            },
+                            {
+                                'title': 'filterLine',
+                                'dataIndex': 'filterLine',
+                                'width': '120px',
+                            },
+                            {
+                                'title': 'Proton',
+                                'dataIndex': 'proton',
+                                'width': '120px',
+                            },
+                            {
+                                'title': 'Category',
+                                'dataIndex': 'category',
+                                'width': '120px',
+                            },
+                            {
+                                'title': 'Selected',
+                                'dataIndex': 'preselected_processing',
+                                'width': '120px',
+                                'renderOptions': {'renderType': 'switch'},
+                            },
+                            {
+                                'title': 'Source',
+                                'dataIndex': 'source',
+                                'width': '400px',
+                            },
+                        ],
+                        titlePopoverInfo={
+                            'peak_label': {
+                                'title': 'peak_label',
+                                'content': 'This is peak_label field',
+                            },
+                            'mz_mean': {
+                                'title': 'mz_mean',
+                                'content': 'This is mz_mean field',
+                            },
+                            'mz_width': {
+                                'title': 'mz_width',
+                                'content': 'This is mz_width field',
+                            },
+                            'mz': {
+                                'title': 'mz',
+                                'content': 'This is mz field',
+                            },
+                            'rt': {
+                                'title': 'rt',
+                                'content': 'This is rt field',
+                            },
+                            'rt_min': {
+                                'title': 'rt_min',
+                                'content': 'This is rt_min field',
+                            },
+                            'rt_max': {
+                                'title': 'rt_max',
+                                'content': 'This is rt_max field',
+                            },
+                            'rt_unit': {
+                                'title': 'rt_unit',
+                                'content': 'This is rt_unit field',
+                            },
+                            'intensity_threshold': {
+                                'title': 'intensity_threshold',
+                                'content': 'This is intensity_threshold field',
+                            },
+                            'polarity': {
+                                'title': 'polarity',
+                                'content': 'This is polarity field',
+                            },
+                            'filterLine': {
+                                'title': 'filterLine',
+                                'content': 'This is filterLine field',
+                            },
+                            'proton': {
+                                'title': 'proton',
+                                'content': 'This is proton field',
+                            },
+                            'category': {
+                                'title': 'category',
+                                'content': 'This is category field',
+                            },
+                            'preselected_processing': {
+                                'title': 'preselected_processing',
+                                'content': 'This is preselected_processing field',
+                            },
+                            'source': {
+                                'title': 'source',
+                                'content': 'This is source field',
+                            },
+                        },
+                        filterOptions={
+                            'peak_label': {'filterMode': 'keyword'},
+                            'mz_mean': {'filterMode': 'keyword'},
+                            'mz_width': {'filterMode': 'keyword'},
+                            'mz': {'filterMode': 'keyword'},
+                            'rt': {'filterMode': 'keyword'},
+                            'rt_min': {'filterMode': 'keyword'},
+                            'rt_max': {'filterMode': 'keyword'},
+                            'rt_unit': {'filterMode': 'checkbox',
+                                        'filterCustomItems': ['s', 'min']},
+                            'intensity_threshold': {'filterMode': 'keyword'},
+                            'polarity': {'filterMode': 'checkbox',
+                                         'filterCustomItems': ['Negative', 'Positive']
+                                         },
+                            'preselected_processing': {'filterMode': 'checkbox',
+                                                       'filterCustomItems': ['True', 'False']},
+                            'filterLine': {'filterMode': 'keyword'},
+                            'proton': {'filterMode': 'checkbox',
+                                       'filterCustomItems': ['Neutral', 'Positive', 'Negative']},
+                            'category': {'filterMode': 'checkbox',
+                                         # 'filterCustomItems': ['True', 'False']
+                                         },
+                            'source': {'filterMode': 'keyword'},
+
+                        },
+                        sortOptions={
+                            'sortDataIndexes': ['peak_label', 'mz_mean', 'mz_width', 'mz', 'rt', 'rt_min', 'rt_max',
+                                                'rt_unit', 'intensity_threshold', 'polarity', 'filterLine', 'proton',
+                                                'category', 'preselected_processing', 'source']},
+                        pagination={
+                            'position': 'bottomCenter',
+                            'pageSize': 10,
+                            'current': 1,
+                            'showSizeChanger': True,
+                            'pageSizeOptions': [5, 10, 25, 50, 100],
+                            'showQuickJumper': True,
+                        },
+                        tableLayout='fixed',
+                        maxWidth="calc(100vw - 250px - 4rem)",
+                        maxHeight="calc(100vh - 140px - 4rem)",
+                        locale='en-us',
+                        rowSelectionType='checkbox',
+                        size='small',
+                        mode='server-side',
+                    ),
+                    text='Loading data...',
+                    size='small',
+                )
             ],
-            style={"display": "flex", "alignItems": "center", "gap": "10px"}
+            id='targets-table-container',
+            style={'padding': '1rem 0'},
         ),
 
-        dbc.Row([
-            dbc.Col([
-                html.Div([html.Label('Upload options'),
-                          dcc.Dropdown(
-                              id="pkl-ms-mode",
-                              options=[{"value": "positive",
-                                        "label": "Add proton mass to formula (positive mode)"},
-                                       {"value": "negative",
-                                        "label": "Subtract proton mass from formula (negative mode)"}],
-                          )],
-                         ),
-
-            ], width=4),
-            dbc.Col([
-                du.Upload(
-                    id="targets-uploader",
-                    max_file_size=1800,  # 1800 MB
-                    max_files=1,
-                    filetypes=["csv"],
-                    upload_id=str(uuid.uuid4()),  # Unique session id
-                    text="Upload TARGETS files.",
-                ),
-            ]),
-        ], style={"marginBottom": "30px"}
-        ),
-        pkl_table,
-        INFO,
         fac.AntdModal(
             "Are you sure you want to delete the selected targets?",
             id="delete-table-targets-modal",
@@ -103,13 +307,7 @@ _layout = html.Div(
     style={"padding": "3rem"}
 )
 
-
-_outputs = html.Div(
-    id="pkl-outputs",
-    children=[
-        dcc.Store(id="uploaded-targets-store"),
-        dcc.Store(id="processed-targets-store"),
-        dcc.Store(id="removed-targets-store"),
+        dcc.Store(id="targets-action-store"),
     ],
 )
 
