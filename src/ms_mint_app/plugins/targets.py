@@ -275,15 +275,11 @@ _layout = html.Div(
 
         fac.AntdModal(
             "Are you sure you want to delete the selected targets?",
-            id="delete-table-targets-modal",
             title="Delete target",
-            visible=False,
-            closable=False,
-            width=400,
+            id="delete-table-targets-modal",
             renderFooter=True,
-            okText="Delete",
             okButtonProps={"danger": True},
-            cancelText="Cancel"
+            locale='en-us',
         ),
         fac.AntdTour(
             locale='en-us',
@@ -302,11 +298,7 @@ _layout = html.Div(
                 },
             ],
             id='targets-tour',
-        )
-    ],
-    style={"padding": "3rem"}
-)
-
+        ),
         dcc.Store(id="targets-action-store"),
     ],
 )
