@@ -44,6 +44,7 @@ logging.info(f'TMPDIR: {TMPDIR}')
 from uuid import uuid4
 import diskcache
 
+
 def load_plugins(plugin_dir, package_name):
     logging.info('Loading plugins')
     plugins = {}
@@ -67,6 +68,19 @@ plugin_manager = PluginManager()
 plugins = plugin_manager.get_plugins()
 
 logging.info(f'Plugins: {plugins.keys()}')
+
+icons = {
+    'Workspaces': 'antd-home',
+    'MS-Files': 'pi-stack',
+    'Targets': 'antd-unordered-list',
+    'Optimization': 'antd-desktop',
+    'Processing': 'antd-hourglass',
+    'Quality Control': 'antd-line-chart',
+    'Analysis': 'antd-monitor',
+    'MS2 Browser': 'antd-home'
+}
+
+file_explorer = FileExplorer()
 
 _layout = fac.AntdLayout(
     [
@@ -142,7 +156,7 @@ _layout = fac.AntdLayout(
                                             'props': {
                                                 'key': plugin_id,
                                                 'title': plugin_id,
-                                                'icon': 'antd-home',
+                                                'icon': icons.get(plugin_id, 'antd-home'),
                                             },
                                         }
                                         for plugin_id, plugin_instance in plugins.items()
@@ -272,7 +286,8 @@ def register_callbacks(app, cache, fsc, args):
     def toggle_sidebar(collapsed):
         logo_style = {'width': '100%', 'height': 'auto'} if collapsed else {'width': '50%', 'height': 'auto'}
         logout_menu_style = {'width': '100%', 'display': 'none'} if collapsed else {'width': '60px', 'display': 'none'}
-        active_workspace_container_style = {'display': 'none', 'padding': '0 4px'} if collapsed else {'display': 'flex', 'padding': '0 4px'}
+        active_workspace_container_style = {'display': 'none', 'padding': '0 4px'} if collapsed else {'display': 'flex',
+                                                                                                      'padding': '0 4px'}
         ws_divider_style = {'display': 'none'} if collapsed else {'display': 'block'}
         doc_issues_menu_mode = 'vertical' if collapsed else 'horizontal'
         version_info_style = {'display': 'none'} if collapsed else {'display': 'block', 'margin': '4px'}
