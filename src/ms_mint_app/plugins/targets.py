@@ -1,18 +1,14 @@
 import logging
-import uuid
+
 import dash
+import feffery_antd_components as fac
+import polars as pl
 from dash import html, dcc
 from dash.dependencies import Input, Output, State
 from dash.exceptions import PreventUpdate
-from dash_tabulator import DashTabulator
 
-import dash_bootstrap_components as dbc
-
-from .. import tools as T
 from ..duckdb_manager import duckdb_connection
 from ..plugin_interface import PluginInterface
-import dash_uploader as du
-import feffery_antd_components as fac
 
 _label = "Targets"
 
@@ -29,173 +25,8 @@ class TargetsPlugin(PluginInterface):
         callbacks(app, fsc, cache)
     
     def outputs(self):
-        return _outputs
-    
+        return None
 
-from ms_mint.standards import TARGETS_COLUMNS
-
-INFO = dcc.Markdown(
-"""
----    
-
--   **peak_label**: string, Label of the peak (must be unique).
--   **mz_mean**: numeric value. **MS1:** theoretical m/z value of the target ion to extract. **MS2:** m/z value of the 
-precursor.
--   **mz_width**: numeric value, width of the peak in \[ppm\]. It is used to calculate the width of the mass window  according to the formula: `Δm = m/z * 1e-6 * mz_width`.
--   **rt**: numeric value, (optional), expected time of the peak. This value is not used during processing, but it can inform the peak optimization procedure.
--   **rt_min**: numeric value, starting time for peak integration.
--   **rt_max**: numeric value, ending time for peak integration.
--   **rt_unit**: one of `s` or `min` for seconds or minutes respectively.
--   **intensity_threshold**: numeric value (>=0), minimum intensity value to include, serves as a noise filter. We recommend setting this to 0. 
--   **target_filename**: string (optional), name of the target list file. It is not used for processing, just to keep track of what files were used.
-"""
-)
-
-columns = [{"name": i, "id": i, "selectable": True} for i in TARGETS_COLUMNS]
-
-tabulator_options = {
-    "groupBy": "ms_type",
-    "selectable": True,
-    "headerFilterLiveFilterDelay": 3000,
-    "layout": "fitDataFill",
-    # "height": "900px",
-}
-
-downloadButtonType = {
-    "css": "btn btn-primary",
-    "text": "Export",
-    "type": "csv",
-    "filename": "Targets",
-}
-
-clearFilterButtonType = {"css": "btn btn-outline-dark", "text": "Clear Filters"}
-
-table_columns = [
-    {
-        "formatter": "rowSelection",
-        "titleFormatter": "rowSelection",
-        "titleFormatterParams": {"rowRange": "active"},  # only toggle the values of the active filtered rows,
-        "hozAlign": "center",
-        "headerSort": False,
-        "width": "1px",
-        "frozen": True,
-    },
-    {
-        "title": "peak_label",
-        "field": "peak_label",
-        "editor": True,
-        "headerTooltip": "This is a tooltip",
-        "frozen": True,
-    },
-    {
-        "title": "mz_mean",
-        "field": "mz_mean",
-        "editor": True,
-        "hozAlign": "right",
-        "headerTooltip": "This is a tooltip"
-    },
-    {
-        "title": "mz_width",
-        "field": "mz_width",
-        "editor": True,
-        "hozAlign": "right",
-        "headerTooltip": "This is a tooltip"
-    },
-    {
-        "title": "mz",
-        "field": "mz",
-        "editor": True,
-        "hozAlign": "right",
-        "headerTooltip": "This is a tooltip"
-    },
-    {
-        "title": "rt",
-        "field": "rt",
-        "editor": True,
-        "hozAlign": "right",
-        "headerTooltip": "This is a tooltip"
-    },
-    {
-        "title": "rt_min",
-        "field": "rt_min",
-        "editor": True,
-        "hozAlign": "right",
-        "headerTooltip": "This is a tooltip"
-    },
-    {
-        "title": "rt_max",
-        "field": "rt_max",
-        "editor": True,
-        "hozAlign": "right",
-        "headerTooltip": "This is a tooltip"
-    },
-    {
-        "title": "rt_unit",
-        "field": "rt_unit",
-        "hozAlign": "center",
-        "headerTooltip": "This is a tooltip"
-    },
-    {
-        "title": "intensity_threshold",
-        "field": "intensity_threshold",
-        "editor": True,
-        "hozAlign": "right",
-        "headerTooltip": "This is a tooltip"
-    },
-    {
-        "title": "polarity",
-        "field": "polarity",
-        "hozAlign": "center",
-        "headerTooltip": "This is a tooltip"
-    },
-    {
-        "title": "filterLine",
-        "field": "filterLine",
-        "hozAlign": "center",
-        "headerTooltip": "This is a tooltip"
-    },
-    # {
-    #     "title": "ms_type",
-    #     "field": "ms_type",
-    #     "hozAlign": "center",
-    #     "headerTooltip": "This is a tooltip"
-    # },
-    {
-        "title": "category",
-        "field": "category",
-        "editor": True,
-        "headerTooltip": "This is a tooltip"
-    },
-    {
-        "title": "preselected_processing",
-        "field": "preselected_processing",
-        "editor": True,
-        "formatter": "tickCross",
-        "hozAlign": "center",
-        "headerTooltip": "This is a tooltip",
-    },
-    {
-        "title": "source",
-        "field": "source",
-        "headerTooltip": "This is a tooltip"
-    },
-]
-
-
-pkl_table = html.Div(
-    id="targets-table-container",
-    style={"minHeight": 100, "padding-bottom": "3rem"},
-    children=[
-        DashTabulator(
-            id="targets-table",
-            columns=table_columns,
-            options=tabulator_options,
-            downloadButtonType=downloadButtonType,
-            clearFilterButtonType=clearFilterButtonType,
-        ),
-        dbc.Button("Remove selected targets", id="pkl-clear", style={"float": "right"}, color='danger'),
-    ],
-)
 
 _layout = html.Div(
     [
