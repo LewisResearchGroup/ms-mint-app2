@@ -91,7 +91,9 @@ _layout = html.Div(
                         {'title': 'Generate colors', 'icon': 'antd-highlight', 'key': 'generate-colors'},
                         {'title': 'Regenerate colors', 'icon': 'pi-broom', 'key': 'regenerate-colors'},
                         {'isDivider': True},
-                        {'title': 'Delete selected', 'key': 'delete-selected'},
+                        {'title': fac.AntdText('Delete selected', strong=True, type='warning'),
+                         'key': 'delete-selected'},
+                        {'title': fac.AntdText('Clear table', strong=True, type='danger'), 'key': 'delete-all'},
                     ],
                     buttonProps={'style': {'textTransform': 'uppercase'}},
                 ),
@@ -617,6 +619,7 @@ def callbacks(cls, app, fsc, cache, args_namespace):
 
     @app.callback(
         Output("delete-confirmation-modal", "visible"),
+        Output("delete-confirmation-modal", "children"),
 
         Input("ms-options", "nClicks"),
         State("ms-options", "clickedKey"),
@@ -625,9 +628,31 @@ def callbacks(cls, app, fsc, cache, args_namespace):
     )
     def toggle_modal(nClicks, clickedKey, selectedRows):
         ctx = dash.callback_context
-        if not bool(ctx.triggered and selectedRows and clickedKey == "delete-selected"):
+        if not ctx.triggered:
             raise PreventUpdate
-        return True
+
+        if clickedKey == "delete-selected":
+            if not bool(selectedRows):
+                raise PreventUpdate
+
+        children = fac.AntdFlex(
+            [
+                fac.AntdText("This action will delete selected MS-files and cannot be undone?",
+                             strong=True),
+                fac.AntdText("Are you sure you want to delete the selected MS-files?")
+            ],
+            vertical=True,
+        )
+        if clickedKey == "delete-all":
+            children = fac.AntdFlex(
+                [
+                    fac.AntdText("This action will delete ALL MS-files and cannot be undone?",
+                                 strong=True, type="danger"),
+                    fac.AntdText("Are you sure you want to delete the ALL MS-files?")
+                ],
+                vertical=True,
+            )
+        return True, children
 
     @app.callback(
         Output("notifications-container", "children", allow_duplicate=True),
@@ -635,30 +660,46 @@ def callbacks(cls, app, fsc, cache, args_namespace):
 
         Input("delete-confirmation-modal", "okCounts"),
         State('ms-files-table', 'selectedRows'),
+        State("ms-options", "clickedKey"),
         State("wdir", "data"),
         prevent_initial_call=True,
     )
-    def confirm_and_delete(okCounts, selectedRows, wdir):
+    def confirm_and_delete(okCounts, selectedRows, clickedKey, wdir):
 
-        if okCounts is None or not selectedRows:
+        if okCounts is None:
             raise PreventUpdate
+        if clickedKey == "delete-selected" and not selectedRows:
+            ms_table_action_store = {'action': 'delete', 'status': 'failed'}
+            total_removed = 0
+        elif clickedKey == "delete-selected":
+            remove_ms_file = [row["ms_file_label"] for row in selectedRows]
 
-        remove_ms_file = [row["ms_file_label"] for row in selectedRows]
+            with duckdb_connection(wdir) as conn:
+                if conn is None:
+                    raise PreventUpdate
+                conn.execute("DELETE FROM samples_metadata WHERE ms_file_label IN ?", (remove_ms_file,))
+                conn.execute("DELETE FROM ms_data WHERE ms_file_label IN ?", (remove_ms_file,))
+                conn.execute("DELETE FROM chromatograms WHERE ms_file_label IN ?", (remove_ms_file,))
+                # conn.execute("DELETE FROM results WHERE ms_file_label = ?", (filename,))
+            total_removed = len(remove_ms_file)
+            ms_table_action_store = {'action': 'delete', 'status': 'success'}
+        else:
+            with duckdb_connection(wdir) as conn:
+                if conn is None:
+                    raise PreventUpdate
+                total_removed_q = conn.execute("SELECT COUNT(*) FROM samples_metadata").fetchone()
+                ms_table_action_store = {'action': 'delete', 'status': 'failed'}
+                total_removed = 0
+                if total_removed_q:
+                    total_removed = total_removed_q[0]
 
-        with duckdb_connection(wdir) as conn:
-            if conn is None:
-                raise PreventUpdate
-            # TODO: remove data from  results as well
-            conn.execute("DELETE FROM samples_metadata WHERE ms_file_label IN ?", (remove_ms_file,))
-            conn.execute("DELETE FROM ms_data WHERE ms_file_label IN ?", (remove_ms_file,))
-            conn.execute("DELETE FROM chromatograms WHERE ms_file_label IN ?", (remove_ms_file,))
-            # conn.execute("DELETE FROM results WHERE ms_file_label = ?", (filename,))
-
-        ms_table_action_store = {'action': 'delete', 'status': 'success'}
-
-        return (fac.AntdNotification(message="Delete files",
-                                     description=f"{len(selectedRows)} files deleted successful",
-                                     type="success",
+                    conn.execute("DELETE FROM samples_metadata")
+                    conn.execute("DELETE FROM chromatograms")
+                    # conn.execute("DELETE FROM results")
+                    ms_table_action_store = {'action': 'delete', 'status': 'success'}
+        return (fac.AntdNotification(message="Delete MS-files",
+                                     description=f"Deleted {total_removed} MS-Files",
+                                     type="success" if total_removed > 0 else "error",
                                      duration=3,
                                      placement='bottom',
                                      showProgress=True,
