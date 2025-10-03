@@ -169,6 +169,7 @@ _layout = fac.AntdLayout(
                             ],
                             vertical=True,
                             gap=2,
+                            style={'width': '100%'}
                         ),
                         fac.AntdFlex(
                             [
@@ -198,7 +199,7 @@ _layout = fac.AntdLayout(
                                     ],
                                     mode='horizontal',
                                     id='doc-issues-menu',
-                                    style={'justifyContent': 'center', 'width': '100%'}
+                                    style={'justifyContent': 'center'}
                                 ),
                                 html.Div(
                                     [
@@ -215,7 +216,6 @@ _layout = fac.AntdLayout(
                                             [
                                                 fac.AntdText('ms-mint-app:', strong=True),
                                                 fac.AntdText(str(ms_mint_app.__version__), code=True),
-
                                             ],
                                             justify='space-between',
                                             align='center',
@@ -227,6 +227,7 @@ _layout = fac.AntdLayout(
                             ],
                             vertical=True,
                             gap=2,
+                            style={'width': '100%'}
                         ),
 
                     ],
@@ -237,6 +238,7 @@ _layout = fac.AntdLayout(
                 )
             ],
             collapsible=True,
+            collapsedWidth=60,
             width=250,
             style={'backgroundColor': 'white'},
             id='sidebar',
