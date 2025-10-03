@@ -15,6 +15,7 @@ import ms_mint
 import ms_mint_app
 from .plugin_interface import PluginInterface
 from .plugin_manager import PluginManager
+from .plugins.explorer import FileExplorer
 
 
 def make_dirs():
@@ -72,6 +73,8 @@ _layout = fac.AntdLayout(
         dcc.Store(id="tmpdir", data=str(TMPDIR)),
         dcc.Store(id="wdir"),
         dcc.Interval(id="progress-interval", n_intervals=0, interval=20000, disabled=False),
+
+        file_explorer.layout(),
 
         fac.AntdSider(
             [
@@ -238,6 +241,8 @@ def register_callbacks(app, cache, fsc, args):
     upload_root = os.getenv("MINT_DATA_DIR", tempfile.gettempdir())
     upload_dir = str(Path(upload_root) / "MINT-Uploads")
     UPLOAD_FOLDER_ROOT = upload_dir
+
+    file_explorer.callbacks(app=app, fsc=fsc, cache=cache)
 
     for label, plugin in plugins.items():
         logging.info(f"Loading callbacks of plugin {label}")
