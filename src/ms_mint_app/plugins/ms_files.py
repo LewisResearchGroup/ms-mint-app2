@@ -2,6 +2,7 @@ import json
 import logging
 import os
 import tempfile
+from collections import Counter
 from pathlib import Path as P, Path
 
 import dash
@@ -523,18 +524,15 @@ def process_ms_files(wdir, set_progress, selected_files):
         failed_files.update({files_name[label]: "duplicate" for label in duplicates})
         logging.info("Found %d duplicates: %s", duplicates.shape[0], duplicates.tolist())
 
-    if len(files_name) - len(duplicates) == 0:
-        set_progress(100)
-        return 0, failed_files
-
-    with tempfile.TemporaryDirectory() as tmpdir:
-        futures = []
-        ctx = multiprocessing.get_context('spawn')
-        with concurrent.futures.ProcessPoolExecutor(max_workers=4, mp_context=ctx) as executor:
-            for file_name, file_path in files_name.items():
-                if file_name in duplicates.tolist():
-                    continue
-                futures.append(executor.submit(convert_mzxml_to_parquet_pl, file_path, tmp_dir=tmpdir))
+    if len(files_name) - len(duplicates) > 0:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            futures = []
+            ctx = multiprocessing.get_context('spawn')
+            with concurrent.futures.ProcessPoolExecutor(max_workers=4, mp_context=ctx) as executor:
+                for file_name, file_path in files_name.items():
+                    if file_name in duplicates.tolist():
+                        continue
+                    futures.append(executor.submit(convert_mzxml_to_parquet_pl, file_path, tmp_dir=tmpdir))
 
             batch_ms = []
             batch_ms_data = []
@@ -1088,19 +1086,30 @@ def callbacks(cls, app, fsc, cache, args_namespace):
             message = "MS Files processed"
         elif processing_type['type'] == "metadata":
             total_processed, failed_files = process_metadata(wdir, set_progress, selected_files)
-            print(f'{failed_files = }')
-            print(f'{total_processed = }')
             message = "Metadata processed"
         else:
             total_processed, failed_files = process_targets(wdir, set_progress, selected_files)
             message = "Targets processed"
 
-        description = f"Successful processed {total_processed} files with {len(failed_files)} failed"
-
+        if total_processed:
+            if failed_files:
+                f_map = Counter(failed_files.values())
+                description = (f"Successful processed {total_processed} files with {len(failed_files)} failed "
+                               f" {list(f_map.items())}")
+                mss_type = "warning"
+            else:
+                description = f"Successful processed {total_processed} files"
+                mss_type = "success"
+        else:
+            f_map = Counter(failed_files.values())
+            description = f"Failed processing {len(failed_files)} files {list(f_map.items())}"
+            mss_type = "error"
         notification = fac.AntdNotification(message=message,
                                             description=description,
-                                            type="success", duration=3,
-                                            placement='bottom', showProgress=True)
+                                            type=mss_type,
+                                            duration=3,
+                                            placement='bottom',
+                                            showProgress=True)
         ms_table_action_store = {'action': 'processing', 'status': 'completed'}
 
         return notification, ms_table_action_store, False
