@@ -1077,6 +1077,7 @@ def callbacks(cls, app, fsc, cache, args_namespace):
 
     @app.callback(
         Output("notifications-container", "children", allow_duplicate=True),
+        Output("ms-table-action-store", "data", allow_duplicate=True),
         Input("ms-files-table", "recentlyChangedRow"),
         State("ms-files-table", "recentlyChangedColumn"),
         State("wdir", "data"),
@@ -1099,15 +1100,17 @@ def callbacks(cls, app, fsc, cache, args_namespace):
                     raise PreventUpdate
                 query = f"UPDATE samples_metadata SET {column_edited} = ? WHERE ms_file_label = ?"
                 conn.execute(query, [row_edited[column_edited], row_edited['ms_file_label']])
+                ms_table_action_store = {'action': 'delete', 'status': 'success'}
             return fac.AntdNotification(message="Successfully edition saved",
                                         type="success",
                                         duration=3,
                                         placement='bottom',
                                         showProgress=True,
                                         stack=True
-                                        )
+                                        ), ms_table_action_store
         except Exception as e:
             logging.error(f"Error updating metadata: {e}")
+            ms_table_action_store = {'action': 'delete', 'status': 'failed'}
             return fac.AntdNotification(message="Failed to save edition",
                                         description=f"Failing to save edition with: {str(e)}",
                                         type="error",
@@ -1115,7 +1118,7 @@ def callbacks(cls, app, fsc, cache, args_namespace):
                                         placement='bottom',
                                         showProgress=True,
                                         stack=True
-                                        )
+                                        ), ms_table_action_store
 
     @app.callback(
         Output('notifications-container', "children", allow_duplicate=True),
