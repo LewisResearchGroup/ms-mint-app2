@@ -916,6 +916,8 @@ def callbacks(cls, app, fsc, cache, args_namespace):
     @app.callback(
         Output("ms-files-table", "data"),
         Output("ms-files-table", "selectedRowKeys"),
+        Output("ms-files-table", "pagination"),
+        Output("ms-files-table", "filterOptions"),
 
         Input("ms-table-action-store", "data"),
         Input('ms-files-table', 'pagination'),
@@ -930,39 +932,97 @@ def callbacks(cls, app, fsc, cache, args_namespace):
         if wdir is None or processing_type.get('type') == 'targets':
             raise PreventUpdate
 
-        with duckdb_connection(wdir) as conn:
-            if conn is None:
-                return []
-            dfpl = conn.execute("SELECT * FROM samples_metadata").pl()
+        if pagination:
+            import time
+            time.sleep(0.5)
+            page_size = pagination['pageSize']
+            current = pagination['current']
 
-        if len(dfpl) == 0:
-            raise PreventUpdate
-        data = dfpl.with_columns(
-            pl.col('color').map_elements(
-                lambda value: {
-                    'content': value,
-                    'variant': 'filled',
-                    'custom': {'color': value},
-                    'style': {'background': value, 'width': '70px'}
-                },
-                return_dtype=pl.Struct({
-                    'content': pl.String,
-                    'variant': pl.String,
-                    'custom': pl.Struct({'color': pl.String}),
-                    'style': pl.Struct({'background': pl.String, 'width': pl.String})
-                }),
-                skip_nulls=False,
-            ).alias('color'),
-            pl.col('use_for_optimization').map_elements(
-                lambda value: {'checked': value},
-                return_dtype=pl.Object  # Specify that the result is a Python object
-            ).alias('use_for_optimization'),
-            pl.col('use_for_analysis').map_elements(
-                lambda value: {'checked': value},
-                return_dtype=pl.Object
-            ).alias('use_for_analysis'),
-        )
-        return data.to_dicts(), []
+            base_query = "SELECT * FROM samples_metadata"
+            where_clauses = []
+            params = []
+
+            if filter_ and any(v for v in filter_.values()):
+                for key, value in filter_.items():
+                    if value:
+                        # if keyword (LIKE)
+                        if filterOptions[key].get('filterMode') == 'keyword':
+                            where_clauses.append(f"{key} LIKE ?")
+                            params.append(f"%{value[0]}%")
+                        # if multiple selection (IN)
+                        else:
+                            where_clauses.append(f"{key} IN ({','.join(['?'] * len(value))})")
+                            params.extend(value)
+
+                where_sql = " WHERE " + " AND ".join(where_clauses) if where_clauses else ""
+                count_query = f"SELECT COUNT(*) FROM samples_metadata{where_sql}"
+
+                with (duckdb_connection(wdir) as conn):
+                    if conn is None:
+                        raise PreventUpdate
+                    number_records = conn.execute(count_query, params).fetchone()[0]
+                    # fix current page if the last record is deleted and then the number of pages changes
+                    current = max(current if number_records >= (current - 1) * page_size else current - 1, 1)
+                    data_query = f"{base_query}{where_sql} LIMIT ? OFFSET ?"
+                    params_data = params + [page_size, (current - 1) * page_size]
+
+                    dfpl = conn.execute(data_query, params_data).pl()
+            else:
+                with (duckdb_connection(wdir) as conn):
+                    if conn is None:
+                        raise PreventUpdate
+                    # no filters only pagination
+                    number_records = conn.execute("SELECT COUNT(*) FROM samples_metadata").fetchone()[0]
+                    # fix current page if the last record is deleted and then the number of pages changes
+                    current = max(current if number_records >= (current - 1) * page_size else current - 1, 1)
+                    data_query = f"{base_query} LIMIT ? OFFSET ?"
+                    dfpl = conn.execute(data_query, [page_size, (current - 1) * page_size]).pl()
+
+
+            with duckdb_connection(wdir) as conn:
+                st_custom_items = filterOptions['sample_type'].get('filterCustomItems')
+                sample_type_filters = conn.execute("SELECT DISTINCT sample_type "
+                                                       "FROM samples_metadata "
+                                                       "ORDER BY sample_type ASC").df()['sample_type'].to_list()
+                if st_custom_items != sample_type_filters:
+                    output_filterOptions = filterOptions.copy()
+                    output_filterOptions['sample_type']['filterCustomItems'] = list(sample_type_filters)
+                else:
+                    output_filterOptions = dash.no_update
+
+            data = dfpl.with_columns(
+                pl.col('color').map_elements(
+                    lambda value: {
+                        'content': value,
+                        'variant': 'filled',
+                        'custom': {'color': value},
+                        'style': {'background': value, 'width': '70px'}
+                    },
+                    return_dtype=pl.Struct({
+                        'content': pl.String,
+                        'variant': pl.String,
+                        'custom': pl.Struct({'color': pl.String}),
+                        'style': pl.Struct({'background': pl.String, 'width': pl.String})
+                    }),
+                    skip_nulls=False,
+                ).alias('color'),
+                pl.col('use_for_optimization').map_elements(
+                    lambda value: {'checked': value},
+                    return_dtype=pl.Object  # Specify that the result is a Python object
+                ).alias('use_for_optimization'),
+                pl.col('use_for_analysis').map_elements(
+                    lambda value: {'checked': value},
+                    return_dtype=pl.Object
+                ).alias('use_for_analysis'),
+            )
+
+            return [
+                data.to_dicts(),
+                [],
+                {**pagination, 'total': number_records, 'current': current},
+                output_filterOptions
+            ]
+        return dash.no_update
 
     @app.callback(
         Output("delete-confirmation-modal", "visible"),
