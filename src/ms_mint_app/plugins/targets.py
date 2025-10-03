@@ -12,6 +12,7 @@ from ..plugin_interface import PluginInterface
 
 _label = "Targets"
 
+
 class TargetsPlugin(PluginInterface):
     def __init__(self):
         self._label = _label
@@ -527,11 +528,14 @@ def callbacks(app, fsc=None, cache=None):
 
     @app.callback(
         Output("notifications-container", "children", allow_duplicate=True),
-        Input("targets-table", "cellEdited"),
+        Output("targets-action-store", "data", allow_duplicate=True),
+
+        Input("targets-table", "recentlyChangedRow"),
+        State("targets-table", "recentlyChangedColumn"),
         State("wdir", "data"),
         prevent_initial_call=True,
     )
-    def save_target_table_on_edit(cell_edited, wdir):
+    def save_target_table_on_edit(row_edited, column_edited, wdir):
         """
         This callback saves the table on cell edits.
         This saves some bandwidth.
@@ -540,42 +544,33 @@ def callbacks(app, fsc=None, cache=None):
         if not ctx.triggered:
             raise PreventUpdate
 
-        if cell_edited is None:
+        if row_edited is None or column_edited is None:
             raise PreventUpdate
-
-        with duckdb_connection(wdir) as conn:
-            if conn is None:
-                raise PreventUpdate
-            _column = cell_edited['column']
-            _value = cell_edited['value']
-            _peak_label = cell_edited['row']['peak_label']
-            query = f"UPDATE targets SET {_column} = ? WHERE peak_label = ?"
-            conn.execute(query, [_value, _peak_label])
-            if _column == 'preselected_processing':
-                conn.execute("UPDATE targets SET bookmark = ? WHERE peak_label = ?", [False, _peak_label])
-
-        return fac.AntdNotification(message="Successfully saved target data.",
-                                    type="success",
-                                    duration=3,
-                                    placement='bottom',
-                                    showProgress=True,
-                                    stack=True
-                                    )
-
-    # @app.callback(
-    #     Output("targets-table", "downloadButtonType"),
-    #     Input("tab", "value"),
-    #     State("active-workspace", "children"),
-    # )
-    # def table_export_fn(tab, ws_name):
-    #     fn = f"{T.today()}-MINT__{ws_name}__targets"
-    #     downloadButtonType = {
-    #         "css": "btn btn-primary",
-    #         "text": "Export",
-    #         "type": "csv",
-    #         "filename": fn,
-    #     }
-    #     return downloadButtonType
+        try:
+            with duckdb_connection(wdir) as conn:
+                if conn is None:
+                    raise PreventUpdate
+                query = f"UPDATE targets SET {column_edited} = ? WHERE peak_label = ?"
+                conn.execute(query, [row_edited[column_edited], row_edited['peak_label']])
+                targets_action_store = {'action': 'delete', 'status': 'success'}
+            return fac.AntdNotification(message="Successfully edition saved",
+                                        type="success",
+                                        duration=3,
+                                        placement='bottom',
+                                        showProgress=True,
+                                        stack=True
+                                        ), targets_action_store
+        except Exception as e:
+            logging.error(f"Error updating metadata: {e}")
+            targets_action_store = {'action': 'delete', 'status': 'failed'}
+            return fac.AntdNotification(message="Failed to save edition",
+                                        description=f"Failing to save edition with: {str(e)}",
+                                        type="error",
+                                        duration=3,
+                                        placement='bottom',
+                                        showProgress=True,
+                                        stack=True
+                                        ), targets_action_store
 
     @app.callback(
         Output('targets-tour', 'current'),
