@@ -252,15 +252,15 @@ _layout = html.Div(
                                                 'category', 'preselected_processing', 'source']},
                         pagination={
                             'position': 'bottomCenter',
-                            'pageSize': 10,
+                            'pageSize': 15,
                             'current': 1,
                             'showSizeChanger': True,
-                            'pageSizeOptions': [5, 10, 25, 50, 100],
+                            'pageSizeOptions': [5, 10, 15, 25, 50, 100],
                             'showQuickJumper': True,
                         },
                         tableLayout='fixed',
                         maxWidth="calc(100vw - 250px - 4rem)",
-                        maxHeight="calc(100vh - 140px - 4rem)",
+                        maxHeight="calc(100vh - 140px - 2rem)",
                         locale='en-us',
                         rowSelectionType='checkbox',
                         size='small',
@@ -271,7 +271,7 @@ _layout = html.Div(
                 )
             ],
             id='targets-table-container',
-            style={'padding': '1rem 0'},
+            style={'paddingTop': '1rem'},
         ),
 
         fac.AntdModal(

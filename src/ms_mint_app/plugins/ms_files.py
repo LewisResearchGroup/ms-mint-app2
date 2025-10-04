@@ -286,7 +286,7 @@ _layout = html.Div(
                         },
                         tableLayout='fixed',
                         maxWidth="calc(100vw - 250px - 4rem)",
-                        maxHeight="calc(100vh - 140px - 4rem)",
+                        maxHeight="calc(100vh - 140px - 2rem)",
                         locale='en-us',
                         rowSelectionType='checkbox',
                         size='small',
@@ -297,7 +297,7 @@ _layout = html.Div(
                 )
             ],
             id='ms-files-table-container',
-            style={'padding': '1rem 0'},
+            style={'paddingTop': '1rem'},
         ),
         dcc.Store(id="ms-table-action-store", data={}),
     ]
