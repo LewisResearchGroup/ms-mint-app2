@@ -8,7 +8,7 @@ from dash import html, dcc
 from dash.dependencies import Input, Output, State
 from dash.exceptions import PreventUpdate
 
-from ..duckdb_manager import duckdb_connection_mint
+from ..duckdb_manager import duckdb_connection_mint, duckdb_connection
 from ..plugin_interface import PluginInterface
 
 _label = "Workspaces"
@@ -259,11 +259,44 @@ def callbacks(app, fsc, cache):
 
             def row_comp(key):
                 _path = Path(tmpdir, 'workspaces', str(key))
-                comp = html.Div([
-                    fac.AntdText('Workspace path:', strong=True, locale='en-us', style={'marginRight': '10px'}),
-                    fac.AntdText(_path.as_posix(), copyable=True, locale='en-us')
-                ])
-                return comp
+                path_info = html.Div(
+                    [
+                        fac.AntdText('Workspace path:', strong=True, locale='en-us', style={'marginRight': '10px'}),
+                        fac.AntdText(_path.as_posix(), copyable=True, locale='en-us')
+                    ],
+                    style={'minWidth': '200px',  'flexGrow': 1, 'padding': '10px'}
+                )
+
+                with duckdb_connection(_path) as conn:
+                    summary = conn.execute("""
+                                           SELECT table_name, estimated_size as rows
+                                           FROM duckdb_tables()
+                                           ORDER BY CASE table_name
+                                                        WHEN 'samples' THEN 1
+                                                        WHEN 'ms_data' THEN 2
+                                                        WHEN 'targets' THEN 3
+                                                        WHEN 'chromatograms' THEN 4
+                                                        ELSE 5
+                                                        END
+                                           """).df()
+                    db_info = fac.AntdTable(
+                        columns=[
+                            {'title': 'Table name', 'dataIndex': 'table_name', 'align': 'left', 'width': '50%'},
+                            {'title': 'Rows', 'dataIndex': 'rows', 'align': 'center', 'width': '50%'},
+                        ],
+                        data=summary.to_dict('records'),
+                        pagination=False,
+                        locale='en-us',
+                        size='small',
+                        style={'minWidth': '200px', 'flexGrow': 1}
+                    )
+                return fac.AntdFlex(
+                    [
+                        path_info,
+                        db_info
+                    ],
+                    wrap=True
+                )
 
             row_content['content'] = row_content['key'].apply(row_comp)
             selectedRowKeys = mint_conn.execute("SELECT key FROM workspaces WHERE active = true").fetchone()
