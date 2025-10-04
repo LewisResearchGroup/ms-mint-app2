@@ -31,76 +31,81 @@ class WorkspacesPlugin(PluginInterface):
         return _outputs
 
 
-_layout = html.Div([
-    dcc.Store(id="ws-action-store"),
-    fac.AntdFlex([
-        fac.AntdTitle('Workspaces', level=4, style={'margin': '0'}),
-        fac.AntdIcon(
-            id='workspace-tour-icon',
-            icon='pi-info',
-            style={"cursor": "pointer", 'paddingLeft': '10px'},
-        )],
-    ),
-    html.Div([
-        fac.AntdTable(
-            id='ws-table',
-            columns=[
-                {'title': 'Name', 'dataIndex': 'name', 'align': 'left', 'width': '30%'},
-                {'title': 'Description', 'dataIndex': 'description', 'align': 'left', 'editable': True,
-                 'width': '50%'},
-                {'title': 'Created at', 'dataIndex': 'created_at', 'align': 'center', 'width': '10%'},
-                {'title': 'Last Activity', 'dataIndex': 'last_activity', 'align': 'center', 'width': '10%'},
-            ],
-            filterOptions={
-                'name': {'filterSearch': True},
-            },
-            sortOptions={'sortDataIndexes': ['name', 'last_activity', 'created_at']},
-            footer=[
-                fac.AntdFlex([
-                    fac.AntdButton('Create Workspace', id='ws-create', icon=fac.AntdIcon(icon='antd-plus')),
-                    fac.AntdButton('Delete Workspace', id='ws-delete', danger=True, icon=fac.AntdIcon(
-                        icon='antd-minus'))],
-                    justify='space-between'
+_layout = html.Div(
+    [
+        dcc.Store(id="ws-action-store"),
+        fac.AntdFlex(
+            [
+                fac.AntdTitle('Workspaces', level=4, style={'margin': '0'}),
+                fac.AntdIcon(
+                    id='workspace-tour-icon',
+                    icon='pi-info',
+                    style={"cursor": "pointer", 'paddingLeft': '10px'},
                 )
             ],
-            pagination={'pageSize': 10, 'hideOnSinglePage': True},
+            align='center'
+        ),
+        html.Div([
+            fac.AntdTable(
+                id='ws-table',
+                columns=[
+                    {'title': 'Name', 'dataIndex': 'name', 'align': 'left', 'width': '30%'},
+                    {'title': 'Description', 'dataIndex': 'description', 'align': 'left', 'editable': True,
+                     'width': '50%'},
+                    {'title': 'Created at', 'dataIndex': 'created_at', 'align': 'center', 'width': '10%'},
+                    {'title': 'Last Activity', 'dataIndex': 'last_activity', 'align': 'center', 'width': '10%'},
+                ],
+                filterOptions={
+                    'name': {'filterSearch': True},
+                },
+                sortOptions={'sortDataIndexes': ['name', 'last_activity', 'created_at']},
+                footer=[
+                    fac.AntdFlex([
+                        fac.AntdButton('Create Workspace', id='ws-create', icon=fac.AntdIcon(icon='antd-plus')),
+                        fac.AntdButton('Delete Workspace', id='ws-delete', danger=True, icon=fac.AntdIcon(
+                            icon='antd-minus'))],
+                        justify='space-between'
+                    )
+                ],
+                pagination={'pageSize': 10, 'hideOnSinglePage': True},
+                locale='en-us',
+                rowSelectionType='radio',
+                size='small',
+            )],
+            style={"marginTop": "2rem"},
+        ),
+        fac.AntdModal([
+            fac.AntdForm([
+                fac.AntdFormItem(
+                    fac.AntdInput(id='ws-create-input', placeholder='New workspace name', value=None),
+                    label='Name:',
+                    hasFeedback=True,
+                    id='ws-create-form-item'
+                )]
+            )],
+            title='Create Workspace',
+            id='ws-create-modal',
+            renderFooter=True,
+            okText='Create',
             locale='en-us',
-            rowSelectionType='radio',
-            size='small',
-        )],
-        style={"marginTop": "2rem"},
-    ),
-    fac.AntdModal([
-        fac.AntdForm([
-            fac.AntdFormItem(
-                fac.AntdInput(id='ws-create-input', placeholder='New workspace name', value=None),
-                label='Name:',
-                hasFeedback=True,
-                id='ws-create-form-item'
-            )]
-        )],
-        title='Create Workspace',
-        id='ws-create-modal',
-        renderFooter=True,
-        okText='Create',
-        locale='en-us',
-        okButtonProps={
-            'disabled': True
-        }
-    ),
-    fac.AntdModal([
-        html.Div(fac.AntdText("This will delete all files and results in the selected workspace.")),
+            okButtonProps={
+                'disabled': True
+            }
+        ),
+        fac.AntdModal([
+            html.Div(fac.AntdText("This will delete all files and results in the selected workspace.")),
 
-        html.Div(fac.AntdText('Are you sure you want to delete this workspace?', strong=True))],
-        title="Delete Workspace",
-        id="ws-delete-modal",
-        okText="Delete",
-        renderFooter=True,
-        locale='en-us',
-        okButtonProps={
-            'danger': True
-        }
-    )],
+            html.Div(fac.AntdText('Are you sure you want to delete this workspace?', strong=True))],
+            title="Delete Workspace",
+            id="ws-delete-modal",
+            okText="Delete",
+            renderFooter=True,
+            locale='en-us',
+            okButtonProps={
+                'danger': True
+            }
+        )
+    ]
 )
 
 _outputs = html.Div(
@@ -241,7 +246,6 @@ def callbacks(app, fsc, cache):
         print(f'{currentKey = }')
         print(f'{ws_action = }')
         print(f'{tmpdir = }')
-
 
         with duckdb_connection_mint(tmpdir) as mint_conn:
             if ws_action is None:
