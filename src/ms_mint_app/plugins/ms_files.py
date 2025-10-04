@@ -437,6 +437,22 @@ def callbacks(cls, app, fsc, cache, args_namespace):
         return notification, ms_table_action_store
 
     @app.callback(
+        Input('ms-files-table', 'recentlySwitchDataIndex'),
+        Input('ms-files-table', 'recentlySwitchStatus'),
+        Input('ms-files-table', 'recentlySwitchRow'),
+        State('wdir', 'data'),
+        prevent_initial_call=True
+    )
+    def save_switch_changes(recentlySwitchDataIndex, recentlySwitchStatus, recentlySwitchRow, wdir):
+
+        with duckdb_connection(wdir) as conn:
+            if conn is None:
+                raise PreventUpdate
+            conn.execute(f"UPDATE samples_metadata SET {recentlySwitchDataIndex} = ? WHERE ms_file_label = ?",
+                         (recentlySwitchStatus, recentlySwitchRow['ms_file_label']))
+
+
+    @app.callback(
         Output("ms-files-table", "data"),
         Output("ms-files-table", "selectedRowKeys"),
         Output("ms-files-table", "pagination"),
