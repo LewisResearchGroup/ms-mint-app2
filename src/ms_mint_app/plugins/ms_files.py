@@ -472,7 +472,7 @@ def callbacks(cls, app, fsc, cache, args_namespace):
         if (
                 wdir is None or
                 processing_type.get('type') == 'targets' or
-                (processed_action and processed_action.get('status') == 'success')
+                (processed_action and processed_action.get('status') != 'success')
         ):
             raise PreventUpdate
         start_time = time.perf_counter()
