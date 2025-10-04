@@ -62,7 +62,7 @@ def _create_tables(conn: duckdb.DuckDBPyConnection):
     conn.execute("CREATE TYPE IF NOT EXISTS unit_type_enum AS ENUM ('s', 'min');")
 
     conn.execute("""
-                 CREATE TABLE IF NOT EXISTS samples_metadata
+                 CREATE TABLE IF NOT EXISTS samples
                  (
                      ms_file_label        VARCHAR PRIMARY KEY,
                      ms_type              ms_type_enum,
@@ -82,7 +82,7 @@ def _create_tables(conn: duckdb.DuckDBPyConnection):
     conn.execute("""
                  CREATE TABLE IF NOT EXISTS ms_data
                  (
-                     ms_file_label      VARCHAR,  -- Label of the MS file, linking to samples_metadata
+                     ms_file_label      VARCHAR,  -- Label of the MS file, linking to samples
                      scan_id            INTEGER, -- Scan ID
                      mz                 DOUBLE,  -- Mass-to-charge ratio
                      intensity          DOUBLE,  -- Intensity

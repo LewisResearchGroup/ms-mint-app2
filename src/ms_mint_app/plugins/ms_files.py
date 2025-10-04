@@ -311,7 +311,7 @@ def generate_colors(wdir, regenerate=False):
     with duckdb_connection(wdir) as conn:
         if conn is None:
             raise PreventUpdate
-        ms_colors = conn.execute("SELECT ms_file_label, color FROM samples_metadata").df()
+        ms_colors = conn.execute("SELECT ms_file_label, color FROM samples").df()
         if regenerate:
             assigned_colors = {}
         else:
@@ -329,10 +329,10 @@ def generate_colors(wdir, regenerate=False):
             )
             colors_pd = pd.DataFrame({"ms_file_label": list(colors_map.keys()), "color": list(colors_map.values())})
             conn.execute("""
-                         UPDATE samples_metadata
+                         UPDATE samples
                          SET color = colors_pd.color
                          FROM colors_pd
-                         WHERE samples_metadata.ms_file_label = colors_pd.ms_file_label"""
+                         WHERE samples.ms_file_label = colors_pd.ms_file_label"""
                          )
         return len(ms_colors) - len(assigned_colors)
 
@@ -366,7 +366,7 @@ def callbacks(cls, app, fsc, cache, args_namespace):
         previous_color = recentlyButtonClickedRow['color']['content']
         try:
             with duckdb_connection(wdir) as conn:
-                conn.execute("UPDATE samples_metadata SET color = ? WHERE ms_file_label = ?",
+                conn.execute("UPDATE samples SET color = ? WHERE ms_file_label = ?",
                              [color, recentlyButtonClickedRow['ms_file_label']])
             ms_table_action_store = {'action': 'color-changed', 'status': 'success'}
 
@@ -448,7 +448,7 @@ def callbacks(cls, app, fsc, cache, args_namespace):
         with duckdb_connection(wdir) as conn:
             if conn is None:
                 raise PreventUpdate
-            conn.execute(f"UPDATE samples_metadata SET {recentlySwitchDataIndex} = ? WHERE ms_file_label = ?",
+            conn.execute(f"UPDATE samples SET {recentlySwitchDataIndex} = ? WHERE ms_file_label = ?",
                          (recentlySwitchStatus, recentlySwitchRow['ms_file_label']))
 
 
@@ -480,7 +480,7 @@ def callbacks(cls, app, fsc, cache, args_namespace):
             page_size = pagination['pageSize']
             current = pagination['current']
 
-            base_query = "SELECT * FROM samples_metadata"
+            base_query = "SELECT * FROM samples"
             where_clauses = []
             params = []
 
@@ -489,7 +489,7 @@ def callbacks(cls, app, fsc, cache, args_namespace):
                     if conn is None:
                         raise PreventUpdate
 
-                    schema = conn.execute("DESCRIBE samples_metadata").pl()
+                    schema = conn.execute("DESCRIBE samples").pl()
                     column_types = {row['column_name']: row['column_type'] for row in schema.to_dicts()}
 
                     for key, value in filter_.items():
@@ -516,7 +516,7 @@ def callbacks(cls, app, fsc, cache, args_namespace):
                                 params.extend(value)
 
                 where_sql = " WHERE " + " AND ".join(where_clauses) if where_clauses else ""
-                count_query = f"SELECT COUNT(*) FROM samples_metadata{where_sql}"
+                count_query = f"SELECT COUNT(*) FROM samples{where_sql}"
 
                 with (duckdb_connection(wdir) as conn):
                     if conn is None:
@@ -533,7 +533,7 @@ def callbacks(cls, app, fsc, cache, args_namespace):
                     if conn is None:
                         raise PreventUpdate
                     # no filters only pagination
-                    number_records = conn.execute("SELECT COUNT(*) FROM samples_metadata").fetchone()[0]
+                    number_records = conn.execute("SELECT COUNT(*) FROM samples").fetchone()[0]
                     # fix current page if the last record is deleted and then the number of pages changes
                     current = max(current if number_records > (current - 1) * page_size else current - 1, 1)
                     data_query = f"{base_query} LIMIT ? OFFSET ?"
@@ -542,8 +542,8 @@ def callbacks(cls, app, fsc, cache, args_namespace):
             with duckdb_connection(wdir) as conn:
                 st_custom_items = filterOptions['sample_type'].get('filterCustomItems')
                 sample_type_filters = conn.execute("SELECT DISTINCT sample_type "
-                                                       "FROM samples_metadata "
-                                                       "ORDER BY sample_type ASC").df()['sample_type'].to_list()
+                                                   "FROM samples "
+                                                   "ORDER BY sample_type ASC").df()['sample_type'].to_list()
                 if st_custom_items != sample_type_filters:
                     output_filterOptions = filterOptions.copy()
                     output_filterOptions['sample_type']['filterCustomItems'] = list(sample_type_filters)
@@ -646,7 +646,7 @@ def callbacks(cls, app, fsc, cache, args_namespace):
             with duckdb_connection(wdir) as conn:
                 if conn is None:
                     raise PreventUpdate
-                conn.execute("DELETE FROM samples_metadata WHERE ms_file_label IN ?", (remove_ms_file,))
+                conn.execute("DELETE FROM samples WHERE ms_file_label IN ?", (remove_ms_file,))
                 conn.execute("DELETE FROM ms_data WHERE ms_file_label IN ?", (remove_ms_file,))
                 conn.execute("DELETE FROM chromatograms WHERE ms_file_label IN ?", (remove_ms_file,))
                 # conn.execute("DELETE FROM results WHERE ms_file_label = ?", (filename,))
@@ -656,13 +656,13 @@ def callbacks(cls, app, fsc, cache, args_namespace):
             with duckdb_connection(wdir) as conn:
                 if conn is None:
                     raise PreventUpdate
-                total_removed_q = conn.execute("SELECT COUNT(*) FROM samples_metadata").fetchone()
+                total_removed_q = conn.execute("SELECT COUNT(*) FROM samples").fetchone()
                 ms_table_action_store = {'action': 'delete', 'status': 'failed'}
                 total_removed = 0
                 if total_removed_q:
                     total_removed = total_removed_q[0]
 
-                    conn.execute("DELETE FROM samples_metadata")
+                    conn.execute("DELETE FROM samples")
                     conn.execute("DELETE FROM chromatograms")
                     # conn.execute("DELETE FROM results")
                     ms_table_action_store = {'action': 'delete', 'status': 'success'}
@@ -700,7 +700,7 @@ def callbacks(cls, app, fsc, cache, args_namespace):
             with duckdb_connection(wdir) as conn:
                 if conn is None:
                     raise PreventUpdate
-                query = f"UPDATE samples_metadata SET {column_edited} = ? WHERE ms_file_label = ?"
+                query = f"UPDATE samples SET {column_edited} = ? WHERE ms_file_label = ?"
                 conn.execute(query, [row_edited[column_edited], row_edited['ms_file_label']])
                 ms_table_action_store = {'action': 'delete', 'status': 'success'}
             return fac.AntdNotification(message="Successfully edition saved",
