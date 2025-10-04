@@ -92,6 +92,24 @@ _layout = fac.AntdLayout(
 
         fac.AntdSider(
             [
+                fac.AntdButton(
+                    id='main-sidebar-collapse',
+                    type='text',
+                    icon=fac.AntdIcon(
+                        id='main-sidebar-collapse-icon',
+                        icon='antd-left',
+                        style={'fontSize': '14px'}, ),
+                    shape='default',
+                    style={
+                        'position': 'absolute',
+                        'zIndex': 1,
+                        'bottom': 150,
+                        'right': -10,
+                        'boxShadow': 'rgb(0 0 0 / 20%) 0px 4px 10px 0px',
+                        'background': 'white',
+                    },
+
+                ),
                 fac.AntdFlex(
                     [
                         fac.AntdFlex(
@@ -239,13 +257,14 @@ _layout = fac.AntdLayout(
             ],
             collapsible=True,
             collapsedWidth=60,
+            trigger=None,
             width=250,
             style={'backgroundColor': 'white'},
-            id='sidebar',
+            id='main-sidebar',
         ),
         fac.AntdContent(
             id='page-content',
-            style={'backgroundColor': 'white', 'padding': '2rem'},
+            style={'backgroundColor': 'white', 'padding': '1rem 2rem'},
         ),
     ],
     style={'height': '100vh'},
@@ -267,6 +286,19 @@ def register_callbacks(app, cache, fsc, args):
         else:
             plugin.callbacks(app=app, fsc=fsc, cache=cache)
 
+    app.clientside_callback(
+        """(nClicks, collapsed) => {
+            return [!collapsed, collapsed ? 'antd-left' : 'antd-right'];
+        }""",
+        [
+            Output('main-sidebar', 'collapsed'),
+            Output('main-sidebar-collapse-icon', 'icon'),
+        ],
+        Input('main-sidebar-collapse', 'nClicks'),
+        State('main-sidebar', 'collapsed'),
+        prevent_initial_call=True,
+    )
+
     @app.callback(
         Output('page-content', 'children'),
         Input('sidebar-menu', 'currentKey')
@@ -282,7 +314,7 @@ def register_callbacks(app, cache, fsc, args):
         Output('doc-issues-menu', 'mode'),
         Output('version-info', 'style'),
 
-        Input('sidebar', 'collapsed'),
+        Input('main-sidebar', 'collapsed'),
         prevent_initial_call=True
     )
     def toggle_sidebar(collapsed):
@@ -302,7 +334,7 @@ def register_callbacks(app, cache, fsc, args):
         Output("logout-menu", "style"),
 
         Input("progress-interval", "n_intervals"),
-        State('sidebar', 'collapsed'),
+        State('main-sidebar', 'collapsed'),
         # prevent_initial_call=True
     )
     def update_tmpdir(x, collapsed):
