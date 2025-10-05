@@ -336,12 +336,44 @@ def get_targets_v2(files_path):
     return targets_df[ref_names], failed_files
 
 
+def _insert_ms_data(wdir, ms_type, batch_ms, batch_ms_data):
+    failed_files = []
+
+    if not batch_ms[ms_type]:
+        return 0, failed_files
+
+    pldf = pd.DataFrame(batch_ms[ms_type], columns=['ms_file_label', 'label', 'ms_type', 'polarity'])
+
+    with duckdb_connection(wdir) as conn:
+        if conn is None:
+            raise PreventUpdate
+        try:
+            conn.execute(
+                "INSERT INTO samples(ms_file_label, label, ms_type, polarity) "
+                "SELECT ms_file_label, label, ms_type, polarity FROM pldf"
+            )
+            ms_data_table = f'{ms_type}_data'
+            extra_columns = ['mz_precursor', 'filterLine', 'filterLine_ELMAVEN']
+            select_columns = ['ms_file_label', 'scan_id', 'mz', 'intensity', 'scan_time']
+            if ms_type == 'ms2':
+                select_columns.extend(extra_columns)
+            conn.execute(f"""
+                         INSERT INTO {ms_data_table} ({', '.join(select_columns)})
+                         SELECT {', '.join(select_columns)}
+                         FROM read_parquet(?)
+                         """,
+                         [batch_ms_data[ms_type]])
+        except Exception as e:
+            logging.error(f"DB error: {e}")
+            failed_files.extend([{file_path: str(e)} for file_path in batch_ms_data[ms_type]])
+    return len(batch_ms_data[ms_type]), failed_files
+
 
 # IMPORTANT: We've defined these functions here temporarily, but it should be moved to the backend.
 def process_ms_files(wdir, set_progress, selected_files):
     file_list = [file for folder in selected_files.values() for file in folder]
     n_total = len(file_list)
-    failed_files = {}
+    failed_files = []
     total_processed = 0
     import concurrent.futures
     from ms_mint.io import convert_mzxml_to_parquet_pl
@@ -354,7 +386,7 @@ def process_ms_files(wdir, set_progress, selected_files):
     with duckdb_connection(wdir) as conn:
         if conn is None:
             raise PreventUpdate
-        data = conn.execute("SELECT ms_file_label FROM samples_metadata").df()
+        data = conn.execute("SELECT ms_file_label FROM samples").df()
 
     files_name = {Path(file_path).stem: Path(file_path) for file_path in file_list}
 
@@ -362,7 +394,7 @@ def process_ms_files(wdir, set_progress, selected_files):
     duplicates = data.loc[mask, "ms_file_label"]  # Serie con solo las etiquetas duplicadas
     if not duplicates.empty:
         set_progress(round(duplicates.shape[0] / n_total * 100, 1))
-        failed_files.update({files_name[label]: "duplicate" for label in duplicates})
+        failed_files.append({files_name[label]: "duplicate" for label in duplicates})
         logging.info("Found %d duplicates: %s", duplicates.shape[0], duplicates.tolist())
 
     if len(files_name) - len(duplicates) > 0:
@@ -375,57 +407,54 @@ def process_ms_files(wdir, set_progress, selected_files):
                         continue
                     futures.append(executor.submit(convert_mzxml_to_parquet_pl, file_path, tmp_dir=tmpdir))
 
-                batch_ms = []
-                batch_ms_data = []
+                batch_ms = {'ms1': [], 'ms2': []}
+                batch_ms_data = {'ms1': [], 'ms2': []}
                 batch_size = 4
 
                 for future in concurrent.futures.as_completed(futures):
                     _file_path, _ms_file_label, _ms_level, _polarity, _parquet_df = future.result()
-                    batch_ms.append((_ms_file_label, _ms_file_label, f'ms{_ms_level}', _polarity))
-                    batch_ms_data.append(_parquet_df)
+                    batch_ms[f'ms{_ms_level}'].append((_ms_file_label, _ms_file_label, f'ms{_ms_level}', _polarity))
+                    batch_ms_data[f'ms{_ms_level}'].append(_parquet_df)
 
-                    if len(batch_ms) == batch_size:
-                        with duckdb_connection(wdir) as conn:
-                            if conn is None:
-                                raise PreventUpdate
-                            try:
-                                pldf = pd.DataFrame(batch_ms, columns=['ms_file_label', 'label', 'ms_type', 'polarity'])
+                    if len(batch_ms['ms1']) == batch_size:
+                        b_processed, b_failed = _insert_ms_data(wdir, 'ms1', batch_ms, batch_ms_data)
+                        total_processed += b_processed
+                        failed_files.extend(b_failed)
 
-                                conn.execute(
-                                    "INSERT INTO samples_metadata(ms_file_label, label, ms_type, polarity) "
-                                    "SELECT ms_file_label, label, ms_type, polarity FROM pldf"
-                                )
-                                conn.execute(
-                                    "INSERT INTO ms_data (ms_file_label, scan_id, mz, intensity, scan_time, mz_precursor, "
-                                    "filterLine, filterLine_ELMAVEN) "
-                                    "SELECT ms_file_label, scan_id, mz, intensity, scan_time, mz_precursor, "
-                                    "filterLine, filterLine_ELMAVEN FROM read_parquet(?)", [batch_ms_data])
-                                total_processed += len(batch_ms_data)
-                            except Exception as e:
-                                failed_files[_file_path] = str(e)
-                                logging.error(f"DB error: {e}")
-                        batch_ms = []
-                        batch_ms_data = []
                         set_progress(round(total_processed + len(failed_files) / n_total * 100, 1))
-                if batch_ms:
-                    with duckdb_connection(wdir) as conn:
-                        if conn is None:
-                            raise PreventUpdate
-                        try:
-                            pldf = pd.DataFrame(batch_ms, columns=['ms_file_label', 'label', 'ms_type', 'polarity'])
-                            conn.execute(
-                                "INSERT INTO samples_metadata(ms_file_label, label, ms_type, polarity) "
-                                "SELECT ms_file_label, label, ms_type, polarity FROM pldf"
-                            )
-                            conn.execute(
-                                "INSERT INTO ms_data SELECT ms_file_label, scan_id, mz, intensity, scan_time, mz_precursor, "
-                                "filterLine, filterLine_ELMAVEN FROM read_parquet(?)", [batch_ms_data])
-                            total_processed += len(batch_ms_data)
-                        except Exception as e:
-                            failed_files[_file_path] = str(e)
-                            logging.error(f"DB error: {e}")
+                        batch_ms['ms1'] = []
+                        batch_ms_data['ms1'] = []
+
+                    elif len(batch_ms['ms2']) == batch_size:
+                        b_processed, b_failed = _insert_ms_data(wdir, 'ms2', batch_ms, batch_ms_data)
+                        total_processed += b_processed
+                        failed_files.extend(b_failed)
+
+                        set_progress(round(total_processed + len(failed_files) / n_total * 100, 1))
+                        batch_ms['ms2'] = []
+                        batch_ms_data['ms2'] = []
+
+                if len(batch_ms['ms1']):
+                    b_processed, b_failed = _insert_ms_data(wdir, 'ms1', batch_ms, batch_ms_data)
+                    total_processed += b_processed
+                    failed_files.extend(b_failed)
+
+                    set_progress(round(total_processed + len(failed_files) / n_total * 100, 1))
+                    batch_ms['ms1'] = []
+                    batch_ms_data['ms1'] = []
+
+                elif len(batch_ms['ms2']):
+                    b_processed, b_failed = _insert_ms_data(wdir, 'ms2', batch_ms, batch_ms_data)
+                    total_processed += b_processed
+                    failed_files.extend(b_failed)
+
+                    set_progress(round(total_processed + len(failed_files) / n_total * 100, 1))
+                    batch_ms['ms2'] = []
+                    batch_ms_data['ms2'] = []
+
     set_progress(round(100, 1))
     return total_processed, failed_files
+
 
 def process_metadata(wdir, set_progress, selected_files):
     file_list = [file for folder in selected_files.values() for file in folder]
