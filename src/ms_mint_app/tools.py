@@ -289,6 +289,7 @@ def get_metadata(files_path):
             metadata_df[col] = np.nan
     return metadata_df[ref_names], failed_files
 
+
 def get_targets_v2(files_path):
     ref_cols = {
         "peak_label": 'string',
@@ -474,15 +475,15 @@ def process_metadata(wdir, set_progress, selected_files):
                             {col} = CASE 
                                 WHEN metadata_df.{col} IS NOT NULL 
                                 THEN CAST(metadata_df.{col} AS {cast}) 
-                                ELSE samples_metadata.{col} 
+                                ELSE samples.{col} 
                             END
                         """)
         set_clause = ", ".join(set_clauses)
         stmt = f"""
-            UPDATE samples_metadata 
+            UPDATE samples 
             SET {set_clause}
             FROM metadata_df 
-            WHERE samples_metadata.ms_file_label = metadata_df.ms_file_label
+            WHERE samples.ms_file_label = metadata_df.ms_file_label
         """
         conn.execute(stmt)
 
@@ -490,6 +491,7 @@ def process_metadata(wdir, set_progress, selected_files):
 
     set_progress(100)
     return len(metadata_df), failed_files
+
 
 def process_targets(wdir, set_progress, selected_files):
     file_list = [file for folder in selected_files.values() for file in folder]
