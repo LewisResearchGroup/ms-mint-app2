@@ -21,6 +21,9 @@ def duckdb_connection(workspace_path: Path | str, register_activity=False):
     try:
         con = duckdb.connect(database=str(db_file), read_only=False)
         con.execute("PRAGMA enable_checkpoint_on_shutdown")
+        con.execute("SET enable_progress_bar = true")
+        con.execute("SET enable_progress_bar_print = false")
+        con.execute("SET progress_bar_time = 0")
         _create_tables(con)
         yield con
     except Exception as e:
@@ -80,7 +83,17 @@ def _create_tables(conn: duckdb.DuckDBPyConnection):
                  """)
 
     conn.execute("""
-                 CREATE TABLE IF NOT EXISTS ms_data
+                 CREATE TABLE IF NOT EXISTS ms1_data
+                 (
+                     ms_file_label      VARCHAR,  -- Label of the MS file, linking to samples
+                     scan_id            INTEGER, -- Scan ID
+                     mz                 DOUBLE,  -- Mass-to-charge ratio
+                     intensity          DOUBLE,  -- Intensity
+                     scan_time          DOUBLE  -- Scan time
+                 );
+                 """)
+    conn.execute("""
+                 CREATE TABLE IF NOT EXISTS ms2_data
                  (
                      ms_file_label      VARCHAR,  -- Label of the MS file, linking to samples
                      scan_id            INTEGER, -- Scan ID
