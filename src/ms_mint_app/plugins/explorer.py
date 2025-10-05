@@ -24,7 +24,7 @@ class FileExplorer:
         return html.Div(
             [
                 fac.AntdModal(
-                    children=[
+                    [
                         fac.AntdFlex(
                             [
                                 html.Div(
@@ -201,7 +201,7 @@ class FileExplorer:
                     'content': item.name,
                     'type': 'link',
                     'custom': {'path': item.as_posix(), 'type': 'file', 'is_link': False},
-                    'style': {'pointer-events': 'none'},
+                    'style': {'pointerEvents': 'none'},
                     'icon': 'antd-file'
                 }
                 dash_comp['files'] = {
@@ -438,7 +438,7 @@ class FileExplorer:
 
             if total_processed:
                 if failed_files:
-                    f_map = Counter(failed_files.values())
+                    f_map = Counter([ff.values() for ff in failed_files])
                     description = (f"Successful processed {total_processed} files with {len(failed_files)} failed "
                                    f" {list(f_map.items())}")
                     mss_type = "warning"
@@ -446,7 +446,7 @@ class FileExplorer:
                     description = f"Successful processed {total_processed} files"
                     mss_type = "success"
             else:
-                f_map = Counter(failed_files.values())
+                f_map = Counter([ff.values() for ff in failed_files])
                 description = f"Failed processing {len(failed_files)} files {list(f_map.items())}"
                 mss_type = "error"
             notification = fac.AntdNotification(message=message,
