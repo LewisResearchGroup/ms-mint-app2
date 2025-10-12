@@ -1606,49 +1606,49 @@ def callbacks(app, fsc, cache, cpu=None):
         return slider_reference
 
 
-    @app.callback(
-        Output('delete-modal', 'visible'),
-        Output('delete-modal', 'children'),
-        Output('delete-target-clicked', 'children'),
-        Input({"type": "delete-target-btn", "index": ALL}, 'nClicks'),
-        prevent_initial_call=True
-    )
-    def show_delete_modal(delete_clicks):
-
-        ctx = dash.callback_context
-        if not delete_clicks or not ctx.triggered:
-            raise PreventUpdate
-        ctx_trigger = json.loads(ctx.triggered[0]['prop_id'].split('.')[0])
-        trigger_id = ctx_trigger['index']
-
-        if len(dash.callback_context.triggered) > 1:
-            raise PreventUpdate
-
-        return True, fac.AntdParagraph(f"Are you sure you want to delete `{trigger_id}` target?"), trigger_id
-
-    @app.callback(
-        Output({"index": "pko-drop-target-output", "type": "output"}, "children"),
-        Input('delete-modal', 'okCounts'),
-        Input('delete-modal', 'cancelCounts'),
-        Input('delete-modal', 'closeCounts'),
-        Input('delete-target-clicked', 'children'),
-        State("wdir", "data"),
-        prevent_initial_call=True
-    )
-    def plk_delete(okCounts, cancelCounts, closeCounts, target, wdir):
-        if not okCounts or cancelCounts or closeCounts:
-            raise PreventUpdate
-        targets = T.get_targets(wdir)
-        targets = targets[targets['peak_label'] != target]
-
-        T.write_targets(targets, wdir)
-        return fac.AntdNotification(message=f"{target} deleted",
-                                    type="success",
-                                    duration=3,
-                                    placement='bottom',
-                                    showProgress=True,
-                                    stack=True
-                                    )
+    # @app.callback(
+    #     Output('delete-targets-modal', 'visible'),
+    #     Output('delete-targets-modal', 'children'),
+    #     Output('delete-target-clicked', 'children'),
+    #     Input({'type': 'delete-target-btn', 'index': ALL}, 'nClicks'),
+    #     prevent_initial_call=True
+    # )
+    # def show_delete_modal(delete_clicks):
+    #
+    #     ctx = dash.callback_context
+    #     if not delete_clicks or not ctx.triggered:
+    #         raise PreventUpdate
+    #     ctx_trigger = json.loads(ctx.triggered[0]['prop_id'].split('.')[0])
+    #     trigger_id = ctx_trigger['index']
+    #
+    #     if len(dash.callback_context.triggered) > 1:
+    #         raise PreventUpdate
+    #
+    #     return True, fac.AntdParagraph(f"Are you sure you want to delete `{trigger_id}` target?"), trigger_id
+    #
+    # @app.callback(
+    #     Output({"index": "pko-drop-target-output", "type": "output"}, "children"),
+    #     Input('delete-targets-modal', 'okCounts'),
+    #     Input('delete-targets-modal', 'cancelCounts'),
+    #     Input('delete-targets-modal', 'closeCounts'),
+    #     Input('delete-target-clicked', 'children'),
+    #     State("wdir", "data"),
+    #     prevent_initial_call=True
+    # )
+    # def plk_delete(okCounts, cancelCounts, closeCounts, target, wdir):
+    #     if not okCounts or cancelCounts or closeCounts:
+    #         raise PreventUpdate
+    #     targets = T.get_targets(wdir)
+    #     targets = targets[targets['peak_label'] != target]
+    #
+    #     T.write_targets(targets, wdir)
+    #     return fac.AntdNotification(message=f"{target} deleted",
+    #                                 type="success",
+    #                                 duration=3,
+    #                                 placement='bottom',
+    #                                 showProgress=True,
+    #                                 stack=True
+    #                                 )
 
     @app.callback(
         Output('notifications-container', "children", allow_duplicate=True),
