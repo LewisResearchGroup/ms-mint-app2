@@ -637,40 +637,68 @@ def callbacks(app, fsc, cache, cpu=None):
         prevent_initial_call=True
     )
 
+    ############# TREE BEGIN #####################################
     @app.callback(
         Output('sample-type-tree', 'treeData'),
         Output('sample-type-tree', 'checkedKeys'),
         Output('sample-type-tree', 'expandedKeys'),
-        Input("chromatograms", "data"),
-        State("wdir", "data"),
+
+        Input('section-context', 'data'),
+        State('wdir', 'data'),
+        Input('mark-tree-action', 'nClicks'),
+        Input('expand-tree-action', 'nClicks'),
+        Input('collapse-tree-action', 'nClicks'),
+        prevent_initial_call=True
     )
-    def update_sample_type_tree(chromatograms, wdir):
-        if not chromatograms:
+    def update_sample_type_tree(section_context, wdir, mark_action, expand_action, collapse_action):
+
+        ctx = dash.callback_context
+        prop_id = ctx.triggered[0]['prop_id'].split('.')[0]
+
+        if section_context['page'] != 'Optimization':
             raise PreventUpdate
 
         with duckdb_connection(wdir) as conn:
             if conn is None:
                 return dash.no_update, dash.no_update, dash.no_update
-            metadata = conn.execute("SELECT label, sample_type, use_for_optimization FROM samples_metadata").df()
+            df = conn.execute("""
+                              SELECT sample_type,
+                                     list({'title': label, 'key': label, 'style': {'color': color}})     as children,
+                                     (SELECT list(label) FROM samples WHERE use_for_optimization = TRUE) as checked_keys
+                              FROM samples
+                              WHERE use_for_optimization = TRUE
+                              GROUP BY sample_type
+                              ORDER BY sample_type
+                              """).df()
 
-        if metadata.empty:
-            return dash.no_update, dash.no_update, dash.no_update
+            if df.empty:
+                return dash.no_update, dash.no_update, dash.no_update
 
-        sample_type_dict = metadata.groupby('sample_type')['label'].apply(list).to_dict()
-        checked_keys = metadata[metadata['use_for_optimization']]['label'].tolist()
+            if prop_id == 'mark-tree-action' or prop_id == 'section-context':
+                checked_keys = df['checked_keys'].iloc[0]  # Es el mismo en todas las filas
+            else:
+                checked_keys = dash.no_update
 
-        tree_data = []
-        for k, v in sample_type_dict.items():
-            children = [{'title': ms, 'key': ms} for ms in v if ms in checked_keys]
-            if children:
-                tree_data.append({'title': k, 'key': k, 'children': children})
+            if prop_id == 'section-context':
+                tree_data = [
+                    {
+                        'title': row['sample_type'],
+                        'key': row['sample_type'],
+                        'children': row['children']
+                    }
+                    for _, row in df.iterrows()
+                ]
+            else:
+                tree_data = dash.no_update
 
-        expanded_keys = [
-            k
-            for k, v in sample_type_dict.items()
-            if any(ms in checked_keys for ms in v)
-        ]
+            if prop_id == 'expand-tree-action' or prop_id == 'section-context':
+                expanded_keys = df['sample_type'].tolist()
+            elif prop_id == 'collapse-tree-action':
+                expanded_keys = []
+            else:
+                expanded_keys = dash.no_update
         return tree_data, checked_keys, expanded_keys
+    ############# TREE END #######################################
 
     @app.callback(
         Output('pko-info-modal', 'visible'),
