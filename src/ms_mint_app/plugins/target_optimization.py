@@ -598,33 +598,42 @@ def layout():
 
 
 def callbacks(app, fsc, cache, cpu=None):
+    app.clientside_callback(
+        """(nClicks, collapsed) => {
+            return [!collapsed, collapsed ? 'antd-left' : 'antd-right'];
+        }""",
+        Output('optimization-sidebar', 'collapsed'),
+        Output('optimization-sidebar-collapse-icon', 'icon'),
+
+        Input('optimization-sidebar-collapse', 'nClicks'),
+        State('optimization-sidebar', 'collapsed'),
+        prevent_initial_call=True,
+    )
 
     # clientside callback for set width rangeslider == plot bglayer
     app.clientside_callback(
         """
-        function(relayoutData) {
-            const root = document.getElementById("pko-plot");
+        function(relayoutData, visible) {
+            if (visible !== true) {
+                return window.dash_clientside.no_update;
+            }
+            const root = document.getElementById("chromatogram-view-plot");
             if (!root) return window.dash_clientside.no_update;
-            console.log(root);
-            // plotly DOM: tres divs -> svg -> g.bglayer -> rect
+
             const bg = root.querySelector("div > div > div svg > g.draglayer > g.xy > rect");
-            console.log(bg);
             if (!bg) return window.dash_clientside.no_update;
 
             const rw = root.offsetWidth;
-            const w = bg.width.baseVal.value;
             const pl = bg.x.baseVal.value - 25;
-            const pr = rw - pl - w - 150;
-            console.log("rw:", rw, "w:", w, "pl:", pl, "pr:", pr);
+            const w = bg.width.baseVal.value + 50;
 
             if (!isFinite(w) || w <= 0) return window.dash_clientside.no_update;
-
-
-            return {"paddingLeft": pl + "px", "paddingRight": pr + "px", "width": "100%"};
+            return {"marginLeft": pl + "px", "width": w + "px"};
         }
         """,
         Output("rslider", "style"),
-        Input("pko-plot", "relayoutData"),
+        Input("chromatogram-view-plot", "relayoutData"),
+        Input("chromatogram-view-modal", 'visible'),
         prevent_initial_call=True
     )
 
