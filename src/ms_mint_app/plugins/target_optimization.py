@@ -700,492 +700,911 @@ def callbacks(app, fsc, cache, cpu=None):
         return tree_data, checked_keys, expanded_keys
     ############# TREE END #######################################
 
+    ############# GRAPH OPTIONS BEGIN #####################################
     @app.callback(
-        Output('pko-info-modal', 'visible'),
-        Output('pko-info-modal', 'title'),
-        Output('has-unsaved-changes', 'data'),
-
-        Input("pko-image-clicked", "children"),
-        Input('close-modal-btn', 'nClicks'), # nClicks (antd) != n_clicks (dash)
-        Input('close-without-save-btn', 'nClicks'),
-        Input('sample-type-tree', 'checkedKeys'),
-        State('has-unsaved-changes', 'data'),
-        State("wdir", "data"),
+        Output({'type': 'graph', 'index': ALL}, 'style'),
+        Input('chromatogram-graph-button', 'nClicks'),
+        State('chromatogram-graph-width', 'value'),
+        State('chromatogram-graph-height', 'value'),
         prevent_initial_call=True
     )
-    def handle_modal_open_close(image_clicked, close_clicks, close_without_save_clicks,
-                                checkedkeys, has_changes, wdir):
-        """
-        Handle opening and closing of the modal dialog for display the selected target plot.
-        :param image_clicked:
-        :param close_clicks:
-        :param close_without_save_clicks:
-        :param saved_values:
-        :param has_changes:
-        :return:
-        """
-        ctx = dash.callback_context
-        if not ctx.triggered:
-            return no_update, no_update, no_update, no_update, no_update
+    def set_chromatogram_graph_size(nClicks, width, height):
 
-        trigger_id = ctx.triggered[0]['prop_id'].split('.')[0]
-
-        if trigger_id == 'pko-image-clicked':
-
-            return (True, image_clicked,
-                    # no_update,
-                    # saved_values,
-                    False)
-        elif trigger_id == 'close-without-save-btn':
-            # Close modal without saving changes
-            return (False, no_update,
-                    # no_update,
-                    # no_update,
-                    False)
-        elif trigger_id == 'close-modal-btn':
-            # if not has_changes, close it
-            if not has_changes:
-                return (False, no_update,
-                        # no_update,
-                        # no_update,
-                        False)
-            # if it has_changes, don't close it
-            return (no_update, no_update,
-                    # no_update,
-                    # no_update,
-                    no_update)
-        else:
-            print(f"modal {trigger_id = }")
-
-        return (no_update, no_update,
-                # no_update,
-                # no_update,
-                no_update)
-
-    @app.callback(
-        Output('confirm-modal', 'visible'),
-        Input('close-modal-btn', 'nClicks'),
-        State('has-unsaved-changes', 'data'),
-        prevent_initial_call=True
-    )
-    def show_confirm_modal(close_clicks, has_changes):
-        return bool(close_clicks and has_changes)
-
-    @app.callback(
-        Output('pko-plot', 'figure'),
-        Output('action-buttons-container', 'style'),
-        Output("rt-range-slider", "min"),
-        Output("rt-range-slider", "max"),
-        Output("rt-range-slider", "value"),
-        Output("rt-range-slider", "marks"),
-        Output("rt-range-slider", "tooltip"),
-        Output('has-unsaved-changes', 'data', allow_duplicate=True),
-
-        Input("pko-image-clicked", "children"),
-        Input("pko-figure-options", "value"),
-        Input('rt-range-slider', 'value'),
-        Input('sample-type-tree', 'checkedKeys'),
-        State("wdir", "data"),
-        prevent_initial_call=True
-    )
-    def update_from_slider(image_clicked, options, slider_values, checkedkeys, wdir):
-
-        ctx = dash.callback_context
-        trigger_id = ctx.triggered[0]['prop_id'].split('.')[0]
-
-        # reset slider values when is not an update to avoid use stored values from other plots
-        if trigger_id != 'rt-range-slider':
-            slider_values = None
-        if image_clicked is None:
+        if not nClicks:
             raise PreventUpdate
+        return [{
+            'width': width, 'height': height,
+            'margin': '0px',
+        } for _ in range(20)]
 
-        # use peak_label instead of image_clicked, more intuitive
-        peak_label = image_clicked
+    ############# GRAPH OPTIONS END #######################################
+
+    ############# PREVIEW BEGIN #####################################
+    @app.callback(
+        Output({'type': 'target-card-preview', 'index': ALL}, 'data-target'),
+        Output({'type': 'graph', 'index': ALL}, 'figure'),
+        Output({'type': 'bookmark-target-card', 'index': ALL}, 'value'),
+        Output('chromatogram-preview-pagination', 'total'),
+        Output('chromatograms-dummy-output', 'children'),
+
+        Input('chromatograms', 'data'),
+        Input('chromatogram-preview-pagination', 'current'),
+        Input('chromatogram-preview-pagination', 'pageSize'),
+        Input('sample-type-tree', 'checkedKeys'),
+        Input('chromatogram-preview-log-y', 'checked'),
+        Input('chromatogram-preview-filter', 'value'),
+        Input('chromatogram-preview-order', 'value'),
+        Input('drop-chromatogram', 'data'),
+        State('wdir', 'data'),
+        prevent_initial_call=True
+    )
+    def chromatograms_preview(chromatograms, current_page, page_size, checkedkeys, log_scale, selection, targets_order,
+                              dropped_target, wdir):
+        import polars as pl
+        start_idx = (current_page - 1) * page_size
 
         with duckdb_connection(wdir) as conn:
+            all_targets = conn.execute("""
+                                       SELECT *
+                                       from targets
+                                       WHERE CASE
+                                                 WHEN ? = 'Bookmarked' THEN bookmark = TRUE
+                                                 WHEN ? = 'Unmarked' THEN bookmark = FALSE
+                                                 ELSE TRUE -- 'all' case
+                                                 END
+                                       """, [selection, selection]).pl()
+            query = f"""
+                        WITH picked_samples AS (SELECT ms_file_label, color, label
+                                                FROM samples
+                                                WHERE use_for_optimization = TRUE
+                                                  AND ms_file_label IN (SELECT unnest(?::VARCHAR[]))),
+                             picked_targets AS (SELECT peak_label,
+                                                       rt,
+                                                       rt_min,
+                                                       rt_max,
+                                                       rt_min - (rt_max - rt) AS scan_time_min,
+                                                       rt_max + (rt - rt_min) AS scan_time_max,
+                                                       mz_mean,
+                                                       bookmark,
+                                                       intensity_threshold
+                                                FROM targets
+                                                WHERE CASE
+                                                          WHEN ? = 'Bookmarked' THEN bookmark = TRUE
+                                                          WHEN ? = 'Unmarked' THEN bookmark = FALSE
+                                                          ELSE TRUE -- 'all' case
+                                                          END
+                                                LIMIT ? -- 1) limit
+                                                    OFFSET ? -- 2) offset
+                             ),
+                             base AS (SELECT c.*,
+                                             s.color,
+                                             s.label,
+                                             t.scan_time_min,
+                                             t.scan_time_max,
+                                             t.intensity_threshold,
+                                             t.mz_mean
+                                      FROM chromatograms c
+                                               JOIN picked_samples s USING (ms_file_label)
+                                               JOIN picked_targets t USING (peak_label)),
+                             -- Emparejamos (scan_time[i], intensity[i]) en una lista de structs
+                             zipped AS (SELECT peak_label,
+                                               ms_file_label,
+                                               color,
+                                               label,
+                                               scan_time_min,
+                                               scan_time_max,
+                                               intensity_threshold,
+                                               mz_mean,
+                                               list_transform(
+                                                       range(1, len(scan_time) + 1),
+                                                       i -> struct_pack(
+                                                               t := list_extract(scan_time, i),
+                                                               i := list_extract(intensity, i)
+                                                            )
+                                               ) AS pairs
+                                        FROM base),
+                             -- Filtramos por el rango de tiempo Y por intensity_threshold
+                             sliced AS (SELECT peak_label,
+                                               ms_file_label,
+                                               color,
+                                               label,
+                                               mz_mean,
+                                               pairs,
+                                               list_filter(pairs, p -> p.t >= scan_time_min AND p.t <= scan_time_max AND
+                                                                  p.i >= intensity_threshold) AS pairs_in
+                                        FROM zipped),
+                             -- Calculamos min/max de TODO el cromatograma (pairs completo) PERO por peak_label
+                             -- Tomamos el máximo de todos los ms_file_label para ese peak_label
+                             global_stats AS (SELECT peak_label,
+                                                     MAX(list_max(list_transform(pairs, p -> p.i))) * 1.10 AS intensity_max_global,
+                                                     MIN(list_min(list_transform(pairs, p -> p.i)))        AS intensity_min_global
+                                              FROM zipped
+                                              GROUP BY peak_label),
+                             -- Reconstruimos listas y unimos con las estadísticas globales
+                             final AS (SELECT s.peak_label,
+                                              s.ms_file_label,
+                                              s.color,
+                                              s.label,
+                                              s.mz_mean,
+                                              list_transform(pairs_in, p -> p.t) AS scan_time_sliced,
+                                              list_transform(pairs_in, p -> p.i) AS intensity_sliced,
+                                              g.intensity_max_global             AS intensity_max_in_range,
+                                              g.intensity_min_global             AS intensity_min_in_range
+                                       FROM sliced s
+                                                JOIN global_stats g USING (peak_label))
+                        SELECT *
+                        FROM final
+                        ORDER BY {targets_order}, ms_file_label;
+                        """
+            df = conn.execute(query, [checkedkeys, selection, selection, page_size, start_idx]).pl()
 
-            target_df = conn.execute("SELECT rt, rt_min, rt_max, peak_label FROM targets "
-                                     "WHERE peak_label = ?", [peak_label]).df()
+            print(f"{all_targets = }")
 
-            print(f"{target_df = }")
-            rt, rt_min, rt_max, label = target_df.iloc[0]
+        t1 = time.perf_counter()
+        titles = []
+        figures = []
+        bookmarks = []
+        for target_data, g in df.group_by(['peak_label', 'intensity_min_in_range', 'intensity_max_in_range'],
+                                          maintain_order=True):
+            peak_label, intensity_min_in_range, intensity_max_in_range = target_data
 
-            # round values to int because the slider steps are int
-            orig_values = [int(rt_min), int(rt), int(rt_max)]
+            titles.append(peak_label)
+            target_dict = all_targets.filter(pl.col('peak_label') == peak_label).head(1).rows(named=True)[0]
+            bookmarks.append(int(target_dict['bookmark'])) # convert bool to int
 
-            if trigger_id == 'pko-image-clicked':
-                samples_for_optimization = conn.execute("SELECT ms_file_label, color, label FROM samples_metadata "
-                                                        "WHERE use_for_optimization = True"
-                                                        ).df()
+            fig = Patch()
+            traces = []
+            for i, row in enumerate(g.iter_rows(named=True)):
+                traces.append({
+                    'type': 'scatter',
+                    'mode': 'lines',
+                    'x': row['scan_time_sliced'],
+                    'y': row['intensity_sliced'],
+                    'name': row['label'] or row['ms_file_label'],
+                    'line': {'color': row['color']},
+                })
 
-                rt_slider_min, st_slider, rt_slider_max = slider_values or orig_values
+            fig['data'] = traces
 
-                query = f"""SELECT 
-                                sel.label,
-                                sel.color,
-                                chr.scan_time, 
-                                chr.intensity
-                            FROM chromatograms AS chr
-                            JOIN samples_for_optimization AS sel ON sel.ms_file_label = chr.ms_file_label
-                            WHERE chr.peak_label = ?"""
+            y_min = intensity_min_in_range
+            y_max = intensity_max_in_range
 
-                chrom_df = conn.execute(query, [peak_label]).df()
-
-                fig, slider_min, slider_max = create_plot(
-                    chromatogram_data=chrom_df,
-                    checkedkeys=checkedkeys,
-                    rt=st_slider,
-                    rt_min=rt_slider_min,
-                    rt_max=rt_slider_max,
-                    title=peak_label,
-                    log='log' in options,
-                )
-
-                slider_marks = {i: str(i) for i in range(slider_min, slider_max, (int(slider_max - slider_min)//5))}
-                has_changes = slider_values != orig_values if slider_values else False
-
-                buttons_style = {
-                    'visibility': 'visible' if has_changes else 'hidden',
-                    'opacity': '1' if has_changes else '0',
-                    'transition': 'opacity 0.3s ease-in-out'
+            fig['layout']['shapes'] = [
+                {
+                    'line': {'color': 'black', 'width': 1.5, 'dash': 'dashdot'},
+                    'type': 'line',
+                    'x0': target_dict['rt'],
+                    'x1': target_dict['rt'],
+                    'xref': 'x',
+                    'y0': 0,
+                    'y1': 1,
+                    'yref': 'y domain'
+                },
+                {
+                    'fillcolor': 'green',
+                    'line': {'width': 0},
+                    'opacity': 0.1,
+                    'type': 'rect',
+                    'x0': target_dict['rt_min'],
+                    'x1': target_dict['rt_max'],
+                    'xref': 'x',
+                    'y0': 0,
+                    'y1': 1,
+                    'yref': 'y domain'
                 }
-                return (fig, buttons_style, slider_min, slider_max,
-                        [rt_slider_min, st_slider, rt_slider_max],
-                        slider_marks,
-                        {"placement": "bottom", "always_visible": False},
-                        has_changes,
-                        )
+            ]
+            fig['layout']['template'] = 'plotly_white'
 
-            elif trigger_id == 'rt-range-slider':
-                patch_fig = Patch()
-                if slider_values[0]:
-                    patch_fig['layout']['shapes'][1]['x0'] = slider_values[0]
-                if slider_values[2]:
-                    patch_fig['layout']['shapes'][1]['x1'] = slider_values[2]
-                if slider_values[1]:
-                    patch_fig['layout']['shapes'][0]['x0'] = slider_values[1]
-                    patch_fig['layout']['shapes'][0]['x1'] = slider_values[1]
-                    patch_fig['layout']['annotations'][0]['x'] = slider_values[1]
+            fig['layout']['title'] = dict(text=peak_label, font={'size': 14})
 
-                has_changes = slider_values != orig_values if slider_values else False
-                buttons_style = {
-                    'visibility': 'visible' if has_changes else 'hidden',
-                    'opacity': '1' if has_changes else '0',
-                    'transition': 'opacity 0.3s ease-in-out'
-                }
+            x_min = target_dict['rt_min'] - (target_dict['rt_max'] - target_dict['rt'])
+            x_max = target_dict['rt_max'] + (target_dict['rt'] - target_dict['rt_min'])
 
-                return (patch_fig, buttons_style, no_update, no_update, no_update, no_update, no_update, has_changes)
-        return (no_update, no_update, no_update, no_update, no_update, no_update, no_update, no_update)
+            fig['layout']['xaxis']['title'] = dict(text="Retention Time [s]", font={'size': 10})
+            fig['layout']['xaxis']['autorange'] = False
+            fig['layout']['xaxis']['fixedrange'] = True
+            fig['layout']['xaxis']['range'] = [x_min, x_max]
+
+            fig['layout']['yaxis']['title'] = dict(text="Intensity", font={'size': 10})
+            fig['layout']['yaxis']['autorange'] = False
+
+            if log_scale:
+                fig['layout']['yaxis']['type'] = 'log'
+                fig['layout']['yaxis']['range'] = [math.log10(y_min), math.log10(y_max)]
+            else:
+                fig['layout']['yaxis']['type'] = 'linear'
+                fig['layout']['yaxis']['range'] = [y_min, y_max]
+
+            fig["layout"]["showlegend"] = False
+            fig['layout']['margin'] = dict(l=40, r=5, t=30, b=30)
+            # fig['layout']['uirevision'] = f"xr_{peak_label}"
+            figures.append(fig)
+
+        titles.extend([None for _ in range(20 - len(figures))])
+        figures.extend([{} for _ in range(20 - len(figures))])
+        bookmarks.extend([0 for _ in range(20 - len(bookmarks))])
+
+        print(f"{time.perf_counter() - t1 = }")
+        return titles, figures, bookmarks, len(all_targets), []
 
     @app.callback(
-        Output('rt-values-span', 'children'),
+        Output({'type': 'target-card-preview', 'index': ALL}, 'style'),
+        Output('chromatogram-preview-container', 'style'),
+        Output('chromatogram-preview-empty', 'style'),
+
+        Input({'type': 'graph', 'index': ALL}, 'figure'),
+        prevent_initial_call=True
+    )
+    def toggle_card_visibility(figures):
+        visible_fig = 0
+        cards_style = []
+        for figure in figures:
+            if figure:
+                cards_style.append({'display': 'block'})
+                visible_fig += 1
+            else:
+                cards_style.append({'display': 'none'})
+
+        show_empty = {'display': 'block'} if visible_fig == 0 else {'display': 'none'}
+        show_space = {'display': 'none'} if visible_fig == 0 else {'display': 'block'}
+        return cards_style, show_space, show_empty
+
+    ############# PREVIEW END #######################################
+
+    ############# VIEW MODAL BEGIN #####################################
+    @app.callback(
+        Output('target-preview-clicked', 'data'),
+
+        [Input({'type': 'target-card-preview', 'index': ALL}, 'nClicks')],
+        [Input({'type': 'bookmark-target-card', 'index': ALL}, 'value')],
+        State({'type': 'target-card-preview', 'index': ALL}, 'data-target'),
+        prevent_initial_call=True
+    )
+    def open_chromatogram_view_modal(card_preview_clicks, bookmark_target_clicks, data_target):
+        if not card_preview_clicks:
+            raise PreventUpdate
+
+        ctx = dash.callback_context
+        ctx_trigger = json.loads(ctx.triggered[0]['prop_id'].split('.')[0])
+        trigger_type = ctx_trigger['type']
+
+        if len(ctx.triggered) > 1 or trigger_type != 'target-card-preview':
+            raise PreventUpdate
+
+        ctx = dash.callback_context
+        prop_id = json.loads(ctx.triggered[0]['prop_id'].split('.')[0])
+        return data_target[prop_id['index']]
+
+    @app.callback(
+        Output('chromatogram-view-modal', 'visible'),
+        Output('slider-reference-data', 'data', allow_duplicate=True),
+
+        Input('target-preview-clicked', 'data'),
+        Input('chromatogram-view-close', 'nClicks'),
+        Input('confirm-unsave-modal', 'okCounts'),
+        State('slider-reference-data', 'data'),
+        State('slider-data', 'data'),
+        prevent_initial_call=True
+    )
+    def handle_modal_open_close(target_clicked, close_clicks, close_without_save_clicks, slider_ref, slider_data):
+        ctx = dash.callback_context
+        if not ctx.triggered:
+            return dash.no_update, dash.no_update
+        trigger_id = ctx.triggered[0]['prop_id'].split('.')[0]
+
+        if trigger_id == 'target-preview-clicked':
+            return True, dash.no_update
+            # if not has_changes, close it
+        elif trigger_id == 'chromatogram-view-close':
+            if slider_ref and slider_data and slider_ref['value'] == slider_data['value']:
+                return False, None
+            # if it has_changes, don't close it
+            return dash.no_update, dash.no_update
+        elif trigger_id == 'confirm-unsave-modal':
+            # Close modal without saving changes
+            if close_without_save_clicks:
+                return False, None
+
+        return dash.no_update, dash.no_update
+
+
+    @app.callback(
+        Output('confirm-unsave-modal', 'visible'),
+
+        Input('chromatogram-view-close', 'nClicks'),
+        State('slider-reference-data', 'data'),
+        State('slider-data', 'data'),
+        prevent_initial_call=True
+    )
+    def show_confirm_modal(close_clicks, reference_data, slider_data):
+        has_changes = slider_data['value'] != reference_data['value']
+        return bool(close_clicks and has_changes)
+
+    ############# VIEW MODAL END #######################################
+
+    ############# VIEW OPTIONS BEGIN #######################################
+
+    @app.callback(
+        Output('chromatogram-view-options-drawer', 'visible'),
+
+        Input('chromatogram-view-options', 'nClicks'),
+        State('chromatogram-view-options-drawer', 'visible'),
+        prevent_initial_call=True
+    )
+    def show_options_drawer(nClicks, drawer_visible):
+        return not drawer_visible
+
+    ############# VIEW OPTIONS END #######################################
+
+    ############# VIEW BEGIN #######################################
+    @app.callback(
+        Output('chromatogram-view-plot', 'figure', allow_duplicate=True),
+        Input('chromatogram-view-log-y', 'checked'),
+        State('chromatogram-view-plot', 'figure'),
+        prevent_initial_call=True
+    )
+    def chromatogram_view_y_scale(log_scale, figure):
+        try:
+            y_min, y_max = figure['layout']['yaxis']['range']
+            fig = Patch()
+            if log_scale:
+                if figure['layout']['yaxis']['type'] == 'log':
+                    raise PreventUpdate
+                fig['layout']['yaxis']['type'] = 'log'
+                fig['layout']['yaxis']['range'] = [math.log10(y_min), math.log10(y_max)]
+            else:
+                if figure['layout']['yaxis']['type'] == 'linear':
+                    raise PreventUpdate
+                fig['layout']['yaxis']['type'] = 'linear'
+                fig['layout']['yaxis']['range'] = [math.pow(10, y_min), math.pow(10, y_max)]
+            return fig
+        except Exception:
+            raise PreventUpdate
+
+
+    @app.callback(
+        Output('chromatogram-view-plot', 'figure', allow_duplicate=True),
+        Output('chromatogram-view-modal', 'title'),
+        Output('chromatogram-view-modal', 'loading'),
+        Output('slider-reference-data', 'data'),
+        Output('slider-data', 'data', allow_duplicate=True),  # make sure this is reset
+
+        Input('target-preview-clicked', 'data'),
+        State('chromatogram-preview-log-y', 'checked'),
+        State('sample-type-tree', 'checkedKeys'),
+        State('wdir', 'data'),
+        prevent_initial_call=True
+    )
+    def chromatogram_view_modal(target_clicked, log_scale, checkedKeys, wdir):
+
+        with duckdb_connection(wdir) as conn:
+            d = conn.execute("SELECT rt, rt_min, rt_max FROM targets WHERE peak_label = ?", [target_clicked]).fetchall()
+            rt, rt_min, rt_max = d[0] if d else (None, None, None)
+
+            query = """
+                    WITH picked_samples AS (SELECT ms_file_label, color, label, sample_type
+                                            FROM samples
+                                            WHERE use_for_optimization = TRUE
+                        -- AND ms_file_label IN (SELECT unnest(?::VARCHAR[]))
+                    ),
+                         picked_target AS (SELECT peak_label,
+                                                  rt,
+                                                  rt_min,
+                                                  rt_max,
+                                                  intensity_threshold
+                                           FROM targets
+                                           WHERE peak_label = ?),
+                         base AS (SELECT c.*,
+                                         s.color,
+                                         s.label,
+                                         s.sample_type,
+                                         t.intensity_threshold
+                                  FROM chromatograms c
+                                           JOIN picked_samples s USING (ms_file_label)
+                                           JOIN picked_target t USING (peak_label)),
+                         -- Emparejamos (scan_time[i], intensity[i]) en una lista de structs
+                         zipped AS (SELECT ms_file_label,
+                                           color,
+                                           label,
+                                           sample_type,
+                                           intensity_threshold,
+                                           list_transform(
+                                                   range(1, len(scan_time) + 1),
+                                                   i -> struct_pack(
+                                                           t := list_extract(scan_time, i),
+                                                           i := list_extract(intensity,  i)
+                                                        )
+                                           ) AS pairs
+                                    FROM base),
+                         -- Filtramos por el rango de tiempo calculado para cada target
+                         sliced AS (SELECT ms_file_label,
+                                           color,
+                                           label,
+                                           sample_type,
+                                           pairs,
+                                           list_filter(pairs, p -> p.i >= intensity_threshold) AS pairs_in
+                                    FROM zipped),
+                         -- Reconstruimos listas y calculamos min/max de intensidad COMPLETO
+                         final AS (SELECT ms_file_label,
+                                          color,
+                                          label,
+                                          sample_type,
+                                          list_transform(pairs_in, p -> p.t)                            AS scan_time_sliced,
+                                          list_transform(pairs_in, p -> p.i)                            AS intensity_sliced,
+                                          CASE
+                                              WHEN len(pairs) = 0 THEN NULL
+                                              ELSE list_max(list_transform(pairs, p -> p.i)) * 1.10 END AS
+                                                                                                           intensity_max_in_range,
+                                          CASE
+                                              WHEN len(pairs) = 0 THEN NULL
+                                              ELSE list_min(list_transform(pairs, p -> p.i)) END        AS intensity_min_in_range,
+                                          CASE
+                                              WHEN len(pairs) = 0 THEN NULL
+                                              ELSE list_max(list_transform(pairs, p -> p.t)) END        AS scan_time_max_in_range,
+                                          CASE
+                                              WHEN len(pairs) = 0 THEN NULL
+                                              ELSE list_min(list_transform(pairs, p -> p.t)) END        AS scan_time_min_in_range
+
+                                   FROM sliced)
+                    SELECT *
+                    FROM final
+                    ORDER BY ms_file_label;
+                    """
+
+            chrom_df = conn.execute(query, [target_clicked]).pl()
+
+        t1 = time.perf_counter()
+        fig = Patch()
+        x_min = float('inf')
+        x_max = float('-inf')
+        y_min = float('inf')
+        y_max = float('-inf')
+
+        legend_groups = set()
+        traces = []
+        # TODO: check if chrom_df is empty and Implement an empty widget to show when no data
+        for i, row in enumerate(chrom_df.iter_rows(named=True)):
+            # row: ms_file_label, color, label, scan_time_sliced, intensity_sliced, intensity_max_in_range,
+            #                 intensity_min_in_range, scan_time_max_in_range, scan_time_min_in_range
+
+            trace = {
+                'type': 'scattergl',
+                'mode': 'lines',
+                'x': row['scan_time_sliced'],
+                'y': row['intensity_sliced'],
+                'line': {'color': row['color']},
+                'name': row['label'] or row['ms_file_label'],
+                'visible': True if row['label'] in checkedKeys else 'legendonly',  # solo en leyenda si no está
+                'legendgroup': row['sample_type']
+            }
+
+            if row['sample_type'] not in legend_groups:
+                trace['legendgrouptitle'] = {'text': row['sample_type']}
+                legend_groups.add(row['sample_type'])
+
+            traces.append(trace)
+
+            x_min = min(x_min, row['scan_time_min_in_range'])
+            x_max = max(x_max, row['scan_time_max_in_range'])
+            y_min = min(y_min, row['intensity_min_in_range'])
+            y_max = max(y_max, row['intensity_max_in_range'])
+
+        fig['data'] = traces
+
+        fig['layout']['annotations'][0] = {
+            'bgcolor': 'white',
+            'font': {'color': 'black', 'size': 14, 'weight': 'bold'},
+            'showarrow': True,
+            'text': 'RT',
+            'x': rt,
+            'xanchor': 'left',
+            'xref': 'x',
+            'y': 1,
+            'yanchor': 'top',
+            'yref': 'y domain'
+        }
+
+        fig['layout']['shapes'] = [
+            {
+                'line': {'color': 'black', 'width': 3},
+                'type': 'line',
+                'x0': rt,
+                'x1': rt,
+                'xref': 'x',
+                'y0': 0,
+                'y1': 1,
+                'yref': 'y domain'
+            },
+            {
+                'fillcolor': 'green',
+                'line': {'width': 0},
+                'opacity': 0.1,
+                'type': 'rect',
+                'x0': rt_min,
+                'x1': rt_max,
+                'xref': 'x',
+                'y0': 0,
+                'y1': 1,
+                'yref': 'y domain'
+            }
+        ]
+        fig['layout']['template'] = 'plotly_white'
+
+        fig['layout']['xaxis']['range'] = [x_min, x_max]
+        fig['layout']['xaxis']['autorange'] = False
+        fig['layout']['yaxis']['range'] = [y_min, y_max]
+        fig['layout']['yaxis']['autorange'] = False
+
+        if log_scale:
+            fig['layout']['yaxis']['type'] = 'log'
+            fig['layout']['yaxis']['range'] = [math.log10(y_min), math.log10(y_max)]
+        else:
+            fig['layout']['yaxis']['type'] = 'linear'
+            fig['layout']['yaxis']['range'] = [y_min, y_max]
+
+        fig['layout']['margin'] = dict(l=60, r=10, t=40, b=40)
+
+        s_data = {
+            'min': x_min,
+            'max': x_max,
+            'pushable': 1,
+            'step': 1,
+            'tooltip': None,
+            'marks': None,
+            'value': {'rt_min': rt_min, 'rt': rt, 'rt_max': rt_max},
+            'v_comp': {'rt_min': True, 'rt': True, 'rt_max': True}
+        }
+
+        print(f"{time.perf_counter() - t1 = }")
+        return fig, target_clicked, False, s_data, None
+
+    @app.callback(
+        Output('chromatogram-view-plot', 'figure', allow_duplicate=True),
+        Output('slider-data', 'data', allow_duplicate=True),
+        Output('action-buttons-container', 'style'),
+
         Input('rt-range-slider', 'value'),
+        State('slider-data', 'data'),
+        State('slider-reference-data', 'data'),
         prevent_initial_call=True
     )
-    def rt_representation(values):
-        rt_min, rt, rt_max = values
+    def slider_value_changed(slider_value, slider_data, slider_reference_data):
+        fig = Patch()
+        s_data = slider_value.copy()
 
-        return [html.Span(f"RT-min: {rt_min}", className="rt-value"),
-                html.Span(f"RT: {rt}", className="rt-value"),
-                html.Span(f"RT-max: {rt_max}", className="rt-value")]
+        if not slider_data['v_comp']['rt_min']:
+            s_data = [slider_data['value']['rt_min']] + s_data
+        if not slider_data['v_comp']['rt']:
+            s_data.insert(1, slider_data['value']['rt'])
+        if not slider_data['v_comp']['rt_max']:
+            s_data = s_data + [slider_data['value']['rt_max']]
 
+        rt_min, rt, rt_max = s_data
+
+        fig['layout']['shapes'] = [
+            {
+                'line': {'color': 'black', 'width': 3},
+                'type': 'line',
+                'x0': rt,
+                'x1': rt,
+                'xref': 'x',
+                'y0': 0,
+                'y1': 1,
+                'yref': 'y domain'
+            },
+            {
+                'fillcolor': 'green',
+                'line': {'width': 0},
+                'opacity': 0.1,
+                'type': 'rect',
+                'x0': rt_min,
+                'x1': rt_max,
+                'xref': 'x',
+                'y0': 0,
+                'y1': 1,
+                'yref': 'y domain'
+            }
+        ]
+        fig['layout']['annotations'][0] = {
+            'bgcolor': 'white',
+            'font': {'color': 'black', 'size': 14, 'weight': 'bold'},
+            'showarrow': True,
+            'text': 'RT',
+            'x': rt,
+            'xanchor': 'left',
+            'xref': 'x',
+            'y': 1,
+            'yanchor': 'top',
+            'yref': 'y domain'
+        }
+
+        slider_data['value'] = {'rt_min': rt_min, 'rt': rt, 'rt_max': rt_max}
+        has_changes = slider_data['value'] != slider_reference_data['value']
+        buttons_style = {
+            'visibility': 'visible' if has_changes else 'hidden',
+            'opacity': '1' if has_changes else '0',
+            'transition': 'opacity 0.3s ease-in-out'
+        }
+        return fig, slider_data, buttons_style
 
     @app.callback(
-        Output('saved-range', 'data', allow_duplicate=True),
-        Output('pko-info-modal', 'visible', allow_duplicate=True),
-        Output('notifications-container', 'children'),
-        Output('has-unsaved-changes', 'data', allow_duplicate=True),
-        Output('action-buttons-container', 'style', allow_duplicate=True),
+        Output('slider-data', 'data'),
+        Output('rt-range-slider', 'min'),
+        Output('rt-range-slider', 'max'),
+        Output('rt-range-slider', 'step'),
+        Output('rt-range-slider', 'value'),
+        Output('rt-range-slider', 'pushable'),
+        Output('rt-range-slider', 'tooltip'),
+        Output('rt-range-slider', 'marks'),
+        Output('chromatogram-view-log-y', 'checked', allow_duplicate=True),
+        Output('chromatogram-view-options-drawer', 'visible', allow_duplicate=True),
 
-        Input("pko-image-clicked", "children"),
-        Input('save-btn', 'nClicks'),
-        Input("rt-range-slider", "value"),
-        State("has-unsaved-changes", "data"),
-        State("wdir", "data"),
+        Input("chromatogram-view-plot", "relayoutData"),
+        Input('slider-reference-data', 'data'),
+        State('chromatogram-preview-log-y', 'checked'),
+        State('slider-data', 'data'),
         prevent_initial_call=True
     )
-    def save_changes(image_clicked, save_clicks, current_values, unsaved_changes, wdir):
+    def set_chromatogram_view_options(relayout, slider_reference_data, log_scale, slider_data):
+
+        if not relayout or not slider_reference_data:
+            raise PreventUpdate
 
         ctx = dash.callback_context
-        trigger_id = ctx.triggered[0]['prop_id'].split('.')[0]
+        prop_id = ctx.triggered[0]['prop_id'].split('.')[0]
 
-        if trigger_id == 'save-btn' and unsaved_changes:
-            targets = T.get_targets(wdir)
-            rt_min, rt, rt_max = current_values
-            peak_label = targets.loc[targets['peak_label'] == image_clicked, "peak_label"].iloc[0]
-            T.update_targets(wdir, peak_label, rt_min, rt_max, rt)
+        if prop_id == 'slider-reference-data':
+            s_min = slider_reference_data['min']
+            s_max = slider_reference_data['max']
+            if s_max - s_min > 1:
+                step = 0.1
+                decimals = 1
+            else:
+                step = 0.01
+                decimals = 2
+            value = list(slider_reference_data['value'].values())
 
-            buttons_style = {
-                'visibility': 'hidden',
-                'opacity': '0',
-                'transition': 'opacity 0.3s ease-in-out'
-            }
+            return (slider_reference_data, s_min, s_max, step, value, step,
+                    {"placement": "bottom", "always_visible": False},
+                    {float(i): str(round(i, decimals)) for i in np.linspace(s_min, s_max, 6)},
+                    log_scale, False
+                    )
+        else:
+            if not relayout:
+                raise PreventUpdate
+            if relayout.get('xaxis.range[0]', None):
+                x_min_relayout = round(relayout.get('xaxis.range[0]'), 1)
+            elif relayout.get('xaxis.range', None):
+                x_min_relayout = round(relayout.get('xaxis.range')[0], 1)
+            elif relayout.get('xaxis.autorange', False):
+                x_min_relayout = slider_reference_data['min']
+            elif relayout.get('autosize', False):
+                x_min_relayout = slider_reference_data['min']
+            else:
+                x_min_relayout = None
 
-            return (
-                current_values,  # Actualizar valores guardados
-                False,  # Cerrar modal
-                fac.AntdNotification(message=f"RT values saved...\n"
-                                             f"RT-min: {current_values[0]:.2f}<br>"
-                                             f"RT: {current_values[1]:.2f}<br> "
-                                             f"RT-max: {current_values[2]:.2f}",
-                                     type="success",
-                                     placement='bottom',
-                                     showProgress=True,
-                                     stack=True
-                                     ),
-                False,
-                buttons_style
-            )
-        raise PreventUpdate
+            if relayout.get('xaxis.range[1]', None):
+                x_max_relayout = round(relayout.get('xaxis.range[1]'), 1)
+            elif relayout.get('xaxis.range', None):
+                x_max_relayout = round(relayout.get('xaxis.range')[1], 1)
+            elif relayout.get('xaxis.autorange', False):
+                x_max_relayout = slider_reference_data['max']
+            elif relayout.get('autosize', False):
+                x_max_relayout = slider_reference_data['max']
+            else:
+                x_max_relayout = None
 
+            if x_min_relayout is None or x_max_relayout is None:
+                return dash.no_update
+
+            if not slider_data:
+                slider_data = slider_reference_data.copy()
+
+            slider_repr = {'rt_min': False, 'rt': False, 'rt_max': False}
+            if x_min_relayout < slider_data['value']['rt_min']:
+                slider_repr['rt_min'] = True
+            if x_min_relayout < slider_data['value']['rt'] < x_max_relayout:
+                slider_repr['rt'] = True
+            if x_max_relayout > slider_data['value']['rt_max']:
+                slider_repr['rt_max'] = True
+
+            s_min = x_min_relayout
+            s_max = x_max_relayout
+            if s_max - s_min > 1:
+                step = 0.1
+                decimals = 1
+            else:
+                step = 0.01
+                decimals = 2
+
+            new_slider_data = slider_data.copy()
+            new_slider_data['min'] = x_min_relayout
+            new_slider_data['max'] = x_max_relayout
+            new_slider_data['marks'] = {
+                float(i): str(round(i, decimals))
+                for i in np.linspace(s_min, s_max, 6)
+            },
+            new_slider_data['v_comp'] = slider_repr
+            new_slider_data['step'] = step
+            new_slider_data['pushable'] = step
+
+            value = [vc for vc, sv in zip(slider_data['value'].values(), slider_repr.values()) if sv]
+
+            return (new_slider_data, x_min_relayout, x_max_relayout, step, value, step,
+                    {"placement": "bottom", "always_visible": False},
+                    {float(i): str(round(i, decimals)) for i in np.linspace(s_min, s_max, 6)},
+                    log_scale, False
+                    )
+
+    ############# VIEW END #######################################
+
+    ############# COMPUTE CHROMATOGRAM BEGIN #####################################
     @app.callback(
-        Output('rt-range-slider', 'value', allow_duplicate=True),
-        Output('has-unsaved-changes', 'data', allow_duplicate=True),
-        Output('action-buttons-container', 'style', allow_duplicate=True),
+        Output("compute-chromatogram-modal", "visible"),
+        Output("chromatogram-warning", "style"),
 
-        Input("pko-image-clicked", "children"),
-        Input('reset-btn', 'nClicks'),
-        State("wdir", "data"),
+        Input("compute-chromatograms-btn", "nClicks"),
+        State('wdir', 'data'),
         prevent_initial_call=True
     )
-    def reset_changes(image_clicked, reset_clicks, wdir):
-        """
-        Reset the slider values to the saved RT values
-        :param image_clicked:
-        :param reset_clicks:
-        :param wdir:
-        :return:
-        """
-        ctx = dash.callback_context
-        trigger_id = ctx.triggered[0]['prop_id'].split('.')[0]
+    def open_compute_chromatogram_modal(nClicks, wdir):
+        if not nClicks:
+            raise PreventUpdate
 
-        if trigger_id == 'reset-btn' and reset_clicks:
-            targets = T.get_targets(wdir)
-            rt_min, rt, rt_max = targets.loc[targets['peak_label'] == image_clicked, ["rt_min", "rt", "rt_max"]].iloc[0]
+        computed_chromatograms = 0
+        # check if some chromatogram was computed
+        with duckdb_connection(wdir) as conn:
+            if conn is None:
+                return dash.no_update
 
-            buttons_style = {
-                'visibility': 'hidden',
-                'opacity': '0',
-                'transition': 'opacity 0.3s ease-in-out'
-            }
-            return [int(rt_min), int(rt), int(rt_max)], False, buttons_style
-        return no_update, no_update, no_update
+            chromatograms = conn.execute("SELECT COUNT(*) FROM chromatograms").fetchone()
+            if chromatograms:
+                computed_chromatograms = chromatograms[0]
 
-    @app.callback(
-        Output('confirm-modal', 'visible', allow_duplicate=True),
-        Input('stay-btn', 'nClicks'),
-        Input('close-without-save-btn', 'nClicks'),
-        prevent_initial_call=True
-    )
-    def handle_confirm_modal(stay_clicks, close_clicks):
-        return False
+        style = {'display': 'block'} if computed_chromatograms else dash.no_update
 
-    # callback to compute or read the chromatograms
+        return True, style
+
     @app.callback(
         Output('chromatograms', 'data'),
-        # Output('chromatograms-progress-container', 'style'),
-        Input('tab', 'value'),
-        Input('chromatograms', 'data'),
+        Input('compute-chromatogram-modal', 'okCounts'),
         State("wdir", "data"),
         background=True,
         running=[
-            (
-                    Output("chromatograms-progress-container", "style"),
-                    {"display": "flex",
-                     "justifyContent": "center",
-                     "alignItems": "center",
-                     "flexDirection": "column",
-                     "minWidth": "200px",
-                     "maxWidth": "500px",
-                     "margin": "auto",},
-                    {"display": "none"},
-            ),
+            (Output('chromatogram-processing-progress-container', 'style'), {
+                "display": "flex",
+                "justifyContent": "center",
+                "alignItems": "center",
+                "flexDirection": "column",
+                "minWidth": "200px",
+                "maxWidth": "400px",
+                "margin": "auto",
+                'height': "60vh"
+            }, {'display': 'none'}),
+            (Output("chromatogram-compute-options-container", "style"), {'display': 'none'}, {'display': 'flex'}),
+
+            (Output('compute-chromatogram-modal', 'confirmAutoSpin'), True, False),
+            (Output('compute-chromatogram-modal', 'cancelButtonProps'), {'disabled': True},
+             {'disabled': False}),
+            (Output('compute-chromatogram-modal', 'confirmLoading'), True, False),
         ],
-        progress=[Output("chromatograms-progress", "percent"),
-                  ],
+        progress=[
+            Output("chromatogram-processing-progress", "percent"),
+        ],
         prevent_initial_call=True
     )
-    def compute_chromatograms(set_progress, tab, chromatograms, wdir):
+    def compute_chromatograms(set_progress, okCounts, wdir):
 
-        ctx = dash.callback_context
-        prop_id = ctx.triggered[0]['prop_id']
-        print(f"{prop_id = }")
-
-        if tab != 'Optimization':
+        if not okCounts:
             raise PreventUpdate
 
-        with DDB.duckdb_connection(wdir) as con:
+        with duckdb_connection(wdir) as con:
             if con is None:
                 return "Could not connect to database."
             start = time.perf_counter()
-            # DDB.compute_and_insert_chromatograms_from_ms_data(con)
-            DDB.compute_and_insert_chromatograms_iteratively(con, set_progress=set_progress)
+            compute_and_insert_chromatograms_from_ms_data(con, set_progress)
+            # compute_and_insert_chromatograms_iteratively(con, set_progress=set_progress)
             print(f"Chromatograms computed in {time.perf_counter() - start:.2f} seconds")
-            df = con.execute("SELECT * FROM chromatograms WHERE peak_label = 'Acetoacetic acid'").df()
-            import pandas as pd
-            pd.set_option('display.max_columns', None)
-            pd.set_option('display.width', None)
-            print(f"{df.head() = }")
         return True
 
+    ############# COMPUTE CHROMATOGRAM END #######################################
+
+
     @app.callback(
-        Output("pko-peak-preview-images", "children"),
-        Output('plot-preview-pagination', 'total'),
-
-        Input('chromatograms', 'data'),
-
-        Input('plot-preview-pagination', 'current'),
-        Input('plot-preview-pagination', 'pageSize'),
-
-        Input('sample-type-tree', 'checkedKeys'),
-        Input("pko-figure-options", "value"),
-        Input('card-plot-selection', 'value'),
-        Input({"index": "pko-drop-target-output", "type": "output"}, "children"),
-        State("wdir", "data"),
+        Output('rt-values-span', 'children'),
+        Input('slider-data', 'data'),
+        prevent_initial_call=True
     )
-    def peak_preview(chromatograms, current_page, page_size, checkedkeys, options, selection, dropped_target, wdir):
-        logging.info(f'Create peak previews {wdir}')
-
-        if not chromatograms:
+    def rt_representation(slider_data):
+        if not slider_data:
             raise PreventUpdate
+
+        rt_min, rt, rt_max = slider_data['value'].values()
+
+        return fac.AntdFlex(
+            [
+                fac.AntdCompact(
+                    [
+                        fac.AntdText('RT-min:', strong=True),
+                        fac.AntdText(f"{rt_min}s", code=True),
+                    ],
+                    style={'visibility': slider_data['v_comp']['rt_min']}
+                ),
+                fac.AntdCompact(
+                    [
+                        fac.AntdText('RT:', strong=True),
+                        fac.AntdText(f"{rt}s", code=True),
+                    ],
+                    style={'visibility': slider_data['v_comp']['rt']}
+                ),
+                fac.AntdCompact(
+                    [
+                        fac.AntdText('RT-max:', strong=True),
+                        fac.AntdText(f"{rt_max}s", code=True),
+                    ],
+                    style={'visibility': slider_data['v_comp']['rt_max']}
+                ),
+            ],
+            justify='space-between',
+            align='center',
+            style={'width': '100%', 'padding': '0 25px'}
+        )
+
+
+    @app.callback(
+        # Output('chromatogram-view-modal', 'visible', allow_duplicate=True),
+        Output('notifications-container', 'children', allow_duplicate=True),
+        Output('action-buttons-container', 'style', allow_duplicate=True),
+        Output('slider-reference-data', 'data', allow_duplicate=True),
+
+        Input('save-btn', 'nClicks'),
+        State('target-preview-clicked', 'data'),
+        State('slider-data', 'data'),
+        State('slider-reference-data', 'data'),
+        State('wdir', 'data'),
+        prevent_initial_call=True
+    )
+    def save_changes(save_clicks, target_clicked, slider_data, slider_reference, wdir):
+        if not save_clicks:
+            raise PreventUpdate
+        rt_min, rt_, rt_max = slider_data['value'].values()
 
         with duckdb_connection(wdir) as conn:
-            ms_files_selection = conn.execute(f"SELECT ms_file_label, color, label FROM samples_metadata WHERE label IN"
-                                              f" {checkedkeys}").df()
-
-            if ms_files_selection.empty:
-                return (fac.AntdNotification(
-                    message="No chromatogram to preview",
-                    description='No files selected for peak optimization in MS-Files tab. Please, mark some files in the '
-                            'Sample Type tree. "use_for_optimization" is use as the initial selection only',
-                    type="error", duration=None,
-                    placement='bottom',
-                    showProgress=True,
-                    stack=True
-                ), no_update)
-            logging.info(f"Using {len(ms_files_selection)} files for peak preview. ({ms_files_selection = })")
-
-            if selection == 'all':
-                total_targets_query = "SELECT COUNT(*) FROM targets WHERE preselected_processing = TRUE"
-                query = "SELECT * FROM targets WHERE preselected_processing = TRUE LIMIT ? OFFSET ?"
-            elif selection == 'bookmarked':
-                total_targets_query = "SELECT COUNT(*) FROM targets WHERE bookmark = TRUE"
-                query = "SELECT * FROM targets WHERE bookmark = TRUE LIMIT ? OFFSET ?"
-            else:
-                total_targets_query = "SELECT COUNT(*) FROM targets WHERE bookmark = FALSE"
-                query = "SELECT * FROM targets WHERE bookmark = FALSE LIMIT ? OFFSET ?"
-
-            total_targets = conn.execute(total_targets_query).fetchone()[0]
-            target_selection = conn.execute(query, [page_size, (current_page - 1) * page_size]).df()
-
-            plots = []
-            for _, row in target_selection.iterrows():
-                peak_label, mz_mean, mz_width, rt, rt_min, rt_max, bookmark, score = row[
-                    ["peak_label", "mz_mean", "mz_width", "rt", "rt_min", "rt_max", 'bookmark', 'score']
-                ]
-
-                query = f"""SELECT 
-                                sel.label,
-                                sel.color,
-                                chr.scan_time, 
-                                chr.intensity
-                            FROM chromatograms AS chr
-                            JOIN ms_files_selection AS sel ON sel.ms_file_label = chr.ms_file_label
-                            WHERE chr.peak_label = ?"""
-
-                all_chrom_df = conn.execute(query, [peak_label]).df()
-                pd.set_option('display.max_columns', None)
-                pd.set_option('display.width', None)
-                print(f"{all_chrom_df.head(5) = }")
-
-                fig = create_preview_peakshape_plotly(
-                    all_chrom_df,
-                    rt,
-                    rt_min,
-                    rt_max,
-                    peak_label=peak_label,
-                    log='log' in options
-                )
-
-                plots.append(
-                    fac.AntdCard([
-                        dcc.Graph(
-                            id={'type': 'graph-card-preview', 'index': f"{peak_label}-{uuid.uuid4().hex[:6]}"},
-                            figure=fig,
-                            style={'height': '150px', 'width': '200px', 'margin': '0px'},
-                            config={
-                                'displayModeBar': False,
-                                'staticPlot': True,  # Totalmente estático para máxima performance
-                                'doubleClick': False,
-                                'showTips': False,
-                                'responsive': False  # Tamaño fijo
-                            },
-                        ),
-                        fac.AntdTooltip(
-                            fac.AntdButton(
-                                icon=fac.AntdIcon(icon='antd-delete'),
-                                type='text',
-                                size='small',
-                                id={'type': 'delete-target-btn', 'index': peak_label},
-                                style={
-                                    'padding': '4px',
-                                    'minWidth': '24px',
-                                    'height': '24px',
-                                    'borderRadius': '50%',
-                                    'background': 'rgba(0, 0, 0, 0.5)',
-                                    'color': 'white',
-                                    'position': 'absolute',
-                                    'bottom': '8px',
-                                    'right': '8px',
-                                    'zIndex': 10,
-                                    'opacity': '0',
-                                    'transition': 'opacity 0.3s ease'
-                                },
-                                className='peak-action-button',
-                            ),
-                            title='Delete target',
-                            color='red',
-                            placement='bottom',
-                        ),
-                        fac.AntdRate(
-                            id={'type': 'rate-target-card', 'index': peak_label},
-                            count=1,
-                            defaultValue=0,
-                            value=int(bookmark),
-                            allowHalf=False,
-                            tooltips=['Bookmark this target'],
-                            style={'position': 'absolute', 'top': '8px', 'right': '8px', 'zIndex': 10},
-                        )],
-                        id={'type': 'plot-card-preview', 'index': peak_label},
-                        style={'cursor': 'pointer'},
-                        styles={'header': {'display': 'none'}, 'body': {'padding': '5px'}},
-                        hoverable=True,
-                        className='peak-card-container',
-                    )
-                )
-        return plots, total_targets
+            if conn is None:
+                return dash.no_update
+            conn.execute("UPDATE targets SET rt_min = ?, rt = ?, rt_max = ? "
+                         "WHERE peak_label = ?", (rt_min, rt_, rt_max, target_clicked))
+        buttons_style = {
+            'visibility': 'hidden',
+            'opacity': '0',
+            'transition': 'opacity 0.3s ease-in-out'
+        }
+        slider_reference['value'].update(slider_data['value'])
+        return (
+            fac.AntdNotification(message=f"RT values saved...\n",
+                                 type="success",
+                                 placement='bottom',
+                                 showProgress=True,
+                                 stack=True
+                                 ),
+            buttons_style,
+            slider_reference
+        )
 
     @app.callback(
-        Output("pko-image-clicked", "children"),
-        [Input({"type": "plot-card-preview", "index": ALL}, "nClicks")],
-        [Input({"type": "delete-target-btn", "index": ALL}, "nClicks")],
-        [Input({"type": "rate-target-card", "index": ALL}, "value")],
-        prevent_initial_call=True,
+        # only save the current values stored in slider-reference-data since this will shut all the actions
+        Output('slider-reference-data', 'data', allow_duplicate=True),
+
+        Input('reset-btn', 'nClicks'),
+        State('slider-reference-data', 'data'),
+        prevent_initial_call=True
     )
-    def pko_image_clicked(ndx, dt_ndx, b_ndx):
+    def reset_changes(reset_clicks, slider_reference):
 
-        if ndx is None or len(ndx) == 0:
+        if not reset_clicks:
             raise PreventUpdate
+        return slider_reference
 
-        ctx = dash.callback_context
-
-        ctx_trigger = json.loads(ctx.triggered[0]['prop_id'].split('.')[0])
-        trigger_id = ctx_trigger['index']
-        trigger_type = ctx_trigger['type']
-
-        if len(ctx.triggered) > 1 or trigger_type != "plot-card-preview":
-            raise PreventUpdate
-        return trigger_id
 
     @app.callback(
         Output('delete-modal', 'visible'),
@@ -1233,31 +1652,30 @@ def callbacks(app, fsc, cache, cpu=None):
 
     @app.callback(
         Output('notifications-container', "children", allow_duplicate=True),
-        Input({"type": "rate-target-card", "index": ALL}, "value"),
-        State("wdir", "data"),
+
+        Input({'type': 'bookmark-target-card', 'index': ALL}, 'value'),
+        State({'type': 'target-card-preview', 'index': ALL}, 'data-target'),
+        State('wdir', 'data'),
         prevent_initial_call=True
     )
-    def bookmark_target(value, wdir):
+    def bookmark_target(bookmarks, targets, wdir):
         # TODO: change bookmark to bool since the AntdRate component returns an int and the db require a bool
         ctx = dash.callback_context
         if not ctx.triggered or len(dash.callback_context.triggered) > 1:
             raise PreventUpdate
 
-        targets = T.get_targets(wdir)
-
         ctx_trigger = json.loads(ctx.triggered[0]['prop_id'].split('.')[0])
         trigger_id = ctx_trigger['index']
 
-        if targets['bookmark'].values.tolist() == value:
-            raise PreventUpdate
-
-        targets['bookmark'] = value
-        T.write_targets(targets, wdir)
-        new_value = targets.loc[targets['peak_label'] == trigger_id, 'bookmark'].values[0]
-
-        return fac.AntdNotification(message=f"Target {trigger_id} {'' if new_value else 'un'}bookmarked", duration=3,
-                                    placement='bottom', type="success", showProgress=True, stack=True)
-
-
-
-
+        with duckdb_connection(wdir) as conn:
+            if conn is None:
+                return dash.no_update
+            conn.execute("UPDATE targets SET bookmark = ? WHERE peak_label = ?", [bool(bookmarks[trigger_id]),
+                                                                                  targets[trigger_id]])
+        return fac.AntdNotification(message=f"Target {targets[trigger_id]} has been "
+                                            f"{'' if bookmarks[trigger_id] else 'un'}bookmarked",
+                                    duration=3,
+                                    placement='bottom',
+                                    type="success",
+                                    showProgress=True,
+                                    stack=True)
