@@ -87,336 +87,551 @@ def create_preview_peakshape_plotly(
     if rt is not None:
         fig.add_vline(x=rt, line_dash="dot", line_color="black")
 
-    fig.update_layout(
-        xaxis_title="Retention Time",
-        yaxis_title="Intensity",
-        title=peak_label,
-        showlegend=False,
-        margin=dict(l=40, r=5, t=40, b=40),
-    )
-    if log:
-        fig.update_yaxes(type="log")
-    return fig
-
-
-def create_plot(*, chromatogram_data, checkedkeys, rt, rt_min, rt_max, title, log):
-    """Crear gráfico con rango y línea central"""
-    fig = FigureResampler(go.Figure())
-    fig.layout.hovermode = "closest"
-
-    fig.update_layout(
-        yaxis_title="Intensity",
-        xaxis_title="Scan Time [s]",
-        title=title
-    )
-    if log:
-        fig.update_yaxes(type="log")
-
-    fig.add_vline(
-        rt, line=dict(color='black', width=3), annotation=dict(text="RT", showarrow=True, bgcolor="white", font=dict(
-                color="black", size=14, weight="bold",
-            ),)
-    )
-    fig.add_vrect(
-        x0=rt_min, x1=rt_max, line_width=0, fillcolor="green", opacity=0.1
-    )
-
-    temp_df = chromatogram_data.explode(['scan_time', 'intensity'])
-    slider_min = temp_df['scan_time'].min()
-    slider_max = temp_df['scan_time'].max()
-
-    for _, row in chromatogram_data.iterrows():
-        label, color, scan_time, intensity = row
-        fig.add_trace(
-            go.Scattergl(
-                         mode='lines+markers', name=label, line=dict(color=color),
-                         visible='legendonly' if label not in checkedkeys else True,
-                         ),
-            hf_x=scan_time,
-            hf_y=intensity,
-        )
-    fig.update_layout(hoverlabel=dict(namelength=-1))
-    fig.layout.xaxis.range = [slider_min, slider_max]
-
-    return fig, math.floor(slider_min), math.ceil(slider_max)
-
-
-config = {
-    'scrollZoom': True,             # allows scroll wheel zooming
-    'displayModeBar': True,         # show toolbar
-    'modeBarButtonsToAdd': [],      # no need to add zoom/pan – already present
-    'displaylogo': False
-}
-
-_layout = dbc.Container([
-    dbc.Row([
-        # Side Panel for Controls
-        dbc.Col([
-            dbc.Card([
-                dbc.CardHeader("Sample Type"),
-                dbc.CardBody([
-                    html.Div([
-                        # Tree que se expande
-                        html.Div([
-                            fac.AntdTree(
-                                id='sample-type-tree',
-                                treeData=[],
-                                multiple=True,
-                                checkable=True,
-                                defaultExpandAll=True,
-                            )],
-                            style={
-                                'flex': '1',
-                                'overflow': 'auto',
-                                'minHeight': '0'
-                            }
+_layout = fac.AntdLayout(
+    [
+        fac.AntdHeader(
+            [
+                fac.AntdFlex(
+                    [
+                        fac.AntdTitle(
+                            'Optimization', level=4, style={'margin': '0'}
                         ),
-                        html.Div([
-                            html.Label("Selection"),
-                            dcc.Dropdown(
-                                id="card-plot-selection",
-                                options={
-                                    'all': 'All',
-                                    'bookmarked': 'Bookmarked',
-                                    'unmarked': 'Unmarked'
-                                },
-                                value='all',
-                                className="mt-2",
-                                clearable=False,
-                                style={'marginBottom': '80px'}
-                            ),
-                            dcc.Checklist(
-                                id="pko-figure-options",
-                                options=[{"value": "log", "label": "  Logarithmic y-scale"}],
-                                value=[],
-                                className="mt-4 mb-2",
-                            )],
-                            style={
-                                'flex': '0 0 auto',
-                                'borderTop': '1px solid #f0f0f0',
-                                'paddingTop': '10px'
-                            }
-                        )],
-                        style={
-                            'display': 'flex',
-                            'flexDirection': 'column',
-                            'height': '100%'  # Usar toda la altura disponible del CardBody
-                        }
-                    )],
-                    style={
-                        'height': '94vh',  # Ajusta según la altura del header
-                        'padding': '10px'
-                    }
-                    # className="overflow-auto",
-                )],
-                # className="mb-5",
-                style={'maxHeight': '98vh'}
-            ),
-        ], width=2),  # Reduced width for side panel
-        
-        # Main Content Column
-        dbc.Col([
-            # Peak Preview Images (Now directly above the main figure)
-            html.Div(
-                children=[
-                    html.Div([
-                        html.H6("Getting chromatograms..."),
-                        fac.AntdProgress(
-                            id='chromatograms-progress',
-                            percent=0,
-                        )],
-                        id='chromatograms-progress-container',
-                        style={
-                            "display": "flex",
-                            "justifyContent": "center",
-                            "alignItems": "center",
-                            "flexDirection": "column",
-                            "minWidth": "200px",
-                            "maxWidth": "500px",
-                            "margin": "auto",
-                        }
-                    ),
-                    fac.AntdSpin(
-                        html.Div([
-                            fac.AntdSpace(
-                                id="pko-peak-preview-images",
-                                style={
-                                    "width": "100%",
-                                    'overflowY': 'auto',
-                                    "height": "94vh",
-                                },
-                                wrap=True,
-                                align='start'
-                            ),
-                            fac.AntdPagination(
-                                id='plot-preview-pagination',
-                                defaultPageSize=30,
-                                locale='en-us',
-                                align='center',
-                                showTotalSuffix='targets',
-                                hideOnSinglePage=True
-                            )]
+                        fac.AntdIcon(
+                            id='ms-files-tour-icon',
+                            icon='pi-info',
+                            style={"cursor": "pointer", 'paddingLeft': '10px'},
                         ),
-                        style={"height": "100%", "alignContent": "center"},
-                        text="Loading plots...",
-                        size="large",
-                        delay=500,
-                        includeProps=['pko-peak-preview-images.children']
-                    ),
+                        fac.AntdSpace(
+                            [
+                                fac.AntdButton(
+                                    'Compute Chromatograms',
+                                    id='compute-chromatograms-btn',
+                                    style={'textTransform': 'uppercase'},
+                                ),
+                            ],
+                            addSplitLine=True,
+                            size="small",
+                            style={"margin": "0 50px"},
+                        ),
+                    ],
+                    align='center',
+                ),
 
+            ],
+            style={'background': 'white', 'padding': '0px', 'lineHeight': '32px', 'height': '32px'}
+        ),
+        fac.AntdLayout(
+            [
+                fac.AntdSider(
+                    [
+                        fac.AntdButton(
+                            id='optimization-sidebar-collapse',
+                            type='text',
+                            icon=fac.AntdIcon(
+                                id='optimization-sidebar-collapse-icon',
+                                icon='antd-left',
+                                style={'fontSize': '14px'}, ),
+                            shape='default',
+                            style={
+                                'position': 'absolute',
+                                'zIndex': 1,
+                                # 'top': 0,
+                                'right': -8,
+                                'boxShadow': '2px 2px 5px 1px rgba(0,0,0,0.5)',
+                                'background': 'white',
+                            },
 
-                    # main modal
-                    fac.AntdModal(
-                        id="pko-info-modal",
-                        visible=False,
-                        width="90vw",
-                        centered=True,
-                        destroyOnClose=True,
-                        closable=False,
-                        maskClosable=False,
-                        children=[
-                            html.Div([
-                                dcc.Graph(
-                                    id='pko-plot',
-                                    config={'displayModeBar': True},
-                                    style={'width': '100%', 'height': '600px'}
+                        ),
+                        fac.AntdFlex(
+                            [
+                                fac.AntdFlex(
+                                    [
+                                        fac.AntdTitle(
+                                            'Sample Type',
+                                            level=5,
+                                            style={'margin': '0'}
+                                        ),
+                                        fac.AntdCompact(
+                                            [
+                                                fac.AntdTooltip(
+                                                    fac.AntdIcon(
+                                                        icon='pi-crosshair',
+                                                        className='expand-icon',
+                                                        id='mark-tree-action'
+                                                    ),
+                                                    title='Mark all Sample Types'
+                                                ),
+                                                fac.AntdTooltip(
+                                                    fac.AntdIcon(
+                                                        icon='antd-up',
+                                                        className='expand-icon',
+                                                        id='collapse-tree-action'
+                                                    ),
+                                                    title='Collapse Sample Type Tree'
+                                                ),
+                                                fac.AntdTooltip(
+                                                    fac.AntdIcon(
+                                                        icon='antd-down',
+                                                        className='expand-icon',
+                                                        id='expand-tree-action'
+                                                    ),
+                                                    title='Expand Sample Type Tree'
+                                                ),
+                                            ],
+                                        )
+                                    ],
+                                    justify='space-between',
+                                    align='center',
+                                    style={'marginRight': 30, 'height': 32, 'overflow': 'hidden'}
                                 ),
                                 html.Div(
                                     [
-                                        html.Div([
-                                            dcc.RangeSlider(
-                                                id='rt-range-slider',
-                                                step=1,
-                                                tooltip={"placement": "bottom", "always_visible": False},
-                                                pushable=1,
-                                                allowCross=False,
-                                                updatemode="drag",
-                                            )],
-                                            id='rslider',
-                                            style={'alignItems': 'center',
-                                                   "alignContent": 'center',
-                                                   "width": "100%"
-                                                   }
-                                        ),
-                                        html.Div(
-                                            id="rt-values-span",
-                                            style={"display": "flex",
-                                                   "flexDirection": "column",
-                                                   "fontWeight": "bold",
-                                                   "fontSize": "16px",
-                                                   "minWidth": "100px"
-                                                   }
+                                        fac.AntdTree(
+                                            id='sample-type-tree',
+                                            treeData=[],
+                                            multiple=True,
+                                            checkable=True,
+                                            defaultExpandAll=True,
+                                            showIcon=True
                                         )
                                     ],
-                                    style={"display": "flex",}
+                                    style={
+                                        'flex': '1',
+                                        'overflow': 'auto',
+                                        'minHeight': '0'
+                                    }
                                 ),
-                            ]),
-                            html.Hr(style={'margin': '10px 0 10px 0'}),
-                            dbc.Row([
-                                dbc.Col(
-                                    dbc.Row([
-                                        dbc.Col(
-                                            fac.AntdAlert(
-                                                message="RT values have been changed. Save or reset the changes.",
-                                                type="warning",
-                                                showIcon=True,
-                                            ),
-                                            width=8
-                                        ),
-                                        dbc.Col(
-                                            fac.AntdButton(
-                                                "Reset",
-                                                id="reset-btn",
-                                                icon=fac.AntdIcon(icon='antd-reload'),
-                                            ),
-                                            width=2,
-                                            style={'textAlign': 'right',
-                                                   "alignContent": "center"}
-                                        ),
-                                        dbc.Col(
-                                            fac.AntdButton(
-                                                "Save",
-                                                id="save-btn",
-                                                type="primary",
-                                                icon=fac.AntdIcon(icon="antd-save")
-                                            ),
-                                            width=2,
-                                            style={'textAlign': 'left',
-                                                   "alignContent": "center"}
-                                        )],
-                                        id='action-buttons-container',
-                                        style={
-                                            "visibility": "hidden",
-                                            'opacity': '0',
-                                            'transition': 'opacity 0.3s ease-in-out',
-                                        }
-                                    ),
-                                    width=11
-                                ),
-                                dbc.Col(
-                                    fac.AntdButton(
-                                        "Close",
-                                        id="close-modal-btn",
-                                    ),
-                                    width=1,
-                                    style={"alignContent": "center",
-                                           "textAlign": "right"}
-                                ),
-                            ]),
-                        ]
-                    ),
-                    # confirmation modal
-                    fac.AntdModal(
-                        id="confirm-modal",
-                        title="Confirm close without saving",
-                        visible=False,
-                        width=400,
-                        children=[
-                            fac.AntdParagraph(
-                                "Are you sure you want to close this window without saving your changes?"),
-                            html.Div([
-                                fac.AntdSpace([
-                                    fac.AntdButton(
-                                        "Cancel",
-                                        id="stay-btn"
-                                    ),
-                                    fac.AntdButton(
-                                        "Close without saving",
-                                        id="close-without-save-btn",
-                                        type="primary",
-                                        danger=True
-                                    )
-                                ])
-                            ], style={'textAlign': 'right', 'marginTop': '20px'})
-                        ]
-                    ),
-                    fac.AntdModal(
-                        id="delete-modal",
-                        title="Delete target",
-                        visible=False,
-                        closable=False,
-                        width=400,
-                        renderFooter=True,
-                        okText="Delete",
-                        okButtonProps={"danger": True},
-                        cancelText="Cancel"
-                    )
 
-                ],
-                style={
-                    'height': '98vh',
-                    'margin': '0',
-                    "alignItems": "center",
-                    "alignContent": "center",
-                }
-            ),
-            # Hidden div for image click tracking
-            html.Div(id="pko-image-clicked", style={'display': 'none'}),
-            html.Div(id="delete-target-clicked", style={'display': 'none'}),
-        ], width=10),  # Expanded width for main content
-        
-    ]),
-], fluid=True)
+                                html.Div(
+                                    [
+                                        fac.AntdDivider(
+                                            'Options',
+                                            size='small'
+                                        ),
+                                        fac.AntdForm(
+                                            [
+                                                fac.AntdFormItem(
+                                                    fac.AntdSelect(
+                                                        id='chromatogram-preview-filter',
+                                                        options=['All', 'Bookmarked', 'Unmarked'],
+                                                        value='All',
+                                                        placeholder='Select filter',
+                                                        style={'width': '100%'},
+                                                        allowClear=False,
+                                                        locale="en-us",
+                                                    ),
+                                                    label='Select:',
+                                                    tooltip='Filter chromatograms by bookmark status',
+                                                    style={'marginBottom': '1rem'}
+                                                ),
+                                                fac.AntdFormItem(
+                                                    fac.AntdSelect(
+                                                        id='chromatogram-preview-order',
+                                                        options=[{'label': 'By Peak Label', 'value': 'peak_label'},
+                                                                 {'label': 'By MZ-Mean', 'value': 'mz_mean'}],
+                                                        value='peak_label',
+                                                        placeholder='Select filter',
+                                                        style={'width': '100%'},
+                                                        allowClear=False,
+                                                        locale="en-us",
+                                                    ),
+                                                    label='Order by:',
+                                                    tooltip='Ascended order chromatograms by peak label or mz mean',
+                                                    style={'marginBottom': '1rem'}
+                                                ),
+                                                fac.AntdFormItem(
+                                                    fac.AntdSwitch(
+                                                        id='chromatogram-preview-log-y',
+                                                        checked=False
+                                                    ),
+                                                    label='Intensity Log Scale',
+                                                    tooltip='Apply log scale to intensity axis',
+                                                    style={'marginBottom': '0'}
+                                                )
+                                            ],
+                                            style={'padding': 10}
+                                        ),
+                                        fac.AntdForm(
+                                            [
+                                                fac.AntdFormItem(
+                                                    fac.AntdCompact(
+                                                        [
+                                                            fac.AntdInputNumber(
+                                                                id='chromatogram-graph-width',
+                                                                defaultValue=250,
+                                                                min=180,
+                                                                max=1400
+                                                            ),
+                                                            fac.AntdInputNumber(
+                                                                id='chromatogram-graph-height',
+                                                                defaultValue=180,
+                                                                min=100,
+                                                                max=700
+                                                            ),
+                                                        ],
+                                                        style={'width': '160px'}
+                                                    ),
+                                                    label='WxH:',
+                                                    tooltip='Set preview plot width and height'
+                                                ),
+                                                fac.AntdFormItem(
+                                                    fac.AntdButton(
+                                                        # 'Apply',
+                                                        id='chromatogram-graph-button',
+                                                        icon=fac.AntdIcon(icon='pi-broom', style={'fontSize': 20}),
+                                                        # type='primary'
+                                                    ),
+                                                    style={"marginInlineEnd": 0}
+                                                )
+                                            ],
+                                            layout='inline',
+                                            style={'padding': 10, 'justifyContent': 'center'}
+                                        )
+                                    ],
+                                    style={'overflow': 'hidden'}
+                                ),
+                            ],
+                            vertical=True,
+                            justify='space-between',
+                            style={'height': '100%'}
+                        )
+                    ],
+                    id='optimization-sidebar',
+                    collapsible=True,
+                    collapsedWidth=0,
+                    width=300,
+                    trigger=None,
+                    style={'height': '100%'},
+                    className="sidebar-mint"
+                ),
+                html.Div(
+                    [
+                        html.Div(
+                            [
+                                fac.AntdSpin(
+                                    [
+                                        html.Div(
+                                            [
+                                                fac.AntdSpace(
+                                                    [
+                                                        fac.AntdCard(
+                                                            id={'type': 'target-card-preview', 'index': i},
+                                                            style={'cursor': 'pointer'},
+                                                            styles={'header': {'display': 'none'},
+                                                                    'body': {'padding': '5px'},
+                                                                    'actions': {'height': 30}},
+                                                            hoverable=True,
+                                                            children=[
+                                                                dcc.Graph(
+                                                                    id={'type': 'graph', 'index': i},
+                                                                    figure=go.Figure(
+                                                                        layout=dict(
+                                                                            xaxis_title="Retention Time [s]",
+                                                                            yaxis_title="Intensity",
+                                                                            showlegend=False,
+                                                                            margin=dict(l=40, r=5, t=30, b=30),
+                                                                            hovermode=False,
+                                                                            dragmode=False,
+                                                                        )
+                                                                    ),
+                                                                    style={
+                                                                        'height': '180px', 'width': '250px',
+                                                                        'margin': '0px',
+                                                                    },
+                                                                    config={
+                                                                        'displayModeBar': False,
+                                                                        'staticPlot': True,
+                                                                        'doubleClick': False,
+                                                                        'showTips': False,
+                                                                        'responsive': False
+                                                                    },
+                                                                ),
+                                                                fac.AntdRate(
+                                                                    id={'type': 'bookmark-target-card', 'index': i},
+                                                                    count=1,
+                                                                    defaultValue=0,
+                                                                    value=0,
+                                                                    allowHalf=False,
+                                                                    tooltips=['Bookmark this target'],
+                                                                    style={'position': 'absolute', 'top': '8px',
+                                                                           'right': '8px', 'zIndex': 20},
+                                                                )
+                                                            ],
+                                                            **{'data-target': None}
+                                                        ) for i in range(20)  # Only 20 pre-configures cards
+                                                    ],
+                                                    id='chromatogram-preview',
+                                                    wrap=True,
+                                                    align='center',
+                                                    style={'height': 'calc(100vh - 64px - 4rem)', 'overflowY': 'auto',
+                                                           'width': '100%', 'padding': '0 10px 10px 10px',
+                                                           'justifyContent': 'center'}
+                                                ),
+                                                fac.AntdPagination(
+                                                    id='chromatogram-preview-pagination',
+                                                    defaultPageSize=20,
+                                                    showSizeChanger=True,
+                                                    pageSizeOptions=[4, 6, 8, 10, 12, 16, 20],
+                                                    locale='en-us',
+                                                    align='center',
+                                                    showTotalSuffix='targets',
+                                                ),
+                                                html.Div(
+                                                    id='chromatograms-dummy-output',
+                                                    style={'display': 'none'}
+                                                )
+                                            ])
+                                    ],
+                                    text='Loading plots...',
+                                ),
+                            ],
+                            id='chromatogram-preview-container'
+                        ),
+                        fac.AntdEmpty(
+                            id='chromatogram-preview-empty',
+                            description="No chromatograms to preview.",
+                            locale='en-us',
+                            style={"display": "none"}
+                        ),
+                    ],
+                    className='ant-layout-content css-1v28nim',
+                    style={'background': 'white',
+                           # 'height': 'calc(100vh - 64px - 4rem)', 'overflowY': 'auto'
+                           'alignContent': 'center'
+                           }
+                ),
+            ],
+            style={'padding': '1rem 0', 'background': 'white'},
+        ),
+        fac.AntdModal(
+            [
+                fac.AntdFlex(
+                    [
+                        fac.AntdForm(
+                            [
+                                # fac.AntdFormItem(
+                                #     fac.AntdSelect(
+                                #         id='compute-chromatogram-targets-select',
+                                #         options=['All', 'Preselected for processing'],
+                                #         allowClear=False,
+                                #         placeholder='Select targets',
+                                #         defaultValue='Preselected for processing',
+                                #         style={'width': '100%'},
+                                #     ),
+                                #     label='Select targets',
+                                # ),
+                                # fac.AntdFormItem(
+                                #     fac.AntdSelect(
+                                #         id='compute-chromatogram-samples-select',
+                                #         options=['All', 'Use for Optimization'],
+                                #         allowClear=False,
+                                #         placeholder='Select samples',
+                                #         defaultValue='Use for Optimization',
+                                #         style={'width': '100%'},
+                                #     ),
+                                #     label='Select samples',
+                                # ),
+                                fac.AntdAlert(
+                                    message='There are already computed chromatograms',
+                                    type='warning',
+                                    showIcon=True,
+                                    id='chromatogram-warning',
+                                    style={'display': 'none'},
+                                )
+                            ]
+                        ),
+                    ],
+                    id='chromatogram-compute-options-container',
+                    vertical=True
+                ),
+
+                html.Div(
+                    [
+                        html.H4("Generating Chromatograms..."),
+                        fac.AntdProgress(
+                            id='chromatogram-processing-progress',
+                            percent=0,
+                        ),
+                        fac.AntdButton(
+                            'Cancel',
+                            id='cancel-chromatogram-processing',
+                            style={
+                                'alignText': 'center',
+                            },
+                        ),
+                    ],
+                    id='chromatogram-processing-progress-container',
+                    style={'display': 'none'},
+                ),
+            ],
+            id='compute-chromatogram-modal',
+            title='Compute chromatograms',
+            width=700,
+            renderFooter=True,
+            locale='en-us',
+            confirmAutoSpin=True,
+            loadingOkText='Generating Chromatograms...',
+            okClickClose=False,
+            closable=False,
+            maskClosable=False,
+            destroyOnClose=True,
+            okText="Generate",
+            centered=True,
+            styles={'body': {'height': "50vh"}},
+        ),
+        fac.AntdModal(
+            id="chromatogram-view-modal",
+            width="100vw",
+            centered=True,
+            destroyOnClose=True,
+            closable=False,
+            maskClosable=False,
+            children=[
+                html.Div(
+                    [
+                        dcc.Graph(
+                            id='chromatogram-view-plot',
+                            figure=go.Figure(
+                                layout=dict(
+                                    xaxis_title="Retention Time [s]",
+                                    yaxis_title="Intensity",
+                                    showlegend=True,
+                                    margin=dict(l=40, r=10, t=50, b=80),
+                                )
+                            ),
+                            config={'displayModeBar': True},
+                            style={'width': '100%', 'height': '600px'}
+                        ),
+                        html.Div(
+                            [
+                                dcc.RangeSlider(
+                                    id='rt-range-slider',
+                                    step=1,
+                                    allowCross=False,
+                                    updatemode="drag",
+                                ),
+                                fac.AntdFlex(
+                                    id="rt-values-span",
+                                    justify='space-between',
+                                    align='center'
+                                ),
+                            ],
+                            id='rslider',
+                        ),
+
+                        fac.AntdDrawer(
+                            [
+                                fac.AntdForm(
+                                    [
+                                        fac.AntdFormItem(
+                                            fac.AntdSwitch(
+                                                id='chromatogram-view-log-y',
+                                                checked=False,
+                                            ),
+                                            label='Intensity Log scale:',
+                                        )
+                                    ]
+                                )
+                            ],
+                            id='chromatogram-view-options-drawer',
+                            title='Options',
+                            containerId='chromatogram-view-container',
+                            placement='right',
+                            styles={
+                                'mask': {'background': 'rgba(0, 0, 0, 0)'}
+                            },
+                            closable=False
+                        ),
+                    ],
+                    id='chromatogram-view-container',
+                    style={
+                        'position': 'relative',
+                        'overflowX': 'hidden',
+                    },
+                ),
+                fac.AntdDivider(size='small'),
+                fac.AntdFlex(
+                    [
+                        fac.AntdSpace(
+                            [
+                                fac.AntdAlert(
+                                    message="RT values have been changed. Save or reset the changes.",
+                                    type="warning",
+                                    showIcon=True,
+                                ),
+                                fac.AntdSpace(
+                                    [
+                                        fac.AntdButton(
+                                            "Reset",
+                                            id="reset-btn",
+                                        ),
+                                        fac.AntdButton(
+                                            "Save",
+                                            id="save-btn",
+                                            type="primary",
+                                        ),
+                                    ],
+                                    addSplitLine=True,
+                                    size='small'
+                                )
+                            ],
+                            align='center',
+                            size=60,
+                            id='action-buttons-container',
+                            style={
+                                "visibility": "hidden",
+                                'opacity': '0',
+                                'transition': 'opacity 0.3s ease-in-out',
+                            }
+                        ),
+                        fac.AntdSpace(
+                            [
+                                fac.AntdButton(
+                                    id='chromatogram-view-options',
+                                    icon=fac.AntdIcon(icon='antd-setting', style={'fontSize': 20}),
+                                    shape="circle"
+                                ),
+                                fac.AntdButton(
+                                    "Close",
+                                    id="chromatogram-view-close",
+                                ),
+                            ],
+                            size=20,
+                            addSplitLine=True,
+                            style={
+                                'marginLeft': '60px',
+                            },
+                        ),
+
+                    ],
+                    justify='space-between',
+                    align='center',
+                ),
+            ]
+        ),
+        fac.AntdModal(
+            id="delete-targets-modal",
+            title="Delete target",
+            width=400,
+            renderFooter=True,
+            okText="Delete",
+            okButtonProps={"danger": True},
+            cancelText="Cancel",
+            locale='en-us',
+        ),
+        fac.AntdModal(
+            "Are you sure you want to close this window without saving your changes?",
+            id="confirm-unsave-modal",
+            title="Confirm close without saving",
+            width=400,
+            okButtonProps={'danger': True},
+            renderFooter=True,
+            locale='en-us'
+        ),
+
+        dcc.Store(id='slider-data'),
+        dcc.Store(id='slider-reference-data'),
+        dcc.Store(id='target-preview-clicked'),
 
 pko_layout_no_data = html.Div(
     [
@@ -444,6 +659,7 @@ _outputs = html.Div(
         dcc.Store(id='has-unsaved-changes', data=False),
         dcc.Store(id='chromatograms', data={}),
     ],
+    style={'height': '100%'},
 )
 
 def layout():
