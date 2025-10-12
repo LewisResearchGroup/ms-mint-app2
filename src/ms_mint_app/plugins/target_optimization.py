@@ -586,31 +586,9 @@ _layout = fac.AntdLayout(
         dcc.Store(id='slider-reference-data'),
         dcc.Store(id='target-preview-clicked'),
 
-pko_layout_no_data = html.Div(
-    [
-        dcc.Markdown(
-            """### No targets found.
-    You did not genefrate a targets yet.
-    """
-        )
-    ]
-)
-
-_outputs = html.Div(
-    id="pko-outputs",
-    children=[
-        html.Div(id={"index": "pko-set-rt-output", "type": "output"}),
-        html.Div(id={"index": "pko-confirm-rt-output", "type": "output"}),
-        html.Div(id={"index": "pko-detect-rt-for-all-output", "type": "output"}),
-        html.Div(id={"index": "pko-detect-rtspan-for-all-output", "type": "output"}),
-        html.Div(id={"index": "pko-detect-rt-output", "type": "output"}),
-        html.Div(id={"index": "pko-detect-rtspan-output", "type": "output"}),
-        html.Div(id={"index": "pko-drop-target-output", "type": "output"}),
-        html.Div(id={"index": "pko-remove-low-intensity-output", "type": "output"}),
-        dcc.Store(id='saved-range', data=[None, None, None]),
-        dcc.Store(id='current-range', data=[None, None, None]),
-        dcc.Store(id='has-unsaved-changes', data=False),
         dcc.Store(id='chromatograms', data={}),
+        dcc.Store(id='drop-chromatogram'),
+        dcc.Store(id="delete-target-clicked"),
     ],
     style={'height': '100%'},
 )
