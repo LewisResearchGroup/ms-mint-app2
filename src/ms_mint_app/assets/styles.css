@@ -1,3 +1,11 @@
+body {
+  font-size: 14px; /* currently ems cause chrome bug misinterpreting rems on body element */
+  line-height: 1.6;
+  font-weight: 400;
+  font-family: "Open Sans", "HelveticaNeue", "Helvetica Neue", Helvetica, Arial, sans-serif;
+  color: rgb(50, 50, 50); }
+
+
 .peak-card-container:hover .peak-action-button {
     opacity: 1 !important;
 }
@@ -10,4 +18,38 @@
 
 .tabulator .tabulator-header .tabulator-col .tabulator-col-content .tabulator-col-title {
     white-space: normal;
+}
+
+.fac-spin-dash-wrapper {
+    position: static !important;
+}
+
+
+.expand-icon {
+    cursor: pointer;
+    color: #999999;
+    transition: all 0.2s;
+    padding: 2px;
+    border: 1px solid #e0e0e0;
+    border-radius: 2px;
+    background-color: #ffffff;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.expand-icon:hover {
+    color: #3a3a3a;
+    border-color: #3a3a3a;
+    box-shadow: 0 2px 2px rgba(0, 0, 0, 0.15);
+    transform: translateY(1px);
+    transition: all 0.2s;
+}
+
+.sidebar-mint {
+    /*border-right: 1px solid #e8e8e8;*/
+    border-inline-end: 1px solid rgba(5, 5, 5, 0.06);
+    background-color: #ffffff;
+    /*box-shadow: 1px 0 3px rgba(0, 0, 0, 0.05);*/
 }
