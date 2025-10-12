@@ -27,59 +27,18 @@ class TargetOptimizationPlugin(PluginInterface):
 
     def callbacks(self, app, fsc, cache):
         callbacks(app, fsc, cache)
-    
+
     def outputs(self):
         return None
 
-info_txt = """
-Creating chromatograms from mzXML/mzML files can last 
-a long time the first time. Try converting your files to 
-_feather_ format first.'
-"""
 
-def create_preview_peakshape_plotly(
-    chromatogram_data,
-    rt,
-    rt_min,
-    rt_max,
-    peak_label,
-    log=False,
-):
-    fig = FigureResampler(go.Figure())
+def downsample_for_preview(scan_time, intensity, max_points=100):
+    """Reduce puntos manteniendo la forma general"""
+    if len(scan_time) <= max_points:
+        return scan_time, intensity
 
-    if chromatogram_data.empty:
-        return fig
-
-    intensity_min = 1e20
-    intensity_max = -1e20
-    for _, row in chromatogram_data.iterrows():
-        label, color, scan_time, intensity = row
-
-        temp_df = pd.DataFrame({
-            'scan_time': scan_time,
-            'intensity': intensity
-        })
-
-        temp_df.explode(['scan_time', 'intensity'])
-
-        # check for intensity min and max before update the df
-        intensity_min = min(intensity_min, temp_df['intensity'].min())
-        intensity_max = max(intensity_max, temp_df['intensity'].max())
-
-        rt_min_s = rt_min - (rt - rt_min)
-        rt_max_s = rt_max + (rt_max - rt)
-        temp_df = temp_df[(rt_min_s < temp_df["scan_time"]) & (temp_df["scan_time"] < rt_max_s)]
-
-        fig.add_trace(go.Scatter(
-                                 mode='lines', name=label, line=dict(color=color)),
-            hf_x=temp_df['scan_time'], hf_y=temp_df['intensity'],
-        )
-
-    fig.layout.yaxis.range = [intensity_min, intensity_max]
-
-    fig.add_vrect(x0=rt_min, x1=rt_max, fillcolor="green", opacity=0.05, line_width=0)
-    if rt is not None:
-        fig.add_vline(x=rt, line_dash="dot", line_color="black")
+    indices = np.linspace(0, len(scan_time) - 1, max_points, dtype=int)
+    return scan_time[indices], intensity[indices]
 
 _layout = fac.AntdLayout(
     [
