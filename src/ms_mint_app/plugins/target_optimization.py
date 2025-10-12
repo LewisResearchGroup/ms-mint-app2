@@ -1,25 +1,20 @@
 import json
-import uuid
-import math
-import logging
-
-from plotly_resampler import FigureResampler
-from tqdm import tqdm
 
 import dash
-from dash import html, dcc, no_update, Patch
-from dash.exceptions import PreventUpdate
-from dash.dependencies import Input, Output, State, ALL
-import dash_bootstrap_components as dbc
-import plotly.graph_objects as go
 import feffery_antd_components as fac
+import math
+import numpy as np
+import plotly.graph_objects as go
+import time
+from dash import html, dcc, Patch
+from dash.dependencies import Input, Output, State, ALL
+from dash.exceptions import PreventUpdate
 
-from .. import tools as T
-from .. import duckdb_manager as DDB
-from ..duckdb_manager import duckdb_connection
+from ..duckdb_manager import duckdb_connection, compute_and_insert_chromatograms_from_ms_data
 from ..plugin_interface import PluginInterface
 
 _label = "Optimization"
+
 
 class TargetOptimizationPlugin(PluginInterface):
     def __init__(self):
@@ -34,8 +29,7 @@ class TargetOptimizationPlugin(PluginInterface):
         callbacks(app, fsc, cache)
     
     def outputs(self):
-        return _outputs
-
+        return None
 
 info_txt = """
 Creating chromatograms from mzXML/mzML files can last 
