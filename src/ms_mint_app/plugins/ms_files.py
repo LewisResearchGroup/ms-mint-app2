@@ -576,7 +576,7 @@ def callbacks(cls, app, fsc, cache, args_namespace):
                 ).alias('use_for_analysis'),
             )
             end_time = time.perf_counter()
-            time.sleep(max(0.0, 0.5 - (end_time - start_time)))
+            time.sleep(max(0.0, min(len(data), 0.5 - (end_time - start_time))))
 
             return [
                 data.to_dicts(),
