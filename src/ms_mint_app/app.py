@@ -2,6 +2,7 @@ import importlib
 import logging
 import os
 import tempfile
+import time
 from pathlib import Path
 
 import feffery_antd_components as fac
@@ -86,6 +87,7 @@ _layout = fac.AntdLayout(
     [
         dcc.Store(id="tmpdir", data=str(TMPDIR)),
         dcc.Store(id="wdir"),
+        dcc.Store(id='section-context'),
         dcc.Interval(id="progress-interval", n_intervals=0, interval=20000, disabled=False),
 
         file_explorer.layout(),
@@ -261,6 +263,7 @@ _layout = fac.AntdLayout(
             width=250,
             style={'backgroundColor': 'white'},
             id='main-sidebar',
+            className="sidebar-mint"
         ),
         fac.AntdContent(
             id='page-content',
@@ -301,10 +304,16 @@ def register_callbacks(app, cache, fsc, args):
 
     @app.callback(
         Output('page-content', 'children'),
+        Output('section-context', 'data'),
+
         Input('sidebar-menu', 'currentKey')
     )
     def menu_navigation(currentKey):
-        return plugins[currentKey].layout()
+        section_context = {
+            'page': currentKey,
+            'time': time.time()
+        }
+        return plugins[currentKey].layout(), section_context
 
     @app.callback(
         Output('logo', 'style'),
