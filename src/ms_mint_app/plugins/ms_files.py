@@ -31,8 +31,8 @@ class MsFilesPlugin(PluginInterface):
     def layout(self):
         return _layout
 
-    def callbacks(self, app, fsc, cache):
-        callbacks(self, app, fsc, cache)
+    def callbacks(self, app, fsc, cache, args):
+        callbacks(self, app, fsc, cache, args)
 
     def outputs(self):
         return None

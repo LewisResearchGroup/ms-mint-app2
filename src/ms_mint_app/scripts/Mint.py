@@ -100,6 +100,14 @@ def main():
         type=int,
         help='Number of CPUs to use',
     )
+    parser.add_argument(
+        "--local",
+        default=True,
+        action="store_true",
+        help="run MINT locally and use the File System Access API to get local files without uploading them to the "
+             "server",
+    )
+
     args = parser.parse_args()
 
     if args.version:
@@ -155,7 +163,7 @@ def main():
     from ms_mint_app.app import create_app, register_callbacks
 
     app, cache, fsc = create_app()
-    register_callbacks(app, cache, fsc)
+    register_callbacks(app, cache, fsc, args)
 
     app.css.config.serve_locally = True
     app.scripts.config.serve_locally = True
