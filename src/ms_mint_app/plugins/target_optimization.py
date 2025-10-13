@@ -481,8 +481,17 @@ _layout = fac.AntdLayout(
                                                 id='chromatogram-view-log-y',
                                                 checked=False,
                                             ),
-                                            label='Intensity Log scale:',
-                                        )
+                                            label='Intensity Log Scale:',
+                                        ),
+                                        fac.AntdFormItem(
+                                            fac.AntdSwitch(
+                                                id='chromatogram-view-groupclick',
+                                                checked=False,
+                                                checkedChildren='Group',
+                                                unCheckedChildren='Single'
+                                            ),
+                                            label='Legend behavior:',
+                                        ),
                                     ]
                                 )
                             ],
@@ -1061,6 +1070,19 @@ def callbacks(app, fsc, cache, cpu=None):
         except Exception:
             raise PreventUpdate
 
+    @app.callback(
+        Output('chromatogram-view-plot', 'figure', allow_duplicate=True),
+        Input('chromatogram-view-groupclick', 'checked'),
+        prevent_initial_call=True
+    )
+    def chromatogram_view_y_scale(groupclick):
+        fig = Patch()
+        if groupclick:
+            fig['layout']['legend']['groupclick'] = 'togglegroup'
+        else:
+            fig['layout']['legend']['groupclick'] = 'toggleitem'
+        return fig
+
 
     @app.callback(
         Output('chromatogram-view-plot', 'figure', allow_duplicate=True),
@@ -1190,6 +1212,7 @@ def callbacks(app, fsc, cache, cpu=None):
             y_max = max(y_max, row['intensity_max_in_range'])
 
         fig['data'] = traces
+        fig['layout']['legend']['groupclick'] = 'toggleitem'
 
         fig['layout']['annotations'][0] = {
             'bgcolor': 'white',
