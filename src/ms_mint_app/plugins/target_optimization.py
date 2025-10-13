@@ -1549,21 +1549,21 @@ def callbacks(app, fsc, cache, cpu=None):
                 fac.AntdCompact(
                     [
                         fac.AntdText('RT-min:', strong=True),
-                        fac.AntdText(f"{rt_min}s", code=True),
+                        fac.AntdText(f"{rt_min:.1f}s", code=True),
                     ],
                     style={'visibility': slider_data['v_comp']['rt_min']}
                 ),
                 fac.AntdCompact(
                     [
                         fac.AntdText('RT:', strong=True),
-                        fac.AntdText(f"{rt}s", code=True),
+                        fac.AntdText(f"{rt:.1f}s", code=True),
                     ],
                     style={'visibility': slider_data['v_comp']['rt']}
                 ),
                 fac.AntdCompact(
                     [
                         fac.AntdText('RT-max:', strong=True),
-                        fac.AntdText(f"{rt_max}s", code=True),
+                        fac.AntdText(f"{rt_max:.1f}s", code=True),
                     ],
                     style={'visibility': slider_data['v_comp']['rt_max']}
                 ),
