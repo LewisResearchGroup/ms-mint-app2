@@ -1,3 +1,6 @@
+import time
+from threading import Thread
+
 import duckdb
 from pathlib import Path
 from contextlib import contextmanager
@@ -154,7 +157,7 @@ def _create_workspace_tables(conn: duckdb.DuckDBPyConnection):
                  """
                  )
 
-def compute_and_insert_chromatograms_from_ms_data(con: duckdb.DuckDBPyConnection):
+def compute_and_insert_chromatograms_from_ms_data(con: duckdb.DuckDBPyConnection, set_progress=None):
     """
     Computes chromatograms from raw MS data and inserts them into the 'chromatograms' table.
 
@@ -167,48 +170,99 @@ def compute_and_insert_chromatograms_from_ms_data(con: duckdb.DuckDBPyConnection
 
     :param con: An active DuckDB connection.
     """
-    query = """
-    INSERT INTO chromatograms (peak_label, ms_file_label, scan_time, intensity)
-    WITH precomputed_chromatograms AS (
-        -- Step 1: Join targets and ms_data, filtering by mz range
-        SELECT
-            t.peak_label,
-            m.ms_file_label,
-            m.scan_time,
-            m.intensity
-        FROM targets AS t
-        JOIN ms_data AS m
-            ON (m.mz BETWEEN t.mz_mean - (t.mz_mean * t.mz_width / 1e6)
-                       AND t.mz_mean + (t.mz_mean * t.mz_width / 1e6))
-        JOIN samples_metadata AS s
-            ON m.ms_file_label = s.ms_file_label
-        WHERE s.use_for_optimization = TRUE
-    ),
-    aggregated_chromatograms AS (
-        -- Step 2: Group by peak and file, and aggregate into lists
-        SELECT
-            peak_label,
-            ms_file_label,
-            list(scan_time ORDER BY scan_time) AS scan_time,
-            list(intensity ORDER BY scan_time) AS intensity
-        FROM precomputed_chromatograms
-        GROUP BY peak_label, ms_file_label
-    )
-    -- Step 3: Select the final aggregated data to be inserted
-    SELECT
-        peak_label,
-        ms_file_label,
-        scan_time,
-        intensity
-    FROM aggregated_chromatograms
-    ON CONFLICT (ms_file_label, peak_label) DO NOTHING    
-    
-    """
+
+    # TODO: use intensity threshold
+
+    query_ms1 = """
+                INSERT INTO chromatograms (peak_label, ms_file_label, scan_time, intensity)
+                WITH pairs_to_process AS (SELECT t.peak_label,
+                                                 t.mz_mean,
+                                                 t.mz_width,
+                                                 s.ms_file_label
+                                          FROM targets AS t
+                                                   CROSS JOIN samples s
+                                          WHERE s.use_for_optimization = TRUE
+                                            AND NOT EXISTS (SELECT 1
+                                                            FROM chromatograms c
+                                                            WHERE c.peak_label = t.peak_label
+                                                              AND c.ms_file_label = s.ms_file_label)),
+                     precomputed_chromatograms AS (SELECT p.peak_label,
+                                                          p.ms_file_label,
+                                                          ms1.scan_time,
+                                                          ms1.intensity
+                                                   FROM pairs_to_process p
+                                                            JOIN ms1_data ms1
+                                                                 ON ms1.ms_file_label = p.ms_file_label
+                                                                     AND
+                                                                    ms1.mz BETWEEN p.mz_mean - (p.mz_mean * p.mz_width / 1e6)
+                                                                        AND p.mz_mean + (p.mz_mean * p.mz_width / 1e6)),
+                     aggregated_chromatograms AS (SELECT peak_label,
+                                                         ms_file_label,
+                                                         list(scan_time ORDER BY scan_time) AS scan_time,
+                                                         list(intensity ORDER BY scan_time) AS intensity
+                                                  FROM precomputed_chromatograms
+                                                  GROUP BY peak_label, ms_file_label)
+                SELECT *
+                FROM aggregated_chromatograms;
+                """
+
+
+
+    query_ms2 = """
+                INSERT INTO chromatograms (peak_label, ms_file_label, scan_time, intensity)
+                WITH pairs_to_process AS (SELECT t.peak_label,
+                                                 t.filterLine,
+                                                 s.ms_file_label
+                                          FROM targets AS t
+                                                   CROSS JOIN samples s
+                                          WHERE s.use_for_optimization = TRUE
+                                            AND NOT EXISTS (SELECT 1
+                                                            FROM chromatograms c
+                                                            WHERE c.peak_label = t.peak_label
+                                                              AND c.ms_file_label = s.ms_file_label)),
+                     precomputed_chromatograms AS (SELECT p.peak_label,
+                                                          p.ms_file_label,
+                                                          ms2.scan_time,
+                                                          ms2.intensity
+                                                   FROM pairs_to_process p
+                                                            JOIN ms2_data ms2
+                                                                 ON ms2.ms_file_label = p.ms_file_label
+                                                                     AND ms2.filterLine = p.filterLine),
+                     aggregated_chromatograms AS (SELECT peak_label,
+                                                         ms_file_label,
+                                                         list(scan_time ORDER BY scan_time) AS scan_time,
+                                                         list(intensity ORDER BY scan_time) AS intensity
+                                                  FROM precomputed_chromatograms
+                                                  GROUP BY peak_label, ms_file_label)
+                SELECT *
+                FROM aggregated_chromatograms;
+                """
     # ON CONFLICT (ms_file_label, peak_label) DO UPDATE
     #     SET scan_time = excluded.scan_time,
     # intensity = excluded.intensity;
-    con.execute(query)
+    # """
+    # ON CONFLICT (ms_file_label, peak_label) DO NOTHING;
+    # """
+
+    t = Thread(target=query_progress, args=(con, set_progress))
+    t.start()
+
+    con.execute(query_ms1)
+    t.join(timeout=0.2)
+
     print("Chromatograms computed and inserted into DuckDB.")
+
+def query_progress(con: duckdb.DuckDBPyConnection, set_progress=None):
+    while con:
+        try:
+            print(con)
+            qp = con.query_progress()
+            if qp != -1:
+                set_progress(round(qp, 1))
+            print(f"{qp = }")
+            time.sleep(0.2)
+        except duckdb.InterruptException:
+            break
 
 
 def compute_and_insert_chromatograms_iteratively(con: duckdb.DuckDBPyConnection, set_progress=None):
@@ -219,7 +273,7 @@ def compute_and_insert_chromatograms_iteratively(con: duckdb.DuckDBPyConnection,
     :param set_progress: A callback function to update the progress bar.
     """
     targets_df = con.execute("SELECT peak_label, ms_type FROM targets").df()
-    ms_files_count = con.execute("SELECT count(*) FROM samples_metadata WHERE use_for_optimization = TRUE").fetchone()[0]
+    ms_files_count = con.execute("SELECT count(*) FROM samples WHERE use_for_optimization = TRUE").fetchone()[0]
 
     if ms_files_count == 0:
         if set_progress:
@@ -249,7 +303,7 @@ def compute_and_insert_chromatograms_iteratively(con: duckdb.DuckDBPyConnection,
             FROM ms_data AS m
             JOIN targets AS t ON m.mz BETWEEN t.mz_mean - (t.mz_mean * t.mz_width / 1e6)
                                        AND t.mz_mean + (t.mz_mean * t.mz_width / 1e6)
-            JOIN samples_metadata AS s ON m.ms_file_label = s.ms_file_label
+            JOIN samples AS s ON m.ms_file_label = s.ms_file_label
             WHERE s.use_for_optimization = TRUE AND t.peak_label IN ({placeholders})
             GROUP BY t.peak_label, m.ms_file_label
         )
