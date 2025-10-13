@@ -663,7 +663,7 @@ def callbacks(app, fsc, cache, cpu=None):
                 return dash.no_update, dash.no_update, dash.no_update
             df = conn.execute("""
                               SELECT sample_type,
-                                     list({'title': label, 'key': label, 'style': {'color': color}})     as children,
+                                     list({'title': label, 'key': label})     as children,
                                      (SELECT list(label) FROM samples WHERE use_for_optimization = TRUE) as checked_keys
                               FROM samples
                               WHERE use_for_optimization = TRUE
