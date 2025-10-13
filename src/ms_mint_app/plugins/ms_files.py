@@ -597,11 +597,16 @@ def callbacks(cls, app, fsc, cache, args_namespace):
     )
     def toggle_modal(nClicks, clickedKey, selectedRows):
         ctx = dash.callback_context
-        if not ctx.triggered:
+        if (
+                not ctx.triggered or
+                not nClicks or
+                not clickedKey or
+                clickedKey not in ['delete-selected', 'delete-all']
+        ):
             raise PreventUpdate
 
         if clickedKey == "delete-selected":
-            if not bool(selectedRows):
+            if not selectedRows:
                 raise PreventUpdate
 
         children = fac.AntdFlex(
