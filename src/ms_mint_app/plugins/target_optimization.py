@@ -1377,20 +1377,15 @@ def callbacks(app, fsc, cache, cpu=None):
         prop_id = ctx.triggered[0]['prop_id'].split('.')[0]
 
         if prop_id == 'slider-reference-data':
-            s_min = slider_reference_data['min']
-            s_max = slider_reference_data['max']
-            if s_max - s_min > 1:
-                step = 0.1
-                decimals = 1
+            if not slider_data:
+                slider_data = slider_reference_data.copy()
             else:
-                step = 0.01
-                decimals = 2
-            value = list(slider_reference_data['value'].values())
-
-            return (slider_reference_data, s_min, s_max, step, value, step,
-                    {"placement": "bottom", "always_visible": False},
-                    {float(i): str(round(i, decimals)) for i in np.linspace(s_min, s_max, 6)},
-                    log_scale, False
+                slider_data['value'] = slider_reference_data['value']
+            value = [vc for vc, sv in zip(slider_data['value'].values(), slider_data['v_comp'].values()) if sv]
+            return (slider_data, dash.no_update, dash.no_update, dash.no_update, value, dash.no_update,
+                    dash.no_update,
+                    dash.no_update,
+                    dash.no_update, dash.no_update
                     )
         else:
             if not relayout:
