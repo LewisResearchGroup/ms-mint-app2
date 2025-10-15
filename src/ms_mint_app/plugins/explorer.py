@@ -61,37 +61,44 @@ class FileExplorer:
                                             'renderOptions': {'renderType': 'tags'},
                                         },
                                     ],
+                                    size='small',
                                     pagination=False,
                                     style={'flexGrow': 4, 'minHeight': '400px'},
                                 ),
-                                html.Div(
+                                fac.AntdFlex(
                                     [
+                                        fac.AntdFlex(
+                                            [
+                                                html.Div(
+                                                    html.Strong(
+                                                        "Selected files..."
+                                                    )
+                                                ),
+                                                html.Div(
+                                                    fac.AntdSelect(
+                                                        id='selected-files-extensions',
+                                                        size="small",
+                                                        mode="multiple",
+                                                        placeholder='extensions',
+                                                        style={
+                                                            "width": "100%",
+                                                            'minWidth': '200px',
+                                                        },
+                                                        locale="en-us",
+                                                        allowClear=False,
+                                                        disabled=True,
+                                                    ),
+                                                ),
+                                            ],
+                                            justify='space-between',
+                                        ),
+
                                         html.Div(
                                             [
-                                                fac.AntdFlex(
-                                                    [
-                                                        html.Div(
-                                                            html.Strong(
-                                                                "Selected files..."
-                                                            )
-                                                        ),
-                                                        html.Div(
-                                                            fac.AntdSelect(
-                                                                id='selected-files-extensions',
-                                                                size="small",
-                                                                mode="multiple",
-                                                                placeholder='extensions',
-                                                                style={
-                                                                    "width": "100%",
-                                                                    'minWidth': '200px',
-                                                                },
-                                                                locale="en-us",
-                                                                allowClear=False,
-                                                                disabled=True,
-                                                            ),
-                                                        ),
-                                                    ],
-                                                    justify='space-between',
+                                                fac.AntdEmpty(
+                                                    description='No files selected',
+                                                    id='files-selection-empty',
+                                                    style={'height': '100%'}
                                                 ),
                                                 fac.AntdSpace(
                                                     id='selected-files-display',
@@ -102,6 +109,10 @@ class FileExplorer:
                                                         'maxHeight': '180px',
                                                         'overflowY': 'auto',
                                                     },
+                                                ),
+                                            ],
+                                            style={'height': 180, 'marginBottom': 10}
+                                        ),
                                         fac.AntdForm(
                                             [
                                                 fac.AntdFormItem(
@@ -120,6 +131,7 @@ class FileExplorer:
                                         ),
                                     ],
                                     id="selected-files-area",
+                                    vertical=True,
                                     style={'margin': '10px 0', 'flexGrow': 2},
                                 ),
                             ],
@@ -279,14 +291,16 @@ class FileExplorer:
             Output('selected-folder-path', 'data', allow_duplicate=True),
             Output('selected-files', 'data', allow_duplicate=True),
             Output('selected-files-display', 'children', allow_duplicate=True),
+            Output('files-selection-empty', 'style', allow_duplicate=True),
             Output("sm-processing-progress", "percent"),
+
             Input('selection-modal', 'visible'),
             prevent_initial_call=True
         )
         def on_modal_close(modal_visible):
             if modal_visible:
                 raise PreventUpdate
-            return None, {}, [], 0
+            return None, {}, [], {'height': 180, 'display': 'block'}, 0
 
         # Callback para navegar por carpetas
         @app.callback(
@@ -336,6 +350,7 @@ class FileExplorer:
 
         @app.callback(
             Output("selected-files-display", "children"),
+            Output('files-selection-empty', 'style'),
             Output('selected-files', 'data'),
 
             Input("dir-content-table", "nClicksButton"),
@@ -383,11 +398,13 @@ class FileExplorer:
 
             # Convertir sets a listas para serialización
             selected_files = {k: list(v) for k, v in unique_selected_files.items()}
-            return children, selected_files
+            return children, {'height': 180, 'display': 'none'}, selected_files
 
         @app.callback(
             Output("selected-files-display", "children", allow_duplicate=True),
+            Output('files-selection-empty', 'style', allow_duplicate=True),
             Output('selected-files', 'data', allow_duplicate=True),
+
             Input({'type': 'tag-files', 'path': ALL}, "closeCounts"),
             State("selected-files-display", "children"),
             State('selected-files', 'data'),
@@ -405,7 +422,8 @@ class FileExplorer:
                             selected_files.pop(trigger_id['path'])
                         except KeyError:
                             pass
-            return children, selected_files
+            style = {'display': 'none'} if children else {'height': 180, 'display': 'block'}
+            return children, style, selected_files
 
         @app.callback(
             Output('notifications-container', "children", allow_duplicate=True),
