@@ -4,6 +4,7 @@ from pathlib import Path
 
 import dash
 import feffery_antd_components as fac
+import psutil
 from dash import Output, Input, State, ALL, html, dcc
 from dash.exceptions import PreventUpdate
 
@@ -101,9 +102,22 @@ class FileExplorer:
                                                         'maxHeight': '180px',
                                                         'overflowY': 'auto',
                                                     },
+                                        fac.AntdForm(
+                                            [
+                                                fac.AntdFormItem(
+                                                    fac.AntdInputNumber(
+                                                        id='processing-cpu-input',
+                                                        placeholder='New workspace name',
+                                                        defaultValue=4,
+                                                        min=1,
+                                                        max=psutil.cpu_count(),
+                                                    ),
+                                                    label='Number of CPUs:',
                                                 ),
                                             ],
-                                        )
+                                            layout='inline',
+                                            id='processing-cpu-form',
+                                        ),
                                     ],
                                     id="selected-files-area",
                                     style={'margin': '10px 0', 'flexGrow': 2},
@@ -227,6 +241,7 @@ class FileExplorer:
             Output('selected-files-extensions', 'options'),
             Output('selected-files-extensions', 'value'),
             Output('processing-type-store', 'data'),
+            Output('processing-cpu-form', 'style'),
 
             Input({'action': 'file-explorer', 'type': ALL}, 'nClicks'),
             prevent_initial_call=True
@@ -246,15 +261,19 @@ class FileExplorer:
             if prop_data['type'] == "ms-files":
                 title = "Load MS Files"
                 file_extensions = [".mzXML"]
+                style = {'display': 'block'}
             elif prop_data['type'] == "metadata":
                 title = "Load Metadata"
                 file_extensions = [".csv"]
+                style = {'display': 'none'}
             else:
                 title = "Load Targets"
                 file_extensions = [".csv"]
+                style = {'display': 'none'}
+
 
             processing_type_store = {'type': prop_data['type'], 'extensions': file_extensions}
-            return True, title, file_extensions, file_extensions, processing_type_store
+            return True, title, file_extensions, file_extensions, processing_type_store, style
 
         @app.callback(
             Output('selected-folder-path', 'data', allow_duplicate=True),
@@ -396,6 +415,7 @@ class FileExplorer:
             Input('selection-modal', 'okCounts'),
             State('processing-type-store', 'data'),
             State("selected-files", "data"),
+            State('processing-cpu-input', 'value'),
             State("wdir", "data"),
             background=True,
             running=[
@@ -422,12 +442,12 @@ class FileExplorer:
             ],
             prevent_initial_call=True
         )
-        def background_processing(set_progress, okCounts, processing_type, selected_files, wdir):
+        def background_processing(set_progress, okCounts, processing_type, selected_files, cpu_input, wdir):
             if not okCounts or not selected_files or not dash.callback_context.triggered:
                 raise PreventUpdate
 
             if processing_type['type'] == "ms-files":
-                total_processed, failed_files = process_ms_files(wdir, set_progress, selected_files)
+                total_processed, failed_files = process_ms_files(wdir, set_progress, selected_files, cpu_input)
                 message = "MS Files processed"
             elif processing_type['type'] == "metadata":
                 total_processed, failed_files = process_metadata(wdir, set_progress, selected_files)

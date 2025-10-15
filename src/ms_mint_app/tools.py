@@ -371,7 +371,7 @@ def _insert_ms_data(wdir, ms_type, batch_ms, batch_ms_data):
 
 
 # IMPORTANT: We've defined these functions here temporarily, but it should be moved to the backend.
-def process_ms_files(wdir, set_progress, selected_files):
+def process_ms_files(wdir, set_progress, selected_files, n_cpus):
     file_list = [file for folder in selected_files.values() for file in folder]
     n_total = len(file_list)
     failed_files = []
@@ -402,12 +402,14 @@ def process_ms_files(wdir, set_progress, selected_files):
         with tempfile.TemporaryDirectory() as tmpdir:
             futures = []
             ctx = multiprocessing.get_context('spawn')
-            with concurrent.futures.ProcessPoolExecutor(max_workers=4, mp_context=ctx) as executor:
-                for file_name, file_path in files_name.items():
-                    if file_name in duplicates.tolist():
-                        continue
-                    futures.append(executor.submit(convert_mzxml_to_parquet_pl, file_path, tmp_dir=tmpdir))
-
+            with concurrent.futures.ProcessPoolExecutor(max_workers=n_cpus, mp_context=ctx) as executor:
+                futures.extend(
+                    executor.submit(
+                        convert_mzxml_to_parquet_pl, file_path, tmp_dir=tmpdir
+                    )
+                    for file_name, file_path in files_name.items()
+                    if file_name not in duplicates.tolist()
+                )
                 batch_ms = {'ms1': [], 'ms2': []}
                 batch_ms_data = {'ms1': [], 'ms2': []}
                 batch_size = 4
