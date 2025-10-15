@@ -159,6 +159,78 @@ def _create_workspace_tables(conn: duckdb.DuckDBPyConnection):
                  """
                  )
 
+def build_where_and_params(filter_, filterOptions):
+    where_sql, params = [], []
+
+    if not isinstance(filter_, dict) or not filter_:
+        return "", []
+
+    for key, value in filter_.items():
+        if not value:
+            continue
+        # keyword (ILIKE)
+        if filterOptions[key].get('filterMode') == 'keyword':
+            where_sql.append(f'"{key}" ILIKE ?')
+            params.append(f"%{value[0]}%")
+        # múltiple selección (IN)
+        else:
+            ph = ",".join("?" for _ in value)
+            where_sql.append(f'"{key}" IN ({ph})')
+            params.extend(value)
+    where_clause = f"WHERE {' AND '.join(where_sql)}" if where_sql else ""
+    return where_clause, params
+
+def build_order_by(
+    sorter: dict | None,
+    column_types: dict[str, str],
+    *,
+    tie: tuple[str, str] | None = None,   # p.ej. ("id", "ASC"); se usa SOLO si hay sorter
+    nocase_text: bool = True
+) -> str:
+    """
+    Devuelve 'ORDER BY ...' o '' si no hay sorter válido.
+    - sorter: {'columns': [...], 'orders': ['ascend'|'descend', ...]}
+    - column_types: mapa {col -> tipo DUCKDB} (de DESCRIBE)
+    - tie: (col, dir) opcional; se agrega SOLO si hay al menos 1 columna ordenable en sorter
+    """
+    # 0) Normaliza entrada
+    cols_in = (sorter or {}).get("columns") or []
+    ords_in = (sorter or {}).get("orders") or []
+    if not cols_in:
+        return ""  # sin sorter => sin ORDER BY
+
+    # Rellena órdenes faltantes
+    if len(ords_in) < len(cols_in):
+        ords_in = ords_in + ["ascend"] * (len(cols_in) - len(ords_in))
+
+    order_map = {"ascend": "ASC", "descend": "DESC"}
+    parts: list[str] = []
+    used_cols: set[str] = set()
+
+    for col, ord_ in zip(cols_in, ords_in):
+        if col not in column_types:
+            continue  # ignora columnas inválidas
+        direction = order_map.get(ord_, "ASC")
+        nulls = "NULLS LAST" if direction == "ASC" else "NULLS FIRST"
+        ctype = (column_types.get(col) or "").upper()
+        is_text = any(t in ctype for t in ("CHAR", "VARCHAR", "TEXT", "STRING"))
+        expr = f'"{col}" COLLATE NOCASE' if (nocase_text and is_text) else f'"{col}"'
+        parts.append(f"{expr} {direction} {nulls}")
+        used_cols.add(col)
+
+    # Si tras validar no quedó nada, no ordenes (y tampoco agregues tie)
+    if not parts:
+        return ""
+
+    # Agrega tie SOLO si hay sorter válido y tie se pidió y no repite columna
+    if tie:
+        tie_col, tie_dir = tie[0], tie[1].upper()
+        if tie_col not in used_cols and tie_col in column_types:
+            parts.append(f'"{tie_col}" {tie_dir}')
+
+    return f"ORDER BY {', '.join(parts)}"
+
+
 def compute_and_insert_chromatograms_from_ms_data(con: duckdb.DuckDBPyConnection, set_progress=None):
     """
     Computes chromatograms from raw MS data and inserts them into the 'chromatograms' table.
