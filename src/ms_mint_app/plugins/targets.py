@@ -7,7 +7,7 @@ from dash import html, dcc
 from dash.dependencies import Input, Output, State
 from dash.exceptions import PreventUpdate
 
-from ..duckdb_manager import duckdb_connection
+from ..duckdb_manager import duckdb_connection, build_where_and_params, build_order_by
 from ..plugin_interface import PluginInterface
 
 _label = "Targets"
@@ -314,89 +314,73 @@ def callbacks(app, fsc=None, cache=None):
         Output("targets-table", "data"),
         Output("targets-table", "selectedRowKeys"),
         Output("targets-table", "pagination"),
+        Output("targets-table", "filterOptions"),
 
+        Input('section-context', 'data'),
         Input("targets-action-store", "data"),
         Input("processed-action-store", "data"),  # from explorer
         Input('targets-table', 'pagination'),
         Input('targets-table', 'filter'),
+        Input('targets-table', 'sorter'),
         State('targets-table', 'filterOptions'),
         State("processing-type-store", "data"),  # from explorer
-        Input("wdir", "data"),
+        State("wdir", "data"),
     )
-    def targets_table(processing_output, processed_action, pagination, filter_, filterOptions, processing_type,
+    def targets_table(section_context, processing_output, processed_action, pagination, filter_, sorter, filterOptions, processing_type,
                       wdir):
         # processing_type also store info about ms-files and metadata selection since it is the same modal for all of
         # them
-        if (
-                wdir is None or
-                (processing_type and processing_type.get('type') != 'targets') or
-                (processed_action and processed_action.get('status') != 'success')
-        ):
-            print("PreventUpdate")
+        if section_context and section_context['page'] != 'Targets':
             raise PreventUpdate
 
         if pagination:
             page_size = pagination['pageSize']
             current = pagination['current']
 
-            base_query = "SELECT * FROM targets"
-            where_clauses = []
-            params = []
+            with duckdb_connection(wdir) as conn:
+                schema = conn.execute("DESCRIBE samples").pl()
+            column_types = {r["column_name"]: r["column_type"] for r in schema.to_dicts()}
+            where_sql, params = build_where_and_params(filter_, filterOptions)
+            order_by_sql = build_order_by(sorter, column_types, tie=('peak_label', 'ASC'))
 
-            if filter_ and any(v for v in filter_.values()):
-                with duckdb_connection(wdir) as conn:
-                    if conn is None:
-                        raise PreventUpdate
+            sql = f"""
+                        WITH filtered AS (
+                          SELECT *
+                          FROM targets
+                          {where_sql}
+                        ),
+                        paged AS (
+                          SELECT *, COUNT(*) OVER() AS __total__
+                          FROM filtered
+                          {(' ' + order_by_sql) if order_by_sql else ''}
+                          LIMIT ? OFFSET ?
+                        )
+                        SELECT * FROM paged;
+                        """
 
-                    schema = conn.execute("DESCRIBE targets").pl()
-                    column_types = {row['column_name']: row['column_type'] for row in schema.to_dicts()}
+            params_paged = params + [page_size, (current - 1) * page_size]
 
-                    for key, value in filter_.items():
-                        if value:
-                            # if keyword (LIKE)
-                            if filterOptions[key].get('filterMode') == 'keyword':
-                                column_type = column_types.get(key, '').upper()
-                                if any(numeric_type in column_type for numeric_type in
-                                       ['DOUBLE', 'FLOAT', 'INTEGER', 'BIGINT', 'DECIMAL', 'REAL', 'SMALLINT',
-                                        'TINYINT']):
-                                    try:
-                                        numeric_value = float(value[0])
-                                        where_clauses.append(f'\"{key}\" = ?')
-                                        params.append(numeric_value)
-                                    except (ValueError, TypeError):
-                                        # If casting fails, this filter won't match. Add a clause that is always false.
-                                        where_clauses.append("1=0")
-                                else:
-                                    where_clauses.append(f'\"{key}\" ILIKE ?')
-                                    params.append(f"%{value[0]}%")
-                            # if multiple selection (IN)
-                            else:
-                                where_clauses.append(f"\"{key}\" IN ({','.join(['?'] * len(value))})")
-                                params.extend(value)
+            with duckdb_connection(wdir) as conn:
+                dfpl = conn.execute(sql, params_paged).pl()
 
-                where_sql = " WHERE " + " AND ".join(where_clauses) if where_clauses else ""
-                count_query = f"SELECT COUNT(*) FROM targets{where_sql}"
+            # total de filas:
+            number_records = int(dfpl["__total__"][0]) if len(dfpl) else 0
 
-                with (duckdb_connection(wdir) as conn):
-                    if conn is None:
-                        raise PreventUpdate
-                    number_records = conn.execute(count_query, params).fetchone()[0]
-                    # fix current page if the last record is deleted and then the number of pages changes
-                    current = max(current if number_records > (current - 1) * page_size else current - 1, 1)
-                    data_query = f"{base_query}{where_sql} LIMIT ? OFFSET ?"
-                    params_data = params + [page_size, (current - 1) * page_size]
+            # corrige página si hizo underflow:
+            current = max(current if number_records > (current - 1) * page_size else current - 1, 1)
 
-                    dfpl = conn.execute(data_query, params_data).pl()
-            else:
-                with (duckdb_connection(wdir) as conn):
-                    if conn is None:
-                        raise PreventUpdate
-                    # no filters only pagination
-                    number_records = conn.execute("SELECT COUNT(*) FROM targets").fetchone()[0]
-                    # fix current page if the last record is deleted and then the number of pages changes
-                    current = max(current if number_records > (current - 1) * page_size else current - 1, 1)
-                    data_query = f"{base_query} LIMIT ? OFFSET ?"
-                    dfpl = conn.execute(data_query, [page_size, (current - 1) * page_size]).pl()
+            with (duckdb_connection(wdir) as conn):
+                st_custom_items = filterOptions['category'].get('filterCustomItems')
+                category_filters = conn.execute("SELECT DISTINCT category "
+                                                "FROM targets "
+                                                "ORDER BY category ASC").df()['category'].to_list()
+                if st_custom_items != category_filters:
+                    output_filterOptions = filterOptions.copy()
+                    output_filterOptions['category']['filterCustomItems'] = (category_filters
+                                                                             if category_filters != [None] else
+                                                                             [])
+                else:
+                    output_filterOptions = dash.no_update
 
             data = dfpl.with_columns(
                 pl.col('preselected_processing').map_elements(
@@ -405,11 +389,11 @@ def callbacks(app, fsc=None, cache=None):
                 ).alias('preselected_processing'),
             )
 
-            print(data)
             return [
                 data.to_dicts(),
                 [],
                 {**pagination, 'total': number_records, 'current': current},
+                output_filterOptions
             ]
         return dash.no_update
 
