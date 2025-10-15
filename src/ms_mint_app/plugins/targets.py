@@ -557,6 +557,21 @@ def callbacks(app, fsc=None, cache=None):
                                         ), targets_action_store
 
     @app.callback(
+        Input('targets-table', 'recentlySwitchDataIndex'),
+        Input('targets-table', 'recentlySwitchStatus'),
+        Input('targets-table', 'recentlySwitchRow'),
+        State('wdir', 'data'),
+        prevent_initial_call=True
+    )
+    def save_switch_changes(recentlySwitchDataIndex, recentlySwitchStatus, recentlySwitchRow, wdir):
+
+        with duckdb_connection(wdir) as conn:
+            if conn is None:
+                raise PreventUpdate
+            conn.execute(f"UPDATE targets SET {recentlySwitchDataIndex} = ? WHERE peak_label = ?",
+                         (recentlySwitchStatus, recentlySwitchRow['peak_label']))
+
+    @app.callback(
         Output('targets-tour', 'current'),
         Output('targets-tour', 'open'),
         Input('targets-tour-icon', 'nClicks'),
