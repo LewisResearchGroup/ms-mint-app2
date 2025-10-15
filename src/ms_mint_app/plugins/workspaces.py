@@ -74,15 +74,24 @@ _layout = html.Div(
             )],
             style={"marginTop": "2rem"},
         ),
-        fac.AntdModal([
-            fac.AntdForm([
-                fac.AntdFormItem(
-                    fac.AntdInput(id='ws-create-input', placeholder='New workspace name', value=None),
-                    label='Name:',
-                    hasFeedback=True,
-                    id='ws-create-form-item'
-                )]
-            )],
+        fac.AntdModal(
+            [
+                fac.AntdForm(
+                    [
+                        fac.AntdFormItem(
+                            fac.AntdInput(id='ws-create-input-name', placeholder='New workspace name', value=None),
+                            label='Name:',
+                            hasFeedback=True,
+                            id='ws-create-form-item'
+                        ),
+                        fac.AntdFormItem(
+                            fac.AntdInput(id='ws-create-input-description', placeholder='Project description.',
+                                          value=None, mode='text-area'),
+                            label='Description:',
+                        ),
+                    ],
+                ),
+            ],
             title='Create Workspace',
             id='ws-create-modal',
             renderFooter=True,
@@ -122,7 +131,7 @@ def callbacks(app, fsc, cache):
         Output('ws-create-form-item', 'help'),
         Output('ws-create-modal', 'okButtonProps'),
 
-        Input('ws-create-input', 'value'),
+        Input('ws-create-input-name', 'value'),
         State("tmpdir", "data"),
         prevent_initial_call=True
     )
@@ -149,29 +158,31 @@ def callbacks(app, fsc, cache):
 
     @app.callback(
         Output('ws-action-store', 'data', allow_duplicate=True),
-        Output('ws-create-input', 'value'),
+        Output('ws-create-input-name', 'value'),
+        Output('ws-create-input-description', 'value'),
         Output('ws-create-form-item', 'validateStatus', allow_duplicate=True),
 
         Input('ws-create-modal', 'okCounts'),
         State("tmpdir", "data"),
-        State('ws-create-input', 'value'),
+        State('ws-create-input-name', 'value'),
+        State('ws-create-input-description', 'value'),
         prevent_initial_call=True
     )
-    def create_workspace(okCounts, tmpdir, ws_name):
+    def create_workspace(okCounts, tmpdir, ws_name, ws_description):
         if not okCounts:
             raise PreventUpdate
         with duckdb_connection_mint(tmpdir) as mint_conn:
             previous_active = mint_conn.execute("SELECT key FROM workspaces WHERE active = true").fetchone()
 
-            key = mint_conn.execute("INSERT INTO workspaces (name, active, created_at, last_activity) "
-                                    "VALUES (?, true, NOW(), NOW()) RETURNING key", (ws_name,)).fetchone()
+            key = mint_conn.execute("INSERT INTO workspaces (name, description, active, created_at, last_activity) "
+                                    "VALUES (?, ?, true, NOW(), NOW()) RETURNING key", (ws_name, ws_description)).fetchone()
             if previous_active:
                 mint_conn.execute("UPDATE workspaces SET active = false WHERE key = ?", (previous_active[0],))
             if key:
                 ws_path = Path(tmpdir, 'workspaces', str(key[0]))
                 ws_path.mkdir(parents=True, exist_ok=True)
 
-        return 'create', None, None
+        return 'create', None, None, None
 
     @app.callback(
         Output('ws-create-modal', 'visible'),
@@ -268,7 +279,7 @@ def callbacks(app, fsc, cache):
                         fac.AntdText('Workspace path:', strong=True, locale='en-us', style={'marginRight': '10px'}),
                         fac.AntdText(_path.as_posix(), copyable=True, locale='en-us')
                     ],
-                    style={'minWidth': '200px',  'flexGrow': 1, 'padding': '10px'}
+                    style={'minWidth': '200px', 'flexGrow': 1, 'padding': '10px'}
                 )
 
                 with duckdb_connection(_path) as conn:
