@@ -6,7 +6,7 @@ from pathlib import Path
 from contextlib import contextmanager
 
 @contextmanager
-def duckdb_connection(workspace_path: Path | str, register_activity=False):
+def duckdb_connection(workspace_path: Path | str, register_activity=True):
     """
     Provides a DuckDB connection as a context manager.
 
@@ -36,14 +36,15 @@ def duckdb_connection(workspace_path: Path | str, register_activity=False):
         if con:
             if register_activity:
                 try:
-                    with duckdb_connection_mint(workspace_path.parent.parent / 'mint.db') as mint_conn:
-                        mint_conn.execute("UPDATE workspaces SET last_activity = NOW() WHERE name = ?", (Path(workspace_path).stem))
+                    with duckdb_connection_mint(workspace_path.parent.parent) as mint_conn:
+                        mint_conn.execute("UPDATE workspaces SET last_activity = NOW() WHERE name = ?",
+                                          [Path(workspace_path).stem])
                 except Exception as e:
                     print(f"Error updating workspace activity: {e}")
             con.close()
 
 @contextmanager
-def duckdb_connection_mint(mint_path: Path):
+def duckdb_connection_mint(mint_path: Path, workspace=None):
     if not mint_path:
         yield None
         return
@@ -58,7 +59,8 @@ def duckdb_connection_mint(mint_path: Path):
         print(f"Error connecting to DuckDB: {e}")
         yield None
     finally:
-        if con:
+        if con and workspace:
+            con.execute("UPDATE workspaces SET last_activity = NOW() WHERE key = ?", [workspace])
             con.close()
 
 def _create_tables(conn: duckdb.DuckDBPyConnection):

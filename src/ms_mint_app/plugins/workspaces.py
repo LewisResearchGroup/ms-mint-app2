@@ -379,7 +379,7 @@ def callbacks(app, fsc, cache):
         print(f"{column_edited = }")
 
         try:
-            with duckdb_connection_mint(tmpdir) as mint_conn:
+            with duckdb_connection_mint(tmpdir, workspace=row_edited['key']) as mint_conn:
                 if mint_conn is None:
                     raise PreventUpdate
                 query = f"UPDATE workspaces SET {column_edited} = ? WHERE key = ?"
