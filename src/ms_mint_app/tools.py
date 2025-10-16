@@ -310,31 +310,140 @@ def get_targets_v2(files_path):
         "bookmark": 'boolean',
         "source": 'string',
     }
-    required = {"peak_label", "rt"}
+    required_cols = {"peak_label", "rt_min", "rt_max"}
 
     failed_files = {}
-    dfs = []
+    failed_targets = []
+    valid_targets = []
+
+    total_files = len(files_path)
+    files_processed = 0
+    files_failed = 0
+    targets_processed = 0
+    targets_failed = 0
+
     for file_path in files_path:
+        file_name = Path(file_path).name
+
         try:
             df = pd.read_csv(file_path, dtype=ref_cols)
-            df['source'] = Path(file_path).name
-            if missing_required := required - set(df.columns):
+
+            if missing_required := required_cols - set(df.columns):
                 raise ValueError(f"Missing required columns: {missing_required}")
-            dfs.append(df)
+
+            for idx, row in df.iterrows():
+                targets_processed += 1
+
+                try:
+                    target = row.to_dict()
+                    target['source'] = file_name
+
+                    if pd.isna(target.get('peak_label')) or target.get('peak_label') == '':
+                        raise ValueError("peak_label is empty or null")
+
+                    has_rt_min = not pd.isna(target.get('rt_min'))
+                    has_rt_max = not pd.isna(target.get('rt_max'))
+
+                    if not has_rt_min or not has_rt_max:
+                        raise ValueError(
+                            f"Target '{target['peak_label']}' must have both 'rt_min' and 'rt_max' defined"
+                        )
+
+                    if pd.isna(target.get('rt')):
+                        target['rt'] = (target['rt_min'] + target['rt_max']) / 2
+
+                    if 'polarity' in target:
+                        target['polarity'] = (
+                            target['polarity']
+                            .replace('+', 'Positive')
+                            .replace('positive', 'Positive')
+                            .replace('-', 'Negative')
+                            .replace('negative', 'Negative')
+                        )
+
+                    valid_targets.append(target)
+
+                except Exception as e:
+                    targets_failed += 1
+                    failed_targets.append({
+                        'file': file_name,
+                        'row': idx,
+                        'peak_label': row.get('peak_label', 'UNKNOWN'),
+                        'error': str(e)
+                    })
+                    logging.warning(f"Failed to process target at row {idx} in {file_name}: {str(e)}")
+
+            files_processed += 1
+
         except Exception as e:
+            files_failed += 1
             failed_files[file_path] = str(e)
+            logging.error(f"Failed to process file {file_path}: {str(e)}")
 
-    targets_df = pd.concat(dfs).drop_duplicates(subset="peak_label")
+            try:
+                df_count = pd.read_csv(file_path, usecols=[0])  # Solo leer primera columna para contar
+                file_target_count = len(df_count)
+                targets_failed += file_target_count
+                targets_processed += file_target_count
+            except:
+                logging.warning(f"Could not count targets in failed file {file_path}")
 
+    # Verificar si hay targets válidos
+    if not valid_targets:
+        error_msg = "No valid targets found in any file."
+        error_msg += f"\n  Total files: {total_files}"
+        error_msg += f"\n  Files processed: {files_processed}"
+        error_msg += f"\n  Files failed: {files_failed}"
+        error_msg += f"\n  Targets processed: {targets_processed}"
+        error_msg += f"\n  Targets failed: {targets_failed}"
+        raise ValueError(error_msg)
+
+    # Crear DataFrame con targets válidos
+    targets_df = pd.DataFrame(valid_targets)
+
+    # Eliminar duplicados basados en peak_label
+    targets_df = targets_df.drop_duplicates(subset="peak_label")
+
+    # Asegurar que todas las columnas de referencia existan
     ref_names = list(ref_cols.keys())
-    if missing := set(ref_names) - set(targets_df.columns):
-        for col in missing:
+    for col in ref_names:
+        if col not in targets_df.columns:
             targets_df[col] = np.nan
-            targets_df[col] = targets_df[col].astype(ref_cols[col])
-        targets_df['preselected_processing'] = targets_df['preselected_processing'].fillna(False)
-        targets_df['bookmark'] = targets_df['bookmark'].fillna(False)
 
-    return targets_df[ref_names], failed_files
+    # Aplicar tipos de datos correctos
+    for col, dtype in ref_cols.items():
+        if col in targets_df.columns:
+            if dtype == 'string':
+                targets_df[col] = targets_df[col].astype('string')
+            elif dtype == 'boolean':
+                targets_df[col] = targets_df[col].fillna(False).astype(bool)
+            elif dtype == float:
+                targets_df[col] = pd.to_numeric(targets_df[col], errors='coerce')
+
+    # Rellenar valores por defecto
+    targets_df['preselected_processing'] = targets_df['preselected_processing'].fillna(False)
+    targets_df['bookmark'] = targets_df['bookmark'].fillna(False)
+
+    # Log de resumen
+    logging.info("Processing summary:")
+    logging.info(f"  Total files: {total_files}")
+    logging.info(f"  Files processed: {files_processed}")
+    logging.info(f"  Files failed: {files_failed}")
+    logging.info(f"  Targets processed: {targets_processed}")
+    logging.info(f"  Targets failed: {targets_failed}")
+    logging.info(f"  Unique valid targets: {len(targets_df)}")
+
+    # Preparar diccionario de estadísticas
+    stats = {
+        'total_files': total_files,
+        'files_processed': files_processed,
+        'files_failed': files_failed,
+        'targets_processed': targets_processed,
+        'targets_failed': targets_failed,
+        'unique_valid_targets': len(targets_df)
+    }
+
+    return targets_df[ref_names], failed_files, failed_targets, stats
 
 
 def _insert_ms_data(wdir, ms_type, batch_ms, batch_ms_data):
@@ -499,7 +608,12 @@ def process_targets(wdir, set_progress, selected_files):
     file_list = [file for folder in selected_files.values() for file in folder]
     n_total = len(file_list)
     set_progress(10)
-    targets_df, failed_files = get_targets_v2(file_list)
+    try:
+        targets_df, failed_files, failed_targets, stats = get_targets_v2(file_list)
+    except Exception as e:
+        logging.error(f"Error processing targets: {e}")
+        failed_files = {file: str(e) for file in file_list}
+        return 0, failed_files
 
     with duckdb_connection(wdir) as conn:
         if conn is None:
