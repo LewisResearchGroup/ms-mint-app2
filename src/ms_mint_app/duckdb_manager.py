@@ -79,7 +79,7 @@ def _create_tables(conn: duckdb.DuckDBPyConnection):
                      polarity             polarity_enum,
                      color                VARCHAR DEFAULT '#ffffff',
                      label                VARCHAR,
-                     sample_type          VARCHAR,
+                     sample_type          VARCHAR DEFAULT 'Unset',
                      run_order            INTEGER,
                      plate                VARCHAR,
                      plate_row            VARCHAR,

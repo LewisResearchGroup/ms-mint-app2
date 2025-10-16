@@ -534,8 +534,12 @@ def callbacks(app, fsc=None, cache=None):
             with duckdb_connection(wdir) as conn:
                 if conn is None:
                     raise PreventUpdate
+
                 query = f"UPDATE targets SET {column_edited} = ? WHERE peak_label = ?"
-                conn.execute(query, [row_edited[column_edited], row_edited['peak_label']])
+                if column_edited == 'sample_type' and row_edited[column_edited] in [None, ''] :
+                    conn.execute(query, ['Unset', row_edited['peak_label']])
+                else:
+                    conn.execute(query, [row_edited[column_edited], row_edited['peak_label']])
                 targets_action_store = {'action': 'delete', 'status': 'success'}
             return fac.AntdNotification(message="Successfully edition saved",
                                         type="success",
