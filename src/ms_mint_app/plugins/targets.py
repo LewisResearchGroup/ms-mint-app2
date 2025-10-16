@@ -135,7 +135,7 @@ _layout = html.Div(
                             {
                                 'title': 'filterLine',
                                 'dataIndex': 'filterLine',
-                                'width': '120px',
+                                'width': '300px',
                             },
                             {
                                 'title': 'Proton',
