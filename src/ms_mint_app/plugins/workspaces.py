@@ -245,18 +245,14 @@ def callbacks(app, fsc, cache):
         Output("ws-table", "expandedRowKeyToContent"),
         Output("ws-table", "selectedRowKeys"),
 
-        Input('sidebar-menu', 'currentKey'),
+        Input('section-context', 'data'),
         Input('ws-action-store', 'data'),
         State("tmpdir", "data"),
     )
-    def ws_table(currentKey, ws_action, tmpdir):
+    def ws_table(section_context, ws_action, tmpdir):
 
-        if currentKey != "Workspaces":
+        if section_context and  section_context['page'] != 'Workspaces':
             raise PreventUpdate
-
-        print(f'{currentKey = }')
-        print(f'{ws_action = }')
-        print(f'{tmpdir = }')
 
         with duckdb_connection_mint(tmpdir) as mint_conn:
             if ws_action is None:
