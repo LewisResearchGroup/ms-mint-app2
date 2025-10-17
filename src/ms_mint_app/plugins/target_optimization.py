@@ -1084,7 +1084,7 @@ def callbacks(app, fsc, cache, cpu=None):
         Input('chromatogram-view-groupclick', 'checked'),
         prevent_initial_call=True
     )
-    def chromatogram_view_y_scale(groupclick):
+    def chromatogram_view_legend_group(groupclick):
         fig = Patch()
         if groupclick:
             fig['layout']['legend']['groupclick'] = 'togglegroup'
@@ -1678,7 +1678,7 @@ def callbacks(app, fsc, cache, cpu=None):
     #                                 )
 
     @app.callback(
-        Output('notifications-container', "children", allow_duplicate=True),
+        Output('notifications-container', 'children', allow_duplicate=True),
 
         Input({'type': 'bookmark-target-card', 'index': ALL}, 'value'),
         State({'type': 'target-card-preview', 'index': ALL}, 'data-target'),
