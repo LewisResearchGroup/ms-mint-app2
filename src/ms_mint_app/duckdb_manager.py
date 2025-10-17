@@ -231,21 +231,126 @@ def build_order_by(
     return f"ORDER BY {', '.join(parts)}"
 
 
-def compute_and_insert_chromatograms_from_ms_data(con: duckdb.DuckDBPyConnection, set_progress=None):
+def compute_and_insert_chromatograms_from_ms_data(con: duckdb.DuckDBPyConnection,
+                                                  set_progress=None,
+                                                  force_recalculate_ms1=False,
+                                                  force_recalculate_ms2=False):
     """
     Computes chromatograms from raw MS data and inserts them into the 'chromatograms' table.
 
-    This function performs the following steps:
-    1. Filters targets that are used for optimization.
-    2. Joins filtered targets with MS data based on the m/z range.
-    3. Groups the data by peak label and MS file.
-    4. Aggregates scan times and intensities into lists.
-    5. Inserts the resulting chromatograms into the 'chromatograms' table, overwriting any existing entries.
-
     :param con: An active DuckDB connection.
+    :param set_progress: Optional callback function to report progress (0-100).
+    :param force_recalculate_ms1: If True, deletes existing MS1 chromatograms before recomputing.
+    :param force_recalculate_ms2: If True, deletes existing MS2 chromatograms before recomputing.
     """
 
-    # TODO: use intensity threshold
+    info = con.execute("""
+                       WITH ms1_targets AS (SELECT t.peak_label, s.ms_file_label
+                                            FROM targets t
+                                                     CROSS JOIN samples s
+                                            WHERE s.use_for_optimization = TRUE
+                                              AND t.mz_mean IS NOT NULL
+                                              AND t.mz_width IS NOT NULL
+                                              AND EXISTS(SELECT 1 FROM ms1_data WHERE ms_file_label = s.ms_file_label)),
+                            ms2_targets AS (SELECT t.peak_label, s.ms_file_label
+                                            FROM targets t
+                                                     CROSS JOIN samples s
+                                            WHERE s.use_for_optimization = TRUE
+                                              AND t.filterLine IS NOT NULL
+                                              AND EXISTS(SELECT 1 FROM ms2_data WHERE ms_file_label = s.ms_file_label)),
+                            ms1_existing AS (SELECT c.peak_label, c.ms_file_label
+                                             FROM chromatograms c
+                                             WHERE EXISTS(SELECT 1
+                                                          FROM ms1_targets mt
+                                                          WHERE mt.peak_label = c.peak_label
+                                                            AND mt.ms_file_label = c.ms_file_label)),
+                            ms2_existing AS (SELECT c.peak_label, c.ms_file_label
+                                             FROM chromatograms c
+                                             WHERE EXISTS(SELECT 1
+                                                          FROM ms2_targets mt
+                                                          WHERE mt.peak_label = c.peak_label
+                                                            AND mt.ms_file_label = c.ms_file_label))
+                       SELECT
+                           -- MS1 info
+                           (SELECT COUNT(*) FROM ms1_targets)                           AS ms1_total_pairs,
+                           (SELECT COUNT(*) FROM ms1_existing)                          AS ms1_existing_pairs,
+                           (SELECT COUNT(*)
+                            FROM ms1_targets mt
+                            WHERE NOT EXISTS(SELECT 1
+                                             FROM chromatograms c
+                                             WHERE c.peak_label = mt.peak_label
+                                               AND c.ms_file_label = mt.ms_file_label)) AS ms1_missing_pairs,
+
+                           -- MS2 info
+                           (SELECT COUNT(*) FROM ms2_targets)                           AS ms2_total_pairs,
+                           (SELECT COUNT(*) FROM ms2_existing)                          AS ms2_existing_pairs,
+                           (SELECT COUNT(*)
+                            FROM ms2_targets mt
+                            WHERE NOT EXISTS(SELECT 1
+                                             FROM chromatograms c
+                                             WHERE c.peak_label = mt.peak_label
+                                               AND c.ms_file_label = mt.ms_file_label)) AS ms2_missing_pairs
+                       """).fetchone()
+
+    (ms1_total, ms1_existing, ms1_missing,
+     ms2_total, ms2_existing, ms2_missing) = info
+
+    # Determinar qué procesar
+    process_ms1 = ms1_total > 0 and (force_recalculate_ms1 or ms1_missing > 0)
+    process_ms2 = ms2_total > 0 and (force_recalculate_ms2 or ms2_missing > 0)
+
+    # Logging informativo
+    if ms1_total > 0:
+        print(f"MS1: {ms1_existing} existing, {ms1_missing} missing (total: {ms1_total})")
+    if ms2_total > 0:
+        print(f"MS2: {ms2_existing} existing, {ms2_missing} missing (total: {ms2_total})")
+
+    if not process_ms1 and not process_ms2:
+        print("No chromatograms to process.")
+        return
+
+    # Eliminar chromatogramas existentes si se solicita recalcular
+    if force_recalculate_ms1 and ms1_existing > 0:
+        print(f"Deleting {ms1_existing} existing MS1 chromatograms for recalculation...")
+        con.execute("""
+                    DELETE
+                    FROM chromatograms
+                    WHERE EXISTS(SELECT 1
+                                 FROM targets t
+                                          CROSS JOIN samples s
+                                 WHERE s.use_for_optimization = TRUE
+                                   AND t.mz_mean IS NOT NULL
+                                   AND t.mz_width IS NOT NULL
+                                   AND chromatograms.peak_label = t.peak_label
+                                   AND chromatograms.ms_file_label = s.ms_file_label)
+                    """)
+        ms1_to_compute = ms1_total
+    else:
+        ms1_to_compute = ms1_missing
+
+    if force_recalculate_ms2 and ms2_existing > 0:
+        print(f"Deleting {ms2_existing} existing MS2 chromatograms for recalculation...")
+        con.execute("""
+                    DELETE
+                    FROM chromatograms
+                    WHERE EXISTS(SELECT 1
+                                 FROM targets t
+                                          CROSS JOIN samples s
+                                 WHERE s.use_for_optimization = TRUE
+                                   AND t.filterLine IS NOT NULL
+                                   AND chromatograms.peak_label = t.peak_label
+                                   AND chromatograms.ms_file_label = s.ms_file_label)
+                    """)
+        ms2_to_compute = ms2_total
+    else:
+        ms2_to_compute = ms2_missing
+
+    # Calcular pesos para el progreso
+    total_to_compute = ms1_to_compute + ms2_to_compute
+    ms1_weight = ms1_to_compute / total_to_compute if process_ms1 else 0
+    ms2_weight = ms2_to_compute / total_to_compute if process_ms2 else 0
+
+    print(f"Computing {ms1_to_compute} MS1 and {ms2_to_compute} MS2 chromatograms...")
 
     query_ms1 = """
                 INSERT INTO chromatograms (peak_label, ms_file_label, scan_time, intensity)
@@ -256,6 +361,8 @@ def compute_and_insert_chromatograms_from_ms_data(con: duckdb.DuckDBPyConnection
                                           FROM targets AS t
                                                    CROSS JOIN samples s
                                           WHERE s.use_for_optimization = TRUE
+                                            AND t.mz_mean IS NOT NULL
+                                            AND t.mz_width IS NOT NULL
                                             AND NOT EXISTS (SELECT 1
                                                             FROM chromatograms c
                                                             WHERE c.peak_label = t.peak_label
@@ -280,8 +387,6 @@ def compute_and_insert_chromatograms_from_ms_data(con: duckdb.DuckDBPyConnection
                 FROM aggregated_chromatograms;
                 """
 
-
-
     query_ms2 = """
                 INSERT INTO chromatograms (peak_label, ms_file_label, scan_time, intensity)
                 WITH pairs_to_process AS (SELECT t.peak_label,
@@ -290,6 +395,7 @@ def compute_and_insert_chromatograms_from_ms_data(con: duckdb.DuckDBPyConnection
                                           FROM targets AS t
                                                    CROSS JOIN samples s
                                           WHERE s.use_for_optimization = TRUE
+                                            AND t.filterLine IS NOT NULL
                                             AND NOT EXISTS (SELECT 1
                                                             FROM chromatograms c
                                                             WHERE c.peak_label = t.peak_label
@@ -311,33 +417,69 @@ def compute_and_insert_chromatograms_from_ms_data(con: duckdb.DuckDBPyConnection
                 SELECT *
                 FROM aggregated_chromatograms;
                 """
-    # ON CONFLICT (ms_file_label, peak_label) DO UPDATE
-    #     SET scan_time = excluded.scan_time,
-    # intensity = excluded.intensity;
-    # """
-    # ON CONFLICT (ms_file_label, peak_label) DO NOTHING;
-    # """
 
-    t = Thread(target=query_progress, args=(con, set_progress))
-    t.start()
+    # Variable compartida para acumular progreso
+    accumulated_progress = [0.0]
+    stop_monitoring = [False]
+    current_query_type = ['ms1']  # Para saber qué estamos procesando
 
-    con.execute(query_ms1)
-    t.join(timeout=0.2)
+    def monitor_progress():
+        """Monitorea el progreso de la query actual"""
+        while not stop_monitoring[0]:
+            try:
+                qp = con.query_progress()
+                if qp != -1 and qp > 0:
+                    # Progreso total según qué query estamos ejecutando
+                    if current_query_type[0] == 'ms1':
+                        total_progress = qp * ms1_weight
+                    else:  # ms2
+                        total_progress = (ms1_weight * 100) + (qp * ms2_weight)
+
+                    accumulated_progress[0] = total_progress
+                    if set_progress:
+                        set_progress(round(total_progress, 1))
+                    print(f"Progress: {total_progress:.1f}%")
+
+                time.sleep(0.05)
+
+            except (duckdb.InvalidInputException, duckdb.ConnectionException):
+                break
+            except Exception as e:
+                print(f"Progress monitoring error: {e}")
+                break
+
+    # Iniciar monitoreo
+    if set_progress:
+        progress_thread = Thread(target=monitor_progress, daemon=True)
+        progress_thread.start()
+
+    try:
+        # Ejecutar MS1
+        if process_ms1:
+            print("Processing MS1 chromatograms...")
+            current_query_type[0] = 'ms1'
+            con.execute(query_ms1)
+            accumulated_progress[0] = ms1_weight * 100
+            if set_progress:
+                set_progress(round(accumulated_progress[0], 1))
+
+        # Ejecutar MS2
+        if process_ms2:
+            print("Processing MS2 chromatograms...")
+            current_query_type[0] = 'ms2'
+            con.execute(query_ms2)
+            accumulated_progress[0] = 100.0
+            if set_progress:
+                set_progress(100.0)
+
+        print("Chromatograms computed and inserted into DuckDB.")
+
+    finally:
+        stop_monitoring[0] = True
+        if set_progress:
+            progress_thread.join(timeout=0.5)
 
     print("Chromatograms computed and inserted into DuckDB.")
-
-def query_progress(con: duckdb.DuckDBPyConnection, set_progress=None):
-    while con:
-        try:
-            print(con)
-            qp = con.query_progress()
-            if qp != -1:
-                set_progress(round(qp, 1))
-            print(f"{qp = }")
-            time.sleep(0.2)
-        except duckdb.InterruptException:
-            break
-
 
 def compute_and_insert_chromatograms_iteratively(con: duckdb.DuckDBPyConnection, set_progress=None):
     """
