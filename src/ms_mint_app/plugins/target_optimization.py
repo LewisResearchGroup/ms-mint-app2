@@ -145,7 +145,15 @@ _layout = fac.AntdLayout(
                                             multiple=True,
                                             checkable=True,
                                             defaultExpandAll=True,
-                                            showIcon=True
+                                            showIcon=True,
+                                            style={'display': 'none'}
+                                        ),
+                                        fac.AntdEmpty(
+                                            id='sample-type-tree-empty',
+                                            description='No samples marked for optimization',
+                                            locale='en-us',
+                                            image='simple',
+                                            styles={'root': {'height': '100%', 'alignContent': 'center'}}
                                         )
                                     ],
                                     style={
@@ -648,18 +656,20 @@ def callbacks(app, fsc, cache, cpu=None):
 
     ############# TREE BEGIN #####################################
     @app.callback(
-        Output('sample-type-tree', 'treeData'),
-        Output('sample-type-tree', 'checkedKeys'),
-        Output('sample-type-tree', 'expandedKeys'),
+            Output('sample-type-tree', 'treeData'),
+            Output('sample-type-tree', 'checkedKeys'),
+            Output('sample-type-tree', 'expandedKeys'),
+            Output('sample-type-tree', 'style'),
+            Output('sample-type-tree-empty', 'style'),
 
-        Input('section-context', 'data'),
-        State('wdir', 'data'),
-        Input('mark-tree-action', 'nClicks'),
-        Input('expand-tree-action', 'nClicks'),
-        Input('collapse-tree-action', 'nClicks'),
-        prevent_initial_call=True
-    )
-    def update_sample_type_tree(section_context, wdir, mark_action, expand_action, collapse_action):
+            Input('section-context', 'data'),
+            Input('mark-tree-action', 'nClicks'),
+            Input('expand-tree-action', 'nClicks'),
+            Input('collapse-tree-action', 'nClicks'),
+            State('wdir', 'data'),
+            prevent_initial_call=True
+        )
+    def update_sample_type_tree(section_context, mark_action, expand_action, collapse_action, wdir):
 
         ctx = dash.callback_context
         prop_id = ctx.triggered[0]['prop_id'].split('.')[0]
@@ -681,9 +691,9 @@ def callbacks(app, fsc, cache, cpu=None):
                               """).df()
 
             if df.empty:
-                return dash.no_update, dash.no_update, dash.no_update
+                return dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update
 
-            if prop_id == 'mark-tree-action' or prop_id == 'section-context':
+            if prop_id in ['mark-tree-action', 'section-context']:
                 checked_keys = df['checked_keys'].iloc[0]  # Es el mismo en todas las filas
             else:
                 checked_keys = dash.no_update
@@ -700,13 +710,14 @@ def callbacks(app, fsc, cache, cpu=None):
             else:
                 tree_data = dash.no_update
 
-            if prop_id == 'expand-tree-action' or prop_id == 'section-context':
+            if prop_id in ['expand-tree-action', 'section-context']:
                 expanded_keys = df['sample_type'].tolist()
             elif prop_id == 'collapse-tree-action':
                 expanded_keys = []
             else:
                 expanded_keys = dash.no_update
-        return tree_data, checked_keys, expanded_keys
+        return tree_data, checked_keys, expanded_keys, {'display': 'flex'}, {'display': 'none'}
+
     ############# TREE END #######################################
 
     ############# GRAPH OPTIONS BEGIN #####################################
