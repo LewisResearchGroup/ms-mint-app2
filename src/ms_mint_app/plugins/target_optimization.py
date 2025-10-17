@@ -762,6 +762,7 @@ def callbacks(app, fsc, cache, cpu=None):
                               dropped_target, wdir):
         import polars as pl
         start_idx = (current_page - 1) * page_size
+        t1 = time.perf_counter()
 
         with duckdb_connection(wdir) as conn:
             all_targets = conn.execute("""
@@ -831,7 +832,7 @@ def callbacks(app, fsc, cache, cpu=None):
                                                mz_mean,
                                                pairs,
                                                list_filter(pairs, p -> p.t >= scan_time_min AND p.t <= scan_time_max AND
-                                                                  p.i >= intensity_threshold) AS pairs_in
+                                                                  p.i >= COALESCE(intensity_threshold, 0)) AS pairs_in
                                         FROM zipped),
                              -- Calculamos min/max de TODO el cromatograma (pairs completo) PERO por peak_label
                              -- Tomamos el máximo de todos los ms_file_label para ese peak_label
@@ -858,9 +859,6 @@ def callbacks(app, fsc, cache, cpu=None):
                         """
             df = conn.execute(query, [checkedkeys, selection, selection, page_size, start_idx]).pl()
 
-            print(f"{all_targets = }")
-
-        t1 = time.perf_counter()
         titles = []
         figures = []
         bookmarks = []
@@ -1149,13 +1147,13 @@ def callbacks(app, fsc, cache, cpu=None):
                                                         )
                                            ) AS pairs
                                     FROM base),
-                         -- Filtramos por el rango de tiempo calculado para cada target
+
                          sliced AS (SELECT ms_file_label,
                                            color,
                                            label,
                                            sample_type,
                                            pairs,
-                                           list_filter(pairs, p -> p.i >= intensity_threshold) AS pairs_in
+                                           list_filter(pairs, p -> p.i >= COALESCE(intensity_threshold, 0)) AS pairs_in
                                     FROM zipped),
                          -- Reconstruimos listas y calculamos min/max de intensidad COMPLETO
                          final AS (SELECT ms_file_label,
