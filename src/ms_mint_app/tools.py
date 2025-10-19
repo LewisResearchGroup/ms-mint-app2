@@ -630,7 +630,7 @@ def process_targets(wdir, set_progress, selected_files):
         )
 
     set_progress(100)
-    return len(targets_df), failed_files
+    return len(targets_df), failed_files, failed_targets, stats
 
 
 def write_metadata(meta, wdir):
