@@ -941,7 +941,11 @@ def callbacks(app, fsc, cache, cpu=None):
             ]
             fig['layout']['template'] = 'plotly_white'
 
-            fig['layout']['title'] = dict(text=peak_label, font={'size': 14})
+            filter_type = (f"{target_dict['mz_mean']}"
+                           if target_dict['ms_type'] == 'ms1'
+                           else f"{target_dict['filterLine']}")
+            fig['layout']['title'] = dict(text=peak_label, font={'size': 14},
+                                          subtitle=dict(text=f"{filter_type}"))
 
             x_min = target_dict['rt_min'] - (target_dict['rt_max'] - target_dict['rt'])
             x_max = target_dict['rt_max'] + (target_dict['rt'] - target_dict['rt_min'])
@@ -962,7 +966,7 @@ def callbacks(app, fsc, cache, cpu=None):
                 fig['layout']['yaxis']['range'] = [y_min, y_max]
 
             fig["layout"]["showlegend"] = False
-            fig['layout']['margin'] = dict(l=40, r=5, t=30, b=30)
+            fig['layout']['margin'] = dict(l=40, r=5, t=50, b=30)
             # fig['layout']['uirevision'] = f"xr_{peak_label}"
             figures.append(fig)
 
