@@ -350,7 +350,7 @@ def callbacks(app, fsc=None, cache=None):
             current = pagination['current']
 
             with duckdb_connection(wdir) as conn:
-                schema = conn.execute("DESCRIBE samples").pl()
+                schema = conn.execute("DESCRIBE targets").pl()
             column_types = {r["column_name"]: r["column_type"] for r in schema.to_dicts()}
             where_sql, params = build_where_and_params(filter_, filterOptions)
             order_by_sql = build_order_by(sorter, column_types, tie=('peak_label', 'ASC'))
