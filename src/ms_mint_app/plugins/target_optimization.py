@@ -458,7 +458,7 @@ _layout = fac.AntdLayout(
             id="chromatogram-view-modal",
             width="100vw",
             centered=True,
-            destroyOnClose=True,
+            destroyOnClose=False,
             closable=False,
             maskClosable=False,
             children=[
@@ -648,18 +648,23 @@ def callbacks(app, fsc, cache, cpu=None):
             if (visible !== true) {
                 return window.dash_clientside.no_update;
             }
-            const root = document.getElementById("chromatogram-view-plot");
-            if (!root) return window.dash_clientside.no_update;
-
-            const bg = root.querySelector("div > div > div svg > g.draglayer > g.xy > rect");
-            if (!bg) return window.dash_clientside.no_update;
-
-            const rw = root.offsetWidth;
-            const pl = bg.x.baseVal.value - 25;
-            const w = bg.width.baseVal.value + 50;
-
-            if (!isFinite(w) || w <= 0) return window.dash_clientside.no_update;
-            return {"marginLeft": pl + "px", "width": w + "px"};
+            return new Promise((resolve) => {
+                setTimeout(() => {
+                    const root = document.getElementById("chromatogram-view-plot");
+                    const bg = root?.querySelector("div > div > div svg > g.draglayer > g.xy > rect");
+                    
+                    if (bg) {
+                        const pl = bg.x.baseVal.value - 25;
+                        const w = bg.width.baseVal.value + 50;
+                        
+                        if (isFinite(w) && w > 0) {
+                            resolve({"marginLeft": pl + "px", "width": w + "px"});
+                            return;
+                        }
+                    }
+                    resolve(window.dash_clientside.no_update);
+                }, 150);  // 150ms suele ser suficiente
+            });
         }
         """,
         Output("rslider", "style"),
@@ -1423,11 +1428,22 @@ def callbacks(app, fsc, cache, cpu=None):
             else:
                 slider_data['value'] = slider_reference_data['value']
             value = [vc for vc, sv in zip(slider_data['value'].values(), slider_data['v_comp'].values()) if sv]
-            return (slider_data, dash.no_update, dash.no_update, dash.no_update, value, dash.no_update,
-                    dash.no_update,
-                    dash.no_update,
-                    dash.no_update, dash.no_update
-                    )
+            s_min = slider_data['min']
+            s_max = slider_data['max']
+            if s_max - s_min > 1:
+                slider_data['step'] = 0.1
+                decimals = 1
+            else:
+                slider_data['step'] = 0.01
+                decimals = 2
+            slider_data['pushable'] = slider_data['step']
+            slider_data['marks'] = {
+                float(i): str(round(i, decimals))
+                for i in np.linspace(s_min, s_max, 6)
+            }
+            return (slider_data, slider_data['min'], slider_data['max'], slider_data['step'], value,
+                    slider_data['pushable'], {"placement": "bottom", "always_visible": False}, slider_data['marks'],
+                    dash.no_update, dash.no_update)
         else:
             if not relayout:
                 raise PreventUpdate
