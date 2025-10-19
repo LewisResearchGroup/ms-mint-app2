@@ -84,6 +84,7 @@ _layout = html.Div(
                                 'title': 'Target',
                                 'dataIndex': 'peak_label',
                                 'width': '260px',
+                                'fixed': 'left'
                             },
                             {
                                 'title': 'MZ-Mean',
@@ -260,8 +261,7 @@ _layout = html.Div(
                         },
                         sortOptions={
                             'sortDataIndexes': ['peak_label', 'mz_mean', 'mz_width', 'mz', 'rt', 'rt_min', 'rt_max',
-                                                'rt_unit', 'intensity_threshold', 'polarity', 'filterLine', 'proton',
-                                                'category', 'preselected_processing', 'source']},
+                                                'intensity_threshold', 'category']},
                         pagination={
                             'position': 'bottomCenter',
                             'pageSize': 15,

@@ -141,6 +141,7 @@ _layout = html.Div(
                                 'title': 'MS-File Label',
                                 'dataIndex': 'ms_file_label',
                                 'width': '260px',
+                                'fixed': 'left'
                             },
                             {
                                 'title': 'Label',
@@ -265,9 +266,9 @@ _layout = html.Div(
                             'ms_file_label': {'filterMode': 'keyword'},
                             'label': {'filterMode': 'keyword'},
                             'color': {'filterMode': 'keyword'},
-                            'user_for_optimization': {'filterMode': 'checkbox',
+                            'use_for_optimization': {'filterMode': 'checkbox',
                                                       'filterCustomItems': ['True', 'False']},
-                            'user_for_analysis': {'filterMode': 'checkbox',
+                            'use_for_analysis': {'filterMode': 'checkbox',
                                                   'filterCustomItems': ['True', 'False']},
                             'sample_type': {'filterMode': 'checkbox'},
                             'polarity': {'filterMode': 'checkbox',
