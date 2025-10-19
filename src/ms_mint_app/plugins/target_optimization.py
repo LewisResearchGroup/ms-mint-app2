@@ -173,7 +173,21 @@ _layout = fac.AntdLayout(
                                             [
                                                 fac.AntdFormItem(
                                                     fac.AntdSelect(
-                                                        id='chromatogram-preview-filter',
+                                                        id='chromatogram-preview-filter-ms-type',
+                                                        options=['All', 'ms1', 'ms2'],
+                                                        value='All',
+                                                        placeholder='Select ms_type',
+                                                        style={'width': '100%'},
+                                                        allowClear=False,
+                                                        locale="en-us",
+                                                    ),
+                                                    label='MS-Type:',
+                                                    tooltip='Filter chromatograms by ms_type',
+                                                    style={'marginBottom': '1rem'}
+                                                ),
+                                                fac.AntdFormItem(
+                                                    fac.AntdSelect(
+                                                        id='chromatogram-preview-filter-bookmark',
                                                         options=['All', 'Bookmarked', 'Unmarked'],
                                                         value='All',
                                                         placeholder='Select filter',
@@ -181,7 +195,7 @@ _layout = fac.AntdLayout(
                                                         allowClear=False,
                                                         locale="en-us",
                                                     ),
-                                                    label='Select:',
+                                                    label='Selection:',
                                                     tooltip='Filter chromatograms by bookmark status',
                                                     style={'marginBottom': '1rem'}
                                                 ),
@@ -752,14 +766,15 @@ def callbacks(app, fsc, cache, cpu=None):
         Input('chromatogram-preview-pagination', 'pageSize'),
         Input('sample-type-tree', 'checkedKeys'),
         Input('chromatogram-preview-log-y', 'checked'),
-        Input('chromatogram-preview-filter', 'value'),
+        Input('chromatogram-preview-filter-bookmark', 'value'),
+        Input('chromatogram-preview-filter-ms-type', 'value'),
         Input('chromatogram-preview-order', 'value'),
         Input('drop-chromatogram', 'data'),
         State('wdir', 'data'),
         prevent_initial_call=True
     )
-    def chromatograms_preview(chromatograms, current_page, page_size, checkedkeys, log_scale, selection, targets_order,
-                              dropped_target, wdir):
+    def chromatograms_preview(chromatograms, current_page, page_size, checkedkeys, log_scale, selection_bookmark,
+                              selection_ms_type, targets_order, dropped_target, wdir):
         import polars as pl
         start_idx = (current_page - 1) * page_size
         t1 = time.perf_counter()
@@ -769,11 +784,17 @@ def callbacks(app, fsc, cache, cpu=None):
                                        SELECT *
                                        from targets
                                        WHERE CASE
+                                                 WHEN ? = 'ms1' THEN ms_type = 'ms1'
+                                                 WHEN ? = 'ms2' THEN ms_type = 'ms2'
+                                                 ELSE TRUE
+                                           END
+                                         AND CASE
                                                  WHEN ? = 'Bookmarked' THEN bookmark = TRUE
                                                  WHEN ? = 'Unmarked' THEN bookmark = FALSE
                                                  ELSE TRUE -- 'all' case
-                                                 END
-                                       """, [selection, selection]).pl()
+                                           END
+                                       """, [selection_ms_type, selection_ms_type,
+                                             selection_bookmark, selection_bookmark, ]).pl()
             query = f"""
                         WITH picked_samples AS (SELECT ms_file_label, color, label
                                                 FROM samples
@@ -790,6 +811,11 @@ def callbacks(app, fsc, cache, cpu=None):
                                                        intensity_threshold
                                                 FROM targets
                                                 WHERE CASE
+                                                          WHEN ? = 'ms1' THEN ms_type = 'ms1'
+                                                          WHEN ? = 'ms2' THEN ms_type = 'ms2'
+                                                          ELSE TRUE
+                                                    END
+                                                  AND CASE
                                                           WHEN ? = 'Bookmarked' THEN bookmark = TRUE
                                                           WHEN ? = 'Unmarked' THEN bookmark = FALSE
                                                           ELSE TRUE -- 'all' case
@@ -857,7 +883,9 @@ def callbacks(app, fsc, cache, cpu=None):
                         FROM final
                         ORDER BY {targets_order}, ms_file_label;
                         """
-            df = conn.execute(query, [checkedkeys, selection, selection, page_size, start_idx]).pl()
+            df = conn.execute(query, [checkedkeys, selection_ms_type, selection_ms_type,
+                                      selection_bookmark, selection_bookmark, page_size, start_idx]
+                              ).pl()
 
         titles = []
         figures = []
