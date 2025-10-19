@@ -128,6 +128,11 @@ _layout = html.Div(
                                 'editable': True,
                             },
                             {
+                                'title': 'MS-Type',
+                                'dataIndex': 'ms_type',
+                                'width': '120px',
+                            },
+                            {
                                 'title': 'Polarity',
                                 'dataIndex': 'polarity',
                                 'width': '120px',
@@ -196,6 +201,10 @@ _layout = html.Div(
                                 'title': 'intensity_threshold',
                                 'content': 'This is intensity_threshold field',
                             },
+                            'ms_type': {
+                                'title': 'MS-Type',
+                                'content': 'This is polarity field',
+                            },
                             'polarity': {
                                 'title': 'polarity',
                                 'content': 'This is polarity field',
@@ -232,6 +241,9 @@ _layout = html.Div(
                             'rt_unit': {'filterMode': 'checkbox',
                                         'filterCustomItems': ['s', 'min']},
                             'intensity_threshold': {'filterMode': 'keyword'},
+                            'ms_type': {'filterMode': 'checkbox',
+                                         'filterCustomItems': ['ms1', 'ms2']
+                                         },
                             'polarity': {'filterMode': 'checkbox',
                                          'filterCustomItems': ['Negative', 'Positive']
                                          },

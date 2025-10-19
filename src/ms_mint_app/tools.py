@@ -360,6 +360,10 @@ def get_targets_v2(files_path):
                             .replace('-', 'Negative')
                             .replace('negative', 'Negative')
                         )
+                    if 'filterLine' in target:
+                        target['ms_type'] = 'ms2' if target['filterLine'] else 'ms1'
+                    else:
+                        target['ms_type'] = 'ms1'
 
                     valid_targets.append(target)
 
