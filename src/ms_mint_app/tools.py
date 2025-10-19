@@ -486,7 +486,7 @@ def process_ms_files(wdir, set_progress, selected_files, n_cpus):
     failed_files = []
     total_processed = 0
     import concurrent.futures
-    from ms_mint.io import convert_mzxml_to_parquet_pl
+    from ms_mint.io import convert_mzxml_to_parquet_fast_batches
     import multiprocessing
 
     # set progress to 1 to the user feedback
@@ -510,18 +510,18 @@ def process_ms_files(wdir, set_progress, selected_files, n_cpus):
     if len(files_name) - len(duplicates) > 0:
         with tempfile.TemporaryDirectory() as tmpdir:
             futures = []
-            ctx = multiprocessing.get_context('spawn')
-            with concurrent.futures.ProcessPoolExecutor(max_workers=n_cpus, mp_context=ctx) as executor:
+            # ctx = multiprocessing.get_context('fork')
+            with concurrent.futures.ProcessPoolExecutor(max_workers=n_cpus, mp_context=None) as executor:
                 futures.extend(
                     executor.submit(
-                        convert_mzxml_to_parquet_pl, file_path, tmp_dir=tmpdir
+                        convert_mzxml_to_parquet_fast_batches, file_path, tmp_dir=tmpdir
                     )
                     for file_name, file_path in files_name.items()
                     if file_name not in duplicates.tolist()
                 )
                 batch_ms = {'ms1': [], 'ms2': []}
                 batch_ms_data = {'ms1': [], 'ms2': []}
-                batch_size = 4
+                batch_size = n_cpus
 
                 for future in concurrent.futures.as_completed(futures):
                     _file_path, _ms_file_label, _ms_level, _polarity, _parquet_df = future.result()
@@ -533,7 +533,7 @@ def process_ms_files(wdir, set_progress, selected_files, n_cpus):
                         total_processed += b_processed
                         failed_files.extend(b_failed)
 
-                        set_progress(round(total_processed + len(failed_files) / n_total * 100, 1))
+                        set_progress(round((total_processed + len(failed_files)) / n_total * 100, 1))
                         batch_ms['ms1'] = []
                         batch_ms_data['ms1'] = []
 
@@ -542,7 +542,7 @@ def process_ms_files(wdir, set_progress, selected_files, n_cpus):
                         total_processed += b_processed
                         failed_files.extend(b_failed)
 
-                        set_progress(round(total_processed + len(failed_files) / n_total * 100, 1))
+                        set_progress(round((total_processed + len(failed_files)) / n_total * 100, 1))
                         batch_ms['ms2'] = []
                         batch_ms_data['ms2'] = []
 
@@ -551,7 +551,7 @@ def process_ms_files(wdir, set_progress, selected_files, n_cpus):
                     total_processed += b_processed
                     failed_files.extend(b_failed)
 
-                    set_progress(round(total_processed + len(failed_files) / n_total * 100, 1))
+                    set_progress(round((total_processed + len(failed_files)) / n_total * 100, 1))
                     batch_ms['ms1'] = []
                     batch_ms_data['ms1'] = []
 
@@ -560,7 +560,7 @@ def process_ms_files(wdir, set_progress, selected_files, n_cpus):
                     total_processed += b_processed
                     failed_files.extend(b_failed)
 
-                    set_progress(round(total_processed + len(failed_files) / n_total * 100, 1))
+                    set_progress(round((total_processed + len(failed_files)) / n_total * 100, 1))
                     batch_ms['ms2'] = []
                     batch_ms_data['ms2'] = []
 
