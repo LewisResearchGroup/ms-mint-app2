@@ -241,6 +241,10 @@ _layout = html.Div(
                                 'title': 'polarity',
                                 'content': 'This is polarity field',
                             },
+                            'ms_type': {
+                                'title': 'ms_type',
+                                'content': 'This is ms_type field',
+                            },
                             'file_type': {
                                 'title': 'file_type',
                                 'content': 'This is file_type field',
