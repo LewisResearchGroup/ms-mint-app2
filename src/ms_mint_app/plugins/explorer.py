@@ -471,7 +471,7 @@ class FileExplorer:
                 total_processed, failed_files = process_metadata(wdir, set_progress, selected_files)
                 message = "Metadata processed"
             else:
-                total_processed, failed_files = process_targets(wdir, set_progress, selected_files)
+                total_processed, failed_files, failed_targets, stats = process_targets(wdir, set_progress, selected_files)
                 message = "Targets processed"
 
             if total_processed:
