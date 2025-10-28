@@ -1563,7 +1563,11 @@ def callbacks(app, fsc, cache, cpu=None):
 
     @app.callback(
         Output('chromatograms', 'data'),
+        Output('compute-chromatogram-modal', 'visible', allow_duplicate=True),
+
         Input('compute-chromatogram-modal', 'okCounts'),
+        State("chromatograms-recompute-ms1", "checked"),
+        State("chromatograms-recompute-ms2", "checked"),
         State("wdir", "data"),
         background=True,
         running=[
@@ -1589,7 +1593,7 @@ def callbacks(app, fsc, cache, cpu=None):
         ],
         prevent_initial_call=True
     )
-    def compute_chromatograms(set_progress, okCounts, wdir):
+    def compute_chromatograms(set_progress, okCounts, recompute_ms1, recompute_ms2, wdir):
 
         if not okCounts:
             raise PreventUpdate
@@ -1598,13 +1602,13 @@ def callbacks(app, fsc, cache, cpu=None):
             if con is None:
                 return "Could not connect to database."
             start = time.perf_counter()
-            compute_and_insert_chromatograms_from_ms_data(con, set_progress)
+            compute_and_insert_chromatograms_from_ms_data(con, set_progress, recompute_ms1=recompute_ms1,
+                                                          recompute_ms2=recompute_ms2)
             # compute_and_insert_chromatograms_iteratively(con, set_progress=set_progress)
             print(f"Chromatograms computed in {time.perf_counter() - start:.2f} seconds")
-        return True
+        return True, False
 
     ############# COMPUTE CHROMATOGRAM END #######################################
-
 
     @app.callback(
         Output('rt-values-span', 'children'),

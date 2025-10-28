@@ -233,71 +233,72 @@ def build_order_by(
 
 def compute_and_insert_chromatograms_from_ms_data(con: duckdb.DuckDBPyConnection,
                                                   set_progress=None,
-                                                  force_recalculate_ms1=False,
-                                                  force_recalculate_ms2=False):
+                                                  for_optimization=True,
+                                                  recompute_ms1=False,
+                                                  recompute_ms2=False):
     """
     Computes chromatograms from raw MS data and inserts them into the 'chromatograms' table.
 
     :param con: An active DuckDB connection.
     :param set_progress: Optional callback function to report progress (0-100).
-    :param force_recalculate_ms1: If True, deletes existing MS1 chromatograms before recomputing.
-    :param force_recalculate_ms2: If True, deletes existing MS2 chromatograms before recomputing.
+    :param recompute_ms1: If True, deletes existing MS1 chromatograms before recomputing.
+    :param recompute_ms2: If True, deletes existing MS2 chromatograms before recomputing.
     """
 
     info = con.execute("""
-                       WITH ms1_targets AS (SELECT t.peak_label, s.ms_file_label
+                       WITH samples_to_use AS (SELECT DISTINCT ms_file_label
+                                               FROM samples
+                                               WHERE use_for_optimization = TRUE
+                                                  OR use_for_analysis = TRUE),
+                            ms1_targets AS (SELECT DISTINCT t.peak_label, s.ms_file_label
                                             FROM targets t
-                                                     CROSS JOIN samples s
-                                            WHERE s.use_for_optimization = TRUE
-                                              AND t.mz_mean IS NOT NULL
+                                                     CROSS JOIN samples_to_use s
+                                            WHERE t.mz_mean IS NOT NULL
                                               AND t.mz_width IS NOT NULL
-                                              AND EXISTS(SELECT 1 FROM ms1_data WHERE ms_file_label = s.ms_file_label)),
-                            ms2_targets AS (SELECT t.peak_label, s.ms_file_label
+                                              AND EXISTS(SELECT 1 FROM ms1_data md WHERE md.ms_file_label = s.ms_file_label)),
+                            ms2_targets AS (SELECT DISTINCT t.peak_label, s.ms_file_label
                                             FROM targets t
-                                                     CROSS JOIN samples s
-                                            WHERE s.use_for_optimization = TRUE
-                                              AND t.filterLine IS NOT NULL
-                                              AND EXISTS(SELECT 1 FROM ms2_data WHERE ms_file_label = s.ms_file_label)),
-                            ms1_existing AS (SELECT c.peak_label, c.ms_file_label
-                                             FROM chromatograms c
-                                             WHERE EXISTS(SELECT 1
-                                                          FROM ms1_targets mt
-                                                          WHERE mt.peak_label = c.peak_label
-                                                            AND mt.ms_file_label = c.ms_file_label)),
-                            ms2_existing AS (SELECT c.peak_label, c.ms_file_label
-                                             FROM chromatograms c
-                                             WHERE EXISTS(SELECT 1
-                                                          FROM ms2_targets mt
-                                                          WHERE mt.peak_label = c.peak_label
-                                                            AND mt.ms_file_label = c.ms_file_label))
+                                                     CROSS JOIN samples_to_use s
+                                            WHERE t.filterLine IS NOT NULL -- ESTO asegura que es MS2
+                                              AND EXISTS(SELECT 1 FROM ms2_data md WHERE md.ms_file_label = s.ms_file_label)),
+                            existing_chromatograms AS (SELECT DISTINCT peak_label, ms_file_label
+                                                       FROM chromatograms)
                        SELECT
                            -- MS1 info
-                           (SELECT COUNT(*) FROM ms1_targets)                           AS ms1_total_pairs,
-                           (SELECT COUNT(*) FROM ms1_existing)                          AS ms1_existing_pairs,
+                           (SELECT COUNT(*) FROM ms1_targets)                          AS ms1_total_pairs,
                            (SELECT COUNT(*)
                             FROM ms1_targets mt
-                            WHERE NOT EXISTS(SELECT 1
-                                             FROM chromatograms c
-                                             WHERE c.peak_label = mt.peak_label
-                                               AND c.ms_file_label = mt.ms_file_label)) AS ms1_missing_pairs,
+                                     JOIN existing_chromatograms ec
+                                          ON ec.peak_label = mt.peak_label
+                                              AND ec.ms_file_label = mt.ms_file_label) AS ms1_existing_pairs,
+                           (SELECT COUNT(*)
+                            FROM ms1_targets mt
+                                     LEFT JOIN existing_chromatograms ec
+                                               ON ec.peak_label = mt.peak_label
+                                                   AND ec.ms_file_label = mt.ms_file_label
+                            WHERE ec.peak_label IS NULL)                               AS ms1_missing_pairs,
 
                            -- MS2 info
-                           (SELECT COUNT(*) FROM ms2_targets)                           AS ms2_total_pairs,
-                           (SELECT COUNT(*) FROM ms2_existing)                          AS ms2_existing_pairs,
+                           (SELECT COUNT(*) FROM ms2_targets)                          AS ms2_total_pairs,
                            (SELECT COUNT(*)
                             FROM ms2_targets mt
-                            WHERE NOT EXISTS(SELECT 1
-                                             FROM chromatograms c
-                                             WHERE c.peak_label = mt.peak_label
-                                               AND c.ms_file_label = mt.ms_file_label)) AS ms2_missing_pairs
+                                     JOIN existing_chromatograms ec
+                                          ON ec.peak_label = mt.peak_label
+                                              AND ec.ms_file_label = mt.ms_file_label) AS ms2_existing_pairs,
+                           (SELECT COUNT(*)
+                            FROM ms2_targets mt
+                                     LEFT JOIN existing_chromatograms ec
+                                               ON ec.peak_label = mt.peak_label
+                                                   AND ec.ms_file_label = mt.ms_file_label
+                            WHERE ec.peak_label IS NULL)                               AS ms2_missing_pairs
                        """).fetchone()
 
     (ms1_total, ms1_existing, ms1_missing,
      ms2_total, ms2_existing, ms2_missing) = info
 
     # Determinar qué procesar
-    process_ms1 = ms1_total > 0 and (force_recalculate_ms1 or ms1_missing > 0)
-    process_ms2 = ms2_total > 0 and (force_recalculate_ms2 or ms2_missing > 0)
+    process_ms1 = ms1_total > 0 and (recompute_ms1 or ms1_missing > 0)
+    process_ms2 = ms2_total > 0 and (recompute_ms2 or ms2_missing > 0)
 
     # Logging informativo
     if ms1_total > 0:
@@ -310,7 +311,7 @@ def compute_and_insert_chromatograms_from_ms_data(con: duckdb.DuckDBPyConnection
         return
 
     # Eliminar chromatogramas existentes si se solicita recalcular
-    if force_recalculate_ms1 and ms1_existing > 0:
+    if recompute_ms1 and ms1_existing > 0:
         print(f"Deleting {ms1_existing} existing MS1 chromatograms for recalculation...")
         con.execute("""
                     DELETE
@@ -318,7 +319,7 @@ def compute_and_insert_chromatograms_from_ms_data(con: duckdb.DuckDBPyConnection
                     WHERE EXISTS(SELECT 1
                                  FROM targets t
                                           CROSS JOIN samples s
-                                 WHERE s.use_for_optimization = TRUE
+                                 WHERE s.use_for_optimization = TRUE OR s.use_for_analysis = TRUE
                                    AND t.mz_mean IS NOT NULL
                                    AND t.mz_width IS NOT NULL
                                    AND chromatograms.peak_label = t.peak_label
@@ -328,7 +329,7 @@ def compute_and_insert_chromatograms_from_ms_data(con: duckdb.DuckDBPyConnection
     else:
         ms1_to_compute = ms1_missing
 
-    if force_recalculate_ms2 and ms2_existing > 0:
+    if recompute_ms2 and ms2_existing > 0:
         print(f"Deleting {ms2_existing} existing MS2 chromatograms for recalculation...")
         con.execute("""
                     DELETE
@@ -336,7 +337,7 @@ def compute_and_insert_chromatograms_from_ms_data(con: duckdb.DuckDBPyConnection
                     WHERE EXISTS(SELECT 1
                                  FROM targets t
                                           CROSS JOIN samples s
-                                 WHERE s.use_for_optimization = TRUE
+                                 WHERE s.use_for_optimization = TRUE OR s.use_for_analysis = TRUE
                                    AND t.filterLine IS NOT NULL
                                    AND chromatograms.peak_label = t.peak_label
                                    AND chromatograms.ms_file_label = s.ms_file_label)
@@ -358,33 +359,41 @@ def compute_and_insert_chromatograms_from_ms_data(con: duckdb.DuckDBPyConnection
                                                  t.mz_mean,
                                                  t.mz_width,
                                                  s.ms_file_label
-                                          FROM targets AS t
-                                                   CROSS JOIN samples s
-                                          WHERE s.use_for_optimization = TRUE
-                                            AND t.mz_mean IS NOT NULL
+                                          FROM targets t
+                                                   JOIN samples s
+                                                        ON (CASE WHEN ? THEN s.use_for_optimization ELSE s.use_for_analysis END) =
+                                                           TRUE
+                                          WHERE t.mz_mean IS NOT NULL
                                             AND t.mz_width IS NOT NULL
-                                            AND NOT EXISTS (SELECT 1
-                                                            FROM chromatograms c
-                                                            WHERE c.peak_label = t.peak_label
-                                                              AND c.ms_file_label = s.ms_file_label)),
-                     precomputed_chromatograms AS (SELECT p.peak_label,
-                                                          p.ms_file_label,
-                                                          ms1.scan_time,
-                                                          ms1.intensity
-                                                   FROM pairs_to_process p
-                                                            JOIN ms1_data ms1
-                                                                 ON ms1.ms_file_label = p.ms_file_label
-                                                                     AND
-                                                                    ms1.mz BETWEEN p.mz_mean - (p.mz_mean * p.mz_width / 1e6)
-                                                                        AND p.mz_mean + (p.mz_mean * p.mz_width / 1e6)),
-                     aggregated_chromatograms AS (SELECT peak_label,
-                                                         ms_file_label,
-                                                         list(scan_time ORDER BY scan_time) AS scan_time,
-                                                         list(intensity ORDER BY scan_time) AS intensity
-                                                  FROM precomputed_chromatograms
-                                                  GROUP BY peak_label, ms_file_label)
+                                            AND (
+                                              ? -- recompute_ms1
+                                                  OR NOT EXISTS (SELECT 1
+                                                                 FROM chromatograms c
+                                                                 WHERE c.peak_label = t.peak_label
+                                                                   AND c.ms_file_label = s.ms_file_label)
+                                              )),
+                     filtered AS (SELECT p.peak_label,
+                                         p.ms_file_label,
+                                         ROUND(ms1.scan_time, 3) AS scan_time,
+                                         ROUND(ms1.intensity, 0) AS intensity
+                                  FROM pairs_to_process p
+                                           JOIN ms1_data ms1
+                                                ON ms1.ms_file_label = p.ms_file_label
+                                                    AND ms1.mz BETWEEN p.mz_mean - (p.mz_mean * p.mz_width / 1e6)
+                                                       AND p.mz_mean + (p.mz_mean * p.mz_width / 1e6)
+                                      QUALIFY
+                                        ROW_NUMBER() OVER (
+                                          PARTITION BY p.peak_label, p.ms_file_label, ROUND(ms1.scan_time, 2)
+                                            ORDER BY ms1.intensity DESC
+                                        ) = 1),
+                     agg AS (SELECT peak_label,
+                                    ms_file_label,
+                                    LIST(scan_time ORDER BY scan_time) AS scan_time,
+                                    LIST(intensity ORDER BY scan_time) AS intensity
+                             FROM filtered
+                             GROUP BY peak_label, ms_file_label)
                 SELECT *
-                FROM aggregated_chromatograms;
+                FROM agg;
                 """
 
     query_ms2 = """
@@ -393,26 +402,39 @@ def compute_and_insert_chromatograms_from_ms_data(con: duckdb.DuckDBPyConnection
                                                  t.filterLine,
                                                  s.ms_file_label
                                           FROM targets AS t
-                                                   CROSS JOIN samples s
-                                          WHERE s.use_for_optimization = TRUE
-                                            AND t.filterLine IS NOT NULL
-                                            AND NOT EXISTS (SELECT 1
-                                                            FROM chromatograms c
-                                                            WHERE c.peak_label = t.peak_label
-                                                              AND c.ms_file_label = s.ms_file_label)),
-                     precomputed_chromatograms AS (SELECT p.peak_label,
-                                                          p.ms_file_label,
-                                                          ms2.scan_time,
-                                                          ms2.intensity
-                                                   FROM pairs_to_process p
-                                                            JOIN ms2_data ms2
-                                                                 ON ms2.ms_file_label = p.ms_file_label
-                                                                     AND ms2.filterLine = p.filterLine),
+                                                   JOIN samples s
+                                                        ON (CASE WHEN ? THEN s.use_for_optimization ELSE s.use_for_analysis END) =
+                                                           TRUE
+                                          WHERE t.filterLine IS NOT NULL
+                                            AND (
+                                              ? -- recompute_ms2
+                                                  OR NOT EXISTS (SELECT 1
+                                                                 FROM chromatograms c
+                                                                 WHERE c.peak_label = t.peak_label
+                                                                   AND c.ms_file_label = s.ms_file_label)
+                                              )),
+                     pre AS (SELECT p.peak_label,
+                                    p.ms_file_label,
+                                    ROUND(ms2.scan_time, 3) AS scan_time,
+                                    ROUND(ms2.intensity, 0) AS intensity
+                             -- ms2.mz
+                             FROM pairs_to_process p
+                                      JOIN ms2_data ms2
+                                           ON ms2.ms_file_label = p.ms_file_label
+                                               AND ms2.filterLine = p.filterLine),
+                     grouped AS (SELECT peak_label,
+                                        ms_file_label,
+                                        scan_time,
+                                        MAX(intensity) AS intensity -- max por tiempo
+                                 -- AVG(mz_mean)   AS mz_mean    -- estable dentro del bin
+                                 FROM pre
+                                 GROUP BY peak_label, ms_file_label, scan_time),
                      aggregated_chromatograms AS (SELECT peak_label,
                                                          ms_file_label,
-                                                         list(scan_time ORDER BY scan_time) AS scan_time,
-                                                         list(intensity ORDER BY scan_time) AS intensity
-                                                  FROM precomputed_chromatograms
+                                                         LIST(scan_time ORDER BY scan_time) AS scan_time,
+                                                         LIST(intensity ORDER BY scan_time) AS intensity
+                                                  -- list(mz ORDER BY scan_time) AS mz
+                                                  FROM grouped
                                                   GROUP BY peak_label, ms_file_label)
                 SELECT *
                 FROM aggregated_chromatograms;
@@ -458,7 +480,7 @@ def compute_and_insert_chromatograms_from_ms_data(con: duckdb.DuckDBPyConnection
         if process_ms1:
             print("Processing MS1 chromatograms...")
             current_query_type[0] = 'ms1'
-            con.execute(query_ms1)
+            con.execute(query_ms1, [for_optimization, recompute_ms1])
             accumulated_progress[0] = ms1_weight * 100
             if set_progress:
                 set_progress(round(accumulated_progress[0], 1))
@@ -467,7 +489,7 @@ def compute_and_insert_chromatograms_from_ms_data(con: duckdb.DuckDBPyConnection
         if process_ms2:
             print("Processing MS2 chromatograms...")
             current_query_type[0] = 'ms2'
-            con.execute(query_ms2)
+            con.execute(query_ms2, [for_optimization, recompute_ms2])
             accumulated_progress[0] = 100.0
             if set_progress:
                 set_progress(100.0)
