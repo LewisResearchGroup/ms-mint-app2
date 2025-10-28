@@ -681,14 +681,15 @@ def callbacks(app, fsc, cache, cpu=None):
             Output('sample-type-tree', 'style'),
             Output('sample-type-tree-empty', 'style'),
 
-            Input('section-context', 'data'),
-            Input('mark-tree-action', 'nClicks'),
-            Input('expand-tree-action', 'nClicks'),
-            Input('collapse-tree-action', 'nClicks'),
-            State('wdir', 'data'),
-            prevent_initial_call=True
-        )
-    def update_sample_type_tree(section_context, mark_action, expand_action, collapse_action, wdir):
+        Input('section-context', 'data'),
+        Input('mark-tree-action', 'nClicks'),
+        Input('expand-tree-action', 'nClicks'),
+        Input('collapse-tree-action', 'nClicks'),
+        Input('chromatogram-preview-filter-ms-type', 'value'),
+        State('wdir', 'data'),
+        prevent_initial_call=True
+    )
+    def update_sample_type_tree(section_context, mark_action, expand_action, collapse_action, selection_ms_type, wdir):
 
         ctx = dash.callback_context
         prop_id = ctx.triggered[0]['prop_id'].split('.')[0]
@@ -701,13 +702,18 @@ def callbacks(app, fsc, cache, cpu=None):
                 return dash.no_update, dash.no_update, dash.no_update
             df = conn.execute("""
                               SELECT sample_type,
-                                     list({'title': label, 'key': label})     as children,
+                                     list({'title': label, 'key': label})                                as children,
                                      (SELECT list(label) FROM samples WHERE use_for_optimization = TRUE) as checked_keys
                               FROM samples
                               WHERE use_for_optimization = TRUE
+                                AND CASE
+                                        WHEN ? = 'ms1' THEN ms_type = 'ms1'
+                                        WHEN ? = 'ms2' THEN ms_type = 'ms2'
+                                        ELSE TRUE -- 'all' case
+                                  END
                               GROUP BY sample_type
                               ORDER BY sample_type
-                              """).df()
+                              """, [selection_ms_type, selection_ms_type]).df()
 
             if df.empty:
                 return dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update
@@ -717,7 +723,7 @@ def callbacks(app, fsc, cache, cpu=None):
             else:
                 checked_keys = dash.no_update
 
-            if prop_id == 'section-context':
+            if prop_id in ['section-context', 'chromatogram-preview-filter-ms-type']:
                 tree_data = [
                     {
                         'title': row['sample_type'],
