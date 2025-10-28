@@ -40,6 +40,7 @@ def downsample_for_preview(scan_time, intensity, max_points=100):
     indices = np.linspace(0, len(scan_time) - 1, max_points, dtype=int)
     return scan_time[indices], intensity[indices]
 
+
 _layout = fac.AntdLayout(
     [
         fac.AntdHeader(
@@ -639,6 +640,7 @@ _layout = fac.AntdLayout(
     style={'height': '100%'},
 )
 
+
 def layout():
     return _layout
 
@@ -690,11 +692,11 @@ def callbacks(app, fsc, cache, cpu=None):
 
     ############# TREE BEGIN #####################################
     @app.callback(
-            Output('sample-type-tree', 'treeData'),
-            Output('sample-type-tree', 'checkedKeys'),
-            Output('sample-type-tree', 'expandedKeys'),
-            Output('sample-type-tree', 'style'),
-            Output('sample-type-tree-empty', 'style'),
+        Output('sample-type-tree', 'treeData'),
+        Output('sample-type-tree', 'checkedKeys'),
+        Output('sample-type-tree', 'expandedKeys'),
+        Output('sample-type-tree', 'style'),
+        Output('sample-type-tree-empty', 'style'),
 
         Input('section-context', 'data'),
         Input('mark-tree-action', 'nClicks'),
@@ -922,7 +924,7 @@ def callbacks(app, fsc, cache, cpu=None):
 
             titles.append(peak_label)
             target_dict = all_targets.filter(pl.col('peak_label') == peak_label).head(1).rows(named=True)[0]
-            bookmarks.append(int(target_dict['bookmark'])) # convert bool to int
+            bookmarks.append(int(target_dict['bookmark']))  # convert bool to int
 
             fig = Patch()
             traces = []
@@ -1083,7 +1085,6 @@ def callbacks(app, fsc, cache, cpu=None):
 
         return dash.no_update, dash.no_update
 
-
     @app.callback(
         Output('confirm-unsave-modal', 'visible'),
 
@@ -1149,7 +1150,6 @@ def callbacks(app, fsc, cache, cpu=None):
         else:
             fig['layout']['legend']['groupclick'] = 'toggleitem'
         return fig
-
 
     @app.callback(
         Output('chromatogram-view-plot', 'figure', allow_duplicate=True),
@@ -1557,7 +1557,7 @@ def callbacks(app, fsc, cache, cpu=None):
             if chromatograms:
                 computed_chromatograms = chromatograms[0]
 
-        style = {'display': 'block'} if computed_chromatograms else dash.no_update
+        style = {'display': 'block'} if computed_chromatograms else {'display': 'none'}
 
         return True, style
 
@@ -1650,7 +1650,6 @@ def callbacks(app, fsc, cache, cpu=None):
             style={'width': '100%', 'padding': '0 25px'}
         )
 
-
     @app.callback(
         # Output('chromatogram-view-modal', 'visible', allow_duplicate=True),
         Output('notifications-container', 'children', allow_duplicate=True),
@@ -1704,7 +1703,6 @@ def callbacks(app, fsc, cache, cpu=None):
         if not reset_clicks:
             raise PreventUpdate
         return slider_reference
-
 
     # @app.callback(
     #     Output('delete-targets-modal', 'visible'),
