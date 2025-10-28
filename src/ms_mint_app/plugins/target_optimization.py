@@ -382,8 +382,22 @@ _layout = fac.AntdLayout(
             [
                 fac.AntdFlex(
                     [
+                        fac.AntdDivider('Recompute Chromatograms', size='small', ),
                         fac.AntdForm(
                             [
+                                fac.AntdFormItem(
+                                    fac.AntdCheckbox(
+                                        id='chromatograms-recompute-ms1',
+                                        label='Recompute MS1'
+                                    ),
+
+                                ),
+                                fac.AntdFormItem(
+                                    fac.AntdCheckbox(
+                                        id='chromatograms-recompute-ms2',
+                                        label='Recompute MS2'
+                                    ),
+                                ),
                                 # fac.AntdFormItem(
                                 #     fac.AntdSelect(
                                 #         id='compute-chromatogram-targets-select',
@@ -406,15 +420,16 @@ _layout = fac.AntdLayout(
                                 #     ),
                                 #     label='Select samples',
                                 # ),
-                                fac.AntdAlert(
-                                    message='There are already computed chromatograms',
-                                    type='warning',
-                                    showIcon=True,
-                                    id='chromatogram-warning',
-                                    style={'display': 'none'},
-                                )
-                            ]
+                            ],
+                            layout='inline'
                         ),
+                        fac.AntdAlert(
+                            message='There are already computed chromatograms',
+                            type='warning',
+                            showIcon=True,
+                            id='chromatogram-warning',
+                            style={'display': 'none'},
+                        )
                     ],
                     id='chromatogram-compute-options-container',
                     vertical=True
