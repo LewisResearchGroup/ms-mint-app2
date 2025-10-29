@@ -141,9 +141,33 @@ def _create_tables(conn: duckdb.DuckDBPyConnection):
                      ms_file_label VARCHAR,
                      scan_time     DOUBLE[],
                      intensity     DOUBLE[],
+                     ms_type       ms_type_enum,
+                     -- mz            DOUBLE[],
                      PRIMARY KEY (ms_file_label, peak_label)
                  );
                  """)
+
+    conn.execute("""
+                 CREATE TABLE IF NOT EXISTS results
+                 (
+                     peak_label        VARCHAR,
+                     ms_file_label     VARCHAR,
+                     total_intensity   DOUBLE,
+                     peak_area         DOUBLE,
+                     peak_area_top3    DOUBLE,
+                     peak_max          DOUBLE,
+                     peak_min          DOUBLE,
+                     peak_mean         DOUBLE,
+                     peak_rt_of_max    DOUBLE,
+                     peak_median       DOUBLE,
+                     peak_n_datapoints INT,
+
+                     scan_time         DOUBLE[],
+                     intensity         DOUBLE[],
+                     PRIMARY KEY (ms_file_label, peak_label)
+                 );
+                 """)
+
 
 def _create_workspace_tables(conn: duckdb.DuckDBPyConnection):
     conn.execute("""
@@ -229,6 +253,120 @@ def build_order_by(
             parts.append(f'"{tie_col}" {tie_dir}')
 
     return f"ORDER BY {', '.join(parts)}"
+
+
+def build_paginated_query_by_peak(
+        conn,
+        filter_: dict | None = None,
+        filterOptions: dict | None = None,
+        sorter: dict | None = None,
+        limit: int = 10,
+        offset: int = 0
+) -> tuple[str, list]:
+    """
+    Construye query paginada agrupando por peak_label.
+    Usa build_where_and_params() y build_order_by() sin modificarlas.
+    """
+
+    # Obtén tipos de columnas
+    column_types = {
+        row[0]: row[1]
+        for row in conn.execute("DESCRIBE results").fetchall()
+    }
+
+    # 1. Construye WHERE y params para filtrar filas
+    where_sql, where_params = build_where_and_params(filter_, filterOptions or {})
+
+    # 2. Construye ORDER BY para las filas individuales
+    order_by_sql = build_order_by(
+        sorter,
+        column_types,
+        tie=("peak_label", "ASC"),
+        nocase_text=True
+    )
+
+    # 3. Extrae las columnas de ordenamiento para agregar por peak_label
+    agg_exprs = []
+    order_exprs = []
+
+    if order_by_sql:
+        # Parsea el ORDER BY para extraer columnas
+        order_part = order_by_sql.replace("ORDER BY", "").strip()
+        for clause in order_part.split(","):
+            clause = clause.strip()
+            # Remueve modificadores
+            clean = clause.replace("COLLATE NOCASE", "").replace("NULLS LAST", "").replace("NULLS FIRST", "")
+            parts = clean.split()
+            if not parts:
+                continue
+
+            col = parts[0].strip('"')
+            direction = parts[1] if len(parts) > 1 else "ASC"
+
+            if col == "peak_label":
+                agg_exprs.append(f"peak_label AS _ord_{col}")
+                order_exprs.append(f"_ord_{col} {direction}")
+            else:
+                # Para otras columnas, usa MAX/MIN según dirección
+                ctype = (column_types.get(col) or "").upper()
+                is_numeric = any(t in ctype for t in ("INT", "DOUBLE", "FLOAT", "DECIMAL", "NUMERIC", "REAL"))
+
+                if is_numeric:
+                    # Para numéricos: MAX si DESC, MIN si ASC (queremos el valor "representativo")
+                    agg_func = "MAX" if "DESC" in direction else "MIN"
+                    agg_exprs.append(f'{agg_func}("{col}") AS _ord_{col}')
+                    order_exprs.append(f"_ord_{col} {direction}")
+                else:
+                    # Para texto: MAX/MIN según dirección
+                    agg_func = "MAX" if "DESC" in direction else "MIN"
+                    agg_exprs.append(f'{agg_func}("{col}") AS _ord_{col}')
+                    order_exprs.append(f"_ord_{col} {direction}")
+
+    # Si no hay orden, usa peak_label por defecto
+    if not agg_exprs:
+        agg_exprs.append("peak_label AS _ord_peak_label")
+        order_exprs.append("_ord_peak_label ASC")
+
+    # 4. Construye la query con CTEs
+    sql = f"""
+    WITH filtered AS (
+      SELECT *
+      FROM results
+      {where_sql}
+    ),
+    peak_ordering AS (
+      SELECT 
+        peak_label,
+        {', '.join(agg_exprs)},
+        ROW_NUMBER() OVER(ORDER BY {', '.join(order_exprs)}) AS _rn
+      FROM filtered
+      GROUP BY peak_label
+    ),
+    total_peaks AS (
+      SELECT COUNT(*) AS __total__
+      FROM peak_ordering
+    ),
+    paged_peaks AS (
+      SELECT peak_label, _rn
+      FROM peak_ordering
+      WHERE _rn > ? AND _rn <= ? + ?
+    ),
+    paged AS (
+      SELECT 
+        f.*,
+        pp._rn AS __peak_order__,
+        (SELECT __total__ FROM total_peaks) AS __total__
+      FROM filtered f
+      JOIN paged_peaks pp ON f.peak_label = pp.peak_label
+      ORDER BY pp._rn, f.ms_file_label
+    )
+    SELECT * FROM paged;
+    """
+
+    # 5. Combina parámetros: primero los del WHERE, luego los de paginación
+    all_params = where_params + [offset, offset, limit]
+
+    return sql, all_params
 
 
 def compute_and_insert_chromatograms_from_ms_data(con: duckdb.DuckDBPyConnection,
@@ -354,7 +492,7 @@ def compute_and_insert_chromatograms_from_ms_data(con: duckdb.DuckDBPyConnection
     print(f"Computing {ms1_to_compute} MS1 and {ms2_to_compute} MS2 chromatograms...")
 
     query_ms1 = """
-                INSERT INTO chromatograms (peak_label, ms_file_label, scan_time, intensity)
+                INSERT INTO chromatograms (peak_label, ms_file_label, scan_time, intensity, ms_type)
                 WITH pairs_to_process AS (SELECT t.peak_label,
                                                  t.mz_mean,
                                                  t.mz_width,
@@ -380,8 +518,7 @@ def compute_and_insert_chromatograms_from_ms_data(con: duckdb.DuckDBPyConnection
                                            JOIN ms1_data ms1
                                                 ON ms1.ms_file_label = p.ms_file_label
                                                     AND ms1.mz BETWEEN p.mz_mean - (p.mz_mean * p.mz_width / 1e6)
-                                                       AND p.mz_mean + (p.mz_mean * p.mz_width / 1e6)
-                                      QUALIFY
+                                                       AND p.mz_mean + (p.mz_mean * p.mz_width / 1e6) QUALIFY
                                         ROW_NUMBER() OVER (
                                           PARTITION BY p.peak_label, p.ms_file_label, ROUND(ms1.scan_time, 2)
                                             ORDER BY ms1.intensity DESC
@@ -392,12 +529,12 @@ def compute_and_insert_chromatograms_from_ms_data(con: duckdb.DuckDBPyConnection
                                     LIST(intensity ORDER BY scan_time) AS intensity
                              FROM filtered
                              GROUP BY peak_label, ms_file_label)
-                SELECT *
+                SELECT peak_label, ms_file_label, scan_time, intensity, 'ms1' AS ms_type
                 FROM agg;
                 """
 
     query_ms2 = """
-                INSERT INTO chromatograms (peak_label, ms_file_label, scan_time, intensity)
+                INSERT INTO chromatograms (peak_label, ms_file_label, scan_time, intensity, ms_type)
                 WITH pairs_to_process AS (SELECT t.peak_label,
                                                  t.filterLine,
                                                  s.ms_file_label
@@ -436,7 +573,7 @@ def compute_and_insert_chromatograms_from_ms_data(con: duckdb.DuckDBPyConnection
                                                   -- list(mz ORDER BY scan_time) AS mz
                                                   FROM grouped
                                                   GROUP BY peak_label, ms_file_label)
-                SELECT *
+                SELECT peak_label, ms_file_label, scan_time, intensity, 'ms2' AS ms_type
                 FROM aggregated_chromatograms;
                 """
 
@@ -502,6 +639,199 @@ def compute_and_insert_chromatograms_from_ms_data(con: duckdb.DuckDBPyConnection
             progress_thread.join(timeout=0.5)
 
     print("Chromatograms computed and inserted into DuckDB.")
+
+
+def compute_peak_properties(con: duckdb.DuckDBPyConnection,
+                            set_progress=None,
+                            recompute=False,
+                            ):
+    query = """
+            INSERT INTO results (peak_label,
+                                 ms_file_label,
+                                 total_intensity,
+                                 peak_area,
+                                 peak_area_top3,
+                                 peak_max,
+                                 peak_min,
+                                 peak_mean,
+                                 peak_rt_of_max,
+                                 peak_median,
+                                 peak_n_datapoints,
+                                 scan_time,
+                                 intensity)
+            WITH pairs_to_process AS (SELECT c.peak_label,
+                                             c.ms_file_label
+                                      FROM chromatograms c
+                                               JOIN targets t ON c.peak_label = t.peak_label
+                                      WHERE c.ms_file_label IN
+                                            (SELECT ms_file_label FROM samples WHERE use_for_analysis = TRUE)
+                                        AND t.rt_min IS NOT NULL
+                                        AND t.rt_max IS NOT NULL
+                                        AND (
+                                          ? -- recompute
+                                              OR NOT EXISTS (SELECT 1
+                                                             FROM results r
+                                                             WHERE r.peak_label = c.peak_label
+                                                               AND r.ms_file_label = c.ms_file_label)
+                                          )),
+                 unnested AS (SELECT c.peak_label,
+                                     c.ms_file_label,
+                                     UNNEST(c.scan_time) AS scan_time,
+                                     UNNEST(c.intensity) AS intensity
+                              FROM chromatograms c
+                                       JOIN pairs_to_process p ON c.peak_label = p.peak_label
+                                  AND c.ms_file_label = p.ms_file_label),
+-- Calcula total_intensity (sin filtro de rt)
+                 total_stats AS (SELECT peak_label,
+                                        ms_file_label,
+                                        SUM(intensity) AS total_intensity
+                                 FROM unnested
+                                 GROUP BY peak_label, ms_file_label),
+-- Filtra por rango rt_min - rt_max
+                 filtered_range AS (SELECT u.peak_label,
+                                           u.ms_file_label,
+                                           u.scan_time,
+                                           u.intensity
+                                    FROM unnested u
+                                             JOIN targets t ON u.peak_label = t.peak_label
+                                    WHERE u.scan_time BETWEEN t.rt_min AND t.rt_max),
+-- Agrupa los datos filtrados en listas
+                 aggregated AS (SELECT peak_label,
+                                       ms_file_label,
+                                       LIST(scan_time ORDER BY scan_time) AS scan_time,
+                                       LIST(intensity ORDER BY scan_time) AS intensity,
+                                       ROUND(SUM(intensity), 0)           AS peak_area,
+                                       ROUND(MAX(intensity), 0)           AS peak_max,
+                                       ROUND(MIN(intensity), 0)           AS peak_min,
+                                       ROUND(AVG(intensity), 0)           AS peak_mean,
+                                       ROUND(MEDIAN(intensity), 0)        AS peak_median,
+                                       COUNT(*)                           AS peak_n_datapoints
+                                FROM filtered_range
+                                GROUP BY peak_label, ms_file_label),
+-- Calcula peak_area_top3
+                 top3_calc AS (SELECT peak_label,
+                                      ms_file_label,
+                                      ROUND(AVG(intensity), 0) AS peak_area_top3
+                               FROM (SELECT peak_label,
+                                            ms_file_label,
+                                            intensity,
+                                            ROW_NUMBER() OVER (PARTITION BY peak_label, ms_file_label ORDER BY intensity DESC) AS rn
+                                     FROM filtered_range) sub
+                               WHERE rn <= 3
+                               GROUP BY peak_label, ms_file_label),
+-- Encuentra el scan_time del peak_max
+                 rt_of_max AS (SELECT peak_label,
+                                      ms_file_label,
+                                      scan_time AS peak_rt_of_max
+                               FROM (SELECT peak_label,
+                                            ms_file_label,
+                                            scan_time,
+                                            intensity,
+                                            ROW_NUMBER() OVER (PARTITION BY peak_label, ms_file_label ORDER BY intensity DESC) AS rn
+                                     FROM filtered_range) sub
+                               WHERE rn = 1)
+            SELECT a.peak_label,
+                   a.ms_file_label,
+                   ts.total_intensity,
+                   a.peak_area,
+                   t3.peak_area_top3,
+                   a.peak_max,
+                   a.peak_min,
+                   a.peak_mean,
+                   rm.peak_rt_of_max,
+                   a.peak_median,
+                   a.peak_n_datapoints,
+                   a.scan_time,
+                   a.intensity
+            FROM aggregated a
+                     JOIN total_stats ts ON a.peak_label = ts.peak_label AND a.ms_file_label = ts.ms_file_label
+                     JOIN top3_calc t3 ON a.peak_label = t3.peak_label AND a.ms_file_label = t3.ms_file_label
+                     JOIN rt_of_max rm ON a.peak_label = rm.peak_label AND a.ms_file_label = rm.ms_file_label
+            ORDER BY a.peak_label, a.ms_file_label;
+            """
+
+    # Variable compartida para acumular progreso
+    accumulated_progress = [0.0]
+    stop_monitoring = [False]
+
+    def monitor_progress():
+        """Monitorea el progreso de la query actual"""
+        while not stop_monitoring[0]:
+            try:
+                qp = con.query_progress()
+                if qp != -1 and qp > 0:
+                    # Progreso total según qué query estamos ejecutando
+                    total_progress = qp
+
+                    accumulated_progress[0] = total_progress
+                    if set_progress:
+                        set_progress(round(total_progress, 1))
+                    print(f"Progress: {total_progress:.1f}%")
+                time.sleep(0.05)
+
+            except (duckdb.InvalidInputException, duckdb.ConnectionException):
+                break
+            except Exception as e:
+                print(f"Progress monitoring error: {e}")
+                break
+
+    # Iniciar monitoreo
+    if set_progress:
+        progress_thread = Thread(target=monitor_progress, daemon=True)
+        progress_thread.start()
+
+    try:
+        # Ejecutar MS1
+        print("Processing MS1 chromatograms...")
+        con.execute(query, [recompute])
+        accumulated_progress[0] = 100
+        if set_progress:
+            set_progress(round(accumulated_progress[0], 1))
+
+        print("Chromatograms computed and inserted into DuckDB.")
+
+    finally:
+        stop_monitoring[0] = True
+        if set_progress:
+            progress_thread.join(timeout=0.5)
+
+    print("Peak properties computed and inserted into DuckDB.")
+
+
+def create_pivot(conn, rows, cols, value, table='results'):
+    """
+    Crea pivot desde DuckDB para datos únicos por par
+    """
+
+    ordered_pl = conn.execute("""
+                              SELECT DISTINCT r.peak_label 
+                              FROM results r
+                                  JOIN targets t ON r.peak_label = t.peak_label
+                              ORDER BY t.ms_type""").df()
+
+    query = f"""
+        PIVOT (
+            SELECT
+                s.ms_type,
+                r.ms_file_label,
+                r.peak_label,
+                r.{value}
+            FROM results r
+            JOIN samples s ON s.ms_file_label = r.ms_file_label
+            ORDER BY s.ms_type, r.peak_label
+        )
+        ON peak_label
+        USING FIRST({value})
+        -- GROUP BY ms_type
+        ORDER BY ms_type
+    """
+    pd.set_option('display.max_columns', None)
+    pd.set_option('display.width', None)
+    df = conn.execute(query).df()
+    print(f'{df = }')
+    print(f"{ordered_pl = }")
+    return df[['ms_type', 'ms_file_label'] + ordered_pl['peak_label'].to_list()]
+
 
 def compute_and_insert_chromatograms_iteratively(con: duckdb.DuckDBPyConnection, set_progress=None):
     """
