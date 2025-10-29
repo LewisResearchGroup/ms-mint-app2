@@ -969,7 +969,7 @@ def callbacks(app, fsc, cache, cpu=None):
             ]
             fig['layout']['template'] = 'plotly_white'
 
-            filter_type = (f"{target_dict['mz_mean']}"
+            filter_type = (f"mz_mean = {target_dict['mz_mean']}"
                            if target_dict['ms_type'] == 'ms1'
                            else f"{target_dict['filterLine']}")
             fig['layout']['title'] = dict(text=peak_label, font={'size': 14},
