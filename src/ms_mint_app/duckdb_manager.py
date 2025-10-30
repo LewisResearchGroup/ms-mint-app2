@@ -825,11 +825,7 @@ def create_pivot(conn, rows, cols, value, table='results'):
         -- GROUP BY ms_type
         ORDER BY ms_type
     """
-    pd.set_option('display.max_columns', None)
-    pd.set_option('display.width', None)
     df = conn.execute(query).df()
-    print(f'{df = }')
-    print(f"{ordered_pl = }")
     return df[['ms_type', 'ms_file_label'] + ordered_pl['peak_label'].to_list()]
 
 
