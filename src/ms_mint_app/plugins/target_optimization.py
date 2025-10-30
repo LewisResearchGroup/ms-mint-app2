@@ -474,7 +474,7 @@ _layout = fac.AntdLayout(
             id="chromatogram-view-modal",
             width="100vw",
             centered=True,
-            destroyOnClose=False,
+            destroyOnClose=True,
             closable=False,
             maskClosable=False,
             children=[
@@ -636,6 +636,7 @@ _layout = fac.AntdLayout(
         dcc.Store(id='chromatograms', data={}),
         dcc.Store(id='drop-chromatogram'),
         dcc.Store(id="delete-target-clicked"),
+        dcc.Store(id='chromatogram-view-plot-max')
     ],
     style={'height': '100%'},
 )
@@ -988,7 +989,10 @@ def callbacks(app, fsc, cache, cpu=None):
 
             if log_scale:
                 fig['layout']['yaxis']['type'] = 'log'
-                fig['layout']['yaxis']['range'] = [math.log10(y_min), math.log10(y_max)]
+                log_y_min = math.log10(y_min) if y_min > 0 else y_min
+                log_y_max = math.log10(y_max) if y_max > 0 else y_max
+
+                fig['layout']['yaxis']['range'] = [log_y_min, log_y_max]
             else:
                 fig['layout']['yaxis']['type'] = 'linear'
                 fig['layout']['yaxis']['range'] = [y_min, y_max]
@@ -1116,27 +1120,33 @@ def callbacks(app, fsc, cache, cpu=None):
     ############# VIEW BEGIN #######################################
     @app.callback(
         Output('chromatogram-view-plot', 'figure', allow_duplicate=True),
+
         Input('chromatogram-view-log-y', 'checked'),
         State('chromatogram-view-plot', 'figure'),
+        State('chromatogram-view-plot-max', 'data'),
         prevent_initial_call=True
     )
-    def chromatogram_view_y_scale(log_scale, figure):
-        try:
-            y_min, y_max = figure['layout']['yaxis']['range']
-            fig = Patch()
-            if log_scale:
-                if figure['layout']['yaxis']['type'] == 'log':
-                    raise PreventUpdate
-                fig['layout']['yaxis']['type'] = 'log'
-                fig['layout']['yaxis']['range'] = [math.log10(y_min), math.log10(y_max)]
-            else:
-                if figure['layout']['yaxis']['type'] == 'linear':
-                    raise PreventUpdate
-                fig['layout']['yaxis']['type'] = 'linear'
-                fig['layout']['yaxis']['range'] = [math.pow(10, y_min), math.pow(10, y_max)]
-            return fig
-        except Exception:
-            raise PreventUpdate
+    def chromatogram_view_y_scale(log_scale, figure, max_y):
+
+        y_min, y_max = max_y
+        fig = Patch()
+        if log_scale:
+            if figure['layout']['yaxis']['type'] == 'log':
+                raise PreventUpdate
+            fig['layout']['yaxis']['type'] = 'log'
+            log_y_min = math.log10(y_min) if y_min > 0 else y_min
+            log_y_max = math.log10(y_max) if y_max > 0 else y_max
+
+            fig['layout']['yaxis']['range'] = [log_y_min, log_y_max]
+        else:
+            if figure['layout']['yaxis']['type'] == 'linear':
+                raise PreventUpdate
+            fig['layout']['yaxis']['type'] = 'linear'
+            linear_y_min = y_min
+            linear_y_max = y_max
+
+            fig['layout']['yaxis']['range'] = [linear_y_min, linear_y_max]
+        return fig
 
     @app.callback(
         Output('chromatogram-view-plot', 'figure', allow_duplicate=True),
@@ -1157,6 +1167,8 @@ def callbacks(app, fsc, cache, cpu=None):
         Output('chromatogram-view-modal', 'loading'),
         Output('slider-reference-data', 'data'),
         Output('slider-data', 'data', allow_duplicate=True),  # make sure this is reset
+        Output('chromatogram-view-plot-max', 'data'),
+        Output('chromatogram-view-log-y', 'checked', allow_duplicate=True),
 
         Input('target-preview-clicked', 'data'),
         State('chromatogram-preview-log-y', 'checked'),
@@ -1322,12 +1334,13 @@ def callbacks(app, fsc, cache, cpu=None):
 
         fig['layout']['xaxis']['range'] = [x_min, x_max]
         fig['layout']['xaxis']['autorange'] = False
-        fig['layout']['yaxis']['range'] = [y_min, y_max]
         fig['layout']['yaxis']['autorange'] = False
 
         if log_scale:
             fig['layout']['yaxis']['type'] = 'log'
-            fig['layout']['yaxis']['range'] = [math.log10(y_min), math.log10(y_max)]
+            log_y_min = math.log10(y_min) if y_min > 0 else y_min
+            log_y_max = math.log10(y_max) if y_max > 0 else y_max
+            fig['layout']['yaxis']['range'] = [log_y_min, log_y_max]
         else:
             fig['layout']['yaxis']['type'] = 'linear'
             fig['layout']['yaxis']['range'] = [y_min, y_max]
@@ -1346,7 +1359,7 @@ def callbacks(app, fsc, cache, cpu=None):
         }
 
         print(f"{time.perf_counter() - t1 = }")
-        return fig, target_clicked, False, s_data, None
+        return fig, target_clicked, False, s_data, None, [y_min, y_max], log_scale
 
     @app.callback(
         Output('chromatogram-view-plot', 'figure', allow_duplicate=True),
@@ -1426,16 +1439,16 @@ def callbacks(app, fsc, cache, cpu=None):
         Output('rt-range-slider', 'pushable'),
         Output('rt-range-slider', 'tooltip'),
         Output('rt-range-slider', 'marks'),
-        Output('chromatogram-view-log-y', 'checked', allow_duplicate=True),
         Output('chromatogram-view-options-drawer', 'visible', allow_duplicate=True),
 
         Input("chromatogram-view-plot", "relayoutData"),
         Input('slider-reference-data', 'data'),
         State('chromatogram-preview-log-y', 'checked'),
+        State('chromatogram-view-log-y', 'checked'),
         State('slider-data', 'data'),
         prevent_initial_call=True
     )
-    def set_chromatogram_view_options(relayout, slider_reference_data, log_scale, slider_data):
+    def set_chromatogram_view_options(relayout, slider_reference_data, global_log_scale, log_scale, slider_data):
 
         if not relayout or not slider_reference_data:
             raise PreventUpdate
@@ -1464,7 +1477,7 @@ def callbacks(app, fsc, cache, cpu=None):
             }
             return (slider_data, slider_data['min'], slider_data['max'], slider_data['step'], value,
                     slider_data['pushable'], {"placement": "bottom", "always_visible": False}, slider_data['marks'],
-                    dash.no_update, dash.no_update)
+                    dash.no_update)
         else:
             if not relayout:
                 raise PreventUpdate
@@ -1529,7 +1542,7 @@ def callbacks(app, fsc, cache, cpu=None):
             return (new_slider_data, x_min_relayout, x_max_relayout, step, value, step,
                     {"placement": "bottom", "always_visible": False},
                     {float(i): str(round(i, decimals)) for i in np.linspace(s_min, s_max, 6)},
-                    log_scale, False
+                    False
                     )
 
     ############# VIEW END #######################################
