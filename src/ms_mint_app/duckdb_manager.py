@@ -136,7 +136,6 @@ def _create_tables(conn: duckdb.DuckDBPyConnection):
                      ms_type                 ms_type_enum, -- MS type (ms1 or ms2)
                      category                VARCHAR, -- Category of the target
                      score                   DOUBLE,  -- Score of the target
-                     preselected_processing  BOOLEAN, -- Preselected target
                      bookmark                BOOLEAN, -- Bookmark the target
                      source                  VARCHAR -- Filename of the target list
                  );

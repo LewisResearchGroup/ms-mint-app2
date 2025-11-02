@@ -306,7 +306,6 @@ def get_targets_v2(files_path):
         "ms_type": 'string',
         "category": 'string',
         "score": float,
-        "preselected_processing": 'boolean',
         "bookmark": 'boolean',
         "source": 'string',
     }
@@ -425,7 +424,6 @@ def get_targets_v2(files_path):
                 targets_df[col] = pd.to_numeric(targets_df[col], errors='coerce')
 
     # Rellenar valores por defecto
-    targets_df['preselected_processing'] = targets_df['preselected_processing'].fillna(False)
     targets_df['bookmark'] = targets_df['bookmark'].fillna(False)
 
     # Log de resumen
@@ -624,9 +622,9 @@ def process_targets(wdir, set_progress, selected_files):
             raise PreventUpdate
         conn.execute(
             "INSERT INTO targets(peak_label, mz_mean, mz_width, mz, rt, rt_min, rt_max, rt_unit, intensity_threshold, "
-            "polarity, filterLine, ms_type, category, score, preselected_processing, bookmark, source) "
+            "polarity, filterLine, ms_type, category, score, bookmark, source) "
             "SELECT peak_label, mz_mean, mz_width, mz, rt, rt_min, rt_max, rt_unit, intensity_threshold, polarity, "
-            "filterLine, ms_type, category, score, preselected_processing, bookmark, source FROM targets_df ORDER BY peak_label"
+            "filterLine, ms_type, category, score, bookmark, source FROM targets_df ORDER BY peak_label"
         )
 
     set_progress(100)

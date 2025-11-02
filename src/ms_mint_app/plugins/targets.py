@@ -154,12 +154,6 @@ _layout = html.Div(
                                 'width': '120px',
                             },
                             {
-                                'title': 'Selected',
-                                'dataIndex': 'preselected_processing',
-                                'width': '120px',
-                                'renderOptions': {'renderType': 'switch'},
-                            },
-                            {
                                 'title': 'Source',
                                 'dataIndex': 'source',
                                 'width': '400px',
@@ -222,10 +216,6 @@ _layout = html.Div(
                                 'title': 'category',
                                 'content': 'This is category field',
                             },
-                            'preselected_processing': {
-                                'title': 'preselected_processing',
-                                'content': 'This is preselected_processing field',
-                            },
                             'source': {
                                 'title': 'source',
                                 'content': 'This is source field',
@@ -248,8 +238,6 @@ _layout = html.Div(
                             'polarity': {'filterMode': 'checkbox',
                                          'filterCustomItems': ['Negative', 'Positive']
                                          },
-                            'preselected_processing': {'filterMode': 'checkbox',
-                                                       'filterCustomItems': ['True', 'False']},
                             'filterLine': {'filterMode': 'keyword'},
                             'proton': {'filterMode': 'checkbox',
                                        'filterCustomItems': ['Neutral', 'Positive', 'Negative']},
@@ -394,15 +382,8 @@ def callbacks(app, fsc=None, cache=None):
                 else:
                     output_filterOptions = dash.no_update
 
-            data = dfpl.with_columns(
-                pl.col('preselected_processing').map_elements(
-                    lambda value: {'checked': value},
-                    return_dtype=pl.Object  # Specify that the result is a Python object
-                ).alias('preselected_processing'),
-            )
-
             return [
-                data.to_dicts(),
+                dfpl.to_dicts(),
                 [],
                 {**pagination, 'total': number_records, 'current': current},
                 output_filterOptions
