@@ -651,7 +651,13 @@ def compute_and_insert_chromatograms_from_ms_data(con: duckdb.DuckDBPyConnection
 def compute_peak_properties(con: duckdb.DuckDBPyConnection,
                             set_progress=None,
                             recompute=False,
+                            bookmarked=False
                             ):
+
+    if recompute:
+        print("Deleting existing results for recalculation...")
+        con.execute("DELETE FROM results")
+
     query = """
             INSERT INTO results (peak_label,
                                  ms_file_label,
@@ -674,6 +680,11 @@ def compute_peak_properties(con: duckdb.DuckDBPyConnection,
                                             (SELECT ms_file_label FROM samples WHERE use_for_analysis = TRUE)
                                         AND t.rt_min IS NOT NULL
                                         AND t.rt_max IS NOT NULL
+                                        AND CASE
+                                          WHEN ? -- bookmarked
+                                          THEN c.peak_label IN (SELECT peak_label FROM targets WHERE bookmark = TRUE)
+                                          ELSE TRUE
+                                          END
                                         AND (
                                           ? -- recompute
                                               OR NOT EXISTS (SELECT 1
@@ -790,7 +801,7 @@ def compute_peak_properties(con: duckdb.DuckDBPyConnection,
     try:
         # Ejecutar MS1
         print("Processing MS1 chromatograms...")
-        con.execute(query, [recompute])
+        con.execute(query, [bookmarked, recompute])
         accumulated_progress[0] = 100
         if set_progress:
             set_progress(round(accumulated_progress[0], 1))

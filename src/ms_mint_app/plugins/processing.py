@@ -1,7 +1,9 @@
+from os import cpu_count
 from pathlib import Path
 
 import dash
 import feffery_antd_components as fac
+import psutil
 import time
 from dash import dcc
 from dash import html
@@ -9,7 +11,7 @@ from dash.dependencies import Input, Output, State
 from dash.exceptions import PreventUpdate
 
 from ..duckdb_manager import duckdb_connection, compute_peak_properties, build_paginated_query_by_peak, create_pivot, \
-    duckdb_connection_mint
+    duckdb_connection_mint, compute_and_insert_chromatograms_from_ms_data
 from ..plugin_interface import PluginInterface
 
 _label = "Processing"
@@ -26,7 +28,7 @@ class ProcessingPlugin(PluginInterface):
 
     def callbacks(self, app, fsc, cache):
         callbacks(app, fsc, cache)
-    
+
     def outputs(self):
         return None
 
@@ -251,6 +253,52 @@ _layout = html.Div(
             [
                 fac.AntdFlex(
                     [
+                        fac.AntdDivider('Options'),
+                        fac.AntdForm(
+                            [
+                                fac.AntdFormItem(
+                                    fac.AntdCheckbox(
+                                        id='processing-targets-selection',
+                                        label='Compute Bookmarked Targets only',
+                                    ),
+                                    tooltip='Check to compute only the targets that are bookmarked.'
+                                ),
+                            ]
+                        ),
+                        fac.AntdForm(
+                            [
+                                fac.AntdFormItem(
+                                    fac.AntdInputNumber(
+                                        id='processing-chromatogram-compute-cpu',
+                                        defaultValue=cpu_count() - 2,
+                                        min=1,
+                                        max=cpu_count() - 2,
+                                    ),
+                                    label='CPU:',
+                                    hasFeedback=True,
+                                    help=f"Selected {cpu_count() - 2} / {cpu_count()} cpus"
+
+                                ),
+                                fac.AntdFormItem(
+                                    fac.AntdInputNumber(
+                                        id='processing-chromatogram-compute-ram',
+                                        value=round(psutil.virtual_memory().available * 0.9 / (1024 ** 3), 1),
+                                        min=1,
+                                        precision=1,
+                                        step=0.1,
+                                        suffix='GB'
+                                    ),
+                                    label='RAM:',
+                                    hasFeedback=True,
+                                    id='processing-chromatogram-compute-ram-item',
+                                    help=f"Selected "
+                                         f"{round(psutil.virtual_memory().available * 0.9 / (1024 ** 3), 1)}GB / "
+                                         f"{round(psutil.virtual_memory().available / (1024 ** 3), 1)}GB available RAM"
+                                ),
+                            ],
+                            layout='inline'
+                        ),
+                        fac.AntdDivider('Recompute'),
                         fac.AntdForm(
                             [
                                 fac.AntdFormItem(
@@ -811,6 +859,9 @@ def callbacks(app, fsc, cache):
 
         Input('processing-modal', 'okCounts'),
         State('processing-recompute', 'checked'),
+        State("processing-chromatogram-compute-cpu", "value"),
+        State("processing-chromatogram-compute-ram", "value"),
+        State('processing-targets-selection', 'checked'),
         State('wdir', 'data'),
         background=True,
         running=[
@@ -836,18 +887,21 @@ def callbacks(app, fsc, cache):
         ],
         prevent_initial_call=True
     )
-    def compute_results(set_progress, okCounts, recompute, wdir):
+    def compute_results(set_progress, okCounts, recompute, n_cpus, ram, bookmarked, wdir):
 
         print(f"{okCounts = }")
 
         if not okCounts:
             raise PreventUpdate
 
-        with duckdb_connection(wdir) as con:
+        with duckdb_connection(wdir, n_cpus=n_cpus, ram=ram) as con:
             if con is None:
                 return "Could not connect to database."
             start = time.perf_counter()
+            print('Computing chromatograms...')
+            if not bookmarked:
+                compute_and_insert_chromatograms_from_ms_data(con, set_progress)
             print('Computing results...')
-            compute_peak_properties(con, set_progress, recompute)
+            compute_peak_properties(con, set_progress, recompute, bookmarked)
             print(f"Results computed in {time.perf_counter() - start:.2f} seconds")
         return True, False
