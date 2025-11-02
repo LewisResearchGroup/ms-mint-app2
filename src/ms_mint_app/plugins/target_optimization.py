@@ -1,10 +1,12 @@
 import json
+from os import cpu_count
 
 import dash
 import feffery_antd_components as fac
 import math
 import numpy as np
 import plotly.graph_objects as go
+import psutil
 import time
 from dash import html, dcc, Patch
 from dash.dependencies import Input, Output, State, ALL
@@ -383,7 +385,7 @@ _layout = fac.AntdLayout(
             [
                 fac.AntdFlex(
                     [
-                        fac.AntdDivider('Recompute Chromatograms', size='small', ),
+                        fac.AntdDivider('Recompute Chromatograms'),
                         fac.AntdForm(
                             [
                                 fac.AntdFormItem(
@@ -424,6 +426,42 @@ _layout = fac.AntdLayout(
                             ],
                             layout='inline'
                         ),
+                        fac.AntdDivider('Configuration'),
+                        fac.AntdForm(
+                            [
+                                fac.AntdFormItem(
+                                    fac.AntdInputNumber(
+                                        id='chromatogram-compute-cpu',
+                                        defaultValue=cpu_count() - 2,
+                                        min=1,
+                                        max=cpu_count() - 2,
+                                    ),
+                                    label='CPU:',
+                                    hasFeedback=True,
+                                    help=f"Selected {cpu_count() - 2} / {cpu_count()} cpus"
+
+                                ),
+                                fac.AntdFormItem(
+                                    fac.AntdInputNumber(
+                                        id='chromatogram-compute-ram',
+                                        value=round(psutil.virtual_memory().available * 0.9 / (1024 ** 3), 1),
+                                        min=1,
+                                        precision=1,
+                                        step=0.1,
+                                        suffix='GB'
+                                    ),
+                                    label='RAM:',
+                                    hasFeedback=True,
+                                    id='chromatogram-compute-ram-item',
+                                    help=f"Selected "
+                                         f"{round(psutil.virtual_memory().available * 0.9 / (1024 ** 3), 1)}GB / "
+                                         f"{round(psutil.virtual_memory().available / (1024 ** 3), 1)}GB available RAM"
+                                ),
+                            ],
+                            layout='inline'
+                        ),
+
+                        fac.AntdDivider(),
                         fac.AntdAlert(
                             message='There are already computed chromatograms',
                             type='warning',
@@ -1551,12 +1589,15 @@ def callbacks(app, fsc, cache, cpu=None):
     @app.callback(
         Output("compute-chromatogram-modal", "visible"),
         Output("chromatogram-warning", "style"),
+        Output("chromatogram-compute-ram", "max"),
+        Output("chromatogram-compute-ram-item", "help"),
 
         Input("compute-chromatograms-btn", "nClicks"),
+        State('chromatogram-compute-ram', 'value'),
         State('wdir', 'data'),
         prevent_initial_call=True
     )
-    def open_compute_chromatogram_modal(nClicks, wdir):
+    def open_compute_chromatogram_modal(nClicks, ram_value, wdir):
         if not nClicks:
             raise PreventUpdate
 
@@ -1572,7 +1613,11 @@ def callbacks(app, fsc, cache, cpu=None):
 
         style = {'display': 'block'} if computed_chromatograms else {'display': 'none'}
 
-        return True, style
+        ram_max = round(psutil.virtual_memory().available / (1024 ** 3), 1)
+        help = f"Selected {ram_value}GB / {ram_max}GB available RAM"
+
+
+        return True, style, ram_max, help
 
     @app.callback(
         Output('chromatograms', 'data'),
@@ -1581,6 +1626,8 @@ def callbacks(app, fsc, cache, cpu=None):
         Input('compute-chromatogram-modal', 'okCounts'),
         State("chromatograms-recompute-ms1", "checked"),
         State("chromatograms-recompute-ms2", "checked"),
+        State("chromatogram-compute-cpu", "value"),
+        State("chromatogram-compute-ram", "value"),
         State("wdir", "data"),
         background=True,
         running=[
@@ -1606,12 +1653,12 @@ def callbacks(app, fsc, cache, cpu=None):
         ],
         prevent_initial_call=True
     )
-    def compute_chromatograms(set_progress, okCounts, recompute_ms1, recompute_ms2, wdir):
+    def compute_chromatograms(set_progress, okCounts, recompute_ms1, recompute_ms2, n_cpus, ram, wdir):
 
         if not okCounts:
             raise PreventUpdate
 
-        with duckdb_connection(wdir) as con:
+        with duckdb_connection(wdir, n_cpus=n_cpus, ram=ram) as con:
             if con is None:
                 return "Could not connect to database."
             start = time.perf_counter()
