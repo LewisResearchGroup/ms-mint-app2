@@ -756,10 +756,6 @@ def callbacks(app, fsc, cache):
             cols_status = 'error'
             cols_help = 'Select a different column'
 
-        print(f"{rows = }")
-        print(f"{cols = }")
-        print(f"{value = }")
-
         return (
             all_results_download,
             densematrix_download,
@@ -772,8 +768,6 @@ def callbacks(app, fsc, cache):
             value_status,
             value_help
         )
-
-        # return f'value: {value}'
 
     @app.callback(
         Output("download-csv", "data"),
@@ -797,7 +791,6 @@ def callbacks(app, fsc, cache):
                 raise PreventUpdate
             ws_name = mint_conn.execute("SELECT name FROM workspaces WHERE key = ?", [ws_key]).fetchone()[0]
 
-
         if prop_id == 'download-all-results-btn':
             with duckdb_connection(wdir) as conn:
                 if conn is None:
@@ -819,13 +812,7 @@ def callbacks(app, fsc, cache):
             with duckdb_connection(wdir) as conn:
                 df = create_pivot(conn, d_dm_rows[0], d_dm_cols[0], d_dm_value[0], table='results')
                 filename = f"{ws_name}_{d_dm_value[0]}_results.csv"
-
-
-
-
         return dcc.send_data_frame(df.to_csv, filename, index=False)
-
-
 
     @app.callback(
         Output("processing-modal", "visible"),
