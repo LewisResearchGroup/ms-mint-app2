@@ -6,7 +6,7 @@ from pathlib import Path
 from contextlib import contextmanager
 
 @contextmanager
-def duckdb_connection(workspace_path: Path | str, register_activity=True):
+def duckdb_connection(workspace_path: Path | str, register_activity=True, n_cpus=None, ram=None):
     """
     Provides a DuckDB connection as a context manager.
 
@@ -27,6 +27,10 @@ def duckdb_connection(workspace_path: Path | str, register_activity=True):
         con.execute("SET enable_progress_bar = true")
         con.execute("SET enable_progress_bar_print = false")
         con.execute("SET progress_bar_time = 0")
+        if n_cpus:
+            con.execute(f"SET threads = {n_cpus}", )
+        if ram:
+            con.execute(f"SET memory_limit = '{ram}GB'")
         _create_tables(con)
         yield con
     except Exception as e:
@@ -41,6 +45,10 @@ def duckdb_connection(workspace_path: Path | str, register_activity=True):
                                           [Path(workspace_path).stem])
                 except Exception as e:
                     print(f"Error updating workspace activity: {e}")
+            if n_cpus:
+                con.execute("RESET threads")
+            if ram:
+                con.execute("RESET memory_limit")
             con.close()
 
 @contextmanager
