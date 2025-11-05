@@ -401,28 +401,6 @@ _layout = fac.AntdLayout(
                                         label='Recompute MS2'
                                     ),
                                 ),
-                                # fac.AntdFormItem(
-                                #     fac.AntdSelect(
-                                #         id='compute-chromatogram-targets-select',
-                                #         options=['All', 'Preselected for processing'],
-                                #         allowClear=False,
-                                #         placeholder='Select targets',
-                                #         defaultValue='Preselected for processing',
-                                #         style={'width': '100%'},
-                                #     ),
-                                #     label='Select targets',
-                                # ),
-                                # fac.AntdFormItem(
-                                #     fac.AntdSelect(
-                                #         id='compute-chromatogram-samples-select',
-                                #         options=['All', 'Use for Optimization'],
-                                #         allowClear=False,
-                                #         placeholder='Select samples',
-                                #         defaultValue='Use for Optimization',
-                                #         style={'width': '100%'},
-                                #     ),
-                                #     label='Select samples',
-                                # ),
                             ],
                             layout='inline'
                         ),
@@ -522,40 +500,56 @@ _layout = fac.AntdLayout(
             closable=False,
             maskClosable=False,
             children=[
-                html.Div(
+                fac.AntdLayout(
                     [
-                        dcc.Graph(
-                            id='chromatogram-view-plot',
-                            figure=go.Figure(
-                                layout=dict(
-                                    xaxis_title="Retention Time [s]",
-                                    yaxis_title="Intensity",
-                                    showlegend=True,
-                                    margin=dict(l=40, r=10, t=50, b=80),
-                                )
-                            ),
-                            config={'displayModeBar': True},
-                            style={'width': '100%', 'height': '600px'}
-                        ),
                         html.Div(
                             [
-                                dcc.RangeSlider(
-                                    id='rt-range-slider',
-                                    step=1,
-                                    allowCross=False,
-                                    updatemode="drag",
+                                dcc.Graph(
+                                    id='chromatogram-view-plot',
+                                    figure=go.Figure(
+                                        layout=dict(
+                                            xaxis_title="Retention Time [s]",
+                                            yaxis_title="Intensity",
+                                            showlegend=True,
+                                            margin=dict(l=40, r=10, t=50, b=80),
+                                        )
+                                    ),
+                                    config={'displayModeBar': True},
+                                    style={'width': '100%', 'height': '600px'}
                                 ),
-                                fac.AntdFlex(
-                                    id="rt-values-span",
-                                    justify='space-between',
-                                    align='center'
+                                html.Div(
+                                    [
+                                        dcc.RangeSlider(
+                                            id='rt-range-slider',
+                                            step=1,
+                                            allowCross=False,
+                                            updatemode="drag",
+                                        ),
+                                        fac.AntdFlex(
+                                            id="rt-values-span",
+                                            justify='space-between',
+                                            align='center'
+                                        ),
+                                    ],
+                                    id='rslider',
                                 ),
                             ],
-                            id='rslider',
+                            id='chromatogram-view-container',
+                            className='ant-layout-content css-1v28nim',
+                            style={
+                                # 'position': 'relative',
+                                'overflowX': 'hidden',
+                                'background': 'white',
+                                'alignContent': 'center'
+                            },
                         ),
-
-                        fac.AntdDrawer(
+                        fac.AntdSider(
                             [
+                                fac.AntdTitle(
+                                    'Options',
+                                    level=4,
+                                    style={'margin': '0px'}
+                                ),
                                 fac.AntdForm(
                                     [
                                         fac.AntdFormItem(
@@ -574,24 +568,18 @@ _layout = fac.AntdLayout(
                                             ),
                                             label='Legend behavior:',
                                         ),
-                                    ]
+                                    ],
+                                    layout='inline'
                                 )
                             ],
-                            id='chromatogram-view-options-drawer',
-                            title='Options',
-                            containerId='chromatogram-view-container',
-                            placement='right',
-                            styles={
-                                'mask': {'background': 'rgba(0, 0, 0, 0)'}
-                            },
-                            closable=False
-                        ),
+                            collapsible=False,
+                            theme='light',
+                            width=250,
+                            style={'marginLeft': 20,
+                                   'background': 'white'}
+                        )
                     ],
-                    id='chromatogram-view-container',
-                    style={
-                        'position': 'relative',
-                        'overflowX': 'hidden',
-                    },
+                    style={'background': 'white'}
                 ),
                 fac.AntdDivider(size='small'),
                 fac.AntdFlex(
@@ -630,11 +618,6 @@ _layout = fac.AntdLayout(
                         ),
                         fac.AntdSpace(
                             [
-                                fac.AntdButton(
-                                    id='chromatogram-view-options',
-                                    icon=fac.AntdIcon(icon='antd-setting', style={'fontSize': 20}),
-                                    shape="circle"
-                                ),
                                 fac.AntdButton(
                                     "Close",
                                     id="chromatogram-view-close",
@@ -725,7 +708,7 @@ def callbacks(app, fsc, cache, cpu=None):
                         }
                     }
                     resolve(window.dash_clientside.no_update);
-                }, 150);  // 150ms suele ser suficiente
+                }, 250);  // 150ms suele ser suficiente
             });
         }
         """,
@@ -1155,20 +1138,6 @@ def callbacks(app, fsc, cache, cpu=None):
 
     ############# VIEW MODAL END #######################################
 
-    ############# VIEW OPTIONS BEGIN #######################################
-
-    @app.callback(
-        Output('chromatogram-view-options-drawer', 'visible'),
-
-        Input('chromatogram-view-options', 'nClicks'),
-        State('chromatogram-view-options-drawer', 'visible'),
-        prevent_initial_call=True
-    )
-    def show_options_drawer(nClicks, drawer_visible):
-        return not drawer_visible
-
-    ############# VIEW OPTIONS END #######################################
-
     ############# VIEW BEGIN #######################################
     @app.callback(
         Output('chromatogram-view-plot', 'figure', allow_duplicate=True),
@@ -1491,7 +1460,6 @@ def callbacks(app, fsc, cache, cpu=None):
         Output('rt-range-slider', 'pushable'),
         Output('rt-range-slider', 'tooltip'),
         Output('rt-range-slider', 'marks'),
-        Output('chromatogram-view-options-drawer', 'visible', allow_duplicate=True),
 
         Input("chromatogram-view-plot", "relayoutData"),
         Input('slider-reference-data', 'data'),
@@ -1528,8 +1496,7 @@ def callbacks(app, fsc, cache, cpu=None):
                 for i in np.linspace(s_min, s_max, 6)
             }
             return (slider_data, slider_data['min'], slider_data['max'], slider_data['step'], value,
-                    slider_data['pushable'], {"placement": "bottom", "always_visible": False}, slider_data['marks'],
-                    dash.no_update)
+                    slider_data['pushable'], {"placement": "bottom", "always_visible": False}, slider_data['marks'])
         else:
             if not relayout:
                 raise PreventUpdate
@@ -1593,8 +1560,7 @@ def callbacks(app, fsc, cache, cpu=None):
 
             return (new_slider_data, x_min_relayout, x_max_relayout, step, value, step,
                     {"placement": "bottom", "always_visible": False},
-                    {float(i): str(round(i, decimals)) for i in np.linspace(s_min, s_max, 6)},
-                    False
+                    {float(i): str(round(i, decimals)) for i in np.linspace(s_min, s_max, 6)}
                     )
 
     ############# VIEW END #######################################
