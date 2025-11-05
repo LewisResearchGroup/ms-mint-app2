@@ -2,7 +2,6 @@ import logging
 
 import dash
 import feffery_antd_components as fac
-import polars as pl
 from dash import html, dcc
 from dash.dependencies import Input, Output, State
 from dash.exceptions import PreventUpdate
@@ -24,7 +23,7 @@ class TargetsPlugin(PluginInterface):
 
     def callbacks(self, app, fsc, cache):
         callbacks(app, fsc, cache)
-    
+
     def outputs(self):
         return None
 
@@ -60,7 +59,8 @@ _layout = html.Div(
                     buttonMode=True,
                     arrow=True,
                     menuItems=[
-                        {'title': 'Regenerate colors', 'icon': 'pi-broom', 'key': 'regenerate-colors'},
+                        {'title': 'Download targets list', 'icon': 'antd-download', 'key': 'download-target-list'},
+                        {'title': 'Download template', 'icon': 'antd-download', 'key': 'download-target-template'},
                         {'isDivider': True},
                         {'title': fac.AntdText('Delete selected', strong=True, type='warning'),
                          'key': 'delete-selected'},
@@ -311,6 +311,7 @@ _layout = html.Div(
             id='targets-tour',
         ),
         dcc.Store(id="targets-action-store"),
+        dcc.Download('download-targets-csv'),
     ],
 )
 
@@ -410,7 +411,7 @@ def callbacks(app, fsc=None, cache=None):
     )
     def show_delete_modal(nClicks, clickedKey, selectedRows):
         ctx = dash.callback_context
-        if not ctx.triggered:
+        if not ctx.triggered or clickedKey not in ['delete-selected', 'delete-all']:
             raise PreventUpdate
 
         if clickedKey == "delete-selected":
@@ -473,7 +474,7 @@ def callbacks(app, fsc=None, cache=None):
         drop_table_output : boolean
             A boolean indicating whether the delete button was clicked.
         """
-        if okCounts is None:
+        if okCounts is None or clickedKey not in ['delete-selected', 'delete-all']:
             raise PreventUpdate
         if clickedKey == "delete-selected" and not selectedRows:
             targets_action_store = {'action': 'delete', 'status': 'failed'}
@@ -489,7 +490,7 @@ def callbacks(app, fsc=None, cache=None):
                 # conn.execute("DELETE FROM results WHERE peak_label IN ?", (remove_targets,))
             total_removed = len(remove_targets)
             targets_action_store = {'action': 'delete', 'status': 'success'}
-        else:
+        elif clickedKey == "delete-all":
             with duckdb_connection(wdir) as conn:
                 if conn is None:
                     raise PreventUpdate
@@ -577,6 +578,42 @@ def callbacks(app, fsc=None, cache=None):
                 raise PreventUpdate
             conn.execute(f"UPDATE targets SET {recentlySwitchDataIndex} = ? WHERE peak_label = ?",
                          (recentlySwitchStatus, recentlySwitchRow['peak_label']))
+
+    @app.callback(
+        Output("download-targets-csv", "data"),
+
+        Input("targets-options", "nClicks"),
+        State("targets-options", "clickedKey"),
+        State("wdir", "data"),
+        prevent_initial_call=True,
+    )
+    def download_results(nClicks, clickedKey, wdir):
+
+        from pathlib import Path
+        from ..duckdb_manager import duckdb_connection_mint
+
+        if nClicks is None or clickedKey not in ['download-target-list', 'download-target-template']:
+            raise PreventUpdate
+
+        if clickedKey == 'download-target-list':
+            ws_key = Path(wdir).stem
+            with duckdb_connection_mint(Path(wdir).parent.parent) as mint_conn:
+                if mint_conn is None:
+                    raise PreventUpdate
+                ws_name = mint_conn.execute("SELECT name FROM workspaces WHERE key = ?", [ws_key]).fetchone()[0]
+
+            with duckdb_connection(wdir) as conn:
+                if conn is None:
+                    raise PreventUpdate
+                df = conn.execute("SELECT * FROM targets").df()
+                filename = f"{ws_name}_targets.csv"
+        elif clickedKey == 'download-target-template':
+            import pandas as pd
+            df = pd.DataFrame(columns=['peak_label', 'mz_mean', 'mz_width', 'mz', 'rt', 'rt_min', 'rt_max',
+                                       'rt_unit', 'intensity_threshold', 'polarity', 'filterLine', 'category',
+                                       'peak_selection'])
+            filename = "targets_template.csv"
+        return dcc.send_data_frame(df.to_csv, filename, index=False)
 
     @app.callback(
         Output('targets-tour', 'current'),
