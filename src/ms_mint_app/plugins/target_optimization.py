@@ -463,12 +463,18 @@ _layout = fac.AntdLayout(
 
                         fac.AntdDivider(),
                         fac.AntdAlert(
+                            message='There are no targets selected. The chromatograms will be computed for all targets.',
+                            type='info',
+                            showIcon=True,
+                            id='chromatogram-targets-info',
+                        ),
+                        fac.AntdAlert(
                             message='There are already computed chromatograms',
                             type='warning',
                             showIcon=True,
                             id='chromatogram-warning',
                             style={'display': 'none'},
-                        )
+                        ),
                     ],
                     id='chromatogram-compute-options-container',
                     vertical=True
@@ -854,12 +860,16 @@ def callbacks(app, fsc, cache, cpu=None):
                                                  WHEN ? = 'ms1' THEN ms_type = 'ms1'
                                                  WHEN ? = 'ms2' THEN ms_type = 'ms2'
                                                  ELSE TRUE
-                                           END
-                                         AND CASE
-                                                 WHEN ? = 'Bookmarked' THEN bookmark = TRUE
-                                                 WHEN ? = 'Unmarked' THEN bookmark = FALSE
-                                                 ELSE TRUE -- 'all' case
-                                           END
+                                                 END
+                                           AND CASE
+                                                   WHEN ? = 'Bookmarked' THEN bookmark = TRUE
+                                                   WHEN ? = 'Unmarked' THEN bookmark = FALSE
+                                                   ELSE TRUE -- 'all' case
+                                                 END
+                                           AND peak_selection IS TRUE
+                                          OR NOT EXISTS (SELECT 1
+                                                         FROM targets t1
+                                                         WHERE t1.peak_selection IS TRUE)
                                        """, [selection_ms_type, selection_ms_type,
                                              selection_bookmark, selection_bookmark, ]).pl()
             query = f"""
@@ -887,6 +897,10 @@ def callbacks(app, fsc, cache, cpu=None):
                                                           WHEN ? = 'Unmarked' THEN bookmark = FALSE
                                                           ELSE TRUE -- 'all' case
                                                           END
+                                                  AND peak_selection IS TRUE
+                                                OR NOT EXISTS (SELECT 1
+                                                               FROM targets t1
+                                                               WHERE t1.peak_selection IS TRUE)
                                                 LIMIT ? -- 1) limit
                                                     OFFSET ? -- 2) offset
                              ),
@@ -1589,6 +1603,7 @@ def callbacks(app, fsc, cache, cpu=None):
     @app.callback(
         Output("compute-chromatogram-modal", "visible"),
         Output("chromatogram-warning", "style"),
+        Output("chromatogram-targets-info", "message"),
         Output("chromatogram-compute-ram", "max"),
         Output("chromatogram-compute-ram-item", "help"),
 
@@ -1602,6 +1617,7 @@ def callbacks(app, fsc, cache, cpu=None):
             raise PreventUpdate
 
         computed_chromatograms = 0
+        selected_targets = 0
         # check if some chromatogram was computed
         with duckdb_connection(wdir) as conn:
             if conn is None:
@@ -1611,13 +1627,18 @@ def callbacks(app, fsc, cache, cpu=None):
             if chromatograms:
                 computed_chromatograms = chromatograms[0]
 
+            targets = conn.execute("SELECT COUNT(*) FROM targets WHERE peak_selection = TRUE").fetchone()
+            if targets:
+                selected_targets = targets[0]
+
         style = {'display': 'block'} if computed_chromatograms else {'display': 'none'}
 
         ram_max = round(psutil.virtual_memory().available / (1024 ** 3), 1)
         help = f"Selected {ram_value}GB / {ram_max}GB available RAM"
-
-
-        return True, style, ram_max, help
+        target_message = (f'Selected {selected_targets} targets'
+                          if selected_targets
+                          else 'There are no targets selected. The chromatograms will be computed for all targets.')
+        return True, style, target_message, ram_max, help
 
     @app.callback(
         Output('chromatograms', 'data'),
