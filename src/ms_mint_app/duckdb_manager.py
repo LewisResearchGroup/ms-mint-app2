@@ -400,13 +400,23 @@ def compute_and_insert_chromatograms_from_ms_data(con: duckdb.DuckDBPyConnection
                                             FROM targets t
                                                      CROSS JOIN samples_to_use s
                                             WHERE t.mz_mean IS NOT NULL
-                                              AND t.mz_width IS NOT NULL
-                                              AND EXISTS(SELECT 1 FROM ms1_data md WHERE md.ms_file_label = s.ms_file_label)),
+                                                AND t.mz_width IS NOT NULL
+                                                AND t.peak_selection IS TRUE
+                                                    OR NOT EXISTS (SELECT 1
+                                                              FROM targets t1
+                                                              WHERE t1.peak_selection IS TRUE)
+                                                AND
+                                                  EXISTS(SELECT 1 FROM ms1_data md WHERE md.ms_file_label = s.ms_file_label)),
                             ms2_targets AS (SELECT DISTINCT t.peak_label, s.ms_file_label
                                             FROM targets t
                                                      CROSS JOIN samples_to_use s
                                             WHERE t.filterLine IS NOT NULL -- ESTO asegura que es MS2
-                                              AND EXISTS(SELECT 1 FROM ms2_data md WHERE md.ms_file_label = s.ms_file_label)),
+                                                AND t.peak_selection IS TRUE
+                                                    OR NOT EXISTS (SELECT 1
+                                                              FROM targets t1
+                                                              WHERE t1.peak_selection IS TRUE)
+                                                AND
+                                                  EXISTS(SELECT 1 FROM ms2_data md WHERE md.ms_file_label = s.ms_file_label)),
                             existing_chromatograms AS (SELECT DISTINCT peak_label, ms_file_label
                                                        FROM chromatograms)
                        SELECT
@@ -465,11 +475,16 @@ def compute_and_insert_chromatograms_from_ms_data(con: duckdb.DuckDBPyConnection
                     WHERE EXISTS(SELECT 1
                                  FROM targets t
                                           CROSS JOIN samples s
-                                 WHERE s.use_for_optimization = TRUE OR s.use_for_analysis = TRUE
-                                   AND t.mz_mean IS NOT NULL
-                                   AND t.mz_width IS NOT NULL
-                                   AND chromatograms.peak_label = t.peak_label
-                                   AND chromatograms.ms_file_label = s.ms_file_label)
+                                 WHERE s.use_for_optimization = TRUE
+                                    OR s.use_for_analysis = TRUE
+                                     AND t.mz_mean IS NOT NULL
+                                     AND t.mz_width IS NOT NULL
+                                     AND t.peak_selection IS TRUE
+                                    OR NOT EXISTS (SELECT 1
+                                                   FROM targets t1
+                                                   WHERE t1.peak_selection IS TRUE)
+                                     AND chromatograms.peak_label = t.peak_label
+                                     AND chromatograms.ms_file_label = s.ms_file_label)
                     """)
         ms1_to_compute = ms1_total
     else:
@@ -483,10 +498,15 @@ def compute_and_insert_chromatograms_from_ms_data(con: duckdb.DuckDBPyConnection
                     WHERE EXISTS(SELECT 1
                                  FROM targets t
                                           CROSS JOIN samples s
-                                 WHERE s.use_for_optimization = TRUE OR s.use_for_analysis = TRUE
-                                   AND t.filterLine IS NOT NULL
-                                   AND chromatograms.peak_label = t.peak_label
-                                   AND chromatograms.ms_file_label = s.ms_file_label)
+                                 WHERE s.use_for_optimization = TRUE
+                                    OR s.use_for_analysis = TRUE
+                                     AND t.filterLine IS NOT NULL
+                                     AND t.peak_selection IS TRUE
+                                    OR NOT EXISTS (SELECT 1
+                                                   FROM targets t1
+                                                   WHERE t1.peak_selection IS TRUE)
+                                     AND chromatograms.peak_label = t.peak_label
+                                     AND chromatograms.ms_file_label = s.ms_file_label)
                     """)
         ms2_to_compute = ms2_total
     else:
@@ -510,14 +530,18 @@ def compute_and_insert_chromatograms_from_ms_data(con: duckdb.DuckDBPyConnection
                                                         ON (CASE WHEN ? THEN s.use_for_optimization ELSE s.use_for_analysis END) =
                                                            TRUE
                                           WHERE t.mz_mean IS NOT NULL
-                                            AND t.mz_width IS NOT NULL
-                                            AND (
-                                              ? -- recompute_ms1
-                                                  OR NOT EXISTS (SELECT 1
-                                                                 FROM chromatograms c
-                                                                 WHERE c.peak_label = t.peak_label
-                                                                   AND c.ms_file_label = s.ms_file_label)
-                                              )),
+                                              AND t.mz_width IS NOT NULL
+                                              AND t.peak_selection IS TRUE
+                                             OR NOT EXISTS (SELECT 1
+                                                            FROM targets t1
+                                                            WHERE t1.peak_selection IS TRUE)
+                                              AND (
+                                                    ? -- recompute_ms1
+                                                        OR NOT EXISTS (SELECT 1
+                                                                       FROM chromatograms c
+                                                                       WHERE c.peak_label = t.peak_label
+                                                                         AND c.ms_file_label = s.ms_file_label)
+                                                    )),
                      filtered AS (SELECT p.peak_label,
                                          p.ms_file_label,
                                          ROUND(ms1.scan_time, 3) AS scan_time,
@@ -551,13 +575,17 @@ def compute_and_insert_chromatograms_from_ms_data(con: duckdb.DuckDBPyConnection
                                                         ON (CASE WHEN ? THEN s.use_for_optimization ELSE s.use_for_analysis END) =
                                                            TRUE
                                           WHERE t.filterLine IS NOT NULL
-                                            AND (
-                                              ? -- recompute_ms2
-                                                  OR NOT EXISTS (SELECT 1
-                                                                 FROM chromatograms c
-                                                                 WHERE c.peak_label = t.peak_label
-                                                                   AND c.ms_file_label = s.ms_file_label)
-                                              )),
+                                              AND t.peak_selection IS TRUE
+                                             OR NOT EXISTS (SELECT 1
+                                                            FROM targets t1
+                                                            WHERE t1.peak_selection IS TRUE)
+                                              AND (
+                                                    ? -- recompute_ms2
+                                                        OR NOT EXISTS (SELECT 1
+                                                                       FROM chromatograms c
+                                                                       WHERE c.peak_label = t.peak_label
+                                                                         AND c.ms_file_label = s.ms_file_label)
+                                                    )),
                      pre AS (SELECT p.peak_label,
                                     p.ms_file_label,
                                     ROUND(ms2.scan_time, 3) AS scan_time,
