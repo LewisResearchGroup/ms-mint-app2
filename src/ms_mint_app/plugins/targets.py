@@ -87,6 +87,12 @@ _layout = html.Div(
                                 'fixed': 'left'
                             },
                             {
+                                'title': 'Selection',
+                                'dataIndex': 'peak_selection',
+                                'width': '120px',
+                                'renderOptions': {'renderType': 'switch'},
+                            },
+                            {
                                 'title': 'MZ-Mean',
                                 'dataIndex': 'mz_mean',
                                 'width': '150px',
@@ -164,6 +170,10 @@ _layout = html.Div(
                                 'title': 'peak_label',
                                 'content': 'This is peak_label field',
                             },
+                            'peak_selection': {
+                                'title': 'mz_mean',
+                                'content': 'This is mz_mean field',
+                            },
                             'mz_mean': {
                                 'title': 'mz_mean',
                                 'content': 'This is mz_mean field',
@@ -233,8 +243,8 @@ _layout = html.Div(
                                         'filterCustomItems': ['s', 'min']},
                             'intensity_threshold': {'filterMode': 'keyword'},
                             'ms_type': {'filterMode': 'checkbox',
-                                         'filterCustomItems': ['ms1', 'ms2']
-                                         },
+                                        'filterCustomItems': ['ms1', 'ms2']
+                                        },
                             'polarity': {'filterMode': 'checkbox',
                                          'filterCustomItems': ['Negative', 'Positive']
                                          },
@@ -326,8 +336,8 @@ def callbacks(app, fsc=None, cache=None):
         State("processing-type-store", "data"),  # from explorer
         State("wdir", "data"),
     )
-    def targets_table(section_context, processing_output, processed_action, pagination, filter_, sorter, filterOptions, processing_type,
-                      wdir):
+    def targets_table(section_context, processing_output, processed_action, pagination, filter_, sorter, filterOptions,
+                      processing_type, wdir):
         # processing_type also store info about ms-files and metadata selection since it is the same modal for all of
         # them
         if section_context and section_context['page'] != 'Targets':
@@ -529,7 +539,7 @@ def callbacks(app, fsc=None, cache=None):
                     raise PreventUpdate
 
                 query = f"UPDATE targets SET {column_edited} = ? WHERE peak_label = ?"
-                if column_edited == 'sample_type' and row_edited[column_edited] in [None, ''] :
+                if column_edited == 'sample_type' and row_edited[column_edited] in [None, '']:
                     conn.execute(query, ['Unset', row_edited['peak_label']])
                 else:
                     conn.execute(query, [row_edited[column_edited], row_edited['peak_label']])

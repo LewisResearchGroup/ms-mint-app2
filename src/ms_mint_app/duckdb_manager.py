@@ -138,6 +138,7 @@ def _create_tables(conn: duckdb.DuckDBPyConnection):
                      score                   DOUBLE,  -- Score of the target
                      bookmark                BOOLEAN, -- Bookmark the target
                      source                  VARCHAR -- Filename of the target list
+                     peak_selection      BOOLEAN,             -- Preselected target
                  );
                  """)
 
