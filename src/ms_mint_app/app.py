@@ -14,6 +14,7 @@ from flask_login import current_user
 
 import ms_mint
 import ms_mint_app
+from .duckdb_manager import duckdb_connection_mint
 from .plugin_interface import PluginInterface
 from .plugin_manager import PluginManager
 from .plugins.explorer import FileExplorer
@@ -85,6 +86,7 @@ file_explorer = FileExplorer()
 
 _layout = fac.AntdLayout(
     [
+        dcc.Location(id="url", refresh=False),
         dcc.Store(id="tmpdir", data=str(TMPDIR)),
         dcc.Store(id="wdir"),
         dcc.Store(id='section-context'),
@@ -306,9 +308,11 @@ def register_callbacks(app, cache, fsc, args):
         Output('page-content', 'children'),
         Output('section-context', 'data'),
 
-        Input('sidebar-menu', 'currentKey')
+        Input('tmpdir', 'data'),
+        Input('sidebar-menu', 'currentKey'),
+        prevent_initial_call=True
     )
-    def menu_navigation(currentKey):
+    def menu_navigation(tmpdir, currentKey):
         section_context = {
             'page': currentKey,
             'time': time.time()
@@ -338,24 +342,35 @@ def register_callbacks(app, cache, fsc, args):
         return (logo_style, logout_menu_style, active_workspace_container_style, ws_divider_style,
                 doc_issues_menu_mode, version_info_style)
 
+    def user_tmpdir():
+        uid = current_user.get_id() if hasattr(app.server, "login_manager") and current_user.is_authenticated else None
+        base = TMPDIR / ("User" if uid else "Local")
+        sub = uid or ""
+        path = base / sub
+        path.mkdir(parents=True, exist_ok=True)
+        return str(path)
+
     @app.callback(
         Output("tmpdir", "data"),
         Output("logout-menu", "style"),
 
-        Input("progress-interval", "n_intervals"),
-        State('main-sidebar', 'collapsed'),
-        # prevent_initial_call=True
+        Input("url", "pathname"),
+        State("main-sidebar", "collapsed"),
     )
-    def update_tmpdir(x, collapsed):
-        logout_menu_style = {'width': '100%'} if collapsed else {'width': '60px'}
+    def init_session(_pathname, collapsed):
+        logout_menu_style = {"width": "100%" if collapsed else "60px"}
 
-        if hasattr(app.server, "login_manager"):
-            username = current_user.username
-            tmpdir = str(TMPDIR / "User" / username)
-            logout_menu_style['display'] = 'block'
-            return tmpdir, logout_menu_style
-        logout_menu_style['display'] = 'none'
-        return str(TMPDIR / "Local"), logout_menu_style
+        if hasattr(app.server, "login_manager") and current_user.is_authenticated:
+            logout_menu_style["display"] = "block"
+        else:
+            logout_menu_style["display"] = "none"
+
+        ud = user_tmpdir()
+
+        if not Path(ud, 'mint.db').exists():
+            with duckdb_connection_mint(ud):
+                logging.info("Created Workspaces DB...")
+        return ud, logout_menu_style
 
     logging.info("Done registering callbacks")
 
