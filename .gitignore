@@ -24,4 +24,5 @@ docs/_*
 */tmp/*
 *tmp*
 .venv
+!src/ms_mint_app/_version.py
 
