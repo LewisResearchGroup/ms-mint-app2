@@ -374,6 +374,9 @@ def get_targets_v2(files_path):
                         else:
                             raise ValueError(f"Invalid RT-unit: {target['rt_unit']}")
 
+                    target['rt_unit'] = 's'
+
+
                     if 'polarity' in target:
                         target['polarity'] = (
                             target['polarity']
