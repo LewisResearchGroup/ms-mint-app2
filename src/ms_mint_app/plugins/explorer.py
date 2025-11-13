@@ -186,6 +186,21 @@ class FileExplorer:
         """
         allow_folder = extensions != ['.csv']
 
+        # prevent widget to fail on windows non-accessible folders
+        def safe_iterdir(path: Path):
+            """Return list of entries or empty list if folder not accessible."""
+            try:
+                return list(path.iterdir())
+            except (PermissionError, OSError):
+                return []
+
+        def safe_is_dir(p):
+            """Return False if access is denied."""
+            try:
+                return p.is_dir()   # no follow_symlinks parameter in Python 3.10
+            except (PermissionError, OSError):
+                return False
+
         current_path = Path(path)
         data = []
         c = 0
@@ -197,8 +212,8 @@ class FileExplorer:
                 continue
             dash_comp = {}
             if item.is_dir():
-                subfolders = sum(bool(si.is_dir() and not si.name.startswith('.'))
-                                 for si in item.iterdir())
+                entries = safe_iterdir(current_path)
+                subfolders = sum(1 for si in entries if safe_is_dir(si) and not si.name.startswith('.'))
 
                 files_for_selecting = [file for ext in extensions for file in item.glob(f"*{ext}")]
 
