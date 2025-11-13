@@ -361,6 +361,19 @@ def get_targets_v2(files_path):
                     if pd.isna(target.get('rt')):
                         target['rt'] = (target['rt_min'] + target['rt_max']) / 2
 
+                    # check if RT-unit is seconds or minutes
+                    if 'rt_unit' in target:
+                        if target['rt_unit'] in ['minutes', 'min', 'm']:
+                            target['rt'] = target['rt'] * 60
+                            target['rt_max'] = target['rt_max'] * 60
+                            target['rt_min'] = target['rt_min'] * 60
+                        elif target['rt_unit'] in ['seconds', 'sec', 's']:
+                            target['rt'] = target['rt']
+                            target['rt_max'] = target['rt_max']
+                            target['rt_min'] = target['rt_min']
+                        else:
+                            raise ValueError(f"Invalid RT-unit: {target['rt_unit']}")
+
                     if 'polarity' in target:
                         target['polarity'] = (
                             target['polarity']
