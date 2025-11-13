@@ -341,6 +341,15 @@ def get_targets_v2(files_path):
                     if pd.isna(target.get('peak_label')) or target.get('peak_label') == '':
                         raise ValueError("peak_label is empty or null")
 
+                    # check if RT-unit is seconds or minutes
+                    if 'rt_unit' in target:
+                        if target['rt_unit'] in ['minutes', 'min', 'm']:
+                            target['rt'] = target['rt'] * 60
+                        elif target['rt_unit'] in ['seconds', 'sec', 's']:
+                            target['rt'] = target['rt']
+                        else:
+                            raise ValueError(f"Invalid RT-unit: {target['rt_unit']}")
+
                     has_rt_min = not pd.isna(target.get('rt_min'))
                     has_rt_max = not pd.isna(target.get('rt_max'))
 
