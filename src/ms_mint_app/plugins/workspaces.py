@@ -263,10 +263,15 @@ def callbacks(app, fsc, cache):
             data = mint_conn.execute(stmt).df()
             print(f"{data = }")
 
+            if not data.empty:
+                data["key"] = data["key"].astype(str)
+
             cols = ['created_at', 'last_activity']
             data[cols] = data[cols].apply(lambda col: col.dt.strftime("%y-%m-%d %H:%M:%S"))
 
             row_content = mint_conn.execute("SELECT key FROM workspaces").df()
+            if not row_content.empty:
+                row_content["key"] = row_content["key"].astype(str)
 
             def row_comp(key):
                 _path = Path(tmpdir, 'workspaces', str(key))
@@ -312,7 +317,7 @@ def callbacks(app, fsc, cache):
             row_content['content'] = row_content['key'].apply(row_comp)
             selectedRowKeys = mint_conn.execute("SELECT key FROM workspaces WHERE active = true").fetchone()
 
-            sk = [selectedRowKeys[0]] if selectedRowKeys else None
+            sk = [str(selectedRowKeys[0])] if selectedRowKeys else None
         return data.to_dict('records'), row_content.to_dict('records'), sk
 
     @app.callback(
