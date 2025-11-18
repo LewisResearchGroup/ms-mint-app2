@@ -6,6 +6,8 @@ import subprocess
 import argparse
 import pkg_resources
 import logging
+import json
+from urllib.parse import urlparse
 
 from waitress import serve
 from os.path import expanduser
@@ -14,6 +16,82 @@ from collections import namedtuple
 from multiprocessing import freeze_support
 
 import ms_mint_app
+
+
+def _looks_like_remote(target: str) -> bool:
+    return target.startswith(("http://", "https://", "git@", "ssh://", "git+"))
+
+
+def _normalize_remote_target(target: str) -> str:
+    if target.startswith("git+"):
+        return target
+
+    if target.startswith("https://github.com/") and "/tree/" in target:
+        base, _, branch = target.partition("/tree/")
+        branch = branch.strip("/")
+        if branch:
+            if not base.endswith(".git"):
+                base = base.rstrip("/") + ".git"
+            return f"git+{base}@{branch}"
+    return target
+
+
+def update_repo(repo_path: str, install: bool = True) -> bool:
+    """Try to update/install a repo from a local path or remote URL."""
+    if not repo_path:
+        return False
+
+    repo_path = repo_path.strip()
+
+    if _looks_like_remote(repo_path):
+        target = _normalize_remote_target(repo_path)
+        logging.info("Installing from remote source %s", target)
+        try:
+            subprocess.run(
+                [sys.executable, "-m", "pip", "install", target],
+                check=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+            )
+            return True
+        except subprocess.CalledProcessError as exc:
+            output = exc.stdout.decode(errors="ignore") if exc.stdout else str(exc)
+            logging.warning("Remote install failed for %s: %s", target, output)
+            return False
+
+    repo_path = os.path.expanduser(repo_path)
+    if not os.path.isdir(repo_path):
+        logging.warning("Repo path %s does not exist", repo_path)
+        return False
+
+    logging.info("Updating repo at %s", repo_path)
+    try:
+        subprocess.run(
+            [sys.executable, "-m", "pip", "install", repo_path],
+            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+        )
+    except subprocess.CalledProcessError as exc:
+        output = exc.stdout.decode(errors="ignore") if exc.stdout else str(exc)
+        logging.warning("Failed for %s: %s", repo_path, output)
+        return False
+
+    if install:
+        logging.info("Installing %s in editable mode", repo_path)
+        try:
+            subprocess.run(
+                [sys.executable, "-m", "pip", "install", "-e", repo_path],
+                check=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+            )
+        except subprocess.CalledProcessError as exc:
+            output = exc.stdout.decode(errors="ignore") if exc.stdout else str(exc)
+            logging.warning("pip install -e %s failed: %s", repo_path, output)
+            return False
+
+    return True
 
 
 welcome = r"""
@@ -107,6 +185,27 @@ def main():
         help="run MINT locally and use the File System Access API to get local files without uploading them to the "
              "server",
     )
+    parser.add_argument(
+        "--config",
+        default=os.environ.get("MINT_CONFIG_PATH") or str(P(expanduser("~"), ".mint_config.json")),
+        help="Path to JSON config with repo settings (auto-created if missing)",
+    )
+    parser.add_argument(
+        "--repo-path",
+        default=None,
+        help="Path or VCS URL for ms-mint-app to update before launching",
+    )
+    parser.add_argument(
+        "--fallback-repo-path",
+        default=None,
+        help="Fallback repository path to try if the primary update fails",
+    )
+    parser.add_argument(
+        "--skip-update",
+        default=False,
+        action="store_true",
+        help="Skip updating repositories before launching the app",
+    )
 
     args = parser.parse_args()
 
@@ -159,6 +258,49 @@ def main():
     root_logger.setLevel(logging.INFO)
 
     print("Loading app...")
+
+    config_repo = None
+    config_fallback = None
+
+    if args.config:
+        config_path = os.path.expanduser(args.config)
+        if not os.path.isfile(config_path):
+            default_cfg = {
+                "repo_path": "git+https://github.com/Valdes-Tresanco-MS/ms-mint-app@db-migration",
+                "fallback_repo_path": "/home/mario/VSCodeProjects/ms-mint-app/",
+            }
+            try:
+                with open(config_path, "w", encoding="utf-8") as fh:
+                    json.dump(default_cfg, fh, indent=2)
+                logging.info("Created default config at %s", config_path)
+            except OSError as exc:
+                logging.warning("Unable to create config file %s: %s", config_path, exc)
+        else:
+            logging.info("Using config file %s", config_path)
+
+        if os.path.isfile(config_path):
+            try:
+                with open(config_path, "r", encoding="utf-8") as fh:
+                    cfg = json.load(fh)
+                config_repo = cfg.get("repo_path")
+                config_fallback = cfg.get("fallback_repo_path")
+            except Exception as exc:
+                logging.warning("Could not read config %s: %s", config_path, exc)
+
+    env_repo = os.environ.get("MINT_REPO_PATH")
+    env_fallback = os.environ.get("MINT_FALLBACK_REPO_PATH")
+
+    repo_path = args.repo_path or config_repo or env_repo
+    fallback_repo = args.fallback_repo_path or config_fallback or env_fallback
+
+    if not args.skip_update:
+        updated = False
+        if repo_path:
+            updated = update_repo(repo_path)
+        if not updated and fallback_repo:
+            update_repo(fallback_repo)
+    else:
+        logging.info("Skipping repository updates per --skip-update")
 
     from ms_mint_app.app import create_app, register_callbacks
 
