@@ -64,6 +64,9 @@ Mint = "ms_mint_app.scripts.Mint:main"
 where = ["src"]
 include = ["ms_mint_app*"]
 
+[tool.setuptools.package-data]
+"ms_mint_app.assets" = ["*.css"]
+
 [tool.versioneer]
 VCS = "git"
 style = "pep440"
