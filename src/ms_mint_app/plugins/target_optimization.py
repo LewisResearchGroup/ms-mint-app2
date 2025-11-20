@@ -556,13 +556,13 @@ _layout = fac.AntdLayout(
                                             [
                                                 html.Span(
                                                     'Intensity Scale:',
-                                                style={
-                                                    'display': 'inline-block',
-                                                    'width': '170px',
-                                                    'textAlign': 'left',
-                                                    'paddingRight': '8px'
-                                                }
-                                            ),
+                                                    style={
+                                                        'display': 'inline-block',
+                                                        'width': '170px',
+                                                        'textAlign': 'left',
+                                                        'paddingRight': '8px'
+                                                    }
+                                                ),
                                                 html.Div(
                                                     fac.AntdSwitch(
                                                         id='chromatogram-view-log-y',
@@ -583,13 +583,13 @@ _layout = fac.AntdLayout(
                                             [
                                                 html.Span(
                                                     'Legend Behavior:',
-                                                style={
-                                                    'display': 'inline-block',
-                                                    'width': '170px',
-                                                    'textAlign': 'left',
-                                                    'paddingRight': '8px'
-                                                }
-                                            ),
+                                                    style={
+                                                        'display': 'inline-block',
+                                                        'width': '170px',
+                                                        'textAlign': 'left',
+                                                        'paddingRight': '8px'
+                                                    }
+                                                ),
                                                 html.Div(
                                                     fac.AntdSwitch(
                                                         id='chromatogram-view-groupclick',
@@ -605,6 +605,34 @@ _layout = fac.AntdLayout(
                                                 ),
                                             ],
                                             style={'display': 'flex', 'alignItems': 'center'}
+                                        ),
+                                        html.Div(
+                                            [
+                                                html.Span(
+                                                    'Notes:',
+                                                    style={
+                                                        'display': 'inline-block',
+                                                        'width': '170px',
+                                                        'textAlign': 'left',
+                                                        'paddingRight': '8px',
+                                                        'marginBottom': '6px'
+                                                    }
+                                                ),
+                                                fac.AntdInput(
+                                                    id='target-note',
+                                                    allowClear=True,
+                                                    mode='text-area',
+                                                    autoSize={'minRows': 2, 'maxRows': 4},
+                                                    style={'width': '225px'},
+                                                    placeholder='Add notes for this target'
+                                                ),
+                                            ],
+                                            style={
+                                                'display': 'flex',
+                                                'flexDirection': 'column',
+                                                'alignItems': 'flex-start',
+                                                'width': '100%'
+                                            }
                                         ),
                                     ],
                                     direction='vertical',
@@ -1230,6 +1258,7 @@ def callbacks(app, fsc, cache, cpu=None):
         Output('slider-data', 'data', allow_duplicate=True),  # make sure this is reset
         Output('chromatogram-view-plot-max', 'data'),
         Output('chromatogram-view-log-y', 'checked', allow_duplicate=True),
+        Output('target-note', 'value', allow_duplicate=True),
 
         Input('target-preview-clicked', 'data'),
         State('chromatogram-preview-log-y', 'checked'),
@@ -1240,8 +1269,9 @@ def callbacks(app, fsc, cache, cpu=None):
     def chromatogram_view_modal(target_clicked, log_scale, checkedKeys, wdir):
 
         with duckdb_connection(wdir) as conn:
-            d = conn.execute("SELECT rt, rt_min, rt_max FROM targets WHERE peak_label = ?", [target_clicked]).fetchall()
-            rt, rt_min, rt_max = d[0] if d else (None, None, None)
+            d = conn.execute("SELECT rt, rt_min, rt_max, COALESCE(notes, '') FROM targets WHERE peak_label = ?",
+                             [target_clicked]).fetchall()
+            rt, rt_min, rt_max, note = d[0] if d else (None, None, None, '')
 
             query = """
                     WITH picked_samples AS (SELECT ms_file_label, color, label, sample_type
@@ -1420,7 +1450,7 @@ def callbacks(app, fsc, cache, cpu=None):
         }
 
         print(f"{time.perf_counter() - t1 = }")
-        return fig, target_clicked, False, s_data, None, [y_min, y_max], log_scale
+        return fig, target_clicked, False, s_data, None, [y_min, y_max], log_scale, note
 
     @app.callback(
         Output('chromatogram-view-plot', 'figure', allow_duplicate=True),
@@ -1744,22 +1774,29 @@ def callbacks(app, fsc, cache, cpu=None):
         Output('slider-reference-data', 'data', allow_duplicate=True),
 
         Input('save-btn', 'nClicks'),
+        Input('chromatogram-view-close', 'nClicks'),
         State('target-preview-clicked', 'data'),
         State('slider-data', 'data'),
         State('slider-reference-data', 'data'),
+        State('target-note', 'value'),
         State('wdir', 'data'),
         prevent_initial_call=True
     )
-    def save_changes(save_clicks, target_clicked, slider_data, slider_reference, wdir):
-        if not save_clicks:
+    def save_changes(save_clicks, close_clicks, target_clicked, slider_data, slider_reference, target_note, wdir):
+        ctx = dash.callback_context
+        if not ctx.triggered:
             raise PreventUpdate
+        trigger = ctx.triggered[0]['prop_id'].split('.')[0]
+        if trigger not in {'save-btn', 'chromatogram-view-close'}:
+            raise PreventUpdate
+
         rt_min, rt_, rt_max = slider_data['value'].values()
 
         with duckdb_connection(wdir) as conn:
             if conn is None:
                 return dash.no_update
-            conn.execute("UPDATE targets SET rt_min = ?, rt = ?, rt_max = ? "
-                         "WHERE peak_label = ?", (rt_min, rt_, rt_max, target_clicked))
+            conn.execute("UPDATE targets SET rt_min = ?, rt = ?, rt_max = ?, notes = ? "
+                         "WHERE peak_label = ?", (rt_min, rt_, rt_max, target_note or None, target_clicked))
         buttons_style = {
             'visibility': 'hidden',
             'opacity': '0',
