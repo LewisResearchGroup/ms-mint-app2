@@ -1076,8 +1076,12 @@ def callbacks(app, fsc, cache, cpu=None):
             filter_type = (f"mz_mean = {target_dict['mz_mean']}"
                            if target_dict['ms_type'] == 'ms1'
                            else f"{target_dict['filterLine']}")
-            fig['layout']['title'] = dict(text=peak_label, font={'size': 14},
-                                          subtitle=dict(text=f"{filter_type}"))
+            fig['layout']['title'] = dict(
+                text=f"{peak_label}<br><sup>{filter_type}</sup>",
+                font={'size': 14},
+                y=0.90,
+                yanchor='top'
+            )
 
             x_min = target_dict['rt_min'] - (target_dict['rt_max'] - target_dict['rt'])
             x_max = target_dict['rt_max'] + (target_dict['rt'] - target_dict['rt_min'])
@@ -1089,6 +1093,8 @@ def callbacks(app, fsc, cache, cpu=None):
 
             fig['layout']['yaxis']['title'] = dict(text="Intensity", font={'size': 10})
             fig['layout']['yaxis']['autorange'] = False
+            fig['layout']['yaxis']['automargin'] = True
+            fig['layout']['yaxis']['tickformat'] = "~s"
 
             if log_scale:
                 fig['layout']['yaxis']['type'] = 'log'
@@ -1101,7 +1107,7 @@ def callbacks(app, fsc, cache, cpu=None):
                 fig['layout']['yaxis']['range'] = [y_min, y_max]
 
             fig["layout"]["showlegend"] = False
-            fig['layout']['margin'] = dict(l=40, r=5, t=50, b=30)
+            fig['layout']['margin'] = dict(l=45, r=5, t=55, b=30)
             # fig['layout']['uirevision'] = f"xr_{peak_label}"
             figures.append(fig)
 
@@ -1788,6 +1794,9 @@ def callbacks(app, fsc, cache, cpu=None):
             raise PreventUpdate
         trigger = ctx.triggered[0]['prop_id'].split('.')[0]
         if trigger not in {'save-btn', 'chromatogram-view-close'}:
+            raise PreventUpdate
+
+        if not slider_data or not slider_data.get('value'):
             raise PreventUpdate
 
         rt_min, rt_, rt_max = slider_data['value'].values()
