@@ -262,12 +262,8 @@ def main():
     if args.serve_path is not None:
         os.environ["MINT_SERVE_PATH"] = args.serve_path
 
-    print(welcome)
-
     root_logger = logging.getLogger()
     root_logger.setLevel(logging.INFO)
-
-    print("Loading app...")
 
     config_repo = None
     config_fallback = None
@@ -327,6 +323,9 @@ def main():
                 )
         else:
             logging.warning("Update reported success but import failed; skipping restart")
+
+    print(welcome)
+    print("Loading app...")
 
     from ms_mint_app.app import create_app, register_callbacks
 
