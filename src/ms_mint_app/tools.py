@@ -309,6 +309,7 @@ def get_targets_v2(files_path):
         "peak_selection": 'boolean',
         "bookmark": 'boolean',
         "source": 'string',
+        "notes": 'string',
     }
     required_cols = {"peak_label", "rt_min", "rt_max"}
 
@@ -368,9 +369,13 @@ def get_targets_v2(files_path):
                     target['rt_unit'] = 's'
 
 
-                    if 'polarity' in target:
+                    pol = target.get('polarity')
+                    if pd.isna(pol):
+                        target['polarity'] = 'Positive'
+                    else:
+                        pol_str = str(pol)
                         target['polarity'] = (
-                            target['polarity']
+                            pol_str
                             .replace('+', 'Positive')
                             .replace('positive', 'Positive')
                             .replace('-', 'Negative')
@@ -633,16 +638,17 @@ def process_targets(wdir, set_progress, selected_files):
     except Exception as e:
         logging.error(f"Error processing targets: {e}")
         failed_files = {file: str(e) for file in file_list}
-        return 0, failed_files
+        return 0, failed_files, [], {}
 
     with duckdb_connection(wdir) as conn:
         if conn is None:
             raise PreventUpdate
         conn.execute(
             "INSERT INTO targets(peak_label, mz_mean, mz_width, mz, rt, rt_min, rt_max, rt_unit, intensity_threshold, "
-            "polarity, filterLine, ms_type, category, score, peak_selection, bookmark, source) "
+            "polarity, filterLine, ms_type, category, score, peak_selection, bookmark, source, notes) "
             "SELECT peak_label, mz_mean, mz_width, mz, rt, rt_min, rt_max, rt_unit, intensity_threshold, polarity, "
-            "filterLine, ms_type, category, score, peak_selection, bookmark, source FROM targets_df ORDER BY peak_label"
+            "filterLine, ms_type, category, score, peak_selection, bookmark, source, notes "
+            "FROM targets_df ORDER BY peak_label"
         )
 
     set_progress(100)

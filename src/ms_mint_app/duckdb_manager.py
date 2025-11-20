@@ -141,6 +141,7 @@ def _create_tables(conn: duckdb.DuckDBPyConnection):
                      source              VARCHAR              -- Filename of the target list
                  );
                  """)
+    conn.execute("ALTER TABLE targets ADD COLUMN IF NOT EXISTS notes VARCHAR")
 
     conn.execute("""
                  CREATE TABLE IF NOT EXISTS chromatograms

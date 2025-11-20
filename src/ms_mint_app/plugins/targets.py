@@ -160,6 +160,11 @@ _layout = html.Div(
                                 'width': '120px',
                             },
                             {
+                                'title': 'Notes',
+                                'dataIndex': 'notes',
+                                'width': '240px',
+                            },
+                            {
                                 'title': 'Source',
                                 'dataIndex': 'source',
                                 'width': '400px',
@@ -226,6 +231,10 @@ _layout = html.Div(
                                 'title': 'category',
                                 'content': 'This is category field',
                             },
+                            'notes': {
+                                'title': 'notes',
+                                'content': 'Notes for this target',
+                            },
                             'source': {
                                 'title': 'source',
                                 'content': 'This is source field',
@@ -254,6 +263,7 @@ _layout = html.Div(
                             'category': {'filterMode': 'checkbox',
                                          # 'filterCustomItems': ['True', 'False']
                                          },
+                            'notes': {'filterMode': 'keyword'},
                             'source': {'filterMode': 'keyword'},
 
                         },
