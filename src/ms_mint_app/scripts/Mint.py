@@ -4,7 +4,7 @@ import os
 import sys
 import subprocess
 import argparse
-import pkg_resources
+import importlib.metadata as importlib_metadata
 import logging
 import json
 from urllib.parse import urlparse
@@ -94,6 +94,18 @@ def update_repo(repo_path: str, install: bool = True) -> bool:
     return True
 
 
+def _can_import_ms_mint_app() -> bool:
+    """Check whether ms_mint_app imports cleanly after an update."""
+    try:
+        import importlib
+
+        importlib.import_module("ms_mint_app.app")
+        return True
+    except Exception as exc:  # noqa: BLE001
+        logging.warning("Post-update import check failed: %s", exc)
+        return False
+
+
 welcome = r"""
  __________________________________________________________________________________________________________
 /___/\\\\____________/\\\\__/\\\\\\\\\\\__/\\\\\_____/\\\__/\\\\\\\\\\\\\\\_______________/\\\_____________\
@@ -119,8 +131,10 @@ def _create_get_distribution(is_frozen, true_get_distribution, _Dist):
     def _get_distribution(dist):
         if is_frozen and dist == "flask-compress":
             return _Dist("1.5.0")
-        else:
-            return true_get_distribution(dist)
+        try:
+            return _Dist(true_get_distribution(dist))
+        except importlib_metadata.PackageNotFoundError:
+            return _Dist("0.0.0")
     return _get_distribution
 
 
@@ -132,15 +146,11 @@ def main():
     
     # Define local variables
     is_frozen = hasattr(sys, "_MEIPASS")
-    true_get_distribution = pkg_resources.get_distribution
+    true_get_distribution = importlib_metadata.version
     _Dist = namedtuple("_Dist", ["version"])
     
     # Create the distribution getter function with the necessary context
     get_distribution = _create_get_distribution(is_frozen, true_get_distribution, _Dist)
-    
-    # Monkey patch the function so it can work once frozen and pkg_resources is of
-    # no help
-    pkg_resources.get_distribution = get_distribution
 
     parser = argparse.ArgumentParser(description="MINT frontend.")
 
@@ -265,9 +275,11 @@ def main():
     if args.config:
         config_path = os.path.expanduser(args.config)
         if not os.path.isfile(config_path):
+            user_home = P.home()
+            default_fallback = str(user_home / "ms-mint-app")
             default_cfg = {
                 "repo_path": "git+https://github.com/Valdes-Tresanco-MS/ms-mint-app@db-migration",
-                "fallback_repo_path": "/home/mario/VSCodeProjects/ms-mint-app/",
+                "fallback_repo_path": default_fallback,
             }
             try:
                 with open(config_path, "w", encoding="utf-8") as fh:
@@ -293,14 +305,28 @@ def main():
     repo_path = args.repo_path or config_repo or env_repo
     fallback_repo = args.fallback_repo_path or config_fallback or env_fallback
 
+    updated = False
     if not args.skip_update:
-        updated = False
         if repo_path:
             updated = update_repo(repo_path)
         if not updated and fallback_repo:
-            update_repo(fallback_repo)
+            updated = update_repo(fallback_repo)
     else:
         logging.info("Skipping repository updates per --skip-update")
+
+    if updated and not os.environ.get("MINT_ALREADY_UPDATED"):
+        if _can_import_ms_mint_app():
+            logging.info("Update succeeded; restarting to load fresh code")
+            os.environ["MINT_ALREADY_UPDATED"] = "1"
+            if is_frozen:
+                os.execv(sys.executable, [sys.executable, *sys.argv[1:]])
+            else:
+                os.execv(
+                    sys.executable,
+                    [sys.executable, "-m", "ms_mint_app.scripts.Mint", *sys.argv[1:]],
+                )
+        else:
+            logging.warning("Update reported success but import failed; skipping restart")
 
     from ms_mint_app.app import create_app, register_callbacks
 
