@@ -548,28 +548,68 @@ _layout = fac.AntdLayout(
                                 fac.AntdTitle(
                                     'Options',
                                     level=4,
-                                    style={'margin': '0px'}
+                                    style={'margin': '0px', 'marginBottom': '8px'}
                                 ),
-                                fac.AntdForm(
+                                fac.AntdSpace(
                                     [
-                                        fac.AntdFormItem(
-                                            fac.AntdSwitch(
-                                                id='chromatogram-view-log-y',
-                                                checked=False,
+                                        html.Div(
+                                            [
+                                                html.Span(
+                                                    'Intensity Scale:',
+                                                style={
+                                                    'display': 'inline-block',
+                                                    'width': '170px',
+                                                    'textAlign': 'left',
+                                                    'paddingRight': '8px'
+                                                }
                                             ),
-                                            label='Intensity Log Scale:',
+                                                html.Div(
+                                                    fac.AntdSwitch(
+                                                        id='chromatogram-view-log-y',
+                                                        checked=False,
+                                                        checkedChildren='Log',
+                                                        unCheckedChildren='Lin'
+                                                    ),
+                                                    style={
+                                                        'width': '110px',
+                                                        'display': 'flex',
+                                                        'justifyContent': 'flex-start'
+                                                    }
+                                                ),
+                                            ],
+                                            style={'display': 'flex', 'alignItems': 'center'}
                                         ),
-                                        fac.AntdFormItem(
-                                            fac.AntdSwitch(
-                                                id='chromatogram-view-groupclick',
-                                                checked=False,
-                                                checkedChildren='Group',
-                                                unCheckedChildren='Single'
+                                        html.Div(
+                                            [
+                                                html.Span(
+                                                    'Legend Behavior:',
+                                                style={
+                                                    'display': 'inline-block',
+                                                    'width': '170px',
+                                                    'textAlign': 'left',
+                                                    'paddingRight': '8px'
+                                                }
                                             ),
-                                            label='Legend behavior:',
+                                                html.Div(
+                                                    fac.AntdSwitch(
+                                                        id='chromatogram-view-groupclick',
+                                                        checked=False,
+                                                        checkedChildren='Grp',
+                                                        unCheckedChildren='Sng'
+                                                    ),
+                                                    style={
+                                                        'width': '110px',
+                                                        'display': 'flex',
+                                                        'justifyContent': 'flex-start'
+                                                    }
+                                                ),
+                                            ],
+                                            style={'display': 'flex', 'alignItems': 'center'}
                                         ),
                                     ],
-                                    layout='inline'
+                                    direction='vertical',
+                                    size='small',
+                                    style={'alignItems': 'flex-start'}
                                 )
                             ],
                             collapsible=False,
