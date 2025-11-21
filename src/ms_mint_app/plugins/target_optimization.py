@@ -42,6 +42,7 @@ def downsample_for_preview(scan_time, intensity, max_points=100):
     indices = np.linspace(0, len(scan_time) - 1, max_points, dtype=int)
     return scan_time[indices], intensity[indices]
 
+MAX_NUM_CARDS = 50
 
 _layout = fac.AntdLayout(
     [
@@ -336,7 +337,7 @@ _layout = fac.AntdLayout(
                                                                 )
                                                             ],
                                                             **{'data-target': None}
-                                                        ) for i in range(20)  # Only 20 pre-configures cards
+                                                        ) for i in range(MAX_NUM_CARDS)
                                                     ],
                                                     id='chromatogram-preview',
                                                     wrap=True,
@@ -349,7 +350,7 @@ _layout = fac.AntdLayout(
                                                     id='chromatogram-preview-pagination',
                                                     defaultPageSize=20,
                                                     showSizeChanger=True,
-                                                    pageSizeOptions=[4, 6, 8, 10, 12, 16, 20],
+                                                    pageSizeOptions=[4, 10, 20, 50],
                                                     locale='en-us',
                                                     align='center',
                                                     showTotalSuffix='targets',
@@ -873,7 +874,7 @@ def callbacks(app, fsc, cache, cpu=None):
         return [{
             'width': width, 'height': height,
             'margin': '0px',
-        } for _ in range(20)]
+        } for _ in range(MAX_NUM_CARDS)]
 
     ############# GRAPH OPTIONS END #######################################
 
@@ -1112,9 +1113,9 @@ def callbacks(app, fsc, cache, cpu=None):
             # fig['layout']['uirevision'] = f"xr_{peak_label}"
             figures.append(fig)
 
-        titles.extend([None for _ in range(20 - len(figures))])
-        figures.extend([{} for _ in range(20 - len(figures))])
-        bookmarks.extend([0 for _ in range(20 - len(bookmarks))])
+        titles.extend([None for _ in range(MAX_NUM_CARDS - len(figures))])
+        figures.extend([{} for _ in range(MAX_NUM_CARDS - len(figures))])
+        bookmarks.extend([0 for _ in range(MAX_NUM_CARDS - len(bookmarks))])
 
         print(f"{time.perf_counter() - t1 = }")
         return titles, figures, bookmarks, len(all_targets), []
