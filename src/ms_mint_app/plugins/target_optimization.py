@@ -203,16 +203,16 @@ _layout = fac.AntdLayout(
                                                     style={'marginBottom': '1rem'}
                                                 ),
                                                 fac.AntdFormItem(
-                                                    fac.AntdSelect(
-                                                        id='chromatogram-preview-order',
-                                                        options=[{'label': 'By Peak Label', 'value': 'peak_label'},
-                                                                 {'label': 'By MZ-Mean', 'value': 'mz_mean'}],
-                                                        value='peak_label',
-                                                        placeholder='Select filter',
-                                                        style={'width': '100%'},
-                                                        allowClear=False,
-                                                        locale="en-us",
-                                                    ),
+                                                fac.AntdSelect(
+                                                    id='chromatogram-preview-order',
+                                                    options=[{'label': 'By Peak Label', 'value': 'peak_label'},
+                                                             {'label': 'By MZ-Mean', 'value': 'mz_mean'}],
+                                                    value='mz_mean',
+                                                    placeholder='Select filter',
+                                                    style={'width': '100%'},
+                                                    allowClear=False,
+                                                    locale="en-us",
+                                                ),
                                                     label='Order by:',
                                                     tooltip='Ascended order chromatograms by peak label or mz mean',
                                                     style={'marginBottom': '1rem'}
