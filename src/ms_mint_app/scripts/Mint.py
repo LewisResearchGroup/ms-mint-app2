@@ -322,7 +322,7 @@ def main():
                     [sys.executable, "-m", "ms_mint_app.scripts.Mint", *sys.argv[1:]],
                 )
         else:
-            logging.warning("Update reported success but import failed; skipping restart")
+            logging.warning("Update reported success but import failed; skipping restart; proceeding with existing install")
 
     print(welcome)
     print("Loading app...")
