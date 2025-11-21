@@ -82,7 +82,7 @@ def _create_tables(conn: duckdb.DuckDBPyConnection):
                  (
                      ms_file_label        VARCHAR PRIMARY KEY,
                      ms_type              ms_type_enum,
-                     use_for_optimization BOOLEAN DEFAULT false,
+                     use_for_optimization BOOLEAN DEFAULT true,
                      use_for_analysis     BOOLEAN DEFAULT true,
                      polarity             polarity_enum,
                      color                VARCHAR DEFAULT '#ffffff',

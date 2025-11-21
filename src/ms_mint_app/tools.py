@@ -273,7 +273,7 @@ def get_metadata(files_path):
     for file_path in files_path:
         try:
             df = pd.read_csv(file_path, dtype=ref_cols)
-            df['use_for_optimization'] = df['use_for_optimization'].fillna(False)
+            df['use_for_optimization'] = df['use_for_optimization'].fillna(True)
 
             if missing_required := required - set(df.columns):
                 raise ValueError(f"Missing required columns: {missing_required}")
