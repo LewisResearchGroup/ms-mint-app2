@@ -212,7 +212,7 @@ def main():
     )
     parser.add_argument(
         "--skip-update",
-        default=False,
+        default=True,
         action="store_true",
         help="Skip updating repositories before launching the app",
     )
