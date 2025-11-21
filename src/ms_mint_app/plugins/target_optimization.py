@@ -952,6 +952,7 @@ def callbacks(app, fsc, cache, cpu=None):
                                                 OR NOT EXISTS (SELECT 1
                                                                FROM targets t1
                                                                WHERE t1.peak_selection IS TRUE)
+                                                ORDER BY {targets_order} -- 3) order by
                                                 LIMIT ? -- 1) limit
                                                     OFFSET ? -- 2) offset
                              ),
