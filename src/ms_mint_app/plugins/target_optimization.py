@@ -1797,32 +1797,43 @@ def callbacks(app, fsc, cache, cpu=None):
         if trigger not in {'save-btn', 'chromatogram-view-close'}:
             raise PreventUpdate
 
-        if not slider_data or not slider_data.get('value'):
-            raise PreventUpdate
-
-        rt_min, rt_, rt_max = slider_data['value'].values()
+        if trigger == 'save-btn':
+            if not slider_data or not slider_data.get('value'):
+                return dash.no_update
 
         with duckdb_connection(wdir) as conn:
             if conn is None:
                 return dash.no_update
-            conn.execute("UPDATE targets SET rt_min = ?, rt = ?, rt_max = ?, notes = ? "
-                         "WHERE peak_label = ?", (rt_min, rt_, rt_max, target_note or None, target_clicked))
-        buttons_style = {
-            'visibility': 'hidden',
-            'opacity': '0',
-            'transition': 'opacity 0.3s ease-in-out'
-        }
-        slider_reference['value'].update(slider_data['value'])
-        return (
-            fac.AntdNotification(message=f"RT values saved...\n",
-                                 type="success",
-                                 placement='bottom',
-                                 showProgress=True,
-                                 stack=True
-                                 ),
-            buttons_style,
-            slider_reference
-        )
+
+            if trigger == 'save-btn':
+                rt_min, rt_, rt_max = slider_data['value'].values()
+                conn.execute("UPDATE targets SET rt_min = ?, rt = ?, rt_max = ?, notes = ? "
+                             "WHERE peak_label = ?", (rt_min, rt_, rt_max, target_note or None, target_clicked))
+                buttons_style = {
+                    'visibility': 'hidden',
+                    'opacity': '0',
+                    'transition': 'opacity 0.3s ease-in-out'
+                }
+                if slider_reference and slider_reference.get('value'):
+                    slider_reference['value'].update(slider_data['value'])
+                notification = fac.AntdNotification(message="RT values saved...",
+                                                    type="success",
+                                                    placement='bottom',
+                                                    showProgress=True,
+                                                    stack=True)
+                return notification, buttons_style, slider_reference
+
+            elif trigger == 'chromatogram-view-close':
+                # Only persist the note, leave RT values untouched
+                conn.execute("UPDATE targets SET notes = ? WHERE peak_label = ?",
+                             (target_note or None, target_clicked))
+                notification = fac.AntdNotification(message="Notes saved.",
+                                                    type="success",
+                                                    placement='bottom',
+                                                    duration=2,
+                                                    showProgress=True,
+                                                    stack=True)
+                return notification, dash.no_update, slider_reference
 
     @app.callback(
         # only save the current values stored in slider-reference-data since this will shut all the actions
