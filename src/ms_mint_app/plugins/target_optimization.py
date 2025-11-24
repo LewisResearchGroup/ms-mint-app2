@@ -1905,6 +1905,8 @@ def callbacks(app, fsc, cache, cpu=None):
             if conn is None:
                 return dash.no_update
             conn.execute("DELETE FROM chromatograms WHERE peak_label = ?", [target])
+            conn.execute("DELETE FROM targets WHERE peak_label = ?", [target])
+            conn.execute("DELETE FROM results WHERE peak_label = ?", [target])
 
         return (fac.AntdNotification(message=f"{target} chromatograms deleted",
                                     type="success",
