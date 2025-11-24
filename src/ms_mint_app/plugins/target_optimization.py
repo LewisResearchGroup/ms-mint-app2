@@ -933,8 +933,6 @@ def callbacks(app, fsc, cache, cpu=None):
                                                        rt,
                                                        rt_min,
                                                        rt_max,
-                                                       rt_min - (rt_max - rt) AS scan_time_min,
-                                                       rt_max + (rt - rt_min) AS scan_time_max,
                                                        mz_mean,
                                                        bookmark,
                                                        intensity_threshold
@@ -960,8 +958,8 @@ def callbacks(app, fsc, cache, cpu=None):
                              base AS (SELECT c.*,
                                              s.color,
                                              s.label,
-                                             t.scan_time_min,
-                                             t.scan_time_max,
+                                             t.rt_min,
+                                             t.rt_max,
                                              t.intensity_threshold,
                                              t.mz_mean
                                       FROM chromatograms c
@@ -972,8 +970,8 @@ def callbacks(app, fsc, cache, cpu=None):
                                                ms_file_label,
                                                color,
                                                label,
-                                               scan_time_min,
-                                               scan_time_max,
+                                               rt_min,
+                                               rt_max,
                                                intensity_threshold,
                                                mz_mean,
                                                list_transform(
@@ -991,7 +989,7 @@ def callbacks(app, fsc, cache, cpu=None):
                                                label,
                                                mz_mean,
                                                pairs,
-                                               list_filter(pairs, p -> p.t >= scan_time_min AND p.t <= scan_time_max AND
+                                               list_filter(pairs, p -> p.t >= rt_min AND p.t <= rt_max AND
                                                                   p.i >= COALESCE(intensity_threshold, 0)) AS pairs_in
                                         FROM zipped),
                              -- Calculamos min/max de TODO el cromatograma (pairs completo) PERO por peak_label
@@ -1059,18 +1057,6 @@ def callbacks(app, fsc, cache, cpu=None):
                     'y0': 0,
                     'y1': 1,
                     'yref': 'y domain'
-                },
-                {
-                    'fillcolor': 'green',
-                    'line': {'width': 0},
-                    'opacity': 0.1,
-                    'type': 'rect',
-                    'x0': target_dict['rt_min'],
-                    'x1': target_dict['rt_max'],
-                    'xref': 'x',
-                    'y0': 0,
-                    'y1': 1,
-                    'yref': 'y domain'
                 }
             ]
             fig['layout']['template'] = 'plotly_white'
@@ -1085,13 +1071,11 @@ def callbacks(app, fsc, cache, cpu=None):
                 yanchor='top'
             )
 
-            x_min = target_dict['rt_min'] - (target_dict['rt_max'] - target_dict['rt'])
-            x_max = target_dict['rt_max'] + (target_dict['rt'] - target_dict['rt_min'])
 
             fig['layout']['xaxis']['title'] = dict(text="Retention Time [s]", font={'size': 10})
             fig['layout']['xaxis']['autorange'] = False
             fig['layout']['xaxis']['fixedrange'] = True
-            fig['layout']['xaxis']['range'] = [x_min, x_max]
+            fig['layout']['xaxis']['range'] = [target_dict['rt_min'], target_dict['rt_max']]
 
             fig['layout']['yaxis']['title'] = dict(text="Intensity", font={'size': 10})
             fig['layout']['yaxis']['autorange'] = False
