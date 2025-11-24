@@ -315,7 +315,7 @@ _layout = fac.AntdLayout(
                                                                     ),
                                                                     style={
                                                                         'height': '180px', 'width': '250px',
-                                                                        'margin': '0px',
+                                                                        'margin': '0 0 14px 0',
                                                                     },
                                                                     config={
                                                                         'displayModeBar': False,
@@ -334,9 +334,36 @@ _layout = fac.AntdLayout(
                                                                     tooltips=['Bookmark this target'],
                                                                     style={'position': 'absolute', 'top': '8px',
                                                                            'right': '8px', 'zIndex': 20},
-                                                                )
+                                                                ),
+                                                                fac.AntdTooltip(
+                                                                    fac.AntdButton(
+                                                                        icon=fac.AntdIcon(icon='antd-delete'),
+                                                                        type='text',
+                                                                        size='small',
+                                                                        id={'type': 'delete-target-card', 'index': i},
+                                                                        style={
+                                                                            'padding': '4px',
+                                                                            'minWidth': '24px',
+                                                                            'height': '24px',
+                                                                            'borderRadius': '50%',
+                                                                            'background': 'rgba(0, 0, 0, 0.5)',
+                                                                            'color': 'white',
+                                                                            'position': 'absolute',
+                                                                            'bottom': '8px',
+                                                                            'right': '8px',
+                                                                            'zIndex': 20,
+                                                                            'opacity': '0.1',
+                                                                            'transition': 'opacity 0.3s ease'
+                                                                        },
+                                                                        className='peak-action-button',
+                                                                    ),
+                                                                    title='Delete target',
+                                                                    color='red',
+                                                                    placement='bottom',
+                                                                ),
                                                             ],
-                                                            **{'data-target': None}
+                                                            **{'data-target': None},
+                                                            className='is-hidden'
                                                         ) for i in range(MAX_NUM_CARDS)
                                                     ],
                                                     id='chromatogram-preview',
@@ -1071,7 +1098,6 @@ def callbacks(app, fsc, cache, cpu=None):
                 yanchor='top'
             )
 
-
             fig['layout']['xaxis']['title'] = dict(text="Retention Time [s]", font={'size': 10})
             fig['layout']['xaxis']['autorange'] = False
             fig['layout']['xaxis']['fixedrange'] = True
@@ -1105,26 +1131,32 @@ def callbacks(app, fsc, cache, cpu=None):
         return titles, figures, bookmarks, len(all_targets), []
 
     @app.callback(
-        Output({'type': 'target-card-preview', 'index': ALL}, 'style'),
+        Output({'type': 'target-card-preview', 'index': ALL}, 'className'),
         Output('chromatogram-preview-container', 'style'),
         Output('chromatogram-preview-empty', 'style'),
 
         Input({'type': 'graph', 'index': ALL}, 'figure'),
+        State({'type': 'target-card-preview', 'index': ALL}, 'className'),
         prevent_initial_call=True
     )
-    def toggle_card_visibility(figures):
+    def toggle_card_visibility(figures, current_class):
         visible_fig = 0
-        cards_style = []
-        for figure in figures:
+        cards_classes = []
+
+        for i, figure in enumerate(figures):
             if figure:
-                cards_style.append({'display': 'block'})
+                cc = current_class[i].split() if current_class[i] else []
+                cc.remove('is-hidden') if 'is-hidden' in cc else None
+                cards_classes.append(' '.join(cc))
                 visible_fig += 1
             else:
-                cards_style.append({'display': 'none'})
+                cc = current_class[i].split() if current_class[i] else []
+                cc.append('is-hidden') if 'is-hidden' not in cc else None
+                cards_classes.append(' '.join(cc))
 
         show_empty = {'display': 'block'} if visible_fig == 0 else {'display': 'none'}
         show_space = {'display': 'none'} if visible_fig == 0 else {'display': 'block'}
-        return cards_style, show_space, show_empty
+        return cards_classes, show_space, show_empty
 
     ############# PREVIEW END #######################################
 
@@ -1132,12 +1164,13 @@ def callbacks(app, fsc, cache, cpu=None):
     @app.callback(
         Output('target-preview-clicked', 'data'),
 
-        [Input({'type': 'target-card-preview', 'index': ALL}, 'nClicks')],
-        [Input({'type': 'bookmark-target-card', 'index': ALL}, 'value')],
+        Input({'type': 'target-card-preview', 'index': ALL}, 'nClicks'),
+        Input({'type': 'bookmark-target-card', 'index': ALL}, 'value'),
+        Input({'type': 'delete-target-card', 'index': ALL}, 'nClicks'),
         State({'type': 'target-card-preview', 'index': ALL}, 'data-target'),
         prevent_initial_call=True
     )
-    def open_chromatogram_view_modal(card_preview_clicks, bookmark_target_clicks, data_target):
+    def open_chromatogram_view_modal(card_preview_clicks, bookmark_target_clicks, delete_target_clicks, data_target):
         if not card_preview_clicks:
             raise PreventUpdate
 
@@ -1148,9 +1181,8 @@ def callbacks(app, fsc, cache, cpu=None):
         if len(ctx.triggered) > 1 or trigger_type != 'target-card-preview':
             raise PreventUpdate
 
-        ctx = dash.callback_context
-        prop_id = json.loads(ctx.triggered[0]['prop_id'].split('.')[0])
-        return data_target[prop_id['index']]
+        prop_id = ctx_trigger['index']
+        return data_target[prop_id]
 
     @app.callback(
         Output('chromatogram-view-modal', 'visible'),
@@ -1834,49 +1866,54 @@ def callbacks(app, fsc, cache, cpu=None):
             raise PreventUpdate
         return slider_reference
 
-    # @app.callback(
-    #     Output('delete-targets-modal', 'visible'),
-    #     Output('delete-targets-modal', 'children'),
-    #     Output('delete-target-clicked', 'children'),
-    #     Input({'type': 'delete-target-btn', 'index': ALL}, 'nClicks'),
-    #     prevent_initial_call=True
-    # )
-    # def show_delete_modal(delete_clicks):
+    @app.callback(
+        Output('delete-targets-modal', 'visible'),
+        Output('delete-targets-modal', 'children'),
+        Output('delete-target-clicked', 'children'),
+
+        Input({'type': 'delete-target-card', 'index': ALL}, 'nClicks'),
+        State({'type': 'target-card-preview', 'index': ALL}, 'data-target'),
+        prevent_initial_call=True
+    )
+    def show_delete_modal(delete_clicks, data_target):
+
+        ctx = dash.callback_context
+        if not delete_clicks or not ctx.triggered:
+            raise PreventUpdate
+        ctx_trigger = json.loads(ctx.triggered[0]['prop_id'].split('.')[0])
+
+        if len(dash.callback_context.triggered) > 1:
+            raise PreventUpdate
+
+        prop_id = ctx_trigger['index']
+        return True, fac.AntdParagraph(f"Are you sure you want to delete `{data_target[prop_id]}` target?"), data_target[prop_id]
+
     #
-    #     ctx = dash.callback_context
-    #     if not delete_clicks or not ctx.triggered:
-    #         raise PreventUpdate
-    #     ctx_trigger = json.loads(ctx.triggered[0]['prop_id'].split('.')[0])
-    #     trigger_id = ctx_trigger['index']
-    #
-    #     if len(dash.callback_context.triggered) > 1:
-    #         raise PreventUpdate
-    #
-    #     return True, fac.AntdParagraph(f"Are you sure you want to delete `{trigger_id}` target?"), trigger_id
-    #
-    # @app.callback(
-    #     Output({"index": "pko-drop-target-output", "type": "output"}, "children"),
-    #     Input('delete-targets-modal', 'okCounts'),
-    #     Input('delete-targets-modal', 'cancelCounts'),
-    #     Input('delete-targets-modal', 'closeCounts'),
-    #     Input('delete-target-clicked', 'children'),
-    #     State("wdir", "data"),
-    #     prevent_initial_call=True
-    # )
-    # def plk_delete(okCounts, cancelCounts, closeCounts, target, wdir):
-    #     if not okCounts or cancelCounts or closeCounts:
-    #         raise PreventUpdate
-    #     targets = T.get_targets(wdir)
-    #     targets = targets[targets['peak_label'] != target]
-    #
-    #     T.write_targets(targets, wdir)
-    #     return fac.AntdNotification(message=f"{target} deleted",
-    #                                 type="success",
-    #                                 duration=3,
-    #                                 placement='bottom',
-    #                                 showProgress=True,
-    #                                 stack=True
-    #                                 )
+    @app.callback(
+        Output('notifications-container', 'children', allow_duplicate=True),
+        Output('drop-chromatogram', 'data'),
+
+        Input('delete-targets-modal', 'okCounts'),
+        Input('delete-target-clicked', 'children'),
+        State("wdir", "data"),
+        prevent_initial_call=True
+    )
+    def delete_targets_chromatograms(okCounts, target, wdir):
+        if not okCounts:
+            raise PreventUpdate
+        with duckdb_connection(wdir) as conn:
+            if conn is None:
+                return dash.no_update
+            conn.execute("DELETE FROM chromatograms WHERE peak_label = ?", [target])
+
+        return (fac.AntdNotification(message=f"{target} chromatograms deleted",
+                                    type="success",
+                                    duration=3,
+                                    placement='bottom',
+                                    showProgress=True,
+                                    stack=True
+                                    ),
+                True)
 
     @app.callback(
         Output('notifications-container', 'children', allow_duplicate=True),
