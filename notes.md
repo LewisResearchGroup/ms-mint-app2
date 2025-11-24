@@ -35,7 +35,7 @@ Optimization
 - [x] anadir un boton para cambiar entre groupclick de la leyenda.
 - [x] RT-representation redondearlo para mejor aspecto visual
 - [x] Cuando son muchos elementos para computar el cromatograma, duckdb no notifica bien el progreso. El modal no se cierra tampoco.
-- [ ] añadida la opción para la seleccion del número de cpus y ram para la generación de los cromatogramas (revisar)
+- [x] añadida la opción para la seleccion del número de cpus y ram para la generación de los cromatogramas (revisar)
 - [x] añadir seleccion para ms_type
 - [x] falla el slider
 - [x] con el filtro de ms_type se requiere modificar las sample_type que se muestran en el tree
@@ -44,9 +44,11 @@ Optimization
 - [ ] sin metadata no hay ningun ms_file marcado para optimizacion y debe notificarse en "Compute Chromatograms" para no computar nada
 - [ ] similar para targets
 - [ ] barra de progreso. Ver si la query internamente puede mostrar progreso, de lo contrario subdividir en lotes para mostrar progreso y asi mejorar la UX 
-- [ ] rollback delete cromatogramas
+- [x] rollback delete cromatogramas
 - [ ] remover tentativamente la linea del RT (se computara de forma automatica)
-- [ ] order by tiene problemas. no se ordena toda la tabla antes de paginar
+- [x] order by tiene problemas. no se ordena toda la tabla antes de paginar
+- [x] cards no alineadas
+
 
 Processing
 - [x] solo esta procesando los que estan marcados para optimizacion. falta computar los cromatogramas de todos los ms_files
@@ -69,12 +71,13 @@ mint
 - [ ] tamaño de card plot que ocupe todo el layout (hardcoded)
 - [ ] (*) el filtrado por mz se cambia a filtrado por scan_id, si mz no existe se asigna 0 (incluye todos los valores)
 - [ ] buscar compuestos en optimization (barra de busqueda)
-- [ ] incluir opcion para 50 cards en optimization
+- [x] incluir opcion para 50 cards en optimization
 - [ ] establecer aspect ratio para numero de elementos definidos en la paginacion (4, 10, 20, 50)
-- [ ] (*) ordenar por mz_mean por default en optimization (tambien en targets por default)
-- [ ] preview solo el rt span
+- [x] (*) ordenar por mz_mean por default en optimization (tambien en targets por default)
+- [x] preview solo el rt span
 - [ ] view renderizar el grafico con zoom alrededor del rt span (que incluya un 20% del eje x)
 - [ ] (*) acceder a los discos externos (usb, sd, etc)
 - [ ] arreglar el save automatico cuando se cierra la modal de view
 - [ ] cambiar el boton Ok/cancel del modal de confirmacion de cierre sin guardar por save/cancel
+- [x] establecer number de records como opcion en el page size de la paginacion
 
