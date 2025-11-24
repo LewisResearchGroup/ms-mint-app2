@@ -13,6 +13,7 @@ body {
     transform: scale(1.1);
     background: white !important;
     color: red !important;
+    opacity: 1 !important;
 }
 
 
@@ -52,4 +53,8 @@ body {
     border-inline-end: 1px solid rgba(5, 5, 5, 0.06);
     background-color: #ffffff;
     /*box-shadow: 1px 0 3px rgba(0, 0, 0, 0.05);*/
+}
+
+.ant-space-item:has(> .is-hidden) {
+    display: none !important;
 }
