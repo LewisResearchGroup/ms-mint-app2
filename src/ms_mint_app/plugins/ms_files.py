@@ -322,7 +322,7 @@ def generate_colors(wdir, regenerate=False):
         else:
             valid = ms_colors[ms_colors["color"].notna() &
                               (ms_colors["color"].str.strip() != "") &
-                              (ms_colors["color"].str.strip() != "#ffffff")]
+                              (ms_colors["color"].str.strip() != "#bbbbbb")]
             assigned_colors = dict(zip(valid["ms_file_label"], valid["color"]))
 
         if len(assigned_colors) != len(ms_colors):
