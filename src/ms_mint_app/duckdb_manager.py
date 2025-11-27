@@ -697,10 +697,15 @@ def compute_chromatograms_in_batches(wdir: str,
                                      ):
     QUERY_CREATE_SCAN_LOOKUP = """
                                CREATE TABLE IF NOT EXISTS ms_file_scans AS
+                               WITH all_scans AS (SELECT ms_file_label, scan_id, scan_time
+                                                  FROM ms1_data
+                                                  UNION ALL
+                                                  SELECT ms_file_label, scan_id, scan_time
+                                                  FROM ms2_data)
                                SELECT DISTINCT ms_file_label,
                                                scan_id,
                                                scan_time
-                               FROM ms1_data
+                               FROM all_scans
                                ORDER BY ms_file_label, scan_id;
 
                                CREATE INDEX IF NOT EXISTS idx_ms_file_scans_file
