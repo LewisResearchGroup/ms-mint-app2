@@ -289,10 +289,12 @@ def callbacks(app, fsc, cache):
                                            FROM duckdb_tables()
                                            ORDER BY CASE table_name
                                                         WHEN 'samples' THEN 1
-                                                        WHEN 'ms_data' THEN 2
-                                                        WHEN 'targets' THEN 3
-                                                        WHEN 'chromatograms' THEN 4
-                                                        ELSE 5
+                                                        WHEN 'ms1_data' THEN 2
+                                                        WHEN 'ms2_data' THEN 3
+                                                        WHEN 'targets' THEN 4
+                                                        WHEN 'chromatograms' THEN 5
+                                                        WHEN 'results' THEN 6
+                                                        ELSE 7
                                                         END
                                            """).df()
                     db_info = fac.AntdTable(
