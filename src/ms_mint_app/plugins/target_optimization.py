@@ -42,6 +42,7 @@ def downsample_for_preview(scan_time, intensity, max_points=100):
     indices = np.linspace(0, len(scan_time) - 1, max_points, dtype=int)
     return scan_time[indices], intensity[indices]
 
+
 MAX_NUM_CARDS = 50
 
 _layout = fac.AntdLayout(
@@ -58,17 +59,25 @@ _layout = fac.AntdLayout(
                             icon='pi-info',
                             style={"cursor": "pointer", 'paddingLeft': '10px'},
                         ),
-                        fac.AntdSpace(
+                        fac.AntdFlex(
                             [
                                 fac.AntdButton(
                                     'Compute Chromatograms',
                                     id='compute-chromatograms-btn',
                                     style={'textTransform': 'uppercase'},
                                 ),
+                                fac.AntdSelect(
+                                    id='targets-select',
+                                    options=[],
+                                    mode="multiple",
+                                    autoSpin=True,
+                                    maxTagCount="responsive",
+                                    style={"width": "450px"},
+                                    locale="en-us",
+                                )
                             ],
-                            addSplitLine=True,
-                            size="small",
-                            style={"margin": "0 50px"},
+                            justify='space-between',
+                            style={"margin": "0 40px 0 50px", 'width': '100%'},
                         ),
                     ],
                     align='center',
@@ -204,16 +213,16 @@ _layout = fac.AntdLayout(
                                                     style={'marginBottom': '1rem'}
                                                 ),
                                                 fac.AntdFormItem(
-                                                fac.AntdSelect(
-                                                    id='chromatogram-preview-order',
-                                                    options=[{'label': 'By Peak Label', 'value': 'peak_label'},
-                                                             {'label': 'By MZ-Mean', 'value': 'mz_mean'}],
-                                                    value='mz_mean',
-                                                    placeholder='Select filter',
-                                                    style={'width': '100%'},
-                                                    allowClear=False,
-                                                    locale="en-us",
-                                                ),
+                                                    fac.AntdSelect(
+                                                        id='chromatogram-preview-order',
+                                                        options=[{'label': 'By Peak Label', 'value': 'peak_label'},
+                                                                 {'label': 'By MZ-Mean', 'value': 'mz_mean'}],
+                                                        value='mz_mean',
+                                                        placeholder='Select filter',
+                                                        style={'width': '100%'},
+                                                        allowClear=False,
+                                                        locale="en-us",
+                                                    ),
                                                     label='Order by:',
                                                     tooltip='Ascended order chromatograms by peak label or mz mean',
                                                     style={'marginBottom': '1rem'}
@@ -913,6 +922,7 @@ def callbacks(app, fsc, cache, cpu=None):
         Output({'type': 'bookmark-target-card', 'index': ALL}, 'value'),
         Output('chromatogram-preview-pagination', 'total'),
         Output('chromatograms-dummy-output', 'children'),
+        Output('targets-select', 'options'),
 
         Input('chromatograms', 'data'),
         Input('chromatogram-preview-pagination', 'current'),
@@ -923,134 +933,181 @@ def callbacks(app, fsc, cache, cpu=None):
         Input('chromatogram-preview-filter-ms-type', 'value'),
         Input('chromatogram-preview-order', 'value'),
         Input('drop-chromatogram', 'data'),
+        Input('targets-select', 'value'),
         State('wdir', 'data'),
         prevent_initial_call=True
     )
     def chromatograms_preview(chromatograms, current_page, page_size, checkedkeys, log_scale, selection_bookmark,
-                              selection_ms_type, targets_order, dropped_target, wdir):
-        import polars as pl
+                              selection_ms_type, targets_order, dropped_target, selected_targets, wdir):
         start_idx = (current_page - 1) * page_size
         t1 = time.perf_counter()
 
         with duckdb_connection(wdir) as conn:
             all_targets = conn.execute("""
-                                       SELECT *
-                                       from targets
-                                       WHERE CASE
-                                                 WHEN ? = 'ms1' THEN ms_type = 'ms1'
-                                                 WHEN ? = 'ms2' THEN ms_type = 'ms2'
-                                                 ELSE TRUE
-                                                 END
-                                           AND CASE
-                                                   WHEN ? = 'Bookmarked' THEN bookmark = TRUE
-                                                   WHEN ? = 'Unmarked' THEN bookmark = FALSE
-                                                   ELSE TRUE -- 'all' case
-                                                 END
-                                           AND peak_selection IS TRUE
-                                          OR NOT EXISTS (SELECT 1
-                                                         FROM targets t1
-                                                         WHERE t1.peak_selection IS TRUE)
+                                       SELECT peak_label
+                                       from targets t
+                                       WHERE (
+                                           CASE
+                                               WHEN ? = 'ms1' THEN t.ms_type = 'ms1'
+                                               WHEN ? = 'ms2' THEN t.ms_type = 'ms2'
+                                               ELSE TRUE
+                                               END
+                                           )
+                                         AND (
+                                           CASE
+                                               WHEN ? = 'Bookmarked' THEN t.bookmark = TRUE
+                                               WHEN ? = 'Unmarked' THEN t.bookmark = FALSE
+                                               ELSE TRUE -- 'all' case 
+                                               END
+                                           )
+                                         AND (
+                                           t.peak_selection IS TRUE
+                                               OR NOT EXISTS (SELECT 1
+                                                              FROM targets t1
+                                                              WHERE t1.peak_selection IS TRUE)
+                                           )
+                                         AND (
+                                           (SELECT COUNT(*) FROM unnest(?::VARCHAR[])) = 0
+                                               OR peak_label IN (SELECT unnest(?::VARCHAR[]))
+                                           )
                                        """, [selection_ms_type, selection_ms_type,
-                                             selection_bookmark, selection_bookmark, ]).pl()
+                                             selection_bookmark, selection_bookmark,
+                                             selected_targets, selected_targets]).fetchall()
+
+            all_targets = [row[0] for row in all_targets]
+
             query = f"""
-                        WITH picked_samples AS (SELECT ms_file_label, color, label
-                                                FROM samples
-                                                WHERE use_for_optimization = TRUE
-                                                  AND ms_file_label IN (SELECT unnest(?::VARCHAR[]))),
-                             picked_targets AS (SELECT peak_label,
-                                                       rt,
-                                                       rt_min,
-                                                       rt_max,
-                                                       mz_mean,
-                                                       bookmark,
-                                                       intensity_threshold
-                                                FROM targets
-                                                WHERE CASE
-                                                          WHEN ? = 'ms1' THEN ms_type = 'ms1'
-                                                          WHEN ? = 'ms2' THEN ms_type = 'ms2'
-                                                          ELSE TRUE
-                                                    END
-                                                  AND CASE
-                                                          WHEN ? = 'Bookmarked' THEN bookmark = TRUE
-                                                          WHEN ? = 'Unmarked' THEN bookmark = FALSE
-                                                          ELSE TRUE -- 'all' case
-                                                          END
-                                                  AND peak_selection IS TRUE
-                                                OR NOT EXISTS (SELECT 1
-                                                               FROM targets t1
-                                                               WHERE t1.peak_selection IS TRUE)
-                                                ORDER BY {targets_order} -- 3) order by
-                                                LIMIT ? -- 1) limit
-                                                    OFFSET ? -- 2) offset
-                             ),
-                             base AS (SELECT c.*,
-                                             s.color,
-                                             s.label,
-                                             t.rt_min,
-                                             t.rt_max,
-                                             t.intensity_threshold,
-                                             t.mz_mean
-                                      FROM chromatograms c
-                                               JOIN picked_samples s USING (ms_file_label)
-                                               JOIN picked_targets t USING (peak_label)),
-                             -- Emparejamos (scan_time[i], intensity[i]) en una lista de structs
-                             zipped AS (SELECT peak_label,
-                                               ms_file_label,
-                                               color,
-                                               label,
-                                               rt_min,
-                                               rt_max,
-                                               intensity_threshold,
-                                               mz_mean,
+                                WITH picked_samples AS (
+                                    SELECT ms_file_label, color, label
+                                    FROM samples
+                                    WHERE use_for_optimization = TRUE
+                                      AND ms_file_label IN (SELECT unnest(?::VARCHAR[]))
+                                ),
+                                picked_targets AS (
+                                    SELECT 
+                                           t.peak_label,
+                                           t.ms_type,
+                                           t.bookmark,
+                                           t.rt_min,
+                                           t.rt_max,
+                                           t.rt,
+                                           t.intensity_threshold,
+                                           t.mz_mean,
+                                           t.filterLine
+                                    FROM targets t
+                                    WHERE (
+                                        CASE
+                                            WHEN ? = 'ms1' THEN t.ms_type = 'ms1'
+                                            WHEN ? = 'ms2' THEN t.ms_type = 'ms2'
+                                            ELSE TRUE
+                                        END
+                                    )
+                                    AND (
+                                        CASE
+                                            WHEN ? = 'Bookmarked' THEN t.bookmark = TRUE
+                                            WHEN ? = 'Unmarked' THEN t.bookmark = FALSE
+                                            ELSE TRUE -- 'all' case 
+                                        END
+                                    )
+                                    AND (
+                                        t.peak_selection IS TRUE
+                                        OR NOT EXISTS (
+                                                SELECT 1 
+                                                FROM targets t1
+                                                WHERE t1.peak_selection IS TRUE
+                                            )
+                                    )
+                                    AND (
+                                        (SELECT COUNT(*) FROM unnest(?::VARCHAR[])) = 0
+                                        OR peak_label IN (SELECT unnest(?::VARCHAR[]))
+                                    )
+                                    ORDER BY {targets_order} -- 3) order by
+                                    LIMIT ? -- 1) limit
+                                        OFFSET ? -- 2) offset
+                                ),
+                                base AS (
+                                    SELECT 
+                                       c.*,
+                                       s.color,
+                                       s.label,
+                                       t.rt_min,
+                                       t.rt_max,
+                                       t.rt,
+                                       t.intensity_threshold,
+                                       t.mz_mean,
+                                       t.bookmark,  -- Añadir campos adicionales necesarios
+                                       t.ms_type,
+                                       t.filterLine
+                                    FROM chromatograms c
+                                          JOIN picked_samples s USING (ms_file_label)
+                                          JOIN picked_targets t USING (peak_label)
+                                ),
+                                     -- Emparejamos (scan_time[i], intensity[i]) en una lista de structs
+                                filtered AS (
+                                    SELECT peak_label,
+                                           ms_file_label,
+                                           color,
+                                           label,
+                                           rt_min,
+                                           rt_max,
+                                           rt,
+                                           mz_mean,
+                                           bookmark,
+                                           ms_type,
+                                           filterLine,
+                                           list_filter(
                                                list_transform(
-                                                       range(1, len(scan_time) + 1),
-                                                       i -> struct_pack(
-                                                               t := list_extract(scan_time, i),
-                                                               i := list_extract(intensity, i)
-                                                            )
-                                               ) AS pairs
-                                        FROM base),
-                             -- Filtramos por el rango de tiempo Y por intensity_threshold
-                             sliced AS (SELECT peak_label,
-                                               ms_file_label,
-                                               color,
-                                               label,
-                                               mz_mean,
-                                               pairs,
-                                               list_filter(pairs, p -> p.t >= rt_min AND p.t <= rt_max AND
-                                                                  p.i >= COALESCE(intensity_threshold, 0)) AS pairs_in
-                                        FROM zipped),
-                             final AS (SELECT peak_label,
-                                              ms_file_label,
-                                              color,
-                                              label,
-                                              mz_mean,
-                                              list_transform(pairs_in, p -> p.t) AS scan_time_sliced,
-                                              list_transform(pairs_in, p -> p.i) AS intensity_sliced
-                                       FROM sliced
-                                       )
-                        SELECT *
-                        FROM final
-                        ORDER BY {targets_order}, ms_file_label;
-                        """
+                                                   range(1, len(scan_time) + 1),
+                                                   i -> struct_pack(
+                                                       t := list_extract(scan_time, i),
+                                                       i := list_extract(intensity, i)
+                                                   )
+                                               ),
+                                               p -> p.t >= rt_min AND p.t <= rt_max
+                                                     AND p.i >= COALESCE(intensity_threshold, 0)
+                                           ) AS pairs_in
+                                    FROM base
+                                ),
+                                final AS (
+                                    SELECT peak_label,
+                                           ms_file_label,
+                                           color,
+                                           label,
+                                           mz_mean,
+                                           rt_min,
+                                           rt_max,
+                                           rt,
+                                           bookmark,
+                                           ms_type,
+                                           filterLine,
+                                           list_transform(pairs_in, p -> p.t) AS scan_time_sliced,
+                                           list_transform(pairs_in, p -> p.i) AS intensity_sliced
+                                    FROM filtered
+                                )
+                                SELECT *
+                                FROM final
+                                ORDER BY {targets_order}, ms_file_label;
+                                """
             df = conn.execute(query, [checkedkeys, selection_ms_type, selection_ms_type,
-                                      selection_bookmark, selection_bookmark, page_size, start_idx]
+                                      selection_bookmark, selection_bookmark,
+                                      selected_targets, selected_targets, page_size, start_idx]
                               ).pl()
 
         titles = []
         figures = []
         bookmarks = []
-        for target_data, g in df.group_by(['peak_label'],
-                                          maintain_order=True):
-            peak_label = target_data[0]
+
+        for peak_label_data, peak_data in df.group_by(
+                ['peak_label', 'ms_type', 'bookmark', 'rt_min', 'rt_max', 'rt', 'mz_mean', 'filterLine'],
+                maintain_order=True):
+            peak_label, ms_type, bookmark, rt_min, rt_max, rt, mz_mean, filterLine = peak_label_data
 
             titles.append(peak_label)
-            target_dict = all_targets.filter(pl.col('peak_label') == peak_label).head(1).rows(named=True)[0]
-            bookmarks.append(int(target_dict['bookmark']))  # convert bool to int
+            bookmarks.append(int(bookmark))  # convert bool to int
 
             fig = Patch()
             traces = []
-            for i, row in enumerate(g.iter_rows(named=True)):
+            for i, row in enumerate(peak_data.iter_rows(named=True)):
                 traces.append({
                     'type': 'scatter',
                     'mode': 'lines',
@@ -1062,13 +1119,12 @@ def callbacks(app, fsc, cache, cpu=None):
 
             fig['data'] = traces
 
-
             fig['layout']['shapes'] = [
                 {
                     'line': {'color': 'black', 'width': 1.5, 'dash': 'dashdot'},
                     'type': 'line',
-                    'x0': target_dict['rt'],
-                    'x1': target_dict['rt'],
+                    'x0': rt,
+                    'x1': rt,
                     'xref': 'x',
                     'y0': 0,
                     'y1': 1,
@@ -1077,9 +1133,9 @@ def callbacks(app, fsc, cache, cpu=None):
             ]
             fig['layout']['template'] = 'plotly_white'
 
-            filter_type = (f"mz_mean = {target_dict['mz_mean']}"
-                           if target_dict['ms_type'] == 'ms1'
-                           else f"{target_dict['filterLine']}")
+            filter_type = (f"mz_mean = {mz_mean}"
+                           if ms_type == 'ms1'
+                           else f"{filterLine}")
             fig['layout']['title'] = dict(
                 text=f"{peak_label}<br><sup>{filter_type}</sup>",
                 font={'size': 14},
@@ -1090,7 +1146,7 @@ def callbacks(app, fsc, cache, cpu=None):
             fig['layout']['xaxis']['title'] = dict(text="Retention Time [s]", font={'size': 10})
             fig['layout']['xaxis']['autorange'] = False
             fig['layout']['xaxis']['fixedrange'] = True
-            fig['layout']['xaxis']['range'] = [target_dict['rt_min'], target_dict['rt_max']]
+            fig['layout']['xaxis']['range'] = [rt_min, rt_max]
 
             fig['layout']['yaxis']['title'] = dict(text="Intensity", font={'size': 10})
             fig['layout']['yaxis']['autorange'] = True
@@ -1111,8 +1167,14 @@ def callbacks(app, fsc, cache, cpu=None):
         figures.extend([{} for _ in range(MAX_NUM_CARDS - len(figures))])
         bookmarks.extend([0 for _ in range(MAX_NUM_CARDS - len(bookmarks))])
 
+        ctx = dash.callback_context
+        if 'targets-select' in ctx.triggered[0]['prop_id']:
+            targets_select_options = dash.no_update
+        else:
+            targets_select_options = all_targets
+
         print(f"{time.perf_counter() - t1 = }")
-        return titles, figures, bookmarks, len(all_targets), []
+        return titles, figures, bookmarks, len(all_targets), [], targets_select_options
 
     @app.callback(
         Output({'type': 'target-card-preview', 'index': ALL}, 'className'),
@@ -1906,12 +1968,12 @@ def callbacks(app, fsc, cache, cpu=None):
             conn.execute("DELETE FROM results WHERE peak_label = ?", [target])
 
         return (fac.AntdNotification(message=f"{target} chromatograms deleted",
-                                    type="success",
-                                    duration=3,
-                                    placement='bottom',
-                                    showProgress=True,
-                                    stack=True
-                                    ),
+                                     type="success",
+                                     duration=3,
+                                     placement='bottom',
+                                     showProgress=True,
+                                     stack=True
+                                     ),
                 True)
 
     @app.callback(
