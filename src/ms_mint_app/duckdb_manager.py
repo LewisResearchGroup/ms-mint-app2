@@ -1,9 +1,11 @@
-import time
+from contextlib import contextmanager
+from pathlib import Path
 from threading import Thread
+from typing import List, Tuple, Callable
 
 import duckdb
-from pathlib import Path
-from contextlib import contextmanager
+import time
+
 
 @contextmanager
 def duckdb_connection(workspace_path: Path | str, register_activity=True, n_cpus=None, ram=None):
@@ -52,6 +54,7 @@ def duckdb_connection(workspace_path: Path | str, register_activity=True, n_cpus
                 con.execute("RESET memory_limit")
             con.close()
 
+
 @contextmanager
 def duckdb_connection_mint(mint_path: Path, workspace=None):
     if not mint_path:
@@ -71,6 +74,7 @@ def duckdb_connection_mint(mint_path: Path, workspace=None):
         if con and workspace:
             con.execute("UPDATE workspaces SET last_activity = NOW() WHERE key = ?", [workspace])
             con.close()
+
 
 def _create_tables(conn: duckdb.DuckDBPyConnection):
     # Create tables if they don't exist
@@ -140,9 +144,9 @@ def _create_tables(conn: duckdb.DuckDBPyConnection):
                      score               DOUBLE,              -- Score of the target
                      bookmark            BOOLEAN,             -- Bookmark the target
                      source              VARCHAR              -- Filename of the target list
+                     notes               VARCHAR  -- Additional notes for the target
                  );
                  """)
-    conn.execute("ALTER TABLE targets ADD COLUMN IF NOT EXISTS notes VARCHAR")
 
     conn.execute("""
                  CREATE TABLE IF NOT EXISTS chromatograms
@@ -184,7 +188,7 @@ def _create_workspace_tables(conn: duckdb.DuckDBPyConnection):
                  CREATE TABLE IF NOT EXISTS workspaces
                  (
                      key           UUID DEFAULT uuidv4() PRIMARY KEY,
-                     name          VARCHAR UNIQUE,
+                     name          VARCHAR,
                      description   VARCHAR,
                      active        BOOLEAN,
                      created_at    TIMESTAMP,
@@ -192,6 +196,7 @@ def _create_workspace_tables(conn: duckdb.DuckDBPyConnection):
                  )
                  """
                  )
+
 
 def build_where_and_params(filter_, filterOptions):
     where_sql, params = [], []
@@ -214,12 +219,13 @@ def build_where_and_params(filter_, filterOptions):
     where_clause = f"WHERE {' AND '.join(where_sql)}" if where_sql else ""
     return where_clause, params
 
+
 def build_order_by(
-    sorter: dict | None,
-    column_types: dict[str, str],
-    *,
-    tie: tuple[str, str] | None = None,   # p.ej. ("id", "ASC"); se usa SOLO si hay sorter
-    nocase_text: bool = True
+        sorter: dict | None,
+        column_types: dict[str, str],
+        *,
+        tie: tuple[str, str] | None = None,  # p.ej. ("id", "ASC"); se usa SOLO si hay sorter
+        nocase_text: bool = True
 ) -> str:
     """
     Devuelve 'ORDER BY ...' o '' si no hay sorter válido.
@@ -404,7 +410,7 @@ def compute_and_insert_chromatograms_from_ms_data(con: duckdb.DuckDBPyConnection
                                             WHERE t.mz_mean IS NOT NULL
                                                 AND t.mz_width IS NOT NULL
                                                 AND t.peak_selection IS TRUE
-                                                    OR NOT EXISTS (SELECT 1
+                                               OR NOT EXISTS (SELECT 1
                                                               FROM targets t1
                                                               WHERE t1.peak_selection IS TRUE)
                                                 AND
@@ -414,7 +420,7 @@ def compute_and_insert_chromatograms_from_ms_data(con: duckdb.DuckDBPyConnection
                                                      CROSS JOIN samples_to_use s
                                             WHERE t.filterLine IS NOT NULL -- ESTO asegura que es MS2
                                                 AND t.peak_selection IS TRUE
-                                                    OR NOT EXISTS (SELECT 1
+                                               OR NOT EXISTS (SELECT 1
                                                               FROM targets t1
                                                               WHERE t1.peak_selection IS TRUE)
                                                 AND
@@ -712,9 +718,9 @@ def compute_peak_properties(con: duckdb.DuckDBPyConnection,
                                         AND t.rt_min IS NOT NULL
                                         AND t.rt_max IS NOT NULL
                                         AND CASE
-                                          WHEN ? -- bookmarked
-                                          THEN c.peak_label IN (SELECT peak_label FROM targets WHERE bookmark = TRUE)
-                                          ELSE TRUE
+                                                WHEN ? -- bookmarked
+                                                    THEN c.peak_label IN (SELECT peak_label FROM targets WHERE bookmark = TRUE)
+                                                ELSE TRUE
                                           END
                                         AND (
                                           ? -- recompute
@@ -853,9 +859,9 @@ def create_pivot(conn, rows, cols, value, table='results'):
     """
 
     ordered_pl = conn.execute("""
-                              SELECT DISTINCT r.peak_label 
+                              SELECT DISTINCT r.peak_label
                               FROM results r
-                                  JOIN targets t ON r.peak_label = t.peak_label
+                                       JOIN targets t ON r.peak_label = t.peak_label
                               ORDER BY t.ms_type""").df()
 
     query = f"""
