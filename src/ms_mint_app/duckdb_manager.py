@@ -968,6 +968,11 @@ def compute_chromatograms_in_batches(wdir: str,
 
                 current_id += batch_size
 
+    with duckdb_connection(wdir, n_cpus=n_cpus, ram=ram) as conn:
+        conn.execute("DROP TABLE IF EXISTS ms_file_scans")
+        conn.execute("DROP TABLE IF EXISTS pending_pairs")
+
+
 def compute_peak_properties(con: duckdb.DuckDBPyConnection,
                             set_progress=None,
                             recompute=False,
