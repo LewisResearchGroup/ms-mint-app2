@@ -637,9 +637,11 @@ def callbacks(cls, app, fsc, cache, args_namespace):
                     conn.execute("DELETE FROM ms1_data WHERE ms_file_label IN ?", (remove_ms1_file,))
                 if remove_ms2_file:
                     conn.execute("DELETE FROM ms2_data WHERE ms_file_label IN ?", (remove_ms1_file,))
-                conn.execute("DELETE FROM samples WHERE ms_file_label IN ?", (remove_ms1_file + remove_ms2_file,))
                 conn.execute("DELETE FROM chromatograms WHERE ms_file_label IN ?", (remove_ms1_file + remove_ms2_file,))
-                # conn.execute("DELETE FROM results WHERE ms_file_label = ?", (filename,))
+                conn.execute("DELETE FROM results WHERE ms_file_label = ?", (remove_ms1_file + remove_ms2_file,))
+                conn.execute("DELETE FROM samples WHERE ms_file_label IN ?", (remove_ms1_file + remove_ms2_file,))
+                conn.execute("CHECKPOINT")
+
             total_removed = len(remove_ms1_file + remove_ms2_file)
             ms_table_action_store = {'action': 'delete', 'status': 'success'}
         else:
@@ -652,9 +654,13 @@ def callbacks(cls, app, fsc, cache, args_namespace):
                 if total_removed_q:
                     total_removed = total_removed_q[0]
 
-                    conn.execute("DELETE FROM samples")
-                    conn.execute("DELETE FROM chromatograms")
-                    # conn.execute("DELETE FROM results")
+                    conn.execute("BEGIN")
+                    for t in ("ms1_data", "ms2_data", "chromatograms", "results", "samples"):
+                        conn.execute(f"TRUNCATE {t}")
+                    conn.execute("COMMIT")
+                    conn.execute("CHECKPOINT")
+                    conn.execute("ANALYZE")
+
                     ms_table_action_store = {'action': 'delete', 'status': 'success'}
         return (fac.AntdNotification(message="Delete MS-files",
                                      description=f"Deleted {total_removed} MS-Files",
