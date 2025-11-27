@@ -561,8 +561,8 @@ def callbacks(cls, app, fsc, cache, args_namespace):
             return [
                 data.to_dicts(),
                 [],
-                {**pagination, 'total': number_records, 'current': current, 'pageSizeOptions': [5, 10, 25, 50, 100,
-                                                                                                number_records]},
+                {**pagination, 'total': number_records, 'current': current, 'pageSizeOptions': sorted([5, 10, 25, 50,
+                100, number_records])},
                 output_filterOptions
             ]
         return dash.no_update

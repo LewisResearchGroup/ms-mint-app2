@@ -406,7 +406,8 @@ def callbacks(app, fsc=None, cache=None):
             return [
                 dfpl.to_dicts(),
                 [],
-                {**pagination, 'total': number_records, 'current': current, 'pageSizeOptions': [5, 10, 15, 25, 50, 100, number_records]},
+                {**pagination, 'total': number_records, 'current': current, 'pageSizeOptions': sorted([5, 10, 15, 25, 50,
+                100, number_records])},
                 output_filterOptions
             ]
         return dash.no_update
