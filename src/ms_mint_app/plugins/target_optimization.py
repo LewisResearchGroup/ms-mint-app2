@@ -1435,7 +1435,13 @@ def callbacks(app, fsc, cache, cpu=None):
         ]
         fig['layout']['template'] = 'plotly_white'
 
-        fig['layout']['xaxis']['range'] = [x_min, x_max]
+        t_xmin = (rt_min - (rt_max - rt_min)) if rt_min else 0
+        nx_min = max(t_xmin, x_min)
+
+        t_xmax = (rt_max + (rt_max - rt_min)) if rt_max else 0
+        nx_max = min(t_xmax, x_max)
+
+        fig['layout']['xaxis']['range'] = [nx_min, nx_max]
         fig['layout']['xaxis']['autorange'] = False
         fig['layout']['yaxis']['autorange'] = False
 
