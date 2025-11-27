@@ -759,7 +759,8 @@ _layout = fac.AntdLayout(
         dcc.Store(id='chromatograms', data={}),
         dcc.Store(id='drop-chromatogram'),
         dcc.Store(id="delete-target-clicked"),
-        dcc.Store(id='chromatogram-view-plot-max')
+        dcc.Store(id='chromatogram-view-plot-max'),
+        dcc.Store(id='update-chromatograms', data=False),
     ],
     style={'height': '100%'},
 )
@@ -1170,34 +1171,38 @@ def callbacks(app, fsc, cache, cpu=None):
     @app.callback(
         Output('chromatogram-view-modal', 'visible'),
         Output('slider-reference-data', 'data', allow_duplicate=True),
+        Output("chromatograms", "data", allow_duplicate=True),
 
         Input('target-preview-clicked', 'data'),
         Input('chromatogram-view-close', 'nClicks'),
         Input('confirm-unsave-modal', 'okCounts'),
+        Input('update-chromatograms', 'data'),
+
         State('slider-reference-data', 'data'),
         State('slider-data', 'data'),
         prevent_initial_call=True
     )
-    def handle_modal_open_close(target_clicked, close_clicks, close_without_save_clicks, slider_ref, slider_data):
+    def handle_modal_open_close(target_clicked, close_clicks, close_without_save_clicks, update_chromatograms,
+                                slider_ref, slider_data):
         ctx = dash.callback_context
         if not ctx.triggered:
-            return dash.no_update, dash.no_update
+            return dash.no_update, dash.no_update, dash.no_update
         trigger_id = ctx.triggered[0]['prop_id'].split('.')[0]
 
         if trigger_id == 'target-preview-clicked':
-            return True, dash.no_update
+            return True, dash.no_update, dash.no_update
             # if not has_changes, close it
         elif trigger_id == 'chromatogram-view-close':
             if slider_ref and slider_data and slider_ref['value'] == slider_data['value']:
-                return False, None
+                return False, None, update_chromatograms
             # if it has_changes, don't close it
-            return dash.no_update, dash.no_update
+            return dash.no_update, dash.no_update, dash.no_update
         elif trigger_id == 'confirm-unsave-modal':
             # Close modal without saving changes
             if close_without_save_clicks:
-                return False, None
+                return False, None, update_chromatograms
 
-        return dash.no_update, dash.no_update
+        return dash.no_update, dash.no_update, dash.no_update
 
     @app.callback(
         Output('confirm-unsave-modal', 'visible'),
@@ -1520,7 +1525,9 @@ def callbacks(app, fsc, cache, cpu=None):
         }
 
         slider_data['value'] = {'rt_min': rt_min, 'rt': rt, 'rt_max': rt_max}
-        has_changes = slider_data['value'] != slider_reference_data['value']
+        has_changes = False
+        if slider_data and slider_reference_data:
+            has_changes = slider_data['value'] != slider_reference_data['value']
         buttons_style = {
             'visibility': 'visible' if has_changes else 'hidden',
             'opacity': '1' if has_changes else '0',
@@ -1779,6 +1786,7 @@ def callbacks(app, fsc, cache, cpu=None):
         Output('notifications-container', 'children', allow_duplicate=True),
         Output('action-buttons-container', 'style', allow_duplicate=True),
         Output('slider-reference-data', 'data', allow_duplicate=True),
+        Output('update-chromatograms', 'data'),
 
         Input('save-btn', 'nClicks'),
         Input('chromatogram-view-close', 'nClicks'),
@@ -1821,7 +1829,7 @@ def callbacks(app, fsc, cache, cpu=None):
                                                     placement='bottom',
                                                     showProgress=True,
                                                     stack=True)
-                return notification, buttons_style, slider_reference
+                return notification, buttons_style, slider_reference, True
 
             elif trigger == 'chromatogram-view-close':
                 # Only persist the note, leave RT values untouched
@@ -1833,7 +1841,7 @@ def callbacks(app, fsc, cache, cpu=None):
                                                     duration=2,
                                                     showProgress=True,
                                                     stack=True)
-                return notification, dash.no_update, slider_reference
+                return notification, dash.no_update, slider_reference, dash.no_update
 
     @app.callback(
         # only save the current values stored in slider-reference-data since this will shut all the actions
