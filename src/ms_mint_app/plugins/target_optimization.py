@@ -12,7 +12,7 @@ from dash import html, dcc, Patch
 from dash.dependencies import Input, Output, State, ALL
 from dash.exceptions import PreventUpdate
 
-from ..duckdb_manager import duckdb_connection, compute_and_insert_chromatograms_from_ms_data
+from ..duckdb_manager import duckdb_connection, compute_chromatograms_in_batches
 from ..plugin_interface import PluginInterface
 
 _label = "Optimization"
@@ -454,7 +454,6 @@ _layout = fac.AntdLayout(
                                     label='CPU:',
                                     hasFeedback=True,
                                     help=f"Selected {cpu_count() - 2} / {cpu_count()} cpus"
-
                                 ),
                                 fac.AntdFormItem(
                                     fac.AntdInputNumber(
@@ -471,6 +470,17 @@ _layout = fac.AntdLayout(
                                     help=f"Selected "
                                          f"{round(psutil.virtual_memory().available * 0.9 / (1024 ** 3), 1)}GB / "
                                          f"{round(psutil.virtual_memory().available / (1024 ** 3), 1)}GB available RAM"
+                                ),
+                                fac.AntdFormItem(
+                                    fac.AntdInputNumber(
+                                        id='chromatogram-compute-batch-size',
+                                        defaultValue=1000,
+                                        min=50,
+                                        step=50,
+                                    ),
+                                    label='Batch Size:',
+                                    tooltip='Number of pairs to process in each batch. This will affect the memory '
+                                            'usage, progress and processing time.',
                                 ),
                             ],
                             layout='inline'
@@ -516,7 +526,7 @@ _layout = fac.AntdLayout(
             ],
             id='compute-chromatogram-modal',
             title='Compute chromatograms',
-            width=700,
+            width=900,
             renderFooter=True,
             locale='en-us',
             confirmAutoSpin=True,
@@ -1721,6 +1731,7 @@ def callbacks(app, fsc, cache, cpu=None):
     @app.callback(
         Output("compute-chromatogram-modal", "visible"),
         Output("chromatogram-warning", "style"),
+        Output("chromatogram-warning", "message"),
         Output("chromatogram-targets-info", "message"),
         Output("chromatogram-compute-ram", "max"),
         Output("chromatogram-compute-ram-item", "help"),
@@ -1749,14 +1760,15 @@ def callbacks(app, fsc, cache, cpu=None):
             if targets:
                 selected_targets = targets[0]
 
-        style = {'display': 'block'} if computed_chromatograms else {'display': 'none'}
+        warning_style = {'display': 'flex'} if computed_chromatograms else {'display': 'none'}
+        warning_message = f"There are already computed {computed_chromatograms} chromatograms" if computed_chromatograms else ""
 
         ram_max = round(psutil.virtual_memory().available / (1024 ** 3), 1)
         help = f"Selected {ram_value}GB / {ram_max}GB available RAM"
         target_message = (f'Selected {selected_targets} targets'
                           if selected_targets
                           else 'There are no targets selected. The chromatograms will be computed for all targets.')
-        return True, style, target_message, ram_max, help
+        return True, warning_style, warning_message, target_message, ram_max, help
 
     @app.callback(
         Output('chromatograms', 'data'),
@@ -1767,6 +1779,7 @@ def callbacks(app, fsc, cache, cpu=None):
         State("chromatograms-recompute-ms2", "checked"),
         State("chromatogram-compute-cpu", "value"),
         State("chromatogram-compute-ram", "value"),
+        State('chromatogram-compute-batch-size', "value"),
         State("wdir", "data"),
         background=True,
         running=[
@@ -1792,7 +1805,7 @@ def callbacks(app, fsc, cache, cpu=None):
         ],
         prevent_initial_call=True
     )
-    def compute_chromatograms(set_progress, okCounts, recompute_ms1, recompute_ms2, n_cpus, ram, wdir):
+    def compute_chromatograms(set_progress, okCounts, recompute_ms1, recompute_ms2, n_cpus, ram, batch_size, wdir):
 
         if not okCounts:
             raise PreventUpdate
@@ -1801,9 +1814,9 @@ def callbacks(app, fsc, cache, cpu=None):
             if con is None:
                 return "Could not connect to database."
             start = time.perf_counter()
-            compute_and_insert_chromatograms_from_ms_data(con, set_progress, recompute_ms1=recompute_ms1,
-                                                          recompute_ms2=recompute_ms2)
-            # compute_and_insert_chromatograms_iteratively(con, set_progress=set_progress)
+            compute_chromatograms_in_batches(wdir, use_for_optimization=True, batch_size=batch_size,
+                                             set_progress=set_progress, recompute_ms1=recompute_ms1,
+                                             recompute_ms2=recompute_ms2, n_cpus=n_cpus, ram=ram)
             print(f"Chromatograms computed in {time.perf_counter() - start:.2f} seconds")
         return True, False
 
@@ -1945,7 +1958,8 @@ def callbacks(app, fsc, cache, cpu=None):
             raise PreventUpdate
 
         prop_id = ctx_trigger['index']
-        return True, fac.AntdParagraph(f"Are you sure you want to delete `{data_target[prop_id]}` target?"), data_target[prop_id]
+        return True, fac.AntdParagraph(f"Are you sure you want to delete `{data_target[prop_id]}` target?"), \
+        data_target[prop_id]
 
     #
     @app.callback(
