@@ -27,6 +27,7 @@ def duckdb_connection(workspace_path: Path | str, register_activity=True, n_cpus
         con.execute("SET enable_progress_bar = true")
         con.execute("SET enable_progress_bar_print = false")
         con.execute("SET progress_bar_time = 0")
+        con.execute(f"SET temp_directory = '{workspace_path.as_posix()}';")
         if n_cpus:
             con.execute(f"SET threads = {n_cpus}", )
         if ram:
