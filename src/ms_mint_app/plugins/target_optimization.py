@@ -858,7 +858,7 @@ def callbacks(app, fsc, cache, cpu=None):
                               """, [selection_ms_type, selection_ms_type]).df()
 
             if df.empty:
-                return dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update
+                return [], [], [], {'display': 'none'}, {'display': 'block'}
 
             if prop_id in ['mark-tree-action', 'section-context']:
                 checked_keys = df['checked_keys'].iloc[0]  # Es el mismo en todas las filas
