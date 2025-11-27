@@ -1019,25 +1019,15 @@ def callbacks(app, fsc, cache, cpu=None):
                                                list_filter(pairs, p -> p.t >= rt_min AND p.t <= rt_max AND
                                                                   p.i >= COALESCE(intensity_threshold, 0)) AS pairs_in
                                         FROM zipped),
-                             -- Calculamos min/max de TODO el cromatograma (pairs completo) PERO por peak_label
-                             -- Tomamos el máximo de todos los ms_file_label para ese peak_label
-                             global_stats AS (SELECT peak_label,
-                                                     MAX(list_max(list_transform(pairs, p -> p.i))) * 1.10 AS intensity_max_global,
-                                                     MIN(list_min(list_transform(pairs, p -> p.i)))        AS intensity_min_global
-                                              FROM zipped
-                                              GROUP BY peak_label),
-                             -- Reconstruimos listas y unimos con las estadísticas globales
-                             final AS (SELECT s.peak_label,
-                                              s.ms_file_label,
-                                              s.color,
-                                              s.label,
-                                              s.mz_mean,
+                             final AS (SELECT peak_label,
+                                              ms_file_label,
+                                              color,
+                                              label,
+                                              mz_mean,
                                               list_transform(pairs_in, p -> p.t) AS scan_time_sliced,
-                                              list_transform(pairs_in, p -> p.i) AS intensity_sliced,
-                                              g.intensity_max_global             AS intensity_max_in_range,
-                                              g.intensity_min_global             AS intensity_min_in_range
-                                       FROM sliced s
-                                                JOIN global_stats g USING (peak_label))
+                                              list_transform(pairs_in, p -> p.i) AS intensity_sliced
+                                       FROM sliced
+                                       )
                         SELECT *
                         FROM final
                         ORDER BY {targets_order}, ms_file_label;
@@ -1049,9 +1039,9 @@ def callbacks(app, fsc, cache, cpu=None):
         titles = []
         figures = []
         bookmarks = []
-        for target_data, g in df.group_by(['peak_label', 'intensity_min_in_range', 'intensity_max_in_range'],
+        for target_data, g in df.group_by(['peak_label'],
                                           maintain_order=True):
-            peak_label, intensity_min_in_range, intensity_max_in_range = target_data
+            peak_label = target_data[0]
 
             titles.append(peak_label)
             target_dict = all_targets.filter(pl.col('peak_label') == peak_label).head(1).rows(named=True)[0]
@@ -1071,8 +1061,6 @@ def callbacks(app, fsc, cache, cpu=None):
 
             fig['data'] = traces
 
-            y_min = intensity_min_in_range
-            y_max = intensity_max_in_range
 
             fig['layout']['shapes'] = [
                 {
@@ -1104,19 +1092,14 @@ def callbacks(app, fsc, cache, cpu=None):
             fig['layout']['xaxis']['range'] = [target_dict['rt_min'], target_dict['rt_max']]
 
             fig['layout']['yaxis']['title'] = dict(text="Intensity", font={'size': 10})
-            fig['layout']['yaxis']['autorange'] = False
+            fig['layout']['yaxis']['autorange'] = True
             fig['layout']['yaxis']['automargin'] = True
             fig['layout']['yaxis']['tickformat'] = "~s"
 
             if log_scale:
                 fig['layout']['yaxis']['type'] = 'log'
-                log_y_min = math.log10(y_min) if y_min > 0 else y_min
-                log_y_max = math.log10(y_max) if y_max > 0 else y_max
-
-                fig['layout']['yaxis']['range'] = [log_y_min, log_y_max]
             else:
                 fig['layout']['yaxis']['type'] = 'linear'
-                fig['layout']['yaxis']['range'] = [y_min, y_max]
 
             fig["layout"]["showlegend"] = False
             fig['layout']['margin'] = dict(l=45, r=5, t=55, b=30)
