@@ -685,6 +685,289 @@ def compute_and_insert_chromatograms_from_ms_data(con: duckdb.DuckDBPyConnection
     print("Chromatograms computed and inserted into DuckDB.")
 
 
+def compute_chromatograms_in_batches(wdir: str,
+                                     # conn: duckdb.DuckDBPyConnection,
+                                     use_for_optimization: bool,
+                                     batch_size: int = 1000,
+                                     set_progress=None,
+                                     recompute_ms1=False,
+                                     recompute_ms2=False,
+                                     n_cpus=None,
+                                     ram=None,
+                                     ):
+    QUERY_CREATE_SCAN_LOOKUP = """
+                               CREATE TABLE IF NOT EXISTS ms_file_scans AS
+                               SELECT DISTINCT ms_file_label,
+                                               scan_id,
+                                               scan_time
+                               FROM ms1_data
+                               ORDER BY ms_file_label, scan_id;
+
+                               CREATE INDEX IF NOT EXISTS idx_ms_file_scans_file
+                                   ON ms_file_scans (ms_file_label);
+
+                               CREATE INDEX IF NOT EXISTS idx_ms_file_scans_file_scan
+                                   ON ms_file_scans (ms_file_label, scan_id);
+                               """
+
+    QUERY_CREATE_PENDING_PAIRS = """
+                                 CREATE TABLE IF NOT EXISTS pending_pairs AS
+                                 WITH target_filter AS (SELECT peak_label, ms_type, mz_mean, mz_width
+                                                        FROM targets
+                                                        WHERE (
+                                                                  peak_selection IS TRUE
+                                                                      OR
+                                                                  NOT EXISTS (SELECT 1 FROM targets WHERE peak_selection IS TRUE)
+                                                                  )),
+                                      sample_filter AS (SELECT ms_file_label
+                                                        FROM samples
+                                                        WHERE (CASE WHEN ? THEN use_for_optimization ELSE use_for_analysis END) = TRUE),
+                                      existing_pairs AS (SELECT DISTINCT peak_label, ms_file_label, ms_type
+                                                         FROM chromatograms),
+                                      all_possible_pairs
+                                          AS (SELECT t.peak_label, s.ms_file_label, t.ms_type, t.mz_mean, t.mz_width
+                                              FROM target_filter t
+                                                       CROSS JOIN sample_filter s),
+                                      pending AS (SELECT a.peak_label,
+                                                         a.ms_file_label,
+                                                         a.ms_type,
+                                                         a.mz_mean,
+                                                         a.mz_width,
+                                                         ROW_NUMBER() OVER () AS pair_id
+                                                  FROM all_possible_pairs a
+                                                           LEFT JOIN existing_pairs e
+                                                                     ON a.peak_label = e.peak_label
+                                                                         AND a.ms_file_label = e.ms_file_label
+                                                                         AND a.ms_type = e.ms_type
+                                                  WHERE e.peak_label IS NULL)
+                                 SELECT pair_id, peak_label, ms_file_label, ms_type, mz_mean, mz_width
+                                 FROM pending
+                                 ORDER BY pair_id; \
+                                 """
+
+    QUERY_PROCESS_BATCH_MS1 = """
+                                    INSERT INTO chromatograms (peak_label, ms_file_label, scan_time, intensity, ms_type)
+                                    WITH batch_pairs AS (SELECT peak_label, ms_file_label, ms_type, mz_mean, mz_width
+                                                         FROM pending_pairs
+                                                         WHERE ms_type = 'ms1'
+                                                           AND pair_id BETWEEN ? AND ?),
+                                         -- Paso 1: Encontrar intensidades (solo datos con señal)
+                                         matched_intensities AS (SELECT bp.peak_label,
+                                                                        bp.ms_file_label,
+                                                                        ms1.scan_id,
+                                                                        MAX(ms1.intensity) AS intensity
+                                                                 FROM batch_pairs bp
+                                                                          JOIN ms1_data ms1
+                                                                               ON ms1.ms_file_label = bp.ms_file_label
+                                                                                   AND ms1.mz BETWEEN
+                                                                                      bp.mz_mean - (bp.mz_mean * bp.mz_width / 1e6)
+                                                                                      AND
+                                                                                      bp.mz_mean + (bp.mz_mean * bp.mz_width / 1e6)
+                                                                 GROUP BY bp.peak_label, bp.ms_file_label, ms1.scan_id),
+                                         -- Paso 2: Expandir a todos los scans
+                                         all_scans_needed AS (SELECT DISTINCT bp.peak_label,
+                                                                              bp.ms_file_label,
+                                                                              s.scan_id,
+                                                                              s.scan_time
+                                                              FROM batch_pairs bp
+                                                                       JOIN ms_file_scans s ON s.ms_file_label = bp.ms_file_label),
+                                         -- Paso 3: LEFT JOIN (ambas tablas pequeñas)
+                                         complete_data AS (SELECT a.peak_label,
+                                                                  a.ms_file_label,
+                                                                  a.scan_time,
+                                                                  a.scan_id,
+                                                                  a.scan_time,
+                                                                  COALESCE(ROUND(m.intensity, 0), 0) AS intensity
+                                                           FROM all_scans_needed a
+                                                                    LEFT JOIN matched_intensities m
+                                                                              ON a.peak_label = m.peak_label
+                                                                                  AND a.ms_file_label = m.ms_file_label
+                                                                                  AND a.scan_id = m.scan_id),
+                                         agg AS (SELECT peak_label,
+                                                        ms_file_label,
+                                                        LIST(scan_time ORDER BY scan_time) AS scan_time,
+                                                        LIST(intensity ORDER BY scan_time) AS intensity
+                                                 FROM complete_data
+                                                 GROUP BY peak_label, ms_file_label)
+                                    SELECT peak_label, ms_file_label, scan_time, intensity, 'ms1' AS ms_type
+                                    FROM agg;
+                                    """
+
+    QUERY_PROCESS_BATCH_MS2 = """
+                              INSERT INTO chromatograms (peak_label, ms_file_label, scan_time, intensity, ms_type)
+                              WITH batch_pairs AS (SELECT peak_label, ms_file_label, ms_type, filterLine
+                                                   FROM pending_pairs
+                                                   WHERE ms_type = 'ms2'
+                                                     AND pair_id BETWEEN ? AND ?),
+                                   -- Paso 1: Encontrar intensidades (solo datos con señal)
+                                   matched AS (SELECT bp.peak_label,
+                                                      bp.ms_file_label,
+                                                      ms2.scan_time,
+                                                      ms2.intensity
+                                               FROM batch_pairs bp
+                                                        JOIN ms2_data ms2
+                                                             ON ms2.ms_file_label = bp.ms_file_label
+                                                                 AND ms2.filterLine = bp.filterLine),
+                                   -- Paso 2: Expandir a todos los scans
+                                   agg AS (SELECT peak_label,
+                                                  ms_file_label,
+                                                  LIST(scan_time ORDER BY scan_time) AS scan_time,
+                                                  LIST(intensity ORDER BY scan_time) AS intensity
+                                           FROM matched
+                                           GROUP BY peak_label, ms_file_label)
+                              SELECT peak_label,
+                                     ms_file_label,
+                                     scan_time,
+                                     intensity,
+                                     'ms2' AS ms_type
+                              FROM agg;
+                              """
+
+    if recompute_ms1:
+        print("Deleting existing MS1 chromatograms for recalculation...")
+        with duckdb_connection(wdir, n_cpus=n_cpus, ram=ram) as con:
+            con.execute("DELETE FROM chromatograms WHERE ms_type = 'ms1'")
+    if recompute_ms2:
+        print("Deleting existing MS2 chromatograms for recalculation...")
+        with duckdb_connection(wdir, n_cpus=n_cpus, ram=ram) as con:
+            con.execute("DELETE FROM chromatograms WHERE ms_type = 'ms2'")
+
+    with duckdb_connection(wdir, n_cpus=n_cpus, ram=ram) as conn:
+        conn.execute("DROP TABLE IF EXISTS pending_pairs")
+        try:
+            count = conn.execute("SELECT COUNT(*) FROM ms_file_scans").fetchone()[0]
+            print(f"Lookup table exists ({count:,} entries)")
+        except:
+            print("⚠️  Lookup table does not exist. Creating...")
+
+            start = time.perf_counter()
+            conn.execute(QUERY_CREATE_SCAN_LOOKUP)
+            elapsed = time.perf_counter() - start
+
+            result = conn.execute("""
+                                  SELECT COUNT(*)                      as total_entries,
+                                         COUNT(DISTINCT ms_file_label) as total_files,
+                                         AVG(scans_per_file)           as avg_scans
+                                  FROM (SELECT ms_file_label, COUNT(*) as scans_per_file
+                                        FROM ms_file_scans
+                                        GROUP BY ms_file_label)
+                                  """).fetchone()
+            print(f"  Total entries: {result[0]:,}")
+            print(f"  Total MS files: {result[1]:,}")
+            print(f"  Average scans per file: {result[2]:.0f}")
+            print(f"  Time elapsed: {elapsed:.2f}s")
+
+    with duckdb_connection(wdir, n_cpus=n_cpus, ram=ram) as conn:
+        print("Getting pending pairs...")
+        start_time = time.time()
+        conn.execute(QUERY_CREATE_PENDING_PAIRS, [use_for_optimization])
+        total_pairs = conn.execute("SELECT COUNT(*) FROM pending_pairs").fetchone()[0]
+        print(f"{total_pairs = }")
+        rows = conn.execute("""
+                            SELECT ms_type,
+                                   COUNT(*)     AS total,
+                                   MIN(pair_id) AS min_id,
+                                   MAX(pair_id) AS max_id
+                            FROM pending_pairs
+                            GROUP BY ms_type
+                            ORDER BY ms_type
+                            """).fetchall()
+        elapsed = time.time() - start_time
+
+        if not rows:
+            print(f"No pending pairs ({elapsed:.2f}s)")
+            conn.execute("DROP TABLE IF EXISTS pending_pairs")
+            return {
+                'total_pairs': 0,
+                'processed': 0,
+                'failed': 0,
+                'batches': 0
+            }
+
+        print(f"✓ {total_pairs:,} pending pairs ({elapsed:.2f}s)")
+        print(f"Processing in batches of {batch_size}...\n")
+
+        global_stats: dict[str, dict] = {}
+
+        for ms_type, total_pairs, min_id, max_id in rows:
+            print(f"\n--- Processing {ms_type} ---")
+            print(f"Pending pairs: {total_pairs:,} (pair_id {min_id}–{max_id})")
+
+            if total_pairs == 0 or min_id is None or max_id is None:
+                global_stats[ms_type] = {
+                    'total_pairs': 0,
+                    'processed': 0,
+                    'failed': 0,
+                    'batches': 0,
+                }
+                continue
+
+            processed = 0
+            failed = 0
+            batches = 0
+
+            current_id = min_id
+            batch_num = 1
+            total_batches = (total_pairs + batch_size - 1) // batch_size
+
+            while current_id <= max_id:
+                start_id = current_id
+                end_id = current_id + batch_size - 1
+
+                try:
+                    with duckdb_connection(wdir, n_cpus=n_cpus, ram=ram) as conn:
+                        batch_count = conn.execute("""
+                                                   SELECT COUNT(*)
+                                                   FROM pending_pairs
+                                                   WHERE ms_type = ?
+                                                     AND pair_id BETWEEN ? AND ?""",
+                                                   [ms_type, start_id, end_id]
+                                                   ).fetchone()[0]
+
+                        if batch_count == 0:
+                            current_id += batch_size
+                            continue
+
+                        print(f"Batch {batch_num:>4}/{total_batches} | "
+                              f"IDs {start_id:>6}-{end_id:>6} | "
+                              f"{batch_count:>3} pairs | ", end='', flush=True)
+
+                        batch_start = time.time()
+
+                        # Usar query optimizada
+                        if ms_type == 'ms1':
+                            conn.execute(QUERY_PROCESS_BATCH_MS1, [start_id, end_id])
+                        elif ms_type == 'ms2':
+                            conn.execute(QUERY_PROCESS_BATCH_MS2, [start_id, end_id])
+
+                        batch_elapsed = time.time() - batch_start
+                        processed += batch_count
+                        batches += 1
+
+                        progress_pct = (processed / total_pairs) * 100
+                        set_progress(round(progress_pct, 1))
+
+                        print(f"✓ {batch_elapsed:>5.2f}s | "
+                              f"Progreso: {processed:>6,}/{total_pairs:,} ({progress_pct:>5.1f}%)")
+
+                        batch_num += 1
+
+                except Exception as e:
+                    batch_elapsed = time.time() - batch_start if 'batch_start' in locals() else 0
+                    failed += batch_count if 'batch_count' in locals() else batch_size
+
+                    print(f"✗ {batch_elapsed:>5.2f}s | Error: {str(e)[:50]}")
+
+                    with open('failed_batches_ms1.log', 'a') as f:
+                        f.write(f"\n{'=' * 60}\n")
+                        f.write(f"Timestamp: {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
+                        f.write(f"Batch {batch_num}/{total_batches}\n")
+                        f.write(f"IDs: {start_id}-{end_id}\n")
+                        f.write(f"Error: {str(e)}\n")
+                        f.write(f"{'=' * 60}\n")
+
+                current_id += batch_size
+
 def compute_peak_properties(con: duckdb.DuckDBPyConnection,
                             set_progress=None,
                             recompute=False,
