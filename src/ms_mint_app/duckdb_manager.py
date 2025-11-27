@@ -1,7 +1,6 @@
 from contextlib import contextmanager
 from pathlib import Path
 from threading import Thread
-from typing import List, Tuple, Callable
 
 import duckdb
 import time
@@ -697,15 +696,10 @@ def compute_chromatograms_in_batches(wdir: str,
                                      ):
     QUERY_CREATE_SCAN_LOOKUP = """
                                CREATE TABLE IF NOT EXISTS ms_file_scans AS
-                               WITH all_scans AS (SELECT ms_file_label, scan_id, scan_time
-                                                  FROM ms1_data
-                                                  UNION ALL
-                                                  SELECT ms_file_label, scan_id, scan_time
-                                                  FROM ms2_data)
-                               SELECT DISTINCT ms_file_label,
-                                               scan_id,
-                                               scan_time
-                               FROM all_scans
+                               SELECT ms_file_label,
+                                      scan_id,
+                                      scan_time
+                               FROM ms1_data
                                ORDER BY ms_file_label, scan_id;
 
                                CREATE INDEX IF NOT EXISTS idx_ms_file_scans_file
@@ -717,27 +711,40 @@ def compute_chromatograms_in_batches(wdir: str,
 
     QUERY_CREATE_PENDING_PAIRS = """
                                  CREATE TABLE IF NOT EXISTS pending_pairs AS
-                                 WITH target_filter AS (SELECT peak_label, ms_type, mz_mean, mz_width
-                                                        FROM targets
+                                 WITH target_filter AS (SELECT peak_label,
+                                                               ms_type,
+                                                               mz_mean,
+                                                               mz_width,
+                                                               filterLine
+                                                        FROM targets t
                                                         WHERE (
-                                                                  peak_selection IS TRUE
-                                                                      OR
-                                                                  NOT EXISTS (SELECT 1 FROM targets WHERE peak_selection IS TRUE)
+                                                                  t.peak_selection IS TRUE
+                                                                      OR NOT EXISTS (SELECT 1
+                                                                                     FROM targets t1
+                                                                                     WHERE t1.peak_selection IS TRUE
+                                                                                       AND t1.ms_type = t.ms_type)
                                                                   )),
                                       sample_filter AS (SELECT ms_file_label
                                                         FROM samples
                                                         WHERE (CASE WHEN ? THEN use_for_optimization ELSE use_for_analysis END) = TRUE),
-                                      existing_pairs AS (SELECT DISTINCT peak_label, ms_file_label, ms_type
+                                      existing_pairs AS (SELECT DISTINCT peak_label,
+                                                                         ms_file_label,
+                                                                         ms_type
                                                          FROM chromatograms),
-                                      all_possible_pairs
-                                          AS (SELECT t.peak_label, s.ms_file_label, t.ms_type, t.mz_mean, t.mz_width
-                                              FROM target_filter t
-                                                       CROSS JOIN sample_filter s),
+                                      all_possible_pairs AS (SELECT t.peak_label,
+                                                                    s.ms_file_label,
+                                                                    t.ms_type,
+                                                                    t.mz_mean,
+                                                                    t.mz_width,
+                                                                    t.filterLine
+                                                             FROM target_filter t
+                                                                      CROSS JOIN sample_filter s),
                                       pending AS (SELECT a.peak_label,
                                                          a.ms_file_label,
                                                          a.ms_type,
                                                          a.mz_mean,
                                                          a.mz_width,
+                                                         a.filterLine,
                                                          ROW_NUMBER() OVER () AS pair_id
                                                   FROM all_possible_pairs a
                                                            LEFT JOIN existing_pairs e
@@ -745,9 +752,15 @@ def compute_chromatograms_in_batches(wdir: str,
                                                                          AND a.ms_file_label = e.ms_file_label
                                                                          AND a.ms_type = e.ms_type
                                                   WHERE e.peak_label IS NULL)
-                                 SELECT pair_id, peak_label, ms_file_label, ms_type, mz_mean, mz_width
+                                 SELECT pair_id,
+                                        peak_label,
+                                        ms_file_label,
+                                        ms_type,
+                                        mz_mean,
+                                        mz_width,
+                                        filterLine
                                  FROM pending
-                                 ORDER BY pair_id; \
+                                 ORDER BY pair_id;
                                  """
 
     QUERY_PROCESS_BATCH_MS1 = """
@@ -866,8 +879,6 @@ def compute_chromatograms_in_batches(wdir: str,
         print("Getting pending pairs...")
         start_time = time.time()
         conn.execute(QUERY_CREATE_PENDING_PAIRS, [use_for_optimization])
-        total_pairs = conn.execute("SELECT COUNT(*) FROM pending_pairs").fetchone()[0]
-        print(f"{total_pairs = }")
         rows = conn.execute("""
                             SELECT ms_type,
                                    COUNT(*)     AS total,
@@ -889,16 +900,19 @@ def compute_chromatograms_in_batches(wdir: str,
                 'batches': 0
             }
 
-        print(f"✓ {total_pairs:,} pending pairs ({elapsed:.2f}s)")
+        global_total_pairs = sum(r[1] for r in rows)
+
+        print(f"✓ {global_total_pairs:,} pending pairs ({elapsed:.2f}s)")
         print(f"Processing in batches of {batch_size}...\n")
 
+        global_processed = 0  # contador acumulado
         global_stats: dict[str, dict] = {}
 
-        for ms_type, total_pairs, min_id, max_id in rows:
+        for ms_type, total_pairs_type, min_id, max_id in rows:
             print(f"\n--- Processing {ms_type} ---")
-            print(f"Pending pairs: {total_pairs:,} (pair_id {min_id}–{max_id})")
+            print(f"Pending pairs: {total_pairs_type:,} (pair_id {min_id}–{max_id})")
 
-            if total_pairs == 0 or min_id is None or max_id is None:
+            if total_pairs_type == 0 or min_id is None or max_id is None:
                 global_stats[ms_type] = {
                     'total_pairs': 0,
                     'processed': 0,
@@ -913,7 +927,7 @@ def compute_chromatograms_in_batches(wdir: str,
 
             current_id = min_id
             batch_num = 1
-            total_batches = (total_pairs + batch_size - 1) // batch_size
+            total_batches = (total_pairs_type + batch_size - 1) // batch_size
 
             while current_id <= max_id:
                 start_id = current_id
@@ -925,9 +939,8 @@ def compute_chromatograms_in_batches(wdir: str,
                                                    SELECT COUNT(*)
                                                    FROM pending_pairs
                                                    WHERE ms_type = ?
-                                                     AND pair_id BETWEEN ? AND ?""",
-                                                   [ms_type, start_id, end_id]
-                                                   ).fetchone()[0]
+                                                     AND pair_id BETWEEN ? AND ?
+                                                   """, [ms_type, start_id, end_id]).fetchone()[0]
 
                         if batch_count == 0:
                             current_id += batch_size
@@ -939,7 +952,6 @@ def compute_chromatograms_in_batches(wdir: str,
 
                         batch_start = time.time()
 
-                        # Usar query optimizada
                         if ms_type == 'ms1':
                             conn.execute(QUERY_PROCESS_BATCH_MS1, [start_id, end_id])
                         elif ms_type == 'ms2':
@@ -949,27 +961,33 @@ def compute_chromatograms_in_batches(wdir: str,
                         processed += batch_count
                         batches += 1
 
-                        progress_pct = (processed / total_pairs) * 100
-                        set_progress(round(progress_pct, 1))
-
                         print(f"✓ {batch_elapsed:>5.2f}s | "
-                              f"Progreso: {processed:>6,}/{total_pairs:,} ({progress_pct:>5.1f}%)")
+                              f"Progreso {processed:>6,}/{total_pairs_type:,}")
 
                         batch_num += 1
 
                 except Exception as e:
                     batch_elapsed = time.time() - batch_start if 'batch_start' in locals() else 0
-                    failed += batch_count if 'batch_count' in locals() else batch_size
+                    failed += batch_count
 
-                    print(f"✗ {batch_elapsed:>5.2f}s | Error: {str(e)[:50]}")
+                    print(f"✗ {batch_elapsed:>5.2f}s | Error: {str(e)[:80]}")
 
-                    with open('failed_batches_ms1.log', 'a') as f:
+                    with open(f'failed_batches_{ms_type}.log', 'a') as f:
                         f.write(f"\n{'=' * 60}\n")
                         f.write(f"Timestamp: {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
+                        f.write(f"ms_type: {ms_type}\n")
                         f.write(f"Batch {batch_num}/{total_batches}\n")
                         f.write(f"IDs: {start_id}-{end_id}\n")
                         f.write(f"Error: {str(e)}\n")
                         f.write(f"{'=' * 60}\n")
+
+                finally:
+                    # Actualizar progreso global incluso si falló el batch
+                    if batch_count > 0:
+                        global_processed += batch_count
+                        progress_pct_global = (global_processed / global_total_pairs) * 100
+                        if set_progress is not None:
+                            set_progress(round(progress_pct_global, 1))
 
                 current_id += batch_size
 
@@ -983,7 +1001,6 @@ def compute_peak_properties(con: duckdb.DuckDBPyConnection,
                             recompute=False,
                             bookmarked=False
                             ):
-
     if recompute:
         print("Deleting existing results for recalculation...")
         con.execute("DELETE FROM results")
