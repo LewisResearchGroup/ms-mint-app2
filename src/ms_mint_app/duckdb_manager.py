@@ -696,7 +696,7 @@ def compute_chromatograms_in_batches(wdir: str,
                                      ):
     QUERY_CREATE_SCAN_LOOKUP = """
                                CREATE TABLE IF NOT EXISTS ms_file_scans AS
-                               SELECT ms_file_label,
+                               SELECT DISTINCT ms_file_label,
                                       scan_id,
                                       scan_time
                                FROM ms1_data
