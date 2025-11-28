@@ -701,7 +701,7 @@ def callbacks(app, fsc, cache):
         State("processing-options", "clickedKey"),
         prevent_initial_call=True,
     )
-    def open_download_results(n_clicks, clickedKey, selectedRows, wdir):
+    def open_download_results(n_clicks, clickedKey):
         if n_clicks is None or clickedKey != 'processing-download':
             raise PreventUpdate
         return True
