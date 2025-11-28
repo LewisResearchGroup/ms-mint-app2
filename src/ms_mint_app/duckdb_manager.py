@@ -693,6 +693,7 @@ def compute_chromatograms_in_batches(wdir: str,
                                      recompute_ms2=False,
                                      n_cpus=None,
                                      ram=None,
+                                     use_bookmarked: bool = False,
                                      ):
     QUERY_CREATE_SCAN_LOOKUP = """
                                CREATE TABLE IF NOT EXISTS ms_file_scans AS
@@ -715,15 +716,23 @@ def compute_chromatograms_in_batches(wdir: str,
                                                                ms_type,
                                                                mz_mean,
                                                                mz_width,
-                                                               filterLine
+                                                               filterLine,
+                                                               bookmark
                                                         FROM targets t
                                                         WHERE (
-                                                                  t.peak_selection IS TRUE
-                                                                      OR NOT EXISTS (SELECT 1
-                                                                                     FROM targets t1
-                                                                                     WHERE t1.peak_selection IS TRUE
-                                                                                       AND t1.ms_type = t.ms_type)
-                                                                  )),
+                                                            t.peak_selection IS TRUE
+                                                                OR NOT EXISTS (SELECT 1
+                                                                               FROM targets t1
+                                                                               WHERE t1.peak_selection IS TRUE
+                                                                                 AND t1.ms_type = t.ms_type)
+                                                            )
+                                                          AND (
+                                                            CASE
+                                                                WHEN ?
+                                                                    THEN t.bookmark IS TRUE -- use_bookmarked = True → solo marcados
+                                                                ELSE TRUE -- use_bookmarked = False → no filtra
+                                                                END
+                                                            )),
                                       sample_filter AS (SELECT ms_file_label
                                                         FROM samples
                                                         WHERE (CASE WHEN ? THEN use_for_optimization ELSE use_for_analysis END) = TRUE),
@@ -878,7 +887,7 @@ def compute_chromatograms_in_batches(wdir: str,
     with duckdb_connection(wdir, n_cpus=n_cpus, ram=ram) as conn:
         print("Getting pending pairs...")
         start_time = time.time()
-        conn.execute(QUERY_CREATE_PENDING_PAIRS, [use_for_optimization])
+        conn.execute(QUERY_CREATE_PENDING_PAIRS, [use_bookmarked, use_for_optimization])
         rows = conn.execute("""
                             SELECT ms_type,
                                    COUNT(*)     AS total,

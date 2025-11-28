@@ -11,7 +11,7 @@ from dash.dependencies import Input, Output, State
 from dash.exceptions import PreventUpdate
 
 from ..duckdb_manager import duckdb_connection, compute_peak_properties, build_paginated_query_by_peak, create_pivot, \
-    duckdb_connection_mint, compute_and_insert_chromatograms_from_ms_data
+    duckdb_connection_mint, compute_chromatograms_in_batches
 from ..plugin_interface import PluginInterface
 
 _label = "Processing"
@@ -295,6 +295,17 @@ _layout = html.Div(
                                          f"{round(psutil.virtual_memory().available * 0.9 / (1024 ** 3), 1)}GB / "
                                          f"{round(psutil.virtual_memory().available / (1024 ** 3), 1)}GB available RAM"
                                 ),
+                                fac.AntdFormItem(
+                                    fac.AntdInputNumber(
+                                        id='processing-chromatogram-compute-batch-size',
+                                        defaultValue=1000,
+                                        min=50,
+                                        step=50,
+                                    ),
+                                    label='Batch Size:',
+                                    tooltip='Number of pairs to process in each batch. This will affect the memory '
+                                            'usage, progress and processing time.',
+                                ),
                             ],
                             layout='inline'
                         ),
@@ -343,7 +354,7 @@ _layout = html.Div(
             ],
             id='processing-modal',
             title='Run MINT',
-            width=700,
+            width=900,
             renderFooter=True,
             locale='en-us',
             confirmAutoSpin=True,
@@ -688,8 +699,6 @@ def callbacks(app, fsc, cache):
 
         Input("processing-options", "nClicks"),
         State("processing-options", "clickedKey"),
-        State('results-table', 'selectedRows'),
-        State("wdir", "data"),
         prevent_initial_call=True,
     )
     def open_download_results(n_clicks, clickedKey, selectedRows, wdir):
@@ -848,6 +857,7 @@ def callbacks(app, fsc, cache):
         State('processing-recompute', 'checked'),
         State("processing-chromatogram-compute-cpu", "value"),
         State("processing-chromatogram-compute-ram", "value"),
+        State('processing-chromatogram-compute-batch-size', "value"),
         State('processing-targets-selection', 'checked'),
         State('wdir', 'data'),
         background=True,
@@ -874,7 +884,7 @@ def callbacks(app, fsc, cache):
         ],
         prevent_initial_call=True
     )
-    def compute_results(set_progress, okCounts, recompute, n_cpus, ram, bookmarked, wdir):
+    def compute_results(set_progress, okCounts, recompute, n_cpus, ram, batch_size, bookmarked, wdir):
 
         print(f"{okCounts = }")
 
@@ -886,8 +896,9 @@ def callbacks(app, fsc, cache):
                 return "Could not connect to database."
             start = time.perf_counter()
             print('Computing chromatograms...')
-            if not bookmarked:
-                compute_and_insert_chromatograms_from_ms_data(con, set_progress)
+            compute_chromatograms_in_batches(wdir, use_for_optimization=False, batch_size=batch_size,
+                                             set_progress=set_progress, recompute_ms1=False,
+                                             recompute_ms2=False, n_cpus=n_cpus, ram=ram, use_bookmarked=bookmarked)
             print('Computing results...')
             compute_peak_properties(con, set_progress, recompute, bookmarked)
             print(f"Results computed in {time.perf_counter() - start:.2f} seconds")
