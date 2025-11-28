@@ -68,16 +68,20 @@ mint
 # Features
 - [ ] extraer sample type desde el nombre del archivo. por ejemplo, si tiene MHPool, el sample type es "MHPool" (elementos blank, mhpool, std)
 - [ ] colores por grupos. para grupos standard asignar colores a todo el grupo, para el resto, asignar colores individualmente
-- [ ] tamaño de card plot que ocupe todo el layout (hardcoded)
-- [ ] (*) el filtrado por mz se cambia a filtrado por scan_id, si mz no existe se asigna 0 (incluye todos los valores)
-- [ ] buscar compuestos en optimization (barra de busqueda)
-- [x] incluir opcion para 50 cards en optimization
 - [ ] establecer aspect ratio para numero de elementos definidos en la paginacion (4, 10, 20, 50)
+- [x] (*) el filtrado por mz se cambia a filtrado por scan_id, si mz no existe se asigna 0 (incluye todos los valores)
+- [x] buscar compuestos en optimization (barra de busqueda)
+- [x] incluir opcion para 50 cards en optimization
 - [x] (*) ordenar por mz_mean por default en optimization (tambien en targets por default)
 - [x] preview solo el rt span
-- [ ] view renderizar el grafico con zoom alrededor del rt span (que incluya un 20% del eje x)
-- [ ] (*) acceder a los discos externos (usb, sd, etc)
+- [x] view renderizar el grafico con zoom alrededor del rt span (que incluya un 20% del eje x)
+- [x] (*) acceder a los discos externos (usb, sd, etc)
 - [ ] arreglar el save automatico cuando se cierra la modal de view
 - [ ] cambiar el boton Ok/cancel del modal de confirmacion de cierre sin guardar por save/cancel
 - [x] establecer number de records como opcion en el page size de la paginacion
+- [x] actualizar la preview cuando se edite el rt span
+- [x] En la preview quieren que se vea el rt span usando la escala de esa región
+- [ ] arreglar ticks en el eje y en log scale
+- [ ] arreglar Legend behavior. guarda el estado anterior. hay que reinicializarlo cuando se cierra la modal de view
+- [ ] en los chromatograms poner intensity = 1 en vez de 0, para evitar que se rompa el grafico en log scale
 
