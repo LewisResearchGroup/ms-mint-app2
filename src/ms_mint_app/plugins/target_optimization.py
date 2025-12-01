@@ -1536,8 +1536,8 @@ def callbacks(app, fsc, cache, cpu=None):
         fig['layout']['margin'] = dict(l=60, r=10, t=40, b=40)
 
         s_data = {
-            'min': x_min,
-            'max': x_max,
+            'min': nx_min,
+            'max': nx_max,
             'pushable': 1,
             'step': 1,
             'tooltip': None,
