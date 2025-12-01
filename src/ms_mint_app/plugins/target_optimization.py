@@ -1170,8 +1170,11 @@ def callbacks(app, fsc, cache, cpu=None):
 
             if log_scale:
                 fig['layout']['yaxis']['type'] = 'log'
+                fig['layout']['yaxis']['dtick'] = 1  # Only show powers of 10 to avoid cramped labels
+                fig['layout']['yaxis']['tickfont'] = {'size': 9}
             else:
                 fig['layout']['yaxis']['type'] = 'linear'
+                fig['layout']['yaxis']['tickfont'] = {'size': 9}
 
             fig["layout"]["showlegend"] = False
             fig['layout']['margin'] = dict(l=45, r=5, t=55, b=30)
