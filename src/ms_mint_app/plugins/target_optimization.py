@@ -949,6 +949,11 @@ def callbacks(app, fsc, cache, cpu=None):
     )
     def chromatograms_preview(chromatograms, current_page, page_size, checkedkeys, log_scale, selection_bookmark,
                               selection_ms_type, targets_order, dropped_target, selected_targets, wdir):
+
+        ctx = dash.callback_context
+        if 'targets-select' in ctx.triggered[0]['prop_id'] and selected_targets:
+            current_page = 1
+
         start_idx = (current_page - 1) * page_size
         t1 = time.perf_counter()
 
@@ -1177,7 +1182,6 @@ def callbacks(app, fsc, cache, cpu=None):
         figures.extend([{} for _ in range(MAX_NUM_CARDS - len(figures))])
         bookmarks.extend([0 for _ in range(MAX_NUM_CARDS - len(bookmarks))])
 
-        ctx = dash.callback_context
         if 'targets-select' in ctx.triggered[0]['prop_id']:
             targets_select_options = dash.no_update
         else:
