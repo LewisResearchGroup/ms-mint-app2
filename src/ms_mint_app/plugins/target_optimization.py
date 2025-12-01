@@ -1349,6 +1349,7 @@ def callbacks(app, fsc, cache, cpu=None):
         Output('slider-data', 'data', allow_duplicate=True),  # make sure this is reset
         Output('chromatogram-view-plot-max', 'data'),
         Output('chromatogram-view-log-y', 'checked', allow_duplicate=True),
+        Output('chromatogram-view-groupclick', 'checked', allow_duplicate=True),
         Output('target-note', 'value', allow_duplicate=True),
 
         Input('target-preview-clicked', 'data'),
@@ -1547,7 +1548,7 @@ def callbacks(app, fsc, cache, cpu=None):
         }
 
         print(f"{time.perf_counter() - t1 = }")
-        return fig, target_clicked, False, s_data, None, [y_min, y_max], log_scale, note
+        return fig, target_clicked, False, s_data, None, [y_min, y_max], log_scale, False, note
 
     @app.callback(
         Output('chromatogram-view-plot', 'figure', allow_duplicate=True),
