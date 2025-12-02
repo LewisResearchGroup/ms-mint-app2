@@ -773,52 +773,52 @@ def compute_chromatograms_in_batches(wdir: str,
                                  """
 
     QUERY_PROCESS_BATCH_MS1 = """
-                                    INSERT INTO chromatograms (peak_label, ms_file_label, scan_time, intensity, ms_type)
-                                    WITH batch_pairs AS (SELECT peak_label, ms_file_label, ms_type, mz_mean, mz_width
-                                                         FROM pending_pairs
-                                                         WHERE ms_type = 'ms1'
-                                                           AND pair_id BETWEEN ? AND ?),
-                                         -- Paso 1: Encontrar intensidades (solo datos con señal)
-                                         matched_intensities AS (SELECT bp.peak_label,
+                              INSERT INTO chromatograms (peak_label, ms_file_label, scan_time, intensity, ms_type)
+                              WITH batch_pairs AS (SELECT peak_label, ms_file_label, ms_type, mz_mean, mz_width
+                                                   FROM pending_pairs
+                                                   WHERE ms_type = 'ms1'
+                                                     AND pair_id BETWEEN ? AND ?),
+                                   -- Paso 1: Encontrar intensidades (solo datos con señal)
+                                   matched_intensities AS (SELECT bp.peak_label,
+                                                                  bp.ms_file_label,
+                                                                  ms1.scan_id,
+                                                                  MAX(ms1.intensity) AS intensity
+                                                           FROM batch_pairs bp
+                                                                    JOIN ms1_data ms1
+                                                                         ON ms1.ms_file_label = bp.ms_file_label
+                                                                             AND ms1.mz BETWEEN
+                                                                                bp.mz_mean - (bp.mz_mean * bp.mz_width / 1e6)
+                                                                                AND
+                                                                                bp.mz_mean + (bp.mz_mean * bp.mz_width / 1e6)
+                                                           GROUP BY bp.peak_label, bp.ms_file_label, ms1.scan_id),
+                                   -- Paso 2: Expandir a todos los scans
+                                   all_scans_needed AS (SELECT DISTINCT bp.peak_label,
                                                                         bp.ms_file_label,
-                                                                        ms1.scan_id,
-                                                                        MAX(ms1.intensity) AS intensity
-                                                                 FROM batch_pairs bp
-                                                                          JOIN ms1_data ms1
-                                                                               ON ms1.ms_file_label = bp.ms_file_label
-                                                                                   AND ms1.mz BETWEEN
-                                                                                      bp.mz_mean - (bp.mz_mean * bp.mz_width / 1e6)
-                                                                                      AND
-                                                                                      bp.mz_mean + (bp.mz_mean * bp.mz_width / 1e6)
-                                                                 GROUP BY bp.peak_label, bp.ms_file_label, ms1.scan_id),
-                                         -- Paso 2: Expandir a todos los scans
-                                         all_scans_needed AS (SELECT DISTINCT bp.peak_label,
-                                                                              bp.ms_file_label,
-                                                                              s.scan_id,
-                                                                              s.scan_time
-                                                              FROM batch_pairs bp
-                                                                       JOIN ms_file_scans s ON s.ms_file_label = bp.ms_file_label),
-                                         -- Paso 3: LEFT JOIN (ambas tablas pequeñas)
-                                         complete_data AS (SELECT a.peak_label,
-                                                                  a.ms_file_label,
-                                                                  a.scan_time,
-                                                                  a.scan_id,
-                                                                  a.scan_time,
-                                                                  COALESCE(ROUND(m.intensity, 0), 0) AS intensity
-                                                           FROM all_scans_needed a
-                                                                    LEFT JOIN matched_intensities m
-                                                                              ON a.peak_label = m.peak_label
-                                                                                  AND a.ms_file_label = m.ms_file_label
-                                                                                  AND a.scan_id = m.scan_id),
-                                         agg AS (SELECT peak_label,
-                                                        ms_file_label,
-                                                        LIST(scan_time ORDER BY scan_time) AS scan_time,
-                                                        LIST(intensity ORDER BY scan_time) AS intensity
-                                                 FROM complete_data
-                                                 GROUP BY peak_label, ms_file_label)
-                                    SELECT peak_label, ms_file_label, scan_time, intensity, 'ms1' AS ms_type
-                                    FROM agg;
-                                    """
+                                                                        s.scan_id,
+                                                                        s.scan_time
+                                                        FROM batch_pairs bp
+                                                                 JOIN ms_file_scans s ON s.ms_file_label = bp.ms_file_label),
+                                   -- Paso 3: LEFT JOIN (ambas tablas pequeñas)
+                                   complete_data AS (SELECT a.peak_label,
+                                                            a.ms_file_label,
+                                                            a.scan_time,
+                                                            a.scan_id,
+                                                            a.scan_time,
+                                                            COALESCE(ROUND(m.intensity, 0), 1) AS intensity
+                                                     FROM all_scans_needed a
+                                                              LEFT JOIN matched_intensities m
+                                                                        ON a.peak_label = m.peak_label
+                                                                            AND a.ms_file_label = m.ms_file_label
+                                                                            AND a.scan_id = m.scan_id),
+                                   agg AS (SELECT peak_label,
+                                                  ms_file_label,
+                                                  LIST(scan_time ORDER BY scan_time) AS scan_time,
+                                                  LIST(intensity ORDER BY scan_time) AS intensity
+                                           FROM complete_data
+                                           GROUP BY peak_label, ms_file_label)
+                              SELECT peak_label, ms_file_label, scan_time, intensity, 'ms1' AS ms_type
+                              FROM agg;
+                              """
 
     QUERY_PROCESS_BATCH_MS2 = """
                               INSERT INTO chromatograms (peak_label, ms_file_label, scan_time, intensity, ms_type)
