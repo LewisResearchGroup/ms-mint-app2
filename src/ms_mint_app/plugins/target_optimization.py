@@ -1975,7 +1975,7 @@ def callbacks(app, fsc, cache, cpu=None):
         Output('drop-chromatogram', 'data'),
 
         Input('delete-targets-modal', 'okCounts'),
-        Input('delete-target-clicked', 'children'),
+        State('delete-target-clicked', 'children'),
         State("wdir", "data"),
         prevent_initial_call=True
     )
