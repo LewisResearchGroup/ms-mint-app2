@@ -223,6 +223,23 @@ def main():
         print("Mint version:", ms_mint_app.__version__)
         exit()
 
+    def _ensure_available_port(host: str, port: int):
+        import socket
+
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+            try:
+                sock.bind((host, port))
+                return port, None
+            except OSError:
+                with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as fallback:
+                    fallback.bind((host, 0))
+                    free_port = fallback.getsockname()[1]
+                    return free_port, port
+
+    args.port, requested_port = _ensure_available_port(args.host, args.port)
+    if requested_port:
+        logging.warning("Port %s is in use; switching to free port %s", requested_port, args.port)
+
     url = f"http://{args.host}:{args.port}"
 
     def wait_and_open_browser():
