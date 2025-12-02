@@ -2,6 +2,7 @@ import logging
 
 import dash
 import feffery_antd_components as fac
+import polars as pl
 from dash import html, dcc
 from dash.dependencies import Input, Output, State
 from dash.exceptions import PreventUpdate
@@ -176,8 +177,8 @@ _layout = html.Div(
                                 'content': 'This is peak_label field',
                             },
                             'peak_selection': {
-                                'title': 'mz_mean',
-                                'content': 'This is mz_mean field',
+                                'title': 'peak_selection',
+                                'content': 'This is peak_selection field',
                             },
                             'mz_mean': {
                                 'title': 'mz_mean',
@@ -384,8 +385,15 @@ def callbacks(app, fsc=None, cache=None):
             with duckdb_connection(wdir) as conn:
                 dfpl = conn.execute(sql, params_paged).pl()
 
+            data = dfpl.with_columns(
+                pl.col('peak_selection').map_elements(
+                    lambda value: {'checked': value},
+                    return_dtype=pl.Object
+                ).alias('peak_selection'),
+            )
+
             # total de filas:
-            number_records = int(dfpl["__total__"][0]) if len(dfpl) else 0
+            number_records = int(data["__total__"][0]) if len(data) else 0
 
             # corrige página si hizo underflow:
             current = max(current if number_records > (current - 1) * page_size else current - 1, 1)
@@ -404,7 +412,7 @@ def callbacks(app, fsc=None, cache=None):
                     output_filterOptions = dash.no_update
 
             return [
-                dfpl.to_dicts(),
+                data.to_dicts(),
                 [],
                 {**pagination, 'total': number_records, 'current': current, 'pageSizeOptions': sorted([5, 10, 15, 25, 50,
                 100, number_records])},
