@@ -655,6 +655,29 @@ def process_targets(wdir, set_progress, selected_files):
     return len(targets_df), failed_files, failed_targets, stats
 
 
+# TODO: check if we need to use the intensity_threshold as baseline
+def sparsify_chrom(scan, intensity, w=1, baseline=1.0, eps=0.0):
+    """
+    Keep all points above the baseline (or baseline+eps)
+    plus ±w neighboring points.
+    """
+    scan = np.asarray(scan)
+    intensity = np.asarray(intensity)
+
+    # Identify signal points above baseline
+    signal = intensity > (baseline + eps)
+
+    # If no signal, return empty
+    if not np.any(signal):
+        return scan[:0], intensity[:0]
+
+    # Morphological dilation of the signal mask
+    kernel = np.ones(2 * w + 1, dtype=np.int8)
+    keep = np.convolve(signal.astype(np.int8), kernel, mode="same") > 0
+
+    return scan[keep], intensity[keep]
+
+
 def write_metadata(meta, wdir):
     fn = get_metadata_fn(wdir)
     with lock(fn):
