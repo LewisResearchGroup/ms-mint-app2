@@ -14,6 +14,7 @@ from dash.exceptions import PreventUpdate
 
 from ..duckdb_manager import duckdb_connection, compute_chromatograms_in_batches
 from ..plugin_interface import PluginInterface
+from ..tools import sparsify_chrom
 
 _label = "Optimization"
 
@@ -1123,13 +1124,18 @@ def callbacks(app, fsc, cache, cpu=None):
             fig = Patch()
             traces = []
             for i, row in enumerate(peak_data.iter_rows(named=True)):
+                
+                scan_time_sparse, intensity_sparse = sparsify_chrom(
+                    row['scan_time_sliced'], row['intensity_sliced']
+                )
+                
                 traces.append({
                     'type': 'scatter',
                     'mode': 'lines',
-                    'x': row['scan_time_sliced'],
-                    'y': row['intensity_sliced'],
+                    'x': scan_time_sparse,
+                    'y': intensity_sparse,
                     'name': row['label'] or row['ms_file_label'],
-                    'line': {'color': row['color']},
+                    'line': {'color': row['color'], 'width': 1.5},
                 })
 
             fig['data'] = traces
@@ -1451,11 +1457,15 @@ def callbacks(app, fsc, cache, cpu=None):
             # row: ms_file_label, color, label, scan_time_sliced, intensity_sliced, intensity_max_in_range,
             #                 intensity_min_in_range, scan_time_max_in_range, scan_time_min_in_range
 
+            scan_time_sparse, intensity_sparse = sparsify_chrom(
+                row['scan_time_sliced'], row['intensity_sliced'], w=1, baseline=1.0, eps=0.0
+            )
+
             trace = {
                 'type': 'scattergl',
                 'mode': 'lines',
-                'x': row['scan_time_sliced'],
-                'y': row['intensity_sliced'],
+                'x': scan_time_sparse,
+                'y': intensity_sparse,
                 'line': {'color': row['color']},
                 'name': row['label'] or row['ms_file_label'],
                 'visible': True if row['label'] in checkedKeys else 'legendonly',  # solo en leyenda si no está
