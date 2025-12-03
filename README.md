@@ -38,6 +38,12 @@ The project follows PEP8 standard and uses Black and Flake8 to ensure a consiste
 ## Get in touch
 To get in touch, please open a GitHub [issue](https://github.com/LewisResearchGroup/ms-mint-app/issues).
 
+## Clustergrammer Dash example
+- Minimal demo in `examples/clustergrammer_dash_app.py` (uses stock Clustergrammer UI, no overrides).
+- Mock data lives at `examples/mock_compound_sample_matrix.csv` (80 compounds x 100 samples).
+- Run with `pip install dash pandas numpy clustergrammer` then `python examples/clustergrammer_dash_app.py` (port 8050). Use flags like `--compounds 400 --samples 1000` to generate a larger dataset.
+- Replace the CSV with your own matrix to visualize your data.
+
 ## Acknowledgements
 This project would not be possible without the help of the open-source community. 
 The tools and resources provided by GitHub, Docker-Hub, the Python Package Index, as well the answers from dedicated users on [Stackoverflow](stackoverflow.com)
@@ -48,4 +54,3 @@ Several people have made direct contributions to the codebase and we are extreme
 - @bucknerns helped with the configuration of the `versioneer` file.
 
 Last but not least, we want to thank all the users and early adopters that drive the development with feature requests and bug reports.
-
