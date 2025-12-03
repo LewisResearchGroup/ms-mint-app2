@@ -52,7 +52,7 @@ _layout = fac.AntdLayout(
                 fac.AntdFlex(
                     [
                         fac.AntdTitle(
-                            'Optimization', level=4, style={'margin': '0'}
+                            'Optimization', level=4, style={'margin': '0', 'whiteSpace': 'nowrap'}
                         ),
                         fac.AntdIcon(
                             id='ms-files-tour-icon',
