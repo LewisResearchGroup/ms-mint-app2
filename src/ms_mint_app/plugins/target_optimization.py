@@ -1477,7 +1477,8 @@ def callbacks(app, fsc, cache, cpu=None):
                 'line': {'color': row['color']},
                 'name': row['label'] or row['ms_file_label'],
                 'visible': True if row['label'] in checkedKeys else 'legendonly',  # solo en leyenda si no está
-                'legendgroup': row['sample_type']
+                'legendgroup': row['sample_type'],
+                'hoverlabel': dict(namelength=-1)
             }
 
             if row['sample_type'] not in legend_groups:
