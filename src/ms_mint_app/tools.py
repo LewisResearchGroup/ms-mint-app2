@@ -10,6 +10,7 @@ from typing import Union
 import numpy as np
 import pandas as pd
 from dash.exceptions import PreventUpdate
+from scipy.ndimage import binary_opening
 from tqdm import tqdm
 
 from ms_mint.io import ms_file_to_df
@@ -666,7 +667,14 @@ def process_targets(wdir, set_progress, selected_files):
 
 
 # TODO: check if we need to use the intensity_threshold as baseline
-def sparsify_chrom(scan, intensity, w=1, baseline=1.0, eps=0.0):
+def sparsify_chrom(
+    scan,
+    intensity,
+    w=1,
+    baseline=1.0,
+    eps=0.0,
+    min_peak_width=3,
+    ):
     """
     Keep all points above the baseline (or baseline+eps)
     plus ±w neighboring points.
@@ -674,16 +682,18 @@ def sparsify_chrom(scan, intensity, w=1, baseline=1.0, eps=0.0):
     scan = np.asarray(scan)
     intensity = np.asarray(intensity)
 
-    # Identify signal points above baseline
     signal = intensity > (baseline + eps)
-
-    # If no signal, return empty
     if not np.any(signal):
         return scan[:0], intensity[:0]
 
-    # Morphological dilation of the signal mask
+    # Remove small islands (shorter than min_peak_width)
+    structure = np.ones(min_peak_width, dtype=bool)
+    cleaned_signal = binary_opening(signal, structure=structure)
+    if not np.any(cleaned_signal):
+        return scan[:0], intensity[:0]
+
     kernel = np.ones(2 * w + 1, dtype=np.int8)
-    keep = np.convolve(signal.astype(np.int8), kernel, mode="same") > 0
+    keep = np.convolve(cleaned_signal.astype(np.int8), kernel, mode="same") > 0
 
     return scan[keep], intensity[keep]
 
