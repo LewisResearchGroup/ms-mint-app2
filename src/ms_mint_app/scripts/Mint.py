@@ -16,6 +16,7 @@ from collections import namedtuple
 from multiprocessing import freeze_support
 
 import ms_mint_app
+from ms_mint_app.logging_setup import init_global_logging
 
 
 def _looks_like_remote(target: str) -> bool:
@@ -140,6 +141,8 @@ def _create_get_distribution(is_frozen, true_get_distribution, _Dist):
 
 def main():
     freeze_support()
+
+    init_global_logging()
 
     HOME = expanduser("~")
     DATADIR = str(P(HOME) / "MINT")
