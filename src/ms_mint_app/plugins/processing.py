@@ -270,19 +270,19 @@ _layout = html.Div(
                                 fac.AntdFormItem(
                                     fac.AntdInputNumber(
                                         id='processing-chromatogram-compute-cpu',
-                                        defaultValue=cpu_count() - 2,
+                                        defaultValue=cpu_count() // 2,
                                         min=1,
                                         max=cpu_count() - 2,
                                     ),
                                     label='CPU:',
                                     hasFeedback=True,
-                                    help=f"Selected {cpu_count() - 2} / {cpu_count()} cpus"
+                                    help=f"Selected {cpu_count() // 2} / {cpu_count()} cpus"
 
                                 ),
                                 fac.AntdFormItem(
                                     fac.AntdInputNumber(
                                         id='processing-chromatogram-compute-ram',
-                                        value=round(psutil.virtual_memory().available * 0.9 / (1024 ** 3), 1),
+                                        value=round(psutil.virtual_memory().available * 0.5 / (1024 ** 3), 1),
                                         min=1,
                                         precision=1,
                                         step=0.1,
@@ -292,7 +292,7 @@ _layout = html.Div(
                                     hasFeedback=True,
                                     id='processing-chromatogram-compute-ram-item',
                                     help=f"Selected "
-                                         f"{round(psutil.virtual_memory().available * 0.9 / (1024 ** 3), 1)}GB / "
+                                         f"{round(psutil.virtual_memory().available * 0.5 / (1024 ** 3), 1)}GB / "
                                          f"{round(psutil.virtual_memory().available / (1024 ** 3), 1)}GB available RAM"
                                 ),
                                 fac.AntdFormItem(

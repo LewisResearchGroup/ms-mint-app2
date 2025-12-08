@@ -10,6 +10,7 @@ from typing import Union
 import numpy as np
 import pandas as pd
 from dash.exceptions import PreventUpdate
+from scipy.ndimage import binary_opening
 from tqdm import tqdm
 
 from ms_mint.io import ms_file_to_df
@@ -506,7 +507,7 @@ def _insert_ms_data(wdir, ms_type, batch_ms, batch_ms_data):
 
 # IMPORTANT: We've defined these functions here temporarily, but it should be moved to the backend.
 def process_ms_files(wdir, set_progress, selected_files, n_cpus):
-    file_list = [file for folder in selected_files.values() for file in folder]
+    file_list = sorted([file for folder in selected_files.values() for file in folder])
     n_total = len(file_list)
     failed_files = []
     total_processed = 0
@@ -534,22 +535,32 @@ def process_ms_files(wdir, set_progress, selected_files, n_cpus):
 
     if len(files_name) - len(duplicates) > 0:
         with tempfile.TemporaryDirectory() as tmpdir:
-            futures = []
+            futures_name = {}
             # ctx = multiprocessing.get_context('fork')
             with concurrent.futures.ProcessPoolExecutor(max_workers=n_cpus, mp_context=None) as executor:
-                futures.extend(
-                    executor.submit(
-                        convert_mzxml_to_parquet_fast_batches, file_path, tmp_dir=tmpdir
-                    )
-                    for file_name, file_path in files_name.items()
-                    if file_name not in duplicates.tolist()
+                futures_name.update(
+                    {
+                        executor.submit(
+                            convert_mzxml_to_parquet_fast_batches, file_path, tmp_dir=tmpdir
+                        ): file_path
+                        for file_name, file_path in files_name.items()
+                        if file_name not in duplicates.tolist()
+                    }
                 )
                 batch_ms = {'ms1': [], 'ms2': []}
                 batch_ms_data = {'ms1': [], 'ms2': []}
                 batch_size = n_cpus
 
-                for future in concurrent.futures.as_completed(futures):
-                    _file_path, _ms_file_label, _ms_level, _polarity, _parquet_df = future.result()
+                for future in concurrent.futures.as_completed(futures_name.keys()):
+                    try:
+                        result = future.result()
+                    except Exception as e:
+                        failed_files.append({futures_name[future]: str(e)})
+                        total_processed += 1
+                        set_progress(round((total_processed + len(failed_files)) / n_total * 100, 1))
+                        continue
+
+                    _file_path, _ms_file_label, _ms_level, _polarity, _parquet_df = result
                     batch_ms[f'ms{_ms_level}'].append((_ms_file_label, _ms_file_label, f'ms{_ms_level}', _polarity))
                     batch_ms_data[f'ms{_ms_level}'].append(_parquet_df)
 
@@ -656,7 +667,14 @@ def process_targets(wdir, set_progress, selected_files):
 
 
 # TODO: check if we need to use the intensity_threshold as baseline
-def sparsify_chrom(scan, intensity, w=1, baseline=1.0, eps=0.0):
+def sparsify_chrom(
+    scan,
+    intensity,
+    w=1,
+    baseline=1.0,
+    eps=0.0,
+    min_peak_width=3,
+    ):
     """
     Keep all points above the baseline (or baseline+eps)
     plus ±w neighboring points.
@@ -664,16 +682,18 @@ def sparsify_chrom(scan, intensity, w=1, baseline=1.0, eps=0.0):
     scan = np.asarray(scan)
     intensity = np.asarray(intensity)
 
-    # Identify signal points above baseline
     signal = intensity > (baseline + eps)
-
-    # If no signal, return empty
     if not np.any(signal):
         return scan[:0], intensity[:0]
 
-    # Morphological dilation of the signal mask
+    # Remove small islands (shorter than min_peak_width)
+    structure = np.ones(min_peak_width, dtype=bool)
+    cleaned_signal = binary_opening(signal, structure=structure)
+    if not np.any(cleaned_signal):
+        return scan[:0], intensity[:0]
+
     kernel = np.ones(2 * w + 1, dtype=np.int8)
-    keep = np.convolve(signal.astype(np.int8), kernel, mode="same") > 0
+    keep = np.convolve(cleaned_signal.astype(np.int8), kernel, mode="same") > 0
 
     return scan[keep], intensity[keep]
 

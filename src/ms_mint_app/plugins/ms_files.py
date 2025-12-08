@@ -140,13 +140,13 @@ _layout = html.Div(
                             {
                                 'title': 'MS-File Label',
                                 'dataIndex': 'ms_file_label',
-                                'width': '260px',
+                                'width': '270px',
                                 'fixed': 'left'
                             },
                             {
                                 'title': 'Label',
                                 'dataIndex': 'label',
-                                'width': '260px',
+                                'width': '270px',
                                 'editable': True,
                                 'editOptions': {
                                     'mode': 'text-area',

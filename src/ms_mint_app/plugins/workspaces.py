@@ -9,6 +9,7 @@ from dash.dependencies import Input, Output, State
 from dash.exceptions import PreventUpdate
 
 from ..duckdb_manager import duckdb_connection_mint, duckdb_connection
+from ..logging_setup import activate_workspace_logging
 from ..plugin_interface import PluginInterface
 
 _label = "Workspaces"
@@ -355,6 +356,8 @@ def callbacks(app, fsc, cache):
                                                     placement='bottom',
                                                     showProgress=True,
                                                     stack=True)
+
+        activate_workspace_logging(wdir)
 
         return notification, ws_name, wdir.as_posix(), wdir.as_posix()
 
