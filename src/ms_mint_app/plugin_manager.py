@@ -29,7 +29,7 @@ class PluginManager:
         # self.register_plugin("MS2 Browser", MS2BrowserPlugin())
         self.register_plugin("Processing", ProcessingPlugin())
         # self.register_plugin("Quality Control", QualityControlPlugin())
-        # self.register_plugin("Analysis", AnalysisPlugin())
+        self.register_plugin("Analysis", AnalysisPlugin())
 
         # Discover and register external plugins
         if sys.version_info >= (3, 10):
