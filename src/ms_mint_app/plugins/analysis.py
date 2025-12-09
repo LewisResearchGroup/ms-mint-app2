@@ -42,12 +42,17 @@ def zscore_rows(df: pd.DataFrame) -> pd.DataFrame:
     mean = np.nanmean(vals, axis=1, keepdims=True)
     std = np.nanstd(vals, axis=1, ddof=0, keepdims=True)
     std = np.where(std == 0, np.nan, std)  # if row is constant, return NaN
-    return (vals - mean) / std
+    df_out = pd.DataFrame(
+        (vals - mean) / std,
+        index=df.index,
+        columns=df.columns,
+    )
+    return df_out
 
 
 def rocke_durbin(df: pd.DataFrame, c: float) -> pd.DataFrame:
     # df: samples x features (metabolites)
-    z = zscore_rows(df)
+    z = df.to_numpy(dtype=float)
     ef = np.log((z + np.sqrt(z ** 2 + c ** 2)) / 2.0)
     return pd.DataFrame(ef, index=df.index, columns=df.columns)
 
@@ -209,12 +214,27 @@ def callbacks(app, fsc, cache):
 
         if section_context['page'] != 'Analysis':
             raise PreventUpdate
+        
         with duckdb_connection(wdir) as conn:
             df = create_pivot(conn)
             df.set_index('ms_file_label', inplace=True)
             ndf_sample_type = df['sample_type']
+            colors_df = conn.execute(
+                "SELECT ms_file_label, sample_type, color FROM samples"
+            ).df()
+            colors_df["color_key"] = colors_df["sample_type"].fillna(colors_df["ms_file_label"])
+            color_map = (
+                colors_df.dropna(subset=["color"])
+                .drop_duplicates(subset="color_key")
+                .set_index("color_key")["color"]
+                .to_dict()
+            )
             df = df.drop(columns=['ms_type', 'sample_type'], axis=1)
+            zdf = zscore_rows(df)
+            print(zdf.max().max())
             ndf = rocke_durbin(df, c=10)
+            print(ndf.head())
+
         if tab_key == 'clustergram':
             import seaborn as sns
             import matplotlib.pyplot as plt
@@ -223,7 +243,7 @@ def callbacks(app, fsc, cache):
             matplotlib.use('Agg')
             sns.set_theme(font_scale=0.5)
             
-            fig = sns.clustermap(ndf.T, method='ward', metric='euclidean', cmap='vlag', standard_scale=None,
+            fig = sns.clustermap(zdf.T, method='ward', metric='euclidean', cmap='vlag', standard_scale=None,
                                  col_cluster=False, 
                                  dendrogram_ratio=0.1,
                                  figsize=(10,10))
@@ -241,7 +261,10 @@ def callbacks(app, fsc, cache):
 
         elif tab_key == 'pca':
             results = run_pca_samples_in_cols(ndf, n_components=5)
-            results['scores']['color_group'] = ndf_sample_type
+            color_labels = ndf_sample_type.fillna(
+                pd.Series(ndf_sample_type.index, index=ndf_sample_type.index)
+            )
+            results['scores']['color_group'] = color_labels
             x_axis = x_comp or 'PC1'
             y_axis = y_comp or 'PC2'
             loadings = results['loadings']
@@ -280,6 +303,7 @@ def callbacks(app, fsc, cache):
                 x=x_axis,
                 y=y_axis,
                 color='color_group',
+                color_discrete_map=color_map if color_map else None,
                 title=f'PCA ({x_axis} vs {y_axis})'
             )
 
@@ -316,8 +340,8 @@ def callbacks(app, fsc, cache):
                 margin=dict(l=140, r=30, t=60, b=50),
                 legend_title_text="Sample Type",
                 legend=dict(
-                    x=-0.02,
-                    y=1,
+                    x=-0.025,
+                    y=1.02,
                     xanchor="right",
                     yanchor="top",
                     orientation="v",
