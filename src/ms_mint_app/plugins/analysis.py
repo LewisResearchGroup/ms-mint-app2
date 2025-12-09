@@ -205,11 +205,15 @@ def callbacks(app, fsc, cache):
             import matplotlib
 
             matplotlib.use('Agg')
-            plt.rcParams["figure.dpi"] = 150
             sns.set_theme(font_scale=0.5)
-
+            
             fig = sns.clustermap(ndf.T, method='ward', metric='euclidean', cmap='vlag', standard_scale=None,
-                                 col_cluster=False, figsize=(10, 10))
+                                 col_cluster=False, 
+                                 dendrogram_ratio=0.1,
+                                 figsize=(10,10))
+            fig.ax_heatmap.tick_params(which='both', axis='both', length=0)
+
+
             from io import BytesIO
             buf = BytesIO()
             fig.savefig(buf, format="png", dpi=300)
@@ -229,6 +233,10 @@ def callbacks(app, fsc, cache):
                     color='color_group',
                 title='PCA'
             )
+            pca_fig.update_layout(width=700, height=700, 
+                                  margin=dict(l=40, r=20, t=40, b=30),
+                                  legend_title_text="Sample Type")
+
             variance_fig = go.Figure()
             variance_fig.add_trace(
                 go.Bar(
