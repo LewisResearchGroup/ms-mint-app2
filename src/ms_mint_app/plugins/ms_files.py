@@ -316,30 +316,48 @@ def generate_colors(wdir, regenerate=False):
     with duckdb_connection(wdir) as conn:
         if conn is None:
             raise PreventUpdate
-        ms_colors = conn.execute("SELECT ms_file_label, color FROM samples").df()
+
+        ms_colors = conn.execute(
+            "SELECT ms_file_label, sample_type, color FROM samples"
+        ).df()
+        ms_colors["sample_key"] = ms_colors["sample_type"].fillna(ms_colors["ms_file_label"])
+
         if regenerate:
             assigned_colors = {}
         else:
-            valid = ms_colors[ms_colors["color"].notna() &
-                              (ms_colors["color"].str.strip() != "") &
-                              (ms_colors["color"].str.strip() != "#bbbbbb")]
-            assigned_colors = dict(zip(valid["ms_file_label"], valid["color"]))
+            valid = ms_colors[
+                ms_colors["color"].notna()
+                & (ms_colors["color"].str.strip() != "")
+                & (ms_colors["color"].str.strip() != "#bbbbbb")
+            ].copy()
+            valid["sample_key"] = valid["sample_type"].fillna(valid["ms_file_label"])
+            assigned_colors = (
+                valid.drop_duplicates(subset="sample_key")
+                .set_index("sample_key")["color"]
+                .to_dict()
+            )
 
-        if len(assigned_colors) != len(ms_colors):
+        sample_keys = ms_colors["sample_key"].drop_duplicates().to_list()
+
+        if len(assigned_colors) != len(sample_keys):
             colors_map = make_palette_hsv(
-                ms_colors["ms_file_label"].to_list(),
+                sample_keys,
                 existing_map=assigned_colors,
                 s_range=(0.90, 0.95),
                 v_range=(0.90, 0.95),
             )
-            colors_pd = pd.DataFrame({"ms_file_label": list(colors_map.keys()), "color": list(colors_map.values())})
-            conn.execute("""
-                         UPDATE samples
-                         SET color = colors_pd.color
-                         FROM colors_pd
-                         WHERE samples.ms_file_label = colors_pd.ms_file_label"""
-                         )
-        return len(ms_colors) - len(assigned_colors)
+            colors_pd = ms_colors[["ms_file_label"]].copy()
+            colors_pd["color"] = ms_colors["sample_key"].map(colors_map)
+            conn.execute(
+                """
+                UPDATE samples
+                SET color = colors_pd.color
+                FROM colors_pd
+                WHERE samples.ms_file_label = colors_pd.ms_file_label
+                """
+            )
+
+        return len(sample_keys) - len(assigned_colors)
 
 
 def callbacks(cls, app, fsc, cache, args_namespace):
