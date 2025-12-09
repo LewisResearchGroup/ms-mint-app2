@@ -37,19 +37,6 @@ class AnalysisPlugin(PluginInterface):
         return _outputs
 
 
-def zscore_rows(df: pd.DataFrame) -> pd.DataFrame:
-    vals = df.to_numpy(dtype=float)
-    mean = np.nanmean(vals, axis=1, keepdims=True)
-    std = np.nanstd(vals, axis=1, ddof=0, keepdims=True)
-    std = np.where(std == 0, np.nan, std)  # if row is constant, return NaN
-    df_out = pd.DataFrame(
-        (vals - mean) / std,
-        index=df.index,
-        columns=df.columns,
-    )
-    return df_out
-
-
 def rocke_durbin(df: pd.DataFrame, c: float) -> pd.DataFrame:
     # df: samples x features (metabolites)
     z = df.to_numpy(dtype=float)
@@ -219,6 +206,12 @@ def callbacks(app, fsc, cache):
             df = create_pivot(conn)
             df.set_index('ms_file_label', inplace=True)
             ndf_sample_type = df['sample_type']
+            order_df = conn.execute(
+                "SELECT ms_file_label FROM samples ORDER BY run_order NULLS LAST, ms_file_label"
+            ).df()["ms_file_label"].tolist()
+            ordered_labels = [lbl for lbl in order_df if lbl in df.index]
+            leftover_labels = [lbl for lbl in df.index if lbl not in ordered_labels]
+            df = df.loc[ordered_labels + leftover_labels]
             colors_df = conn.execute(
                 "SELECT ms_file_label, sample_type, color FROM samples"
             ).df()
@@ -230,10 +223,12 @@ def callbacks(app, fsc, cache):
                 .to_dict()
             )
             df = df.drop(columns=['ms_type', 'sample_type'], axis=1)
-            zdf = zscore_rows(df)
-            print(zdf.max().max())
+
+            from sklearn.preprocessing import StandardScaler
+            scaler = StandardScaler()
+            zdf = pd.DataFrame(scaler.fit_transform(df), index=df.index, columns=df.columns)
+
             ndf = rocke_durbin(df, c=10)
-            print(ndf.head())
 
         if tab_key == 'clustergram':
             import seaborn as sns
