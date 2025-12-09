@@ -8,6 +8,7 @@ from dash.dependencies import Input, Output, State
 from dash.exceptions import PreventUpdate
 from sklearn.decomposition import PCA
 import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 from .analysis_tools import pca
 from ..duckdb_manager import duckdb_connection, create_pivot
 from ..plugin_interface import PluginInterface
@@ -129,23 +130,9 @@ pca_tab = html.Div(
             style={'marginBottom': 10},
         ),
         fac.AntdSpin(
-            fac.AntdRow(
-                [
-                    fac.AntdCol(
-                        dcc.Graph(id='pca-graph'),
-                        flex=2,
-                    ),
-                    fac.AntdCol(
-                        [
-                            dcc.Graph(id='pca-variance-graph', style={'marginBottom': 12}),
-                            dcc.Graph(id='pca-loadings-graph'),
-                        ],
-                        flex=1,
-                    ),
-                ]
-            ),
+            dcc.Graph(id='pca-graph'),
             text='Loading PCA...',
-        )
+        ),
     ]
 )
 
@@ -210,8 +197,6 @@ def callbacks(app, fsc, cache):
     @app.callback(
         Output('bar-graph-matplotlib', 'src'),
         Output('pca-graph', 'figure'),
-        Output('pca-variance-graph', 'figure'),
-        Output('pca-loadings-graph', 'figure'),
 
         Input('section-context', 'data'),
         Input('analysis-tabs', 'activeKey'),
@@ -252,72 +237,93 @@ def callbacks(app, fsc, cache):
             import base64
             fig_data = base64.b64encode(buf.getbuffer()).decode("ascii")
             fig_bar_matplotlib = f'data:image/png;base64,{fig_data}'
-            return fig_bar_matplotlib, dash.no_update, dash.no_update, dash.no_update
+            return fig_bar_matplotlib, dash.no_update
 
         elif tab_key == 'pca':
             results = run_pca_samples_in_cols(ndf, n_components=5)
             results['scores']['color_group'] = ndf_sample_type
             x_axis = x_comp or 'PC1'
             y_axis = y_comp or 'PC2'
-            pca_fig = px.scatter(
-                results['scores'],
-                    x=x_axis,
-                    y=y_axis,
-                    color='color_group',
-                title=f'PCA ({x_axis} vs {y_axis})'
-            )
-            pca_fig.update_layout(width=700, height=700, 
-                                  margin=dict(l=40, r=20, t=40, b=30),
-                                  legend_title_text="Sample Type")
-
-            variance_fig = go.Figure()
-            variance_fig.add_trace(
-                go.Bar(
-                    x=results['explained_variance_ratio'].index,
-                    y=results['explained_variance_ratio'].values,
-                    width=0.5,
-                    showlegend=False,
-                    marker=dict(
-                        color='#bbbbbb',
-                    )
-                )
-            )
-            variance_fig.add_trace(
-                go.Scatter(
-                    x=results['cumulative_variance_ratio'].index,
-                    y=results['cumulative_variance_ratio'].values,
-                    showlegend=False,
-                    marker=dict(
-                        color='#bbbbbb',
-                    )
-                ),
-            )
-            variance_fig.update_layout({'title': {'text': 'PCA Variance' }})
-
             loadings = results['loadings']
             component_id = x_axis
             if component_id in loadings.index:
                 top_features = loadings.loc[component_id].abs().sort_values(ascending=False).head(15).index
-                loadings_fig = go.Figure()
-                loadings_fig.add_trace(
-                    go.Bar(
-                        x=top_features,
-                        y=loadings.loc[component_id, top_features],
-                        name=component_id,
-                        width=0.6,
-                        marker=dict(color='#bbbbbb'),
-                    )
-                )
-                loadings_fig.update_layout(
-                    title=f"Loadings ({component_id})",
-                    xaxis_tickangle=-45,
-                    margin=dict(l=80, r=80, t=40, b=120),
-                    height=280,
+                loading_bar = go.Bar(
+                    x=top_features,
+                    y=loadings.loc[component_id, top_features],
+                    name=component_id,
+                    width=0.6,
+                    marker=dict(color='#bbbbbb'),
                     showlegend=False,
                 )
             else:
-                loadings_fig = go.Figure()
+                loading_bar = None
 
-            return dash.no_update, pca_fig, variance_fig, loadings_fig
+            variance_bar = go.Bar(
+                x=results['explained_variance_ratio'].index,
+                y=results['explained_variance_ratio'].values,
+                width=0.5,
+                showlegend=False,
+                marker=dict(color='#bbbbbb'),
+            )
+            variance_line = go.Scatter(
+                x=results['cumulative_variance_ratio'].index,
+                y=results['cumulative_variance_ratio'].values,
+                mode='lines+markers',
+                marker=dict(color='#999999'),
+                line=dict(color='#999999'),
+                showlegend=False,
+            )
 
-        return dash.no_update, dash.no_update, dash.no_update, dash.no_update
+            base_scatter = px.scatter(
+                results['scores'],
+                x=x_axis,
+                y=y_axis,
+                color='color_group',
+                title=f'PCA ({x_axis} vs {y_axis})'
+            )
+
+            fig = make_subplots(
+                rows=2,
+                cols=2,
+                specs=[[{'rowspan': 2}, {}],
+                       [None, {}]],
+                column_widths=[0.55, 0.45],
+                vertical_spacing=0.12,
+                horizontal_spacing=0.1,
+                subplot_titles=(
+                    f"PCA ({x_axis} vs {y_axis})",
+                    "PCA Variance",
+                    f"Loadings ({component_id})" if component_id in loadings.index else "Loadings",
+                ),
+            )
+
+            for t in base_scatter.data:
+                fig.add_trace(t, row=1, col=1)
+
+            fig.add_trace(variance_bar, row=1, col=2)
+            fig.add_trace(variance_line, row=1, col=2)
+
+            # Label PCA scatter axes
+            fig.update_xaxes(title_text=x_axis, row=1, col=1)
+            fig.update_yaxes(title_text=y_axis, row=1, col=1)
+
+            if loading_bar:
+                fig.add_trace(loading_bar, row=2, col=2)
+
+            fig.update_layout(
+                height=750,
+                margin=dict(l=140, r=30, t=60, b=50),
+                legend_title_text="Sample Type",
+                legend=dict(
+                    x=-0.02,
+                    y=1,
+                    xanchor="right",
+                    yanchor="top",
+                    orientation="v",
+                ),
+            )
+
+            return dash.no_update, fig
+
+        return dash.no_update, dash.no_update
