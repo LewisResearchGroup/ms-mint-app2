@@ -236,13 +236,21 @@ def callbacks(app, fsc, cache):
             import matplotlib
 
             matplotlib.use('Agg')
-            sns.set_theme(font_scale=0.5)
+            sns.set_theme(font_scale=0.25)
             
-            fig = sns.clustermap(zdf.T, method='ward', metric='euclidean', cmap='vlag', standard_scale=None,
+            fig = sns.clustermap(
+                                 zdf.T,
+                                 method='ward', metric='euclidean', 
+                                 cmap='vlag', center=0, vmin=-3, vmax=3,
+                                 standard_scale=None,
                                  col_cluster=False, 
                                  dendrogram_ratio=0.1,
-                                 figsize=(10,10))
+                                 figsize=(8, 8),
+                                 cbar_kws={"orientation": "horizontal"},
+                                 cbar_pos=(0.00, 0.98, 0.10, 0.02),
+                                )
             fig.ax_heatmap.tick_params(which='both', axis='both', length=0)
+            fig.ax_cbar.tick_params(which='both', axis='both', width=0.3, length=2)
 
 
             from io import BytesIO
