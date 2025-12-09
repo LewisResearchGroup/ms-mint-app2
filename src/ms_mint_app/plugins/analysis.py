@@ -133,11 +133,14 @@ pca_tab = html.Div(
                 [
                     fac.AntdCol(
                         dcc.Graph(id='pca-graph'),
-                        flex=1
+                        flex=2,
                     ),
                     fac.AntdCol(
-                        dcc.Graph(id='pca-variance-graph'),
-                        flex=1
+                        [
+                            dcc.Graph(id='pca-variance-graph', style={'marginBottom': 12}),
+                            dcc.Graph(id='pca-loadings-graph'),
+                        ],
+                        flex=1,
                     ),
                 ]
             ),
@@ -208,6 +211,7 @@ def callbacks(app, fsc, cache):
         Output('bar-graph-matplotlib', 'src'),
         Output('pca-graph', 'figure'),
         Output('pca-variance-graph', 'figure'),
+        Output('pca-loadings-graph', 'figure'),
 
         Input('section-context', 'data'),
         Input('analysis-tabs', 'activeKey'),
@@ -248,7 +252,7 @@ def callbacks(app, fsc, cache):
             import base64
             fig_data = base64.b64encode(buf.getbuffer()).decode("ascii")
             fig_bar_matplotlib = f'data:image/png;base64,{fig_data}'
-            return fig_bar_matplotlib, dash.no_update, dash.no_update
+            return fig_bar_matplotlib, dash.no_update, dash.no_update, dash.no_update
 
         elif tab_key == 'pca':
             results = run_pca_samples_in_cols(ndf, n_components=5)
@@ -271,6 +275,7 @@ def callbacks(app, fsc, cache):
                 go.Bar(
                     x=results['explained_variance_ratio'].index,
                     y=results['explained_variance_ratio'].values,
+                    width=0.5,
                     showlegend=False,
                     marker=dict(
                         color='#bbbbbb',
@@ -288,6 +293,31 @@ def callbacks(app, fsc, cache):
                 ),
             )
             variance_fig.update_layout({'title': {'text': 'PCA Variance' }})
-            return dash.no_update, pca_fig, variance_fig
 
-        return dash.no_update, dash.no_update, dash.no_update
+            loadings = results['loadings']
+            component_id = x_axis
+            if component_id in loadings.index:
+                top_features = loadings.loc[component_id].abs().sort_values(ascending=False).head(15).index
+                loadings_fig = go.Figure()
+                loadings_fig.add_trace(
+                    go.Bar(
+                        x=top_features,
+                        y=loadings.loc[component_id, top_features],
+                        name=component_id,
+                        width=0.6,
+                        marker=dict(color='#bbbbbb'),
+                    )
+                )
+                loadings_fig.update_layout(
+                    title=f"Loadings ({component_id})",
+                    xaxis_tickangle=-45,
+                    margin=dict(l=80, r=80, t=40, b=120),
+                    height=280,
+                    showlegend=False,
+                )
+            else:
+                loadings_fig = go.Figure()
+
+            return dash.no_update, pca_fig, variance_fig, loadings_fig
+
+        return dash.no_update, dash.no_update, dash.no_update, dash.no_update
