@@ -10,8 +10,8 @@ from dash import html
 from dash.dependencies import Input, Output, State
 from dash.exceptions import PreventUpdate
 
-from ..duckdb_manager import duckdb_connection, compute_peak_properties, build_paginated_query_by_peak, create_pivot, \
-    duckdb_connection_mint, compute_chromatograms_in_batches
+from ..duckdb_manager import duckdb_connection, build_paginated_query_by_peak, create_pivot, \
+    duckdb_connection_mint, compute_chromatograms_in_batches, compute_results_in_batches
 from ..plugin_interface import PluginInterface
 
 _label = "Processing"
@@ -891,15 +891,19 @@ def callbacks(app, fsc, cache):
         if not okCounts:
             raise PreventUpdate
 
-        with duckdb_connection(wdir, n_cpus=n_cpus, ram=ram) as con:
-            if con is None:
-                return "Could not connect to database."
-            start = time.perf_counter()
-            print('Computing chromatograms...')
-            compute_chromatograms_in_batches(wdir, use_for_optimization=False, batch_size=batch_size,
-                                             set_progress=set_progress, recompute_ms1=False,
-                                             recompute_ms2=False, n_cpus=n_cpus, ram=ram, use_bookmarked=bookmarked)
-            print('Computing results...')
-            compute_peak_properties(con, set_progress, recompute, bookmarked)
-            print(f"Results computed in {time.perf_counter() - start:.2f} seconds")
+        start = time.perf_counter()
+        print('Computing chromatograms...')
+        compute_chromatograms_in_batches(wdir, use_for_optimization=False, batch_size=batch_size,
+                                         set_progress=set_progress, recompute_ms1=False,
+                                         recompute_ms2=False, n_cpus=n_cpus, ram=ram, use_bookmarked=bookmarked)
+        print('Computing results...')
+        compute_results_in_batches(wdir=wdir,
+                           use_bookmarked= bookmarked,
+                           recompute = recompute,
+                           batch_size = batch_size,
+                           checkpoint_every = 10,
+                           set_progress=set_progress,
+                           n_cpus=n_cpus,
+                           ram=ram)
+        print(f"Results computed in {time.perf_counter() - start:.2f} seconds")
         return True, False

@@ -1031,6 +1031,293 @@ def compute_chromatograms_in_batches(wdir: str,
         conn.execute("DROP TABLE IF EXISTS pending_pairs")
 
 
+def compute_results_in_batches(wdir: str,
+                               use_bookmarked: bool = False,
+                               recompute: bool = False,
+                               batch_size: int = 1000,
+                               checkpoint_every: int = 20,
+                               set_progress=None,
+                               n_cpus=None,
+                               ram=None):
+    """
+    Computa resultados con macros eficientes.
+    include_arrays=False: Solo métricas numéricas (RÁPIDO)
+    include_arrays=True: Incluye scan_time e intensity arrays (MÁS LENTO)
+    """
+
+    # Macro INLINE - retorna tabla directamente (AS TABLE)
+    QUERY_CREATE_HELPERS = """
+        CREATE OR REPLACE MACRO compute_chromatogram_metrics(scan_times, intensities, rt_min, rt_max) AS TABLE (
+            WITH unnested_data AS (
+                SELECT UNNEST(scan_times) AS scan_time,
+                       UNNEST(intensities) AS intensity
+            ),
+            filtered_data AS (
+                SELECT scan_time, intensity
+                FROM unnested_data
+                WHERE scan_time BETWEEN rt_min AND rt_max
+            ),
+            metrics AS (
+                SELECT ROUND(SUM(intensity), 0) AS peak_area,
+                       ROUND(MAX(intensity), 0) AS peak_max,
+                       ROUND(MIN(intensity), 0) AS peak_min,
+                       ROUND(AVG(intensity), 0) AS peak_mean,
+                       ROUND(MEDIAN(intensity), 0) AS peak_median,
+                       COUNT(*) AS peak_n_datapoints
+                FROM filtered_data
+            ),
+            top3 AS (
+                SELECT ROUND(AVG(intensity), 0) AS peak_area_top3
+                FROM (
+                    SELECT intensity
+                    FROM filtered_data
+                    ORDER BY intensity DESC
+                    LIMIT 3
+                )
+            ),
+            rt_of_max AS (
+                SELECT scan_time AS peak_rt_of_max
+                FROM filtered_data
+                ORDER BY intensity DESC
+                LIMIT 1
+            ),
+            arrays AS (
+                SELECT LIST(scan_time ORDER BY scan_time) AS scan_time_list,
+                       LIST(intensity ORDER BY scan_time) AS intensity_list
+                FROM filtered_data
+            )
+            SELECT m.peak_area,
+                   t3.peak_area_top3,
+                   m.peak_max,
+                   m.peak_min,
+                   m.peak_mean,
+                   rm.peak_rt_of_max,
+                   m.peak_median,
+                   m.peak_n_datapoints,
+                   a.scan_time_list,
+                   a.intensity_list
+            FROM metrics m, top3 t3, rt_of_max rm, arrays a
+        );
+    """
+
+    QUERY_CREATE_PENDING_PAIRS = """
+                                 CREATE TABLE IF NOT EXISTS pending_result_pairs AS
+                                 WITH pairs_to_process AS (
+                                 SELECT c.peak_label,
+                                                                  c.ms_file_label
+                                                           FROM chromatograms c
+                                                                    JOIN targets t ON c.peak_label = t.peak_label
+                                                           WHERE CASE
+                WHEN ? THEN c.peak_label IN (
+                    SELECT peak_label FROM targets WHERE bookmark = TRUE
+                )
+                                                                     ELSE TRUE
+                                                               END
+                                                             AND (
+                                                               ? OR NOT EXISTS (
+                                                               SELECT 1 FROM results r
+                                                                                WHERE r.peak_label = c.peak_label
+                    AND r.ms_file_label = c.ms_file_label
+                )
+            )
+        )
+                                 SELECT peak_label,
+                                        ms_file_label,
+                                        ROW_NUMBER() OVER () AS pair_id
+                                 FROM pairs_to_process
+                                 ORDER BY peak_label, ms_file_label;
+                                 """
+
+    # Query DIRECTA - sin CTE intermedio, inserción streaming
+    QUERY_PROCESS_BATCH = """
+        INSERT INTO results (
+            peak_label,
+            ms_file_label,
+            peak_area,
+            peak_area_top3,
+            peak_max,
+            peak_min,
+            peak_mean,
+            peak_rt_of_max,
+            peak_median,
+            peak_n_datapoints,
+            scan_time,
+            intensity
+        )
+        WITH batch_pairs AS (
+            SELECT peak_label, ms_file_label
+            FROM pending_result_pairs
+            WHERE pair_id BETWEEN ? AND ?
+        )
+        SELECT c.peak_label,
+               c.ms_file_label,
+               m.peak_area,
+               m.peak_area_top3,
+               m.peak_max,
+               m.peak_min,
+               m.peak_mean,
+               m.peak_rt_of_max,
+               m.peak_median,
+               m.peak_n_datapoints,
+               m.scan_time_list,
+               m.intensity_list
+                                            FROM chromatograms c
+                                                     JOIN batch_pairs bp
+                                                          ON c.peak_label = bp.peak_label
+                                                              AND c.ms_file_label = bp.ms_file_label
+        JOIN targets t ON c.peak_label = t.peak_label
+        CROSS JOIN LATERAL compute_chromatogram_metrics(
+            c.scan_time, 
+            c.intensity, 
+            t.rt_min, 
+            t.rt_max
+        ) AS m;
+                          """
+
+    if recompute:
+        print("Deleting existing results for recalculation...")
+        with duckdb_connection(wdir, n_cpus=n_cpus, ram=ram) as con:
+            con.execute("DELETE FROM results")
+
+    # Crear macro helper
+    with duckdb_connection(wdir, n_cpus=n_cpus, ram=ram) as conn:
+        print("Creating helper macro...")
+        conn.execute(QUERY_CREATE_HELPERS)
+
+    # Crear tabla de pares pendientes
+    with duckdb_connection(wdir, n_cpus=n_cpus, ram=ram) as conn:
+        conn.execute("DROP TABLE IF EXISTS pending_result_pairs")
+
+        print("Getting pending pairs...")
+        start_time = time.time()
+        conn.execute(QUERY_CREATE_PENDING_PAIRS, [use_bookmarked, recompute])
+
+        total_pairs = conn.execute("""
+            SELECT COUNT(*) AS total,
+                                          MIN(pair_id) AS min_id,
+                                          MAX(pair_id) AS max_id
+                                   FROM pending_result_pairs
+                                   """).fetchone()
+
+        elapsed = time.time() - start_time
+
+        if total_pairs[0] == 0 or total_pairs[1] is None:
+            print(f"No pending pairs ({elapsed:.2f}s)")
+            conn.execute("DROP TABLE IF EXISTS pending_result_pairs")
+            return {'total_pairs': 0, 'processed': 0, 'failed': 0, 'batches': 0}
+
+        total_count, min_id, max_id = total_pairs
+        print(f"✓ {total_count:,} pending pairs ({elapsed:.2f}s)")
+        print(f"Processing in batches of {batch_size}...\n")
+
+    # Procesar en batches
+    processed = 0
+    failed = 0
+    batches = 0
+
+    current_id = min_id
+    batch_num = 1
+    total_batches = (total_count + batch_size - 1) // batch_size
+
+    with duckdb_connection(wdir, n_cpus=n_cpus, ram=ram) as conn:
+        # Configuración para escrituras masivas
+        conn.execute("SET wal_autocheckpoint='1GB'")
+        conn.execute("BEGIN TRANSACTION")
+
+        batches_in_txn = 0
+
+        while current_id <= max_id:
+            start_id = current_id
+            end_id = current_id + batch_size - 1
+
+            try:
+                batch_count = conn.execute("""
+                                           SELECT COUNT(*)
+                                           FROM pending_result_pairs
+                                           WHERE pair_id BETWEEN ? AND ?
+                                           """, [start_id, end_id]).fetchone()[0]
+
+                if batch_count == 0:
+                    current_id += batch_size
+                    continue
+
+                print(f"Batch {batch_num:>4}/{total_batches} | "
+                      f"IDs {start_id:>6}-{end_id:>6} | "
+                      f"{batch_count:>4} pairs | ", end='', flush=True)
+
+                batch_start = time.time()
+
+                conn.execute(QUERY_PROCESS_BATCH, [start_id, end_id])
+
+                batch_elapsed = time.time() - batch_start
+                processed += batch_count
+                batches += 1
+                batches_in_txn += 1
+
+                pairs_per_sec = batch_count / batch_elapsed
+                print(f"✓ {batch_elapsed:>5.2f}s ({pairs_per_sec:>5.1f} pairs/s) | "
+                      f"Progreso {processed:>6,}/{total_count:,}")
+
+                # Checkpoint periódico
+                if batches_in_txn >= checkpoint_every:
+                    print(f"  [Commit + Checkpoint]...", end='', flush=True)
+                    flush_start = time.time()
+                    conn.execute("COMMIT")
+                    conn.execute("CHECKPOINT")
+                    conn.execute("BEGIN TRANSACTION")
+                    print(f" {time.time() - flush_start:.2f}s")
+                    batches_in_txn = 0
+
+                batch_num += 1
+
+            except Exception as e:
+                batch_elapsed = time.time() - batch_start if 'batch_start' in locals() else 0
+                failed += batch_count if 'batch_count' in locals() else 0
+
+                print(f"✗ {batch_elapsed:>5.2f}s | Error: {str(e)[:80]}")
+
+                with open('failed_batches_results.log', 'a') as f:
+                    f.write(f"\n{'=' * 60}\n")
+                    f.write(f"Timestamp: {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
+                    f.write(f"Batch {batch_num}/{total_batches}\n")
+                    f.write(f"IDs: {start_id}-{end_id}\n")
+                    f.write(f"Error: {str(e)}\n")
+                    f.write(f"{'=' * 60}\n")
+
+            finally:
+                if 'batch_count' in locals() and batch_count > 0:
+                    progress_pct = (processed / total_count) * 100
+                    if set_progress is not None:
+                        set_progress(round(progress_pct, 1))
+
+            current_id += batch_size
+
+        # Commit final
+        print("\n[Final commit + checkpoint]...", end='', flush=True)
+        flush_start = time.time()
+        conn.execute("COMMIT")
+        conn.execute("CHECKPOINT")
+        print(f" {time.time() - flush_start:.2f}s")
+
+    # Limpiar
+    with duckdb_connection(wdir, n_cpus=n_cpus, ram=ram) as conn:
+        conn.execute("DROP TABLE IF EXISTS pending_result_pairs")
+
+    print(f"\n{'=' * 60}")
+    print(f"Summary:")
+    print(f"  Total pairs: {total_count:,}")
+    print(f"  Processed: {processed:,}")
+    print(f"  Failed: {failed:,}")
+    print(f"  Batches: {batches:,}")
+    print(f"{'=' * 60}")
+
+    return {
+        'total_pairs': total_count,
+        'processed': processed,
+        'failed': failed,
+        'batches': batches
+    }
+
 def compute_peak_properties(con: duckdb.DuckDBPyConnection,
                             set_progress=None,
                             recompute=False,
