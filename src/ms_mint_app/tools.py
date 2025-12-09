@@ -1,7 +1,9 @@
 import base64
 import io
 import logging
+import math
 import os
+import random
 import tempfile
 from pathlib import Path
 from glob import glob
@@ -697,6 +699,55 @@ def sparsify_chrom(
 
     return scan[keep], intensity[keep]
 
+def proportional_min1_selection(df, group_col, list_col, total_select, seed=None):
+    """
+    Regla:
+      - Si total de elementos < total_select -> incluir todos.
+      - Si no -> cuota por grupo = max(1, floor(total_select * p_grupo)).
+    Retorna: (quotas, lista_plana_seleccionada)
+    """
+    rng = random.Random(seed) if seed is not None else random
+
+    # Normalización de listas
+    groups = []
+    for lst in df[list_col]:
+        if isinstance(lst, list):
+            groups.append(lst)
+        elif lst is None:
+            groups.append([])
+        else:
+            try:
+                groups.append(list(lst))
+            except TypeError:
+                groups.append([lst])
+
+    # Conteo total
+    sizes = [len(lst) for lst in groups]
+    total = sum(sizes)
+
+    # CASO 1: total menor que total_select → incluir TODO
+    if total <= total_select:
+        # Simplemente concatenamos todos los elementos
+        full_list = []
+        for lst in groups:
+            full_list.extend(lst)
+        return {g: s for g, s in zip(df[group_col], sizes)}, full_list
+
+    # CASO 2: aplicar cuota proporcional
+    quotas = {}
+    for g, n in zip(df[group_col], sizes):
+        p = n / total
+        q = max(1, math.floor(total_select * p))
+        quotas[g] = q
+
+    # Muestreo por grupo
+    selected = []
+    for (g, lst), q in zip(zip(df[group_col], groups), quotas.values()):
+        seq = list(lst)
+        k = min(q, len(seq))
+        selected.extend(rng.sample(seq, k))
+
+    return quotas, selected
 
 def write_metadata(meta, wdir):
     fn = get_metadata_fn(wdir)

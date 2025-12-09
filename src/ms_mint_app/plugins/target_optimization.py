@@ -14,7 +14,7 @@ from dash.exceptions import PreventUpdate
 
 from ..duckdb_manager import duckdb_connection, compute_chromatograms_in_batches
 from ..plugin_interface import PluginInterface
-from ..tools import sparsify_chrom
+from ..tools import sparsify_chrom, proportional_min1_selection
 
 _label = "Optimization"
 
@@ -864,8 +864,8 @@ def callbacks(app, fsc, cache, cpu=None):
                 return dash.no_update, dash.no_update, dash.no_update
             df = conn.execute("""
                               SELECT sample_type,
-                                     list({'title': label, 'key': label})                                as children,
-                                     (SELECT list(label) FROM samples WHERE use_for_optimization = TRUE) as checked_keys
+                                     list({'title': label, 'key': label}) as children,
+                                     list(label)                          as checked_keys
                               FROM samples
                               WHERE use_for_optimization = TRUE
                                 AND CASE
@@ -881,7 +881,7 @@ def callbacks(app, fsc, cache, cpu=None):
                 return [], [], [], {'display': 'none'}, {'display': 'block'}
 
             if prop_id in ['mark-tree-action', 'section-context']:
-                checked_keys = df['checked_keys'].iloc[0]  # Es el mismo en todas las filas
+                quotas, checked_keys = proportional_min1_selection(df, 'sample_type', 'checked_keys', 50, 12345)
             else:
                 checked_keys = dash.no_update
 
