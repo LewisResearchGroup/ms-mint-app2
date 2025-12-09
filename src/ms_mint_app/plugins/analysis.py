@@ -14,6 +14,10 @@ from ..plugin_interface import PluginInterface
 import plotly.express as px
 
 _label = "Analysis"
+PCA_COMPONENT_OPTIONS = [
+    {'label': f'PC{i}', 'value': f'PC{i}'}
+    for i in range(1, 6)
+]
 
 
 class AnalysisPlugin(PluginInterface):
@@ -103,6 +107,27 @@ clustergram_tab = html.Div(
 )
 pca_tab = html.Div(
     [
+        fac.AntdSpace(
+            [
+                html.Span("X axis:"),
+                fac.AntdSelect(
+                    id='pca-x-comp',
+                    options=PCA_COMPONENT_OPTIONS,
+                    value='PC1',
+                    allowClear=False,
+                    style={'width': 140},
+                ),
+                html.Span("Y axis:"),
+                fac.AntdSelect(
+                    id='pca-y-comp',
+                    options=PCA_COMPONENT_OPTIONS,
+                    value='PC2',
+                    allowClear=False,
+                    style={'width': 140},
+                ),
+            ],
+            style={'marginBottom': 10},
+        ),
         fac.AntdSpin(
             fac.AntdRow(
                 [
@@ -186,10 +211,12 @@ def callbacks(app, fsc, cache):
 
         Input('section-context', 'data'),
         Input('analysis-tabs', 'activeKey'),
+        Input('pca-x-comp', 'value'),
+        Input('pca-y-comp', 'value'),
         State("wdir", "data"),
         prevent_initial_call=True,
     )
-    def show_tab_content(section_context, tab_key, wdir):
+    def show_tab_content(section_context, tab_key, x_comp, y_comp, wdir):
 
         if section_context['page'] != 'Analysis':
             raise PreventUpdate
@@ -226,12 +253,14 @@ def callbacks(app, fsc, cache):
         elif tab_key == 'pca':
             results = run_pca_samples_in_cols(ndf, n_components=5)
             results['scores']['color_group'] = ndf_sample_type
+            x_axis = x_comp or 'PC1'
+            y_axis = y_comp or 'PC2'
             pca_fig = px.scatter(
                 results['scores'],
-                    x='PC1',
-                    y='PC2',
+                    x=x_axis,
+                    y=y_axis,
                     color='color_group',
-                title='PCA'
+                title=f'PCA ({x_axis} vs {y_axis})'
             )
             pca_fig.update_layout(width=700, height=700, 
                                   margin=dict(l=40, r=20, t=40, b=30),
