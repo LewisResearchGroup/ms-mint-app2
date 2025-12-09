@@ -1485,7 +1485,7 @@ def compute_peak_properties(con: duckdb.DuckDBPyConnection,
     print("Peak properties computed and inserted into DuckDB.")
 
 
-def create_pivot(conn, rows, cols, value, table='results'):
+def create_pivot(conn, rows=None, cols=None, value='peak_area', table='results'):
     """
     Crea pivot desde DuckDB para datos únicos por par
     """
@@ -1500,6 +1500,7 @@ def create_pivot(conn, rows, cols, value, table='results'):
         PIVOT (
             SELECT
                 s.ms_type,
+                s.sample_type,
                 r.ms_file_label,
                 r.peak_label,
                 r.{value}
@@ -1513,7 +1514,7 @@ def create_pivot(conn, rows, cols, value, table='results'):
         ORDER BY ms_type
     """
     df = conn.execute(query).df()
-    return df[['ms_type', 'ms_file_label'] + ordered_pl['peak_label'].to_list()]
+    return df[['ms_type', 'sample_type', 'ms_file_label'] + ordered_pl['peak_label'].to_list()]
 
 
 def compute_and_insert_chromatograms_iteratively(con: duckdb.DuckDBPyConnection, set_progress=None):
