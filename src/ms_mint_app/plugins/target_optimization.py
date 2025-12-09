@@ -1476,7 +1476,7 @@ def callbacks(app, fsc, cache, cpu=None):
                 'y': intensity_sparse,
                 'line': {'color': row['color']},
                 'name': row['label'] or row['ms_file_label'],
-                'visible': True if row['label'] in checkedKeys else 'legendonly',  # solo en leyenda si no está
+                # 'visible': True if row['label'] in checkedKeys else 'legendonly',  # solo en leyenda si no está
                 'legendgroup': row['sample_type'],
                 'hoverlabel': dict(namelength=-1)
             }
