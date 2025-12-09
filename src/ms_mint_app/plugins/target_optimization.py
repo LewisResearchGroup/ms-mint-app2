@@ -1124,11 +1124,9 @@ def callbacks(app, fsc, cache, cpu=None):
             fig = Patch()
             traces = []
             for i, row in enumerate(peak_data.iter_rows(named=True)):
-                
                 scan_time_sparse, intensity_sparse = sparsify_chrom(
                     row['scan_time_sliced'], row['intensity_sliced']
                 )
-                
                 traces.append({
                     'type': 'scatter',
                     'mode': 'lines',
@@ -1461,36 +1459,87 @@ def callbacks(app, fsc, cache, cpu=None):
         legend_groups = set()
         traces = []
         # TODO: check if chrom_df is empty and Implement an empty widget to show when no data
-        for i, row in enumerate(chrom_df.iter_rows(named=True)):
-            # row: ms_file_label, color, label, scan_time_sliced, intensity_sliced, intensity_max_in_range,
-            #                 intensity_min_in_range, scan_time_max_in_range, scan_time_min_in_range
 
-            scan_time_sparse, intensity_sparse = sparsify_chrom(
-                row['scan_time_sliced'], row['intensity_sliced'], w=1, baseline=1.0, eps=0.0
-            )
+        MAX_TRACES = 200
 
-            trace = {
-                'type': 'scattergl',
-                'mode': 'lines',
-                'x': scan_time_sparse,
-                'y': intensity_sparse,
-                'line': {'color': row['color']},
-                'name': row['label'] or row['ms_file_label'],
-                # 'visible': True if row['label'] in checkedKeys else 'legendonly',  # solo en leyenda si no está
-                'legendgroup': row['sample_type'],
-                'hoverlabel': dict(namelength=-1)
-            }
+        if len(chrom_df) <= MAX_TRACES:
+            # ------------------------------------
+            # MODO NORMAL: una trace por cromatograma
+            # ------------------------------------
+            for i, row in enumerate(chrom_df.iter_rows(named=True)):
 
-            if row['sample_type'] not in legend_groups:
-                trace['legendgrouptitle'] = {'text': row['sample_type']}
-                legend_groups.add(row['sample_type'])
+                scan_time_sparse, intensity_sparse = sparsify_chrom(
+                    row['scan_time_sliced'], row['intensity_sliced'], w=1, baseline=1.0, eps=0.0
+                )
 
-            traces.append(trace)
+                trace = {
+                    'type': 'scattergl',
+                    'mode': 'lines',
+                    'x': scan_time_sparse,
+                    'y': intensity_sparse,
+                    'line': {'color': row['color']},
+                    'name': row['label'] or row['ms_file_label'],
+                    'legendgroup': row['sample_type'],
+                    'hoverlabel': dict(namelength=-1)
+                }
 
-            x_min = min(x_min, row['scan_time_min_in_range'])
-            x_max = max(x_max, row['scan_time_max_in_range'])
-            y_min = min(y_min, row['intensity_min_in_range'])
-            y_max = max(y_max, row['intensity_max_in_range'])
+                if row['sample_type'] not in legend_groups:
+                    trace['legendgrouptitle'] = {'text': row['sample_type']}
+                    legend_groups.add(row['sample_type'])
+
+                traces.append(trace)
+
+                x_min = min(x_min, row['scan_time_min_in_range'])
+                x_max = max(x_max, row['scan_time_max_in_range'])
+                y_min = min(y_min, row['intensity_min_in_range'])
+                y_max = max(y_max, row['intensity_max_in_range'])
+
+        else:
+            # ------------------------------------
+            # MODO REDUCIDO: una trace por sample_type
+            # ------------------------------------
+            grouped = chrom_df.group_by('sample_type')
+
+            for g, group_df in grouped:
+                xs = []
+                ys = []
+                sample_color = None
+                group_name = str(g[0])
+
+                for row in group_df.iter_rows(named=True):
+
+                    scan_time_sparse, intensity_sparse = sparsify_chrom(
+                        row['scan_time_sliced'], row['intensity_sliced'], w=1, baseline=1.0, eps=0.0
+                    )
+
+                    # Concat y dejar None para separar cromatogramas
+                    xs.extend(scan_time_sparse)
+                    ys.extend(intensity_sparse)
+                    xs.append(None)
+                    ys.append(None)
+
+                    if sample_color is None:
+                        sample_color = row['color']
+
+                    # expandir rangos globales
+                    x_min = min(x_min, row['scan_time_min_in_range'])
+                    x_max = max(x_max, row['scan_time_max_in_range'])
+                    y_min = min(y_min, row['intensity_min_in_range'])
+                    y_max = max(y_max, row['intensity_max_in_range'])
+
+                # Crear una sola trace por sample_type
+                trace = {
+                    'type': 'scattergl',
+                    'mode': 'lines',
+                    'x': xs,
+                    'y': ys,
+                    'line': {'color': sample_color}, 'name': f"{group_name} (merged)",
+                    'legendgroup': group_name,
+                    'hoverlabel': dict(namelength=-1),
+                    'legendgrouptitle': {'text': group_name}
+                }
+
+                traces.append(trace)
 
         fig['data'] = traces
         fig['layout']['legend']['groupclick'] = 'toggleitem'
