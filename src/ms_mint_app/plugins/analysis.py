@@ -174,7 +174,7 @@ _layout = html.Div(
                 {'key': 'pca', 'label': 'PCA', 'children': pca_tab},
                 {
                     'key': 'raincloud',
-                    'label': 'Raincloud',
+                    'label': 'Violin',
                     'children': html.Div(
                         [
                             fac.AntdSelect(
@@ -397,7 +397,7 @@ def callbacks(app, fsc, cache):
                     xanchor="right",
                     yanchor="top",
                     orientation="v",
-                    title_font=dict(size=14),
+                    title=dict(text="Sample Type<br>", font=dict(size=14)),
                     font=dict(size=12),
                 ),
                 xaxis_title_font=dict(size=16),
@@ -418,22 +418,40 @@ def callbacks(app, fsc, cache):
                     'sample_type': 'Sample Type',
                     selected: 'Intensity',
                 })
+                # log2 transform with small epsilon to avoid log(0)
+                melt_df['Intensity (log2)'] = np.log2(melt_df['Intensity'].clip(lower=1e-9))
                 rain_fig = px.violin(
                     melt_df,
                     x='Sample Type',
-                    y='Intensity',
+                    y='Intensity (log2)',
                     color='Sample Type',
                     color_discrete_map=color_map if color_map else None,
-                    box=True,
+                    box=False,
                     points='all',
-                    hover_data=['Sample', 'Sample Type', 'Intensity'],
+                    hover_data=['Sample', 'Sample Type', 'Intensity', 'Intensity (log2)'],
                 )
-                rain_fig.update_traces(jitter=0.25)
+                rain_fig.update_traces(jitter=0.25, meanline_visible=False)
+                # Clamp KDE tails similar to seaborn cut; use 1st-99th percentiles
+                low, high = (
+                    melt_df['Intensity (log2)'].quantile(0.01),
+                    melt_df['Intensity (log2)'].quantile(0.99),
+                )
+                rain_fig.update_traces(spanmode='hard', span=[low, high], selector=dict(type='violin'))
                 rain_fig.update_layout(
-                    title=f"Raincloud - {selected}",
-                    yaxis_title='Intensity',
+                    title=f"{selected}",
+                    title_font=dict(size=16),
+                    yaxis_title='log2 (Intensity)',
                     xaxis_title='Sample Type',
+                    yaxis=dict(range=[0, None], fixedrange=False),
                     margin=dict(l=60, r=20, t=50, b=60),
+                    legend=dict(
+                            title=dict(text="Sample Type<br>", font=dict(size=14)),
+                            font=dict(size=12),
+                        ),
+                    xaxis_title_font=dict(size=16),
+                    yaxis_title_font=dict(size=16),
+                    xaxis_tickfont=dict(size=12),
+                    yaxis_tickfont=dict(size=12),
                 )
 
             return dash.no_update, dash.no_update, rain_fig, compound_options, selected
