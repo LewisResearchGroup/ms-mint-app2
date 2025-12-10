@@ -322,9 +322,15 @@ def callbacks(app, fsc, cache):
                                  cbar_kws={"orientation": "horizontal"},
                                  cbar_pos=(0.01, 0.95, 0.075, 0.01),
                                  col_colors=sample_colors,
-                                 colors_ratio=0.015
+                                 row_colors=['#ffffff'] * len(zdf.T.index),
+                                 colors_ratio=(0.0015, 0.015)
                                 )
+            # # Add a small gap between row dendrogram and heatmap
+            # row_pos = fig.ax_row_dendrogram.get_position()
+            # fig.ax_row_dendrogram.set_position([row_pos.x0 - 0.0005, row_pos.y0, row_pos.width - 0.01, row_pos.height])
+
             fig.ax_heatmap.tick_params(which='both', axis='both', length=0)
+            fig.ax_heatmap .set_xlabel('Samples', fontsize=6, labelpad=4)
             fig.ax_cbar.tick_params(which='both', axis='both', width=0.3, length=2, labelsize=4)
             fig.ax_cbar.set_title("Z-score", fontsize=6, pad=4)
 
