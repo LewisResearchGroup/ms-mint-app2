@@ -304,6 +304,12 @@ def callbacks(app, fsc, cache):
 
             matplotlib.use('Agg')
             sns.set_theme(font_scale=0.25)
+
+            sample_colors = None
+            if color_map:
+                reordered_samples = ndf_sample_type.reindex(df.index)
+                color_labels = reordered_samples.fillna(pd.Series(df.index, index=df.index))
+                sample_colors = [color_map.get(lbl, '#bbbbbb') for lbl in color_labels]
             
             fig = sns.clustermap(
                                  zdf.T,
@@ -315,6 +321,8 @@ def callbacks(app, fsc, cache):
                                  figsize=(8, 8),
                                  cbar_kws={"orientation": "horizontal"},
                                  cbar_pos=(0.01, 0.95, 0.075, 0.01),
+                                 col_colors=sample_colors,
+                                 colors_ratio=0.015
                                 )
             fig.ax_heatmap.tick_params(which='both', axis='both', length=0)
             fig.ax_cbar.tick_params(which='both', axis='both', width=0.3, length=2, labelsize=4)
@@ -324,7 +332,7 @@ def callbacks(app, fsc, cache):
             from io import BytesIO
             buf = BytesIO()
             fig.savefig(buf, format="png", dpi=300)
-            fig.savefig('test.png', format="png")
+            # fig.savefig('test.png', format="png")
             import base64
             fig_data = base64.b64encode(buf.getbuffer()).decode("ascii")
             fig_bar_matplotlib = f'data:image/png;base64,{fig_data}'
