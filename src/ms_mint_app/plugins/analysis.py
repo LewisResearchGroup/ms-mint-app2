@@ -272,14 +272,20 @@ def callbacks(app, fsc, cache):
                 if c not in ('ms_type', 'sample_type')
             ]
 
-            # Guard against NaN/inf and empty matrices before downstream plots
-            for _df in (df, raw_df):
-                _df.replace([np.inf, -np.inf], np.nan, inplace=True)
-                _df.dropna(axis=0, how='all', inplace=True)
-                _df.dropna(axis=1, how='all', inplace=True)
-                if _df.isna().any().any():
-                    _df.fillna(0, inplace=True)
-            if df.empty or raw_df.empty:
+            # Guard against NaN/inf and empty matrices (numeric only) before downstream plots
+            def _clean_numeric(numeric_df: pd.DataFrame) -> pd.DataFrame:
+                cleaned = numeric_df.replace([np.inf, -np.inf], np.nan)
+                cleaned = cleaned.dropna(axis=0, how='all').dropna(axis=1, how='all')
+                if cleaned.isna().any().any():
+                    cleaned = cleaned.fillna(0)
+                return cleaned
+
+            df = _clean_numeric(df)
+            raw_numeric_cols = [c for c in raw_df.columns if c not in ('ms_type', 'sample_type')]
+            raw_numeric = _clean_numeric(raw_df[raw_numeric_cols])
+            raw_df[raw_numeric_cols] = raw_numeric
+
+            if df.empty or raw_numeric.empty:
                 raise PreventUpdate
 
             from sklearn.preprocessing import StandardScaler
@@ -287,11 +293,7 @@ def callbacks(app, fsc, cache):
             zdf = pd.DataFrame(scaler.fit_transform(df), index=df.index, columns=df.columns)
 
             ndf = rocke_durbin(df, c=10)
-            ndf.replace([np.inf, -np.inf], np.nan, inplace=True)
-            ndf.dropna(axis=0, how='all', inplace=True)
-            ndf.dropna(axis=1, how='all', inplace=True)
-            if ndf.isna().any().any():
-                ndf.fillna(0, inplace=True)
+            ndf = _clean_numeric(ndf)
             if ndf.empty:
                 raise PreventUpdate
 
