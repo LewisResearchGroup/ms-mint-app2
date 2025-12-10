@@ -506,7 +506,7 @@ def callbacks(cls, app, fsc, cache, args_namespace):
                 schema = conn.execute("DESCRIBE samples").pl()
             column_types = {r["column_name"]: r["column_type"] for r in schema.to_dicts()}
             where_sql, params = build_where_and_params(filter_, filterOptions)
-            order_by_sql = build_order_by(sorter, column_types, tie=('ms_file_label', 'ASC'))  # '' si no hay sorter válido
+            order_by_sql = build_order_by(sorter, column_types, tie=('ms_file_label', 'ASC'))  # '' if there is no valid sorter
 
             sql = f"""
             WITH filtered AS (
@@ -528,10 +528,10 @@ def callbacks(cls, app, fsc, cache, args_namespace):
             with duckdb_connection(wdir) as conn:
                 dfpl = conn.execute(sql, params_paged).pl()
 
-            # total de filas:
+            # total rows:
             number_records = int(dfpl["__total__"][0]) if len(dfpl) else 0
 
-            # corrige página si hizo underflow:
+            # fix page if it underflowed:
             current = max(current if number_records > (current - 1) * page_size else current - 1, 1)
 
 
