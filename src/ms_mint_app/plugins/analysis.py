@@ -172,10 +172,41 @@ _layout = html.Div(
             items=[
                 {'key': 'clustermap', 'label': 'Clustermap', 'children': clustermap_tab},
                 {'key': 'pca', 'label': 'PCA', 'children': pca_tab},
+                {
+                    'key': 'raincloud',
+                    'label': 'Raincloud',
+                    'children': html.Div(
+                        [
+                            fac.AntdSelect(
+                                id='raincloud-comp',
+                                placeholder='Select compound',
+                                allowClear=False,
+                                style={'width': 260, 'marginBottom': 12},
+                            ),
+                            dcc.Graph(id='raincloud-graph'),
+                        ]
+                    ),
+                },
             ],
             centered=True,
             defaultActiveKey='clustermap',
-
+            style={'margin': '12px 0 0 0'},
+            tabBarLeftExtraContent=fac.AntdSelect(
+                id='analysis-metric-select',
+                placeholder='Metric',
+                options=[
+                    {'label': 'Peak Area', 'value': 'peak_area'},
+                    {'label': 'Peak Area (Top 3)', 'value': 'peak_area_top3'},
+                    {'label': 'Peak Max', 'value': 'peak_max'},
+                    {'label': 'Peak Mean', 'value': 'peak_mean'},
+                    {'label': 'Peak Median', 'value': 'peak_median'},
+                ],
+                value='peak_area',
+                optionFilterProp='label',
+                optionFilterMode='case-insensitive',
+                allowClear=False,
+                style={'width': 220},
+            ),
         )
     ]
 )
@@ -191,15 +222,20 @@ def callbacks(app, fsc, cache):
     @app.callback(
         Output('bar-graph-matplotlib', 'src'),
         Output('pca-graph', 'figure'),
+        Output('raincloud-graph', 'figure'),
+        Output('raincloud-comp', 'options'),
+        Output('raincloud-comp', 'value'),
 
         Input('section-context', 'data'),
         Input('analysis-tabs', 'activeKey'),
         Input('pca-x-comp', 'value'),
         Input('pca-y-comp', 'value'),
+        Input('raincloud-comp', 'value'),
+        Input('analysis-metric-select', 'value'),
         State("wdir", "data"),
         prevent_initial_call=True,
     )
-    def show_tab_content(section_context, tab_key, x_comp, y_comp, wdir):
+    def show_tab_content(section_context, tab_key, x_comp, y_comp, rain_comp, metric_value, wdir):
 
         if section_context['page'] != 'Analysis':
             raise PreventUpdate
@@ -208,7 +244,8 @@ def callbacks(app, fsc, cache):
             raise PreventUpdate
 
         with duckdb_connection(wdir) as conn:
-            df = create_pivot(conn)
+            metric = metric_value or 'peak_area'
+            df = create_pivot(conn, value=metric)
             df.set_index('ms_file_label', inplace=True)
             ndf_sample_type = df['sample_type']
             order_df = conn.execute(
@@ -227,7 +264,13 @@ def callbacks(app, fsc, cache):
                 .set_index("color_key")["color"]
                 .to_dict()
             )
+            raw_df = df.copy()
             df = df.drop(columns=['ms_type', 'sample_type'], axis=1)
+            compound_options = [
+                {'label': c, 'value': c}
+                for c in raw_df.columns
+                if c not in ('ms_type', 'sample_type')
+            ]
 
             from sklearn.preprocessing import StandardScaler
             scaler = StandardScaler()
@@ -266,7 +309,7 @@ def callbacks(app, fsc, cache):
             import base64
             fig_data = base64.b64encode(buf.getbuffer()).decode("ascii")
             fig_bar_matplotlib = f'data:image/png;base64,{fig_data}'
-            return fig_bar_matplotlib, dash.no_update
+            return fig_bar_matplotlib, dash.no_update, dash.no_update, compound_options, dash.no_update
 
         elif tab_key == 'pca':
             results = run_pca_samples_in_cols(ndf, n_components=5)
@@ -363,9 +406,39 @@ def callbacks(app, fsc, cache):
                 yaxis_tickfont=dict(size=12),
             )
 
-            return dash.no_update, fig
+            return dash.no_update, fig, dash.no_update, compound_options, dash.no_update
 
-        return dash.no_update, dash.no_update
+        elif tab_key == 'raincloud':
+            # Build options list
+            selected = rain_comp or (compound_options[0]['value'] if compound_options else None)
+            rain_fig = go.Figure()
+            if selected:
+                melt_df = raw_df[[selected]].join(ndf_sample_type).reset_index().rename(columns={
+                    'ms_file_label': 'Sample',
+                    'sample_type': 'Sample Type',
+                    selected: 'Intensity',
+                })
+                rain_fig = px.violin(
+                    melt_df,
+                    x='Sample Type',
+                    y='Intensity',
+                    color='Sample Type',
+                    color_discrete_map=color_map if color_map else None,
+                    box=True,
+                    points='all',
+                    hover_data=['Sample', 'Sample Type', 'Intensity'],
+                )
+                rain_fig.update_traces(jitter=0.25)
+                rain_fig.update_layout(
+                    title=f"Raincloud - {selected}",
+                    yaxis_title='Intensity',
+                    xaxis_title='Sample Type',
+                    margin=dict(l=60, r=20, t=50, b=60),
+                )
+
+            return dash.no_update, dash.no_update, rain_fig, compound_options, selected
+
+        return dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update
 
     @app.callback(
         Output('clustermap-spinner', 'spinning'),
