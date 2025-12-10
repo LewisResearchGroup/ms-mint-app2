@@ -76,14 +76,14 @@ def run_pca_samples_in_cols(df: pd.DataFrame, n_components=None, random_state=0)
     }
 
 
-clustergram_tab = html.Div(
+clustermap_tab = html.Div(
     fuc.FefferyResizable(
         fac.AntdSpin(
             fac.AntdCenter(
                 html.Img(id='bar-graph-matplotlib', style={
                     'width': '100%',
                     'height': '100%',
-                    'object-fit': 'cover',  # Usa 'cover' o 'contain' según tu necesidad,
+                    'object-fit': 'cover',
                     'border': '1px solid #dee2e6'
                 }),
                 style={
@@ -91,7 +91,9 @@ clustergram_tab = html.Div(
                     'background': '#dee2e6',
                 },
             ),
-            text='Loading clustergram...',
+            id='clustermap-spinner',
+            spinning=True,
+            text='Loading clustermap...',
         ),
         minWidth=100,
         minHeight=100,
@@ -145,21 +147,21 @@ _layout = html.Div(
                     ],
                     align='center',
                 ),
-                fac.AntdDropdown(
-                    id='processing-options',
-                    title='Options',
-                    buttonMode=True,
-                    arrow=True,
-                    menuItems=[
-                        {'title': fac.AntdText('Download', strong=True), 'key': 'processing-download'},
-                        {'isDivider': True},
-                        {'title': fac.AntdText('Delete selected', strong=True, type='warning'),
-                         'key': 'processing-delete-selected'},
-                        {'title': fac.AntdText('Clear table', strong=True, type='danger'),
-                         'key': 'processing-delete-all'},
-                    ],
-                    buttonProps={'style': {'textTransform': 'uppercase'}},
-                ),
+                # fac.AntdDropdown(
+                #     id='processing-options',
+                #     title='Options',
+                #     buttonMode=True,
+                #     arrow=True,
+                #     menuItems=[
+                #         {'title': fac.AntdText('Download', strong=True), 'key': 'processing-download'},
+                #         {'isDivider': True},
+                #         {'title': fac.AntdText('Delete selected', strong=True, type='warning'),
+                #          'key': 'processing-delete-selected'},
+                #         {'title': fac.AntdText('Clear table', strong=True, type='danger'),
+                #          'key': 'processing-delete-all'},
+                #     ],
+                #     buttonProps={'style': {'textTransform': 'uppercase'}},
+                # ),
             ],
             justify="space-between",
             align="center",
@@ -168,11 +170,11 @@ _layout = html.Div(
         fac.AntdTabs(
             id='analysis-tabs',
             items=[
-                {'key': 'clustergram', 'label': 'Clustergram', 'children': clustergram_tab},
+                {'key': 'clustermap', 'label': 'Clustermap', 'children': clustermap_tab},
                 {'key': 'pca', 'label': 'PCA', 'children': pca_tab},
             ],
             centered=True,
-            defaultActiveKey='clustergram',
+            defaultActiveKey='clustermap',
 
         )
     ]
@@ -201,7 +203,10 @@ def callbacks(app, fsc, cache):
 
         if section_context['page'] != 'Analysis':
             raise PreventUpdate
-        
+
+        if not wdir:
+            raise PreventUpdate
+
         with duckdb_connection(wdir) as conn:
             df = create_pivot(conn)
             df.set_index('ms_file_label', inplace=True)
@@ -230,7 +235,7 @@ def callbacks(app, fsc, cache):
 
             ndf = rocke_durbin(df, c=10)
 
-        if tab_key == 'clustergram':
+        if tab_key == 'clustermap':
             import seaborn as sns
             import matplotlib.pyplot as plt
             import matplotlib
@@ -247,10 +252,11 @@ def callbacks(app, fsc, cache):
                                  dendrogram_ratio=0.1,
                                  figsize=(8, 8),
                                  cbar_kws={"orientation": "horizontal"},
-                                 cbar_pos=(0.00, 0.98, 0.10, 0.02),
+                                 cbar_pos=(0.01, 0.95, 0.075, 0.01),
                                 )
             fig.ax_heatmap.tick_params(which='both', axis='both', length=0)
-            fig.ax_cbar.tick_params(which='both', axis='both', width=0.3, length=2)
+            fig.ax_cbar.tick_params(which='both', axis='both', width=0.3, length=2, labelsize=4)
+            fig.ax_cbar.set_title("Z-score", fontsize=6, pad=4)
 
 
             from io import BytesIO
@@ -343,14 +349,40 @@ def callbacks(app, fsc, cache):
                 margin=dict(l=140, r=30, t=60, b=50),
                 legend_title_text="Sample Type",
                 legend=dict(
-                    x=-0.025,
-                    y=1.02,
+                    x=-0.05,
+                    y=1.04,
                     xanchor="right",
                     yanchor="top",
                     orientation="v",
+                    title_font=dict(size=14),
+                    font=dict(size=12),
                 ),
+                xaxis_title_font=dict(size=16),
+                yaxis_title_font=dict(size=16),
+                xaxis_tickfont=dict(size=12),
+                yaxis_tickfont=dict(size=12),
             )
 
             return dash.no_update, fig
 
         return dash.no_update, dash.no_update
+
+    @app.callback(
+        Output('clustermap-spinner', 'spinning'),
+        Input('analysis-tabs', 'activeKey'),
+        Input('bar-graph-matplotlib', 'src'),
+        prevent_initial_call=True,
+    )
+    def toggle_clustermap_spinner(active_tab, bar_src):
+        from dash import callback_context
+
+        if active_tab != 'clustermap':
+            return False
+
+        trigger = callback_context.triggered[0]["prop_id"].split(".")[0] if callback_context.triggered else ""
+        # When user switches to clustermap tab, force spinner on even if previous image exists
+        if trigger == 'analysis-tabs':
+            return True
+
+        # Otherwise, keep spinning until image src is set
+        return bar_src is None
