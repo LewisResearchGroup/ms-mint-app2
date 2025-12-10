@@ -272,11 +272,28 @@ def callbacks(app, fsc, cache):
                 if c not in ('ms_type', 'sample_type')
             ]
 
+            # Guard against NaN/inf and empty matrices before downstream plots
+            for _df in (df, raw_df):
+                _df.replace([np.inf, -np.inf], np.nan, inplace=True)
+                _df.dropna(axis=0, how='all', inplace=True)
+                _df.dropna(axis=1, how='all', inplace=True)
+                if _df.isna().any().any():
+                    _df.fillna(0, inplace=True)
+            if df.empty or raw_df.empty:
+                raise PreventUpdate
+
             from sklearn.preprocessing import StandardScaler
             scaler = StandardScaler()
             zdf = pd.DataFrame(scaler.fit_transform(df), index=df.index, columns=df.columns)
 
             ndf = rocke_durbin(df, c=10)
+            ndf.replace([np.inf, -np.inf], np.nan, inplace=True)
+            ndf.dropna(axis=0, how='all', inplace=True)
+            ndf.dropna(axis=1, how='all', inplace=True)
+            if ndf.isna().any().any():
+                ndf.fillna(0, inplace=True)
+            if ndf.empty:
+                raise PreventUpdate
 
         if tab_key == 'clustermap':
             import seaborn as sns
@@ -388,7 +405,7 @@ def callbacks(app, fsc, cache):
                 fig.add_trace(loading_bar, row=2, col=2)
 
             fig.update_layout(
-                height=750,
+                height=700,
                 margin=dict(l=140, r=30, t=60, b=50),
                 legend_title_text="Sample Type",
                 legend=dict(
