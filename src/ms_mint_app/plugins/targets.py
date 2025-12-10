@@ -392,10 +392,10 @@ def callbacks(app, fsc=None, cache=None):
                 ).alias('peak_selection'),
             )
 
-            # total de filas:
+            # total rows:
             number_records = int(data["__total__"][0]) if len(data) else 0
 
-            # corrige página si hizo underflow:
+            # fix page if it underflowed:
             current = max(current if number_records > (current - 1) * page_size else current - 1, 1)
 
             with (duckdb_connection(wdir) as conn):
