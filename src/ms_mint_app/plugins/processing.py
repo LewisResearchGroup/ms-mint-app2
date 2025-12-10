@@ -551,11 +551,11 @@ def callbacks(app, fsc, cache):
                 )
                 df = conn.execute(sql, params).df()
 
-                # total de filas:
+                # total rows:
                 number_records = conn.execute("SELECT COUNT(*) FROM (SELECT DISTINCT peak_label FROM "
                                               "results)").fetchone()[0]
 
-            # corrige página si hizo underflow:
+            # fix page if it underflowed:
             current = max(current if number_records > (current - 1) * page_size else current - 1, 1)
 
             data = []
