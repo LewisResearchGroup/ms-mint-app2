@@ -1051,14 +1051,14 @@ def callbacks(app, fsc, cache, cpu=None):
                                        t.rt,
                                        t.intensity_threshold,
                                        t.mz_mean,
-                                       t.bookmark,  -- Añadir campos adicionales necesarios
+                                       t.bookmark,  -- Add additional fields as needed
                                        t.ms_type,
                                        t.filterLine
                                     FROM chromatograms c
                                           JOIN picked_samples s USING (ms_file_label)
                                           JOIN picked_targets t USING (peak_label)
                                 ),
-                                     -- Emparejamos (scan_time[i], intensity[i]) en una lista de structs
+                                     -- Pair up (scan_time[i], intensity[i]) into a list of structs
                                 filtered AS (
                                     SELECT peak_label,
                                            ms_file_label,
