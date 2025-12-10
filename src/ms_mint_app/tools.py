@@ -409,14 +409,14 @@ def get_targets_v2(files_path):
             logging.error(f"Failed to process file {file_path}: {str(e)}")
 
             try:
-                df_count = pd.read_csv(file_path, usecols=[0])  # Solo leer primera columna para contar
+                df_count = pd.read_csv(file_path, usecols=[0])  # Read only first column to count rows
                 file_target_count = len(df_count)
                 targets_failed += file_target_count
                 targets_processed += file_target_count
             except:
                 logging.warning(f"Could not count targets in failed file {file_path}")
 
-    # Verificar si hay targets válidos
+    # Check if there are valid targets
     if not valid_targets:
         error_msg = "No valid targets found in any file."
         error_msg += f"\n  Total files: {total_files}"
@@ -426,19 +426,19 @@ def get_targets_v2(files_path):
         error_msg += f"\n  Targets failed: {targets_failed}"
         raise ValueError(error_msg)
 
-    # Crear DataFrame con targets válidos
+    # Build DataFrame with valid targets
     targets_df = pd.DataFrame(valid_targets)
 
     # Eliminar duplicados basados en peak_label
     targets_df = targets_df.drop_duplicates(subset="peak_label")
 
-    # Asegurar que todas las columnas de referencia existan
+    # Ensure all reference columns exist
     ref_names = list(ref_cols.keys())
     for col in ref_names:
         if col not in targets_df.columns:
             targets_df[col] = np.nan
 
-    # Aplicar tipos de datos correctos
+    # Apply the correct data types
     for col, dtype in ref_cols.items():
         if col in targets_df.columns:
             if dtype == 'string':
@@ -448,11 +448,11 @@ def get_targets_v2(files_path):
             elif dtype == float:
                 targets_df[col] = pd.to_numeric(targets_df[col], errors='coerce')
 
-    # Rellenar valores por defecto
+    # Fill default values
     targets_df['peak_selection'] = targets_df['peak_selection'].fillna(False)
     targets_df['bookmark'] = targets_df['bookmark'].fillna(False)
 
-    # Log de resumen
+    # Summary log
     logging.info("Processing summary:")
     logging.info(f"  Total files: {total_files}")
     logging.info(f"  Files processed: {files_processed}")
@@ -461,7 +461,7 @@ def get_targets_v2(files_path):
     logging.info(f"  Targets failed: {targets_failed}")
     logging.info(f"  Unique valid targets: {len(targets_df)}")
 
-    # Preparar diccionario de estadísticas
+    # Prepare stats dictionary
     stats = {
         'total_files': total_files,
         'files_processed': files_processed,
@@ -708,7 +708,7 @@ def proportional_min1_selection(df, group_col, list_col, total_select, seed=None
     """
     rng = random.Random(seed) if seed is not None else random
 
-    # Normalización de listas
+    # Normalize list column into plain lists
     groups = []
     for lst in df[list_col]:
         if isinstance(lst, list):
