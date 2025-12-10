@@ -1037,7 +1037,10 @@ def callbacks(app, fsc, cache, cpu=None):
                                         (SELECT COUNT(*) FROM unnest(?::VARCHAR[])) = 0
                                         OR peak_label IN (SELECT unnest(?::VARCHAR[]))
                                     )
-                                    ORDER BY {targets_order} -- 3) order by
+                                    ORDER BY 
+                                        CASE WHEN ? = 'mz_mean' THEN mz_mean END,
+                                        peak_label
+                                    -- 3) order by
                                     LIMIT ? -- 1) limit
                                         OFFSET ? -- 2) offset
                                 ),
@@ -1102,11 +1105,13 @@ def callbacks(app, fsc, cache, cpu=None):
                                 )
                                 SELECT *
                                 FROM final
-                                ORDER BY {targets_order}, ms_file_label;
+                                ORDER BY CASE WHEN ? = 'mz_mean' THEN mz_mean END,
+                                        peak_label;
                                 """
             df = conn.execute(query, [checkedkeys, selection_ms_type, selection_ms_type,
                                       selection_bookmark, selection_bookmark,
-                                      selected_targets, selected_targets, page_size, start_idx]
+                                      selected_targets, selected_targets,
+                                      targets_order, page_size, start_idx, targets_order]
                               ).pl()
 
         titles = []
