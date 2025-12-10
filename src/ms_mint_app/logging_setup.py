@@ -4,7 +4,7 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
-# Variable global para recordar el handler de workspace actual
+# Global variable to track the current workspace handler
 _WORKSPACE_HANDLER: logging.Handler | None = None
 
 LOG_FORMAT = "%(asctime)s | %(levelname)s | %(name)s | %(message)s"
@@ -13,14 +13,14 @@ DATE_FORMAT = "%Y-%m-%d %H:%M:%S"
 
 def init_global_logging(level: int = logging.INFO) -> None:
     """
-    Configura el logging global:
-    - root logger con nivel 'level'
-    - siempre muestra en la terminal (stdout)
+    Configure global logging:
+    - root logger set to 'level'
+    - always logs to the terminal (stdout)
     """
     root = logging.getLogger()
     root.setLevel(level)
 
-    # Evitar duplicar handlers si se llama más de una vez
+    # Avoid duplicating handlers if called more than once
     has_stream = any(isinstance(h, logging.StreamHandler) for h in root.handlers)
     if not has_stream:
         stream_handler = logging.StreamHandler()
@@ -33,17 +33,17 @@ def activate_workspace_logging(workspace_dir: str | Path,
                                filename: str = "ws.log",
                                level: int | None = None) -> Path:
     """
-    Activa el logging a archivo para un workspace:
-    - Crea (si no existe) la carpeta del workspace
-    - Crea un FileHandler apuntando a workspace_dir/filename
-    - Quita el handler anterior de workspace (si lo hubiera)
-    - Devuelve la ruta del archivo de log
+    Enable file logging for a workspace:
+    - Create the workspace folder if it does not exist
+    - Create a FileHandler pointing to workspace_dir/filename
+    - Remove the previous workspace handler (if any)
+    - Return the log file path
     """
     global _WORKSPACE_HANDLER
 
     root = logging.getLogger()
 
-    # Quitar handler anterior, si existe
+    # Remove previous handler, if present
     if _WORKSPACE_HANDLER is not None:
         root.removeHandler(_WORKSPACE_HANDLER)
         _WORKSPACE_HANDLER.close()
@@ -70,8 +70,8 @@ def activate_workspace_logging(workspace_dir: str | Path,
 
 def deactivate_workspace_logging() -> None:
     """
-    Quita el handler de archivo asociado al workspace actual (si lo hay).
-    El logging a terminal sigue activo.
+    Remove the file handler associated with the current workspace (if any).
+    Terminal logging stays active.
     """
     global _WORKSPACE_HANDLER
 
