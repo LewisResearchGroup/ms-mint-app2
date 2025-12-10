@@ -210,7 +210,7 @@ def build_where_and_params(filter_, filterOptions):
         if filterOptions[key].get('filterMode') == 'keyword':
             where_sql.append(f'"{key}" ILIKE ?')
             params.append(f"%{value[0]}%")
-        # múltiple selección (IN)
+        # multiple selection (IN)
         else:
             ph = ",".join("?" for _ in value)
             where_sql.append(f'"{key}" IN ({ph})')
@@ -223,22 +223,22 @@ def build_order_by(
         sorter: dict | None,
         column_types: dict[str, str],
         *,
-        tie: tuple[str, str] | None = None,  # p.ej. ("id", "ASC"); se usa SOLO si hay sorter
+        tie: tuple[str, str] | None = None,  # e.g. ("id", "ASC"); used ONLY when a sorter is present
         nocase_text: bool = True
 ) -> str:
     """
-    Devuelve 'ORDER BY ...' o '' si no hay sorter válido.
+    Returns 'ORDER BY ...' or '' if there is no valid sorter.
     - sorter: {'columns': [...], 'orders': ['ascend'|'descend', ...]}
-    - column_types: mapa {col -> tipo DUCKDB} (de DESCRIBE)
-    - tie: (col, dir) opcional; se agrega SOLO si hay al menos 1 columna ordenable en sorter
+    - column_types: map {col -> DUCKDB type} (from DESCRIBE)
+    - tie: optional (col, dir); added ONLY when there is at least one sortable column in sorter
     """
-    # 0) Normaliza entrada
+    # 0) Normalize input
     cols_in = (sorter or {}).get("columns") or []
     ords_in = (sorter or {}).get("orders") or []
     if not cols_in:
-        return ""  # sin sorter => sin ORDER BY
+        return ""  # no sorter => no ORDER BY
 
-    # Rellena órdenes faltantes
+    # Fill missing order entries
     if len(ords_in) < len(cols_in):
         ords_in = ords_in + ["ascend"] * (len(cols_in) - len(ords_in))
 
@@ -248,7 +248,7 @@ def build_order_by(
 
     for col, ord_ in zip(cols_in, ords_in):
         if col not in column_types:
-            continue  # ignora columnas inválidas
+            continue  # ignore invalid columns
         direction = order_map.get(ord_, "ASC")
         nulls = "NULLS LAST" if direction == "ASC" else "NULLS FIRST"
         ctype = (column_types.get(col) or "").upper()
@@ -257,11 +257,11 @@ def build_order_by(
         parts.append(f"{expr} {direction} {nulls}")
         used_cols.add(col)
 
-    # Si tras validar no quedó nada, no ordenes (y tampoco agregues tie)
+    # If nothing valid remains, do not sort (and do not add tie)
     if not parts:
         return ""
 
-    # Agrega tie SOLO si hay sorter válido y tie se pidió y no repite columna
+    # Add tie ONLY if there is a valid sorter, tie was requested, and the column is not duplicated
     if tie:
         tie_col, tie_dir = tie[0], tie[1].upper()
         if tie_col not in used_cols and tie_col in column_types:
@@ -279,20 +279,20 @@ def build_paginated_query_by_peak(
         offset: int = 0
 ) -> tuple[str, list]:
     """
-    Construye query paginada agrupando por peak_label.
-    Usa build_where_and_params() y build_order_by() sin modificarlas.
+    Build a paginated query grouped by peak_label.
+    Uses build_where_and_params() and build_order_by() without modifying them.
     """
 
-    # Obtén tipos de columnas
+    # Get column types
     column_types = {
         row[0]: row[1]
         for row in conn.execute("DESCRIBE results").fetchall()
     }
 
-    # 1. Construye WHERE y params para filtrar filas
+    # 1. Build WHERE clause and params to filter rows
     where_sql, where_params = build_where_and_params(filter_, filterOptions or {})
 
-    # 2. Construye ORDER BY para las filas individuales
+    # 2. Build ORDER BY for individual rows
     order_by_sql = build_order_by(
         sorter,
         column_types,
@@ -300,16 +300,16 @@ def build_paginated_query_by_peak(
         nocase_text=True
     )
 
-    # 3. Extrae las columnas de ordenamiento para agregar por peak_label
+    # 3. Extract ordering columns to aggregate by peak_label
     agg_exprs = []
     order_exprs = []
 
     if order_by_sql:
-        # Parsea el ORDER BY para extraer columnas
+        # Parse ORDER BY to extract columns
         order_part = order_by_sql.replace("ORDER BY", "").strip()
         for clause in order_part.split(","):
             clause = clause.strip()
-            # Remueve modificadores
+            # Remove modifiers
             clean = clause.replace("COLLATE NOCASE", "").replace("NULLS LAST", "").replace("NULLS FIRST", "")
             parts = clean.split()
             if not parts:
@@ -322,17 +322,17 @@ def build_paginated_query_by_peak(
                 agg_exprs.append(f"peak_label AS _ord_{col}")
                 order_exprs.append(f"_ord_{col} {direction}")
             else:
-                # Para otras columnas, usa MAX/MIN según dirección
+                # For other columns, use MAX/MIN depending on direction
                 ctype = (column_types.get(col) or "").upper()
                 is_numeric = any(t in ctype for t in ("INT", "DOUBLE", "FLOAT", "DECIMAL", "NUMERIC", "REAL"))
 
                 if is_numeric:
-                    # Para numéricos: MAX si DESC, MIN si ASC (queremos el valor "representativo")
+                    # For numeric: MAX if DESC, MIN if ASC (representative value)
                     agg_func = "MAX" if "DESC" in direction else "MIN"
                     agg_exprs.append(f'{agg_func}("{col}") AS _ord_{col}')
                     order_exprs.append(f"_ord_{col} {direction}")
                 else:
-                    # Para texto: MAX/MIN según dirección
+                    # For text: MAX/MIN depending on direction
                     agg_func = "MAX" if "DESC" in direction else "MIN"
                     agg_exprs.append(f'{agg_func}("{col}") AS _ord_{col}')
                     order_exprs.append(f"_ord_{col} {direction}")
@@ -378,7 +378,7 @@ def build_paginated_query_by_peak(
     SELECT * FROM paged;
     """
 
-    # 5. Combina parámetros: primero los del WHERE, luego los de paginación
+    # 5. Combine parameters: first WHERE params, then pagination
     all_params = where_params + [offset, offset, limit]
 
     return sql, all_params
@@ -459,11 +459,11 @@ def compute_and_insert_chromatograms_from_ms_data(con: duckdb.DuckDBPyConnection
     (ms1_total, ms1_existing, ms1_missing,
      ms2_total, ms2_existing, ms2_missing) = info
 
-    # Determinar qué procesar
+    # Decide what to process
     process_ms1 = ms1_total > 0 and (recompute_ms1 or ms1_missing > 0)
     process_ms2 = ms2_total > 0 and (recompute_ms2 or ms2_missing > 0)
 
-    # Logging informativo
+    # Informational logging
     if ms1_total > 0:
         print(f"MS1: {ms1_existing} existing, {ms1_missing} missing (total: {ms1_total})")
     if ms2_total > 0:
@@ -473,7 +473,7 @@ def compute_and_insert_chromatograms_from_ms_data(con: duckdb.DuckDBPyConnection
         print("No chromatograms to process.")
         return
 
-    # Eliminar chromatogramas existentes si se solicita recalcular
+    # Remove existing chromatograms if recomputation is requested
     if recompute_ms1 and ms1_existing > 0:
         print(f"Deleting {ms1_existing} existing MS1 chromatograms for recalculation...")
         con.execute("""
@@ -605,8 +605,8 @@ def compute_and_insert_chromatograms_from_ms_data(con: duckdb.DuckDBPyConnection
                      grouped AS (SELECT peak_label,
                                         ms_file_label,
                                         scan_time,
-                                        MAX(intensity) AS intensity -- max por tiempo
-                                 -- AVG(mz_mean)   AS mz_mean    -- estable dentro del bin
+                                        MAX(intensity) AS intensity -- max per time bin
+                                 -- AVG(mz_mean)   AS mz_mean    -- stable within the bin
                                  FROM pre
                                  GROUP BY peak_label, ms_file_label, scan_time),
                      aggregated_chromatograms AS (SELECT peak_label,
@@ -620,18 +620,18 @@ def compute_and_insert_chromatograms_from_ms_data(con: duckdb.DuckDBPyConnection
                 FROM aggregated_chromatograms;
                 """
 
-    # Variable compartida para acumular progreso
+    # Shared variable to accumulate progress
     accumulated_progress = [0.0]
     stop_monitoring = [False]
-    current_query_type = ['ms1']  # Para saber qué estamos procesando
+    current_query_type = ['ms1']  # Track which query is running
 
     def monitor_progress():
-        """Monitorea el progreso de la query actual"""
+        """Monitor progress of the current query"""
         while not stop_monitoring[0]:
             try:
                 qp = con.query_progress()
                 if qp != -1 and qp > 0:
-                    # Progreso total según qué query estamos ejecutando
+                    # Total progress depends on which query is executing
                     if current_query_type[0] == 'ms1':
                         total_progress = qp * ms1_weight
                     else:  # ms2
@@ -785,7 +785,7 @@ def compute_chromatograms_in_batches(wdir: str,
                                                    FROM pending_pairs
                                                    WHERE ms_type = 'ms1'
                                                      AND pair_id BETWEEN ? AND ?),
-                                   -- Paso 1: Encontrar intensidades (solo datos con señal)
+                                   -- Step 1: Find intensities (only rows with signal)
                                    matched_intensities AS (SELECT bp.peak_label,
                                                                   bp.ms_file_label,
                                                                   ms1.scan_id,
@@ -798,14 +798,14 @@ def compute_chromatograms_in_batches(wdir: str,
                                                                                 AND
                                                                                 bp.mz_mean + (bp.mz_mean * bp.mz_width / 1e6)
                                                            GROUP BY bp.peak_label, bp.ms_file_label, ms1.scan_id),
-                                   -- Paso 2: Expandir a todos los scans
+                                   -- Step 2: Expand to all scans
                                    all_scans_needed AS (SELECT DISTINCT bp.peak_label,
                                                                         bp.ms_file_label,
                                                                         s.scan_id,
                                                                         s.scan_time
                                                         FROM batch_pairs bp
                                                                  JOIN ms_file_scans s ON s.ms_file_label = bp.ms_file_label),
-                                   -- Paso 3: LEFT JOIN (ambas tablas pequeñas)
+                                   -- Step 3: LEFT JOIN (both tables are small)
                                    complete_data AS (SELECT a.peak_label,
                                                             a.ms_file_label,
                                                             a.scan_time,
@@ -833,7 +833,7 @@ def compute_chromatograms_in_batches(wdir: str,
                                                    FROM pending_pairs
                                                    WHERE ms_type = 'ms2'
                                                      AND pair_id BETWEEN ? AND ?),
-                                   -- Paso 1: Encontrar intensidades (solo datos con señal)
+                                   -- Step 1: Find intensities (only rows with signal)
                                    matched_filterline AS (SELECT bp.peak_label,
                                                       bp.ms_file_label,
                                                       ms2.scan_id,
@@ -842,14 +842,14 @@ def compute_chromatograms_in_batches(wdir: str,
                                                         JOIN ms2_data ms2
                                                              ON ms2.ms_file_label = bp.ms_file_label
                                                                  AND ms2.filterLine = bp.filterLine),
-                                  -- Paso 2: Expandir a todos los scans
+                                  -- Step 2: Expand to all scans
                                    all_scans_needed AS (SELECT DISTINCT bp.peak_label,
                                                                         bp.ms_file_label,
                                                                         s.scan_id,
                                                                         s.scan_time
                                                         FROM batch_pairs bp
                                                                  JOIN ms_file_scans s ON s.ms_file_label = bp.ms_file_label),
-                                  -- Paso 3: LEFT JOIN (ambas tablas pequeñas)
+                                  -- Step 3: LEFT JOIN (both tables are small)
                                    complete_data AS (SELECT a.peak_label,
                                                             a.ms_file_label,
                                                             a.scan_time,
@@ -861,7 +861,7 @@ def compute_chromatograms_in_batches(wdir: str,
                                                                         ON a.peak_label = m.peak_label
                                                                             AND a.ms_file_label = m.ms_file_label
                                                                             AND a.scan_id = m.scan_id),
-                                   -- Paso 2: Expandir a todos los scans
+                                   -- Step 2: Aggregate after expanding scans
                                    agg AS (SELECT peak_label,
                                                   ms_file_label,
                                                   LIST(scan_time ORDER BY scan_time) AS scan_time,
@@ -997,7 +997,7 @@ def compute_chromatograms_in_batches(wdir: str,
                         batches += 1
 
                         print(f"✓ {batch_elapsed:>5.2f}s | "
-                              f"Progreso {processed:>6,}/{total_pairs_type:,}")
+                              f"Progress {processed:>6,}/{total_pairs_type:,}")
 
                         batch_num += 1
 
@@ -1017,7 +1017,7 @@ def compute_chromatograms_in_batches(wdir: str,
                         f.write(f"{'=' * 60}\n")
 
                 finally:
-                    # Actualizar progreso global incluso si falló el batch
+                    # Update global progress even if the batch failed
                     if batch_count > 0:
                         global_processed += batch_count
                         progress_pct_global = (global_processed / global_total_pairs) * 100
@@ -1040,9 +1040,9 @@ def compute_results_in_batches(wdir: str,
                                n_cpus=None,
                                ram=None):
     """
-    Computa resultados con macros eficientes.
-    include_arrays=False: Solo métricas numéricas (RÁPIDO)
-    include_arrays=True: Incluye scan_time e intensity arrays (MÁS LENTO)
+    Compute results with efficient macros.
+    include_arrays=False: numeric metrics only (FAST)
+    include_arrays=True: include scan_time and intensity arrays (SLOWER)
     """
 
     # Macro INLINE - retorna tabla directamente (AS TABLE)
@@ -1128,7 +1128,7 @@ def compute_results_in_batches(wdir: str,
                                  ORDER BY peak_label, ms_file_label;
                                  """
 
-    # Query DIRECTA - sin CTE intermedio, inserción streaming
+    # Direct query - no intermediate CTE, streaming insert
     QUERY_PROCESS_BATCH = """
         INSERT INTO results (
             peak_label,
@@ -1220,7 +1220,7 @@ def compute_results_in_batches(wdir: str,
     total_batches = (total_count + batch_size - 1) // batch_size
 
     with duckdb_connection(wdir, n_cpus=n_cpus, ram=ram) as conn:
-        # Configuración para escrituras masivas
+        # Settings for bulk writes
         conn.execute("SET wal_autocheckpoint='1GB'")
         conn.execute("BEGIN TRANSACTION")
 
@@ -1256,9 +1256,9 @@ def compute_results_in_batches(wdir: str,
 
                 pairs_per_sec = batch_count / batch_elapsed
                 print(f"✓ {batch_elapsed:>5.2f}s ({pairs_per_sec:>5.1f} pairs/s) | "
-                      f"Progreso {processed:>6,}/{total_count:,}")
+                      f"Progress {processed:>6,}/{total_count:,}")
 
-                # Checkpoint periódico
+                # Periodic checkpoint
                 if batches_in_txn >= checkpoint_every:
                     print(f"  [Commit + Checkpoint]...", end='', flush=True)
                     flush_start = time.time()
@@ -1437,17 +1437,17 @@ def compute_peak_properties(con: duckdb.DuckDBPyConnection,
             ORDER BY a.peak_label, a.ms_file_label;
             """
 
-    # Variable compartida para acumular progreso
+    # Shared variable to accumulate progress
     accumulated_progress = [0.0]
     stop_monitoring = [False]
 
     def monitor_progress():
-        """Monitorea el progreso de la query actual"""
+        """Monitor progress of the current query"""
         while not stop_monitoring[0]:
             try:
                 qp = con.query_progress()
                 if qp != -1 and qp > 0:
-                    # Progreso total según qué query estamos ejecutando
+                    # Total progress depends on which query is executing
                     total_progress = qp
 
                     accumulated_progress[0] = total_progress
@@ -1487,7 +1487,7 @@ def compute_peak_properties(con: duckdb.DuckDBPyConnection,
 
 def create_pivot(conn, rows=None, cols=None, value='peak_area', table='results'):
     """
-    Crea pivot desde DuckDB para datos únicos por par
+    Create pivot from DuckDB for unique per-pair data
     """
 
     ordered_pl = conn.execute("""
