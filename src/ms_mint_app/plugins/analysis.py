@@ -331,7 +331,8 @@ def callbacks(app, fsc, cache):
             return fig_bar_matplotlib, dash.no_update, dash.no_update, compound_options, dash.no_update
 
         elif tab_key == 'pca':
-            results = run_pca_samples_in_cols(ndf, n_components=5)
+            # n_components should be <= min(n_samples, n_features)
+            results = run_pca_samples_in_cols(ndf, n_components=min(ndf.shape[0], ndf.shape[1], 5))
             color_labels = ndf_sample_type.fillna(
                 pd.Series(ndf_sample_type.index, index=ndf_sample_type.index)
             )
@@ -449,13 +450,14 @@ def callbacks(app, fsc, cache):
                     points='all',
                     hover_data=['Sample', 'Sample Type', 'Intensity', 'Intensity (log2)'],
                 )
-                rain_fig.update_traces(jitter=0.25, meanline_visible=False)
-                # Clamp KDE tails similar to seaborn cut; use 1st-99th percentiles
+                rain_fig.update_traces(jitter=0.25, meanline_visible=False, pointpos=-0.5, selector=dict(type='violin'))
+                # Clamp KDE tails with spanmode='hard', similar to seaborn cut; use 1st-99th percentiles
                 low, high = (
                     melt_df['Intensity (log2)'].quantile(0.01),
                     melt_df['Intensity (log2)'].quantile(0.99),
                 )
-                rain_fig.update_traces(spanmode='hard', span=[low, high], selector=dict(type='violin'))
+                rain_fig.update_traces(spanmode='hard', span=[low, high], side='positive', scalemode='width', 
+                                       selector=dict(type='violin'))
                 rain_fig.update_layout(
                     title=f"{selected}",
                     title_font=dict(size=16),
