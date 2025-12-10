@@ -13,6 +13,8 @@ from dash import html, dcc
 from dash.dependencies import Input, Output, State
 from dash.exceptions import PreventUpdate
 
+from plotly import colors
+
 from ..colors import make_palette_hsv
 from ..duckdb_manager import duckdb_connection, build_where_and_params, build_order_by
 from ..plugin_interface import PluginInterface
@@ -313,6 +315,17 @@ def layout():
     return _layout
 
 def generate_colors(wdir, regenerate=False):
+    def _rgb_to_hex(rgb_str: str) -> str:
+        if isinstance(rgb_str, str) and rgb_str.startswith("rgb"):
+            nums = rgb_str.strip("rgb() ").split(",")
+            if len(nums) == 3:
+                try:
+                    r, g, b = (int(n) for n in nums)
+                    return f"#{r:02x}{g:02x}{b:02x}"
+                except ValueError:
+                    return rgb_str
+        return rgb_str
+
     with duckdb_connection(wdir) as conn:
         if conn is None:
             raise PreventUpdate
@@ -340,12 +353,24 @@ def generate_colors(wdir, regenerate=False):
         sample_keys = ms_colors["sample_key"].drop_duplicates().to_list()
 
         if len(assigned_colors) != len(sample_keys):
-            colors_map = make_palette_hsv(
-                sample_keys,
-                existing_map=assigned_colors,
-                s_range=(0.90, 0.95),
-                v_range=(0.90, 0.95),
-            )
+            pastel_palette = colors.qualitative.Pastel
+            pastel_palette_hex = [_rgb_to_hex(c) for c in pastel_palette]
+            if len(sample_keys) <= len(pastel_palette):
+                colors_map = assigned_colors.copy()
+                palette_idx = 0
+                for key in sample_keys:
+                    if key in colors_map:
+                        continue
+                    colors_map[key] = pastel_palette_hex[palette_idx]
+                    palette_idx += 1
+            else:
+                colors_map = make_palette_hsv(
+                    sample_keys,
+                    existing_map=assigned_colors,
+                    s_range=(0.90, 0.95),
+                    v_range=(0.90, 0.95),
+                )
+
             colors_pd = ms_colors[["ms_file_label"]].copy()
             colors_pd["color"] = ms_colors["sample_key"].map(colors_map)
             conn.execute(
