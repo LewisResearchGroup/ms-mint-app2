@@ -13,6 +13,7 @@ from .analysis_tools import pca
 from ..duckdb_manager import duckdb_connection, create_pivot
 from ..plugin_interface import PluginInterface
 import plotly.express as px
+from scipy.stats import ttest_ind, f_oneway
 
 _label = "Analysis"
 PCA_COMPONENT_OPTIONS = [
@@ -20,7 +21,7 @@ PCA_COMPONENT_OPTIONS = [
     for i in range(1, 6)
 ]
 NORM_OPTIONS = [
-    {'label': 'None (raw)', 'value': 'none'},
+    {'label': 'None (log2 raw)', 'value': 'none'},
     {'label': 'Z-score', 'value': 'zscore'},
     {'label': 'Durbin', 'value': 'durbin'},
     {'label': 'Z-score + Durbin', 'value': 'durbin_zscore'},
@@ -355,6 +356,13 @@ def callbacks(app, fsc, cache):
                 zdf = df
             if ndf.empty or zdf.empty:
                 raise PreventUpdate
+            # Choose matrix for violin based on normalization selection
+            if norm_value == 'zscore':
+                violin_matrix = zdf
+            elif norm_value in ('durbin', 'durbin_zscore'):
+                violin_matrix = ndf
+            else:
+                violin_matrix = df
 
         if tab_key == 'clustermap':
             import seaborn as sns
@@ -508,37 +516,67 @@ def callbacks(app, fsc, cache):
             selected = rain_comp or (compound_options[0]['value'] if compound_options else None)
             rain_fig = go.Figure()
             if selected:
-                melt_df = raw_df[[selected]].join(ndf_sample_type).reset_index().rename(columns={
+                if selected not in violin_matrix.columns:
+                    raise PreventUpdate
+                melt_df = violin_matrix[[selected]].join(ndf_sample_type).reset_index().rename(columns={
                     'ms_file_label': 'Sample',
                     'sample_type': 'Sample Type',
                     selected: 'Intensity',
                 })
-                # log2 transform with small epsilon to avoid log(0)
-                melt_df['Intensity (log2)'] = np.log2(melt_df['Intensity'].clip(lower=1e-9))
+                if norm_value == 'none':
+                    melt_df['PlotValue'] = np.log2(melt_df['Intensity'].clip(lower=1e-9))
+                    y_label = 'log2 (Intensity)'
+                else:
+                    melt_df['PlotValue'] = melt_df['Intensity']
+                    y_label = 'Normalized intensity'
                 rain_fig = px.violin(
                     melt_df,
                     x='Sample Type',
-                    y='Intensity (log2)',
+                    y='PlotValue',
                     color='Sample Type',
                     color_discrete_map=color_map if color_map else None,
                     box=False,
                     points='all',
-                    hover_data=['Sample', 'Sample Type', 'Intensity', 'Intensity (log2)'],
+                    hover_data=['Sample', 'Sample Type', 'Intensity', 'PlotValue'],
                 )
                 rain_fig.update_traces(jitter=0.25, meanline_visible=False, pointpos=-0.5, selector=dict(type='violin'))
                 # Clamp KDE tails with spanmode='hard', similar to seaborn cut; use 1st-99th percentiles
                 low, high = (
-                    melt_df['Intensity (log2)'].quantile(0.01),
-                    melt_df['Intensity (log2)'].quantile(0.99),
+                    melt_df['PlotValue'].quantile(0.01),
+                    melt_df['PlotValue'].quantile(0.99),
                 )
                 rain_fig.update_traces(spanmode='hard', span=[low, high], side='positive', scalemode='width', 
                                        selector=dict(type='violin'))
+                # Simple significance test: t-test for 2 groups, ANOVA for >2
+                groups = [g['PlotValue'].to_numpy() for _, g in melt_df.groupby('Sample Type')]
+                method = None
+                p_val = None
+                if len(groups) == 2:
+                    method = "t-test"
+                    _, p_val = ttest_ind(groups[0], groups[1], equal_var=False, nan_policy='omit')
+                elif len(groups) > 2:
+                    method = "ANOVA"
+                    _, p_val = f_oneway(*groups)
+
+                if method and p_val is not None:
+                    display_p = f"{p_val:.3e}"
+                    rain_fig.add_annotation(
+                        xref="paper",
+                        yref="paper",
+                        x=1.0,
+                        y=1.08,
+                        xanchor="right",
+                        yanchor="top",
+                        text=f"{method}, p={display_p}",
+                        showarrow=False,
+                        font=dict(size=12, color="#444"),
+                    )
                 rain_fig.update_layout(
                     title=f"{selected}",
                     title_font=dict(size=16),
-                    yaxis_title='log2 (Intensity)',
+                    yaxis_title=y_label,
                     xaxis_title='Sample Type',
-                    yaxis=dict(range=[0, None], fixedrange=False),
+                    yaxis=dict(range=[0, None] if norm_value == 'none' else [None, None], fixedrange=False),
                     margin=dict(l=60, r=20, t=50, b=60),
                     legend=dict(
                             title=dict(text="Sample Type<br>", font=dict(size=14)),
