@@ -24,7 +24,7 @@ NORM_OPTIONS = [
     {'label': 'None (log2 raw)', 'value': 'none'},
     {'label': 'Z-score', 'value': 'zscore'},
     {'label': 'Durbin', 'value': 'durbin'},
-    {'label': 'Z-score + Durbin', 'value': 'durbin_zscore'},
+    {'label': 'Z-score + Durbin', 'value': 'zscore_durbin'},
 ]
 TAB_DEFAULT_NORM = {
     'clustermap': 'zscore',
@@ -190,12 +190,24 @@ _layout = html.Div(
                     'children': html.Div(
                         [
                             fac.AntdSelect(
-                                id='raincloud-comp',
-                                placeholder='Select compound',
+                                id='violin-comp-checks',
+                                mode='multiple',
+                                options=[],
+                                value=[],
                                 allowClear=False,
-                                style={'width': 260, 'marginBottom': 12},
+                                maxTagCount=4,
+                                optionFilterProp='label',
+                                optionFilterMode='case-insensitive',
+                                style={'width': 360, 'marginBottom': 12},
                             ),
-                            dcc.Graph(id='raincloud-graph'),
+                            html.Div(
+                                id='violin-graphs',
+                                style={
+                                    'display': 'flex',
+                                    'flexDirection': 'column',
+                                    'gap': '24px',
+                                },
+                            ),
                         ]
                     ),
                 },
@@ -269,21 +281,21 @@ def callbacks(app, fsc, cache):
     @app.callback(
         Output('bar-graph-matplotlib', 'src'),
         Output('pca-graph', 'figure'),
-        Output('raincloud-graph', 'figure'),
-        Output('raincloud-comp', 'options'),
-        Output('raincloud-comp', 'value'),
+        Output('violin-graphs', 'children'),
+        Output('violin-comp-checks', 'options'),
+        Output('violin-comp-checks', 'value'),
 
         Input('section-context', 'data'),
         Input('analysis-tabs', 'activeKey'),
         Input('pca-x-comp', 'value'),
         Input('pca-y-comp', 'value'),
-        Input('raincloud-comp', 'value'),
+        Input('violin-comp-checks', 'value'),
         Input('analysis-metric-select', 'value'),
         Input('analysis-normalization-select', 'value'),
         State("wdir", "data"),
         prevent_initial_call=True,
     )
-    def show_tab_content(section_context, tab_key, x_comp, y_comp, rain_comp, metric_value, norm_value, wdir):
+    def show_tab_content(section_context, tab_key, x_comp, y_comp, violin_comp_checks, metric_value, norm_value, wdir):
 
         if section_context['page'] != 'Analysis':
             raise PreventUpdate
@@ -314,11 +326,14 @@ def callbacks(app, fsc, cache):
             )
             raw_df = df.copy()
             df = df.drop(columns=['ms_type', 'sample_type'], axis=1)
-            compound_options = [
-                {'label': c, 'value': c}
-                for c in raw_df.columns
-                if c not in ('ms_type', 'sample_type')
-            ]
+            compound_options = sorted(
+                [
+                    {'label': c, 'value': c}
+                    for c in raw_df.columns
+                    if c not in ('ms_type', 'sample_type')
+                ],
+                key=lambda o: o['label'].lower(),
+            )
 
             # Guard against NaN/inf and empty matrices (numeric only) before downstream plots
             def _clean_numeric(numeric_df: pd.DataFrame) -> pd.DataFrame:
@@ -345,7 +360,7 @@ def callbacks(app, fsc, cache):
                 ndf = rocke_durbin(df, c=10)
                 ndf = _clean_numeric(ndf)
                 zdf = ndf
-            elif norm_value == 'durbin_zscore':
+            elif norm_value == 'zscore_durbin':
                 z_tmp = pd.DataFrame(scaler.fit_transform(df), index=df.index, columns=df.columns)
                 ndf_tmp = rocke_durbin(z_tmp, c=10)
                 ndf = _clean_numeric(ndf_tmp)
@@ -359,7 +374,7 @@ def callbacks(app, fsc, cache):
             # Choose matrix for violin based on normalization selection
             if norm_value == 'zscore':
                 violin_matrix = zdf
-            elif norm_value in ('durbin', 'durbin_zscore'):
+            elif norm_value in ('durbin', 'zscore_durbin'):
                 violin_matrix = ndf
             else:
                 violin_matrix = df
@@ -513,11 +528,13 @@ def callbacks(app, fsc, cache):
 
         elif tab_key == 'raincloud':
             # Build options list
-            selected = rain_comp or (compound_options[0]['value'] if compound_options else None)
-            rain_fig = go.Figure()
-            if selected:
+            violin_options = compound_options
+            # default selections: keep current or first 1
+            selected_list = violin_comp_checks or ([violin_options[0]['value']] if violin_options else [])
+            graphs = []
+            for selected in selected_list:
                 if selected not in violin_matrix.columns:
-                    raise PreventUpdate
+                    continue
                 melt_df = violin_matrix[[selected]].join(ndf_sample_type).reset_index().rename(columns={
                     'ms_file_label': 'Sample',
                     'sample_type': 'Sample Type',
@@ -529,7 +546,7 @@ def callbacks(app, fsc, cache):
                 else:
                     melt_df['PlotValue'] = melt_df['Intensity']
                     y_label = 'Normalized intensity'
-                rain_fig = px.violin(
+                fig = px.violin(
                     melt_df,
                     x='Sample Type',
                     y='PlotValue',
@@ -539,14 +556,14 @@ def callbacks(app, fsc, cache):
                     points='all',
                     hover_data=['Sample', 'Sample Type', 'Intensity', 'PlotValue'],
                 )
-                rain_fig.update_traces(jitter=0.25, meanline_visible=False, pointpos=-0.5, selector=dict(type='violin'))
+                fig.update_traces(jitter=0.25, meanline_visible=False, pointpos=-0.5, selector=dict(type='violin'))
                 # Clamp KDE tails with spanmode='hard', similar to seaborn cut; use 1st-99th percentiles
                 low, high = (
                     melt_df['PlotValue'].quantile(0.01),
                     melt_df['PlotValue'].quantile(0.99),
                 )
-                rain_fig.update_traces(spanmode='hard', span=[low, high], side='positive', scalemode='width', 
-                                       selector=dict(type='violin'))
+                fig.update_traces(spanmode='hard', span=[low, high], side='positive', scalemode='width',
+                                  selector=dict(type='violin'))
                 # Simple significance test: t-test for 2 groups, ANOVA for >2
                 groups = [g['PlotValue'].to_numpy() for _, g in melt_df.groupby('Sample Type')]
                 method = None
@@ -560,7 +577,7 @@ def callbacks(app, fsc, cache):
 
                 if method and p_val is not None:
                     display_p = f"{p_val:.3e}"
-                    rain_fig.add_annotation(
+                    fig.add_annotation(
                         xref="paper",
                         yref="paper",
                         x=1.0,
@@ -571,7 +588,7 @@ def callbacks(app, fsc, cache):
                         showarrow=False,
                         font=dict(size=12, color="#444"),
                     )
-                rain_fig.update_layout(
+                fig.update_layout(
                     title=f"{selected}",
                     title_font=dict(size=16),
                     yaxis_title=y_label,
@@ -587,8 +604,9 @@ def callbacks(app, fsc, cache):
                     xaxis_tickfont=dict(size=12),
                     yaxis_tickfont=dict(size=12),
                 )
+                graphs.append(dcc.Graph(figure=fig, style={'marginBottom': 20, 'width': '100%'}))
 
-            return dash.no_update, dash.no_update, rain_fig, compound_options, selected
+            return dash.no_update, dash.no_update, graphs, violin_options, selected_list
 
         return dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update
 
