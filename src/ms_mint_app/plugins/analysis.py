@@ -383,6 +383,7 @@ def callbacks(app, fsc, cache):
             import seaborn as sns
             import matplotlib.pyplot as plt
             import matplotlib
+            import matplotlib.patches as mpatches
 
             matplotlib.use('Agg')
             sns.set_theme(font_scale=0.25)
@@ -417,6 +418,25 @@ def callbacks(app, fsc, cache):
             fig.ax_heatmap .set_xlabel('Samples', fontsize=6, labelpad=4)
             fig.ax_cbar.tick_params(which='both', axis='both', width=0.3, length=2, labelsize=4)
             fig.ax_cbar.set_title(norm_label, fontsize=6, pad=4)
+            # Legend for sample type colors (top right)
+            if color_map:
+                used_types = [lbl for lbl in color_labels if lbl in color_map]
+                handles = [
+                    mpatches.Patch(color=color_map[stype], label=stype)
+                    for stype in dict.fromkeys(used_types)  # preserve order, unique
+                    if stype in color_map
+                ]
+                if handles:
+                    fig.ax_heatmap.legend(
+                        handles=handles,
+                        title="Sample Type",
+                        loc='upper center',
+                        bbox_to_anchor=(1.00, 1.075),
+                        ncol=len(handles),
+                        frameon=False,
+                        fontsize=5,
+                        title_fontsize=5,
+                    )
 
 
             from io import BytesIO
