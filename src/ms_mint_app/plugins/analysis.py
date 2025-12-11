@@ -105,6 +105,7 @@ clustermap_tab = html.Div(
             id='clustermap-spinner',
             spinning=True,
             text='Loading clustermap...',
+            style={'minHeight': '20vh', 'width': '100%'},
         ),
         minWidth=100,
         minHeight=100,
