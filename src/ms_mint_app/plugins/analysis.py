@@ -19,6 +19,17 @@ PCA_COMPONENT_OPTIONS = [
     {'label': f'PC{i}', 'value': f'PC{i}'}
     for i in range(1, 6)
 ]
+NORM_OPTIONS = [
+    {'label': 'None (raw)', 'value': 'none'},
+    {'label': 'Z-score', 'value': 'zscore'},
+    {'label': 'Durbin', 'value': 'durbin'},
+    {'label': 'Z-score + Durbin', 'value': 'durbin_zscore'},
+]
+TAB_DEFAULT_NORM = {
+    'clustermap': 'zscore',
+    'pca': 'durbin',
+    'raincloud': 'none',
+}
 
 
 class AnalysisPlugin(PluginInterface):
@@ -191,21 +202,48 @@ _layout = html.Div(
             centered=True,
             defaultActiveKey='clustermap',
             style={'margin': '12px 0 0 0'},
-            tabBarLeftExtraContent=fac.AntdSelect(
-                id='analysis-metric-select',
-                placeholder='Metric',
-                options=[
-                    {'label': 'Peak Area', 'value': 'peak_area'},
-                    {'label': 'Peak Area (Top 3)', 'value': 'peak_area_top3'},
-                    {'label': 'Peak Max', 'value': 'peak_max'},
-                    {'label': 'Peak Mean', 'value': 'peak_mean'},
-                    {'label': 'Peak Median', 'value': 'peak_median'},
+            tabBarLeftExtraContent=fac.AntdSpace(
+                [
+                    fac.AntdSpace(
+                        [
+                            fac.AntdText("Metric:", style={'fontWeight': 500}),
+                            fac.AntdSelect(
+                                id='analysis-metric-select',
+                                options=[
+                                    {'label': 'Peak Area', 'value': 'peak_area'},
+                                    {'label': 'Peak Area (Top 3)', 'value': 'peak_area_top3'},
+                                    {'label': 'Peak Max', 'value': 'peak_max'},
+                                    {'label': 'Peak Mean', 'value': 'peak_mean'},
+                                    {'label': 'Peak Median', 'value': 'peak_median'},
+                                ],
+                                value='peak_area',
+                                optionFilterProp='label',
+                                optionFilterMode='case-insensitive',
+                                allowClear=False,
+                                style={'width': 200},
+                            ),
+                        ],
+                        align='center',
+                        size='small',
+                    ),
+                    fac.AntdSpace(
+                        [
+                            fac.AntdText("Normalization:", style={'fontWeight': 500}),
+                            fac.AntdSelect(
+                                id='analysis-normalization-select',
+                                options=NORM_OPTIONS,
+                                value='zscore',
+                                optionFilterProp='label',
+                                optionFilterMode='case-insensitive',
+                                allowClear=False,
+                                style={'width': 180},
+                            ),
+                        ],
+                        align='center',
+                        size='small',
+                    ),
                 ],
-                value='peak_area',
-                optionFilterProp='label',
-                optionFilterMode='case-insensitive',
-                allowClear=False,
-                style={'width': 220},
+                size='small',
             ),
         )
     ]
@@ -220,6 +258,14 @@ def layout():
 
 def callbacks(app, fsc, cache):
     @app.callback(
+        Output('analysis-normalization-select', 'value'),
+        Input('analysis-tabs', 'activeKey'),
+        prevent_initial_call=True,
+    )
+    def set_norm_default_for_tab(active_tab):
+        return TAB_DEFAULT_NORM.get(active_tab, 'zscore')
+
+    @app.callback(
         Output('bar-graph-matplotlib', 'src'),
         Output('pca-graph', 'figure'),
         Output('raincloud-graph', 'figure'),
@@ -232,10 +278,11 @@ def callbacks(app, fsc, cache):
         Input('pca-y-comp', 'value'),
         Input('raincloud-comp', 'value'),
         Input('analysis-metric-select', 'value'),
+        Input('analysis-normalization-select', 'value'),
         State("wdir", "data"),
         prevent_initial_call=True,
     )
-    def show_tab_content(section_context, tab_key, x_comp, y_comp, rain_comp, metric_value, wdir):
+    def show_tab_content(section_context, tab_key, x_comp, y_comp, rain_comp, metric_value, norm_value, wdir):
 
         if section_context['page'] != 'Analysis':
             raise PreventUpdate
@@ -290,11 +337,23 @@ def callbacks(app, fsc, cache):
 
             from sklearn.preprocessing import StandardScaler
             scaler = StandardScaler()
-            zdf = pd.DataFrame(scaler.fit_transform(df), index=df.index, columns=df.columns)
-
-            ndf = rocke_durbin(df, c=10)
-            ndf = _clean_numeric(ndf)
-            if ndf.empty:
+            if norm_value == 'zscore':
+                zdf = pd.DataFrame(scaler.fit_transform(df), index=df.index, columns=df.columns)
+                ndf = zdf
+            elif norm_value == 'durbin':
+                ndf = rocke_durbin(df, c=10)
+                ndf = _clean_numeric(ndf)
+                zdf = ndf
+            elif norm_value == 'durbin_zscore':
+                z_tmp = pd.DataFrame(scaler.fit_transform(df), index=df.index, columns=df.columns)
+                ndf_tmp = rocke_durbin(z_tmp, c=10)
+                ndf = _clean_numeric(ndf_tmp)
+                zdf = ndf
+            else:
+                # raw/none: use df directly
+                ndf = df
+                zdf = df
+            if ndf.empty or zdf.empty:
                 raise PreventUpdate
 
         if tab_key == 'clustermap':
@@ -310,6 +369,8 @@ def callbacks(app, fsc, cache):
                 reordered_samples = ndf_sample_type.reindex(df.index)
                 color_labels = reordered_samples.fillna(pd.Series(df.index, index=df.index))
                 sample_colors = [color_map.get(lbl, '#bbbbbb') for lbl in color_labels]
+            
+            norm_label = next((o['label'] for o in NORM_OPTIONS if o['value'] == norm_value), norm_value)
             
             fig = sns.clustermap(
                                  zdf.T,
@@ -332,7 +393,7 @@ def callbacks(app, fsc, cache):
             fig.ax_heatmap.tick_params(which='both', axis='both', length=0)
             fig.ax_heatmap .set_xlabel('Samples', fontsize=6, labelpad=4)
             fig.ax_cbar.tick_params(which='both', axis='both', width=0.3, length=2, labelsize=4)
-            fig.ax_cbar.set_title("Z-score", fontsize=6, pad=4)
+            fig.ax_cbar.set_title(norm_label, fontsize=6, pad=4)
 
 
             from io import BytesIO
