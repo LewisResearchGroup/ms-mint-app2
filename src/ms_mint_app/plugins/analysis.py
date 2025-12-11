@@ -96,11 +96,10 @@ clustermap_tab = html.Div(
                     'width': '100%',
                     'height': '100%',
                     'object-fit': 'cover',
-                    'border': '1px solid #dee2e6'
+                    'border': '0px solid #dee2e6'
                 }),
                 style={
                     'height': '100%',
-                    'background': '#dee2e6',
                 },
             ),
             id='clustermap-spinner',
@@ -396,10 +395,13 @@ def callbacks(app, fsc, cache):
             
             norm_label = next((o['label'] for o in NORM_OPTIONS if o['value'] == norm_value), norm_value)
             
+            vmin = -2.00 if norm_value == 'zscore' else None
+            vmax = 2.05 if norm_value == 'zscore' else None
+
             fig = sns.clustermap(
                                  zdf.T,
                                  method='ward', metric='euclidean', 
-                                 cmap='vlag', center=0, vmin=-3, vmax=3,
+                                 cmap='vlag', center=0, vmin=vmin, vmax=vmax,
                                  standard_scale=None,
                                  col_cluster=False, 
                                  dendrogram_ratio=0.1,
@@ -410,9 +412,6 @@ def callbacks(app, fsc, cache):
                                  row_colors=['#ffffff'] * len(zdf.T.index),
                                  colors_ratio=(0.0015, 0.015)
                                 )
-            # # Add a small gap between row dendrogram and heatmap
-            # row_pos = fig.ax_row_dendrogram.get_position()
-            # fig.ax_row_dendrogram.set_position([row_pos.x0 - 0.0005, row_pos.y0, row_pos.width - 0.01, row_pos.height])
 
             fig.ax_heatmap.tick_params(which='both', axis='both', length=0)
             fig.ax_heatmap .set_xlabel('Samples', fontsize=6, labelpad=4)
@@ -430,10 +429,11 @@ def callbacks(app, fsc, cache):
                     fig.ax_heatmap.legend(
                         handles=handles,
                         title="Sample Type",
-                        loc='upper center',
                         bbox_to_anchor=(1.00, 1.075),
                         ncol=len(handles),
                         frameon=False,
+                        alignment='right',
+                        borderpad=0,
                         fontsize=5,
                         title_fontsize=5,
                     )
@@ -455,6 +455,7 @@ def callbacks(app, fsc, cache):
                 pd.Series(ndf_sample_type.index, index=ndf_sample_type.index)
             )
             results['scores']['color_group'] = color_labels
+            results['scores']['sample_label'] = results['scores'].index
             x_axis = x_comp or 'PC1'
             y_axis = y_comp or 'PC2'
             loadings = results['loadings']
@@ -494,6 +495,7 @@ def callbacks(app, fsc, cache):
                 y=y_axis,
                 color='color_group',
                 color_discrete_map=color_map if color_map else None,
+                hover_data={'sample_label': True},
                 title=f'PCA ({x_axis} vs {y_axis})'
             )
 
@@ -507,7 +509,7 @@ def callbacks(app, fsc, cache):
                 horizontal_spacing=0.1,
                 subplot_titles=(
                     f"PCA ({x_axis} vs {y_axis})",
-                    "PCA Variance",
+                    "Cummulative Variance",
                     f"Loadings ({component_id})" if component_id in loadings.index else "Loadings",
                 ),
             )
