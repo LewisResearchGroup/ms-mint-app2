@@ -4,6 +4,7 @@ from pathlib import Path
 
 import dash
 import feffery_antd_components as fac
+import pandas as pd
 from dash import html, dcc
 from dash.dependencies import Input, Output, State
 from dash.exceptions import PreventUpdate
@@ -298,6 +299,10 @@ def callbacks(app, fsc, cache):
                                                         ELSE 7
                                                         END
                                            """).df()
+                    if not summary.empty:
+                        summary['rows'] = summary['rows'].apply(
+                            lambda x: f"{int(x):,}" if pd.notna(x) else ""
+                        )
                     db_info = fac.AntdTable(
                         columns=[
                             {'title': 'Table name', 'dataIndex': 'table_name', 'align': 'left', 'width': '50%'},

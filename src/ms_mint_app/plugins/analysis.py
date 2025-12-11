@@ -13,12 +13,24 @@ from .analysis_tools import pca
 from ..duckdb_manager import duckdb_connection, create_pivot
 from ..plugin_interface import PluginInterface
 import plotly.express as px
+from scipy.stats import ttest_ind, f_oneway
 
 _label = "Analysis"
 PCA_COMPONENT_OPTIONS = [
     {'label': f'PC{i}', 'value': f'PC{i}'}
     for i in range(1, 6)
 ]
+NORM_OPTIONS = [
+    {'label': 'None (log2 raw)', 'value': 'none'},
+    {'label': 'Z-score', 'value': 'zscore'},
+    {'label': 'Durbin', 'value': 'durbin'},
+    {'label': 'Z-score + Durbin', 'value': 'zscore_durbin'},
+]
+TAB_DEFAULT_NORM = {
+    'clustermap': 'zscore',
+    'pca': 'durbin',
+    'raincloud': 'none',
+}
 
 
 class AnalysisPlugin(PluginInterface):
@@ -178,12 +190,24 @@ _layout = html.Div(
                     'children': html.Div(
                         [
                             fac.AntdSelect(
-                                id='raincloud-comp',
-                                placeholder='Select compound',
+                                id='violin-comp-checks',
+                                mode='multiple',
+                                options=[],
+                                value=[],
                                 allowClear=False,
-                                style={'width': 260, 'marginBottom': 12},
+                                maxTagCount=4,
+                                optionFilterProp='label',
+                                optionFilterMode='case-insensitive',
+                                style={'width': 360, 'marginBottom': 12},
                             ),
-                            dcc.Graph(id='raincloud-graph'),
+                            html.Div(
+                                id='violin-graphs',
+                                style={
+                                    'display': 'flex',
+                                    'flexDirection': 'column',
+                                    'gap': '24px',
+                                },
+                            ),
                         ]
                     ),
                 },
@@ -191,21 +215,48 @@ _layout = html.Div(
             centered=True,
             defaultActiveKey='clustermap',
             style={'margin': '12px 0 0 0'},
-            tabBarLeftExtraContent=fac.AntdSelect(
-                id='analysis-metric-select',
-                placeholder='Metric',
-                options=[
-                    {'label': 'Peak Area', 'value': 'peak_area'},
-                    {'label': 'Peak Area (Top 3)', 'value': 'peak_area_top3'},
-                    {'label': 'Peak Max', 'value': 'peak_max'},
-                    {'label': 'Peak Mean', 'value': 'peak_mean'},
-                    {'label': 'Peak Median', 'value': 'peak_median'},
+            tabBarLeftExtraContent=fac.AntdSpace(
+                [
+                    fac.AntdSpace(
+                        [
+                            fac.AntdText("Metric:", style={'fontWeight': 500}),
+                            fac.AntdSelect(
+                                id='analysis-metric-select',
+                                options=[
+                                    {'label': 'Peak Area', 'value': 'peak_area'},
+                                    {'label': 'Peak Area (Top 3)', 'value': 'peak_area_top3'},
+                                    {'label': 'Peak Max', 'value': 'peak_max'},
+                                    {'label': 'Peak Mean', 'value': 'peak_mean'},
+                                    {'label': 'Peak Median', 'value': 'peak_median'},
+                                ],
+                                value='peak_area',
+                                optionFilterProp='label',
+                                optionFilterMode='case-insensitive',
+                                allowClear=False,
+                                style={'width': 200},
+                            ),
+                        ],
+                        align='center',
+                        size='small',
+                    ),
+                    fac.AntdSpace(
+                        [
+                            fac.AntdText("Normalization:", style={'fontWeight': 500}),
+                            fac.AntdSelect(
+                                id='analysis-normalization-select',
+                                options=NORM_OPTIONS,
+                                value='zscore',
+                                optionFilterProp='label',
+                                optionFilterMode='case-insensitive',
+                                allowClear=False,
+                                style={'width': 180},
+                            ),
+                        ],
+                        align='center',
+                        size='small',
+                    ),
                 ],
-                value='peak_area',
-                optionFilterProp='label',
-                optionFilterMode='case-insensitive',
-                allowClear=False,
-                style={'width': 220},
+                size='small',
             ),
         )
     ]
@@ -220,22 +271,31 @@ def layout():
 
 def callbacks(app, fsc, cache):
     @app.callback(
+        Output('analysis-normalization-select', 'value'),
+        Input('analysis-tabs', 'activeKey'),
+        prevent_initial_call=True,
+    )
+    def set_norm_default_for_tab(active_tab):
+        return TAB_DEFAULT_NORM.get(active_tab, 'zscore')
+
+    @app.callback(
         Output('bar-graph-matplotlib', 'src'),
         Output('pca-graph', 'figure'),
-        Output('raincloud-graph', 'figure'),
-        Output('raincloud-comp', 'options'),
-        Output('raincloud-comp', 'value'),
+        Output('violin-graphs', 'children'),
+        Output('violin-comp-checks', 'options'),
+        Output('violin-comp-checks', 'value'),
 
         Input('section-context', 'data'),
         Input('analysis-tabs', 'activeKey'),
         Input('pca-x-comp', 'value'),
         Input('pca-y-comp', 'value'),
-        Input('raincloud-comp', 'value'),
+        Input('violin-comp-checks', 'value'),
         Input('analysis-metric-select', 'value'),
+        Input('analysis-normalization-select', 'value'),
         State("wdir", "data"),
         prevent_initial_call=True,
     )
-    def show_tab_content(section_context, tab_key, x_comp, y_comp, rain_comp, metric_value, wdir):
+    def show_tab_content(section_context, tab_key, x_comp, y_comp, violin_comp_checks, metric_value, norm_value, wdir):
 
         if section_context['page'] != 'Analysis':
             raise PreventUpdate
@@ -266,11 +326,14 @@ def callbacks(app, fsc, cache):
             )
             raw_df = df.copy()
             df = df.drop(columns=['ms_type', 'sample_type'], axis=1)
-            compound_options = [
-                {'label': c, 'value': c}
-                for c in raw_df.columns
-                if c not in ('ms_type', 'sample_type')
-            ]
+            compound_options = sorted(
+                [
+                    {'label': c, 'value': c}
+                    for c in raw_df.columns
+                    if c not in ('ms_type', 'sample_type')
+                ],
+                key=lambda o: o['label'].lower(),
+            )
 
             # Guard against NaN/inf and empty matrices (numeric only) before downstream plots
             def _clean_numeric(numeric_df: pd.DataFrame) -> pd.DataFrame:
@@ -290,17 +353,37 @@ def callbacks(app, fsc, cache):
 
             from sklearn.preprocessing import StandardScaler
             scaler = StandardScaler()
-            zdf = pd.DataFrame(scaler.fit_transform(df), index=df.index, columns=df.columns)
-
-            ndf = rocke_durbin(df, c=10)
-            ndf = _clean_numeric(ndf)
-            if ndf.empty:
+            if norm_value == 'zscore':
+                zdf = pd.DataFrame(scaler.fit_transform(df), index=df.index, columns=df.columns)
+                ndf = zdf
+            elif norm_value == 'durbin':
+                ndf = rocke_durbin(df, c=10)
+                ndf = _clean_numeric(ndf)
+                zdf = ndf
+            elif norm_value == 'zscore_durbin':
+                z_tmp = pd.DataFrame(scaler.fit_transform(df), index=df.index, columns=df.columns)
+                ndf_tmp = rocke_durbin(z_tmp, c=10)
+                ndf = _clean_numeric(ndf_tmp)
+                zdf = ndf
+            else:
+                # raw/none: use df directly
+                ndf = df
+                zdf = df
+            if ndf.empty or zdf.empty:
                 raise PreventUpdate
+            # Choose matrix for violin based on normalization selection
+            if norm_value == 'zscore':
+                violin_matrix = zdf
+            elif norm_value in ('durbin', 'zscore_durbin'):
+                violin_matrix = ndf
+            else:
+                violin_matrix = df
 
         if tab_key == 'clustermap':
             import seaborn as sns
             import matplotlib.pyplot as plt
             import matplotlib
+            import matplotlib.patches as mpatches
 
             matplotlib.use('Agg')
             sns.set_theme(font_scale=0.25)
@@ -310,6 +393,8 @@ def callbacks(app, fsc, cache):
                 reordered_samples = ndf_sample_type.reindex(df.index)
                 color_labels = reordered_samples.fillna(pd.Series(df.index, index=df.index))
                 sample_colors = [color_map.get(lbl, '#bbbbbb') for lbl in color_labels]
+            
+            norm_label = next((o['label'] for o in NORM_OPTIONS if o['value'] == norm_value), norm_value)
             
             fig = sns.clustermap(
                                  zdf.T,
@@ -332,7 +417,26 @@ def callbacks(app, fsc, cache):
             fig.ax_heatmap.tick_params(which='both', axis='both', length=0)
             fig.ax_heatmap .set_xlabel('Samples', fontsize=6, labelpad=4)
             fig.ax_cbar.tick_params(which='both', axis='both', width=0.3, length=2, labelsize=4)
-            fig.ax_cbar.set_title("Z-score", fontsize=6, pad=4)
+            fig.ax_cbar.set_title(norm_label, fontsize=6, pad=4)
+            # Legend for sample type colors (top right)
+            if color_map:
+                used_types = [lbl for lbl in color_labels if lbl in color_map]
+                handles = [
+                    mpatches.Patch(color=color_map[stype], label=stype)
+                    for stype in dict.fromkeys(used_types)  # preserve order, unique
+                    if stype in color_map
+                ]
+                if handles:
+                    fig.ax_heatmap.legend(
+                        handles=handles,
+                        title="Sample Type",
+                        loc='upper center',
+                        bbox_to_anchor=(1.00, 1.075),
+                        ncol=len(handles),
+                        frameon=False,
+                        fontsize=5,
+                        title_fontsize=5,
+                    )
 
 
             from io import BytesIO
@@ -444,40 +548,72 @@ def callbacks(app, fsc, cache):
 
         elif tab_key == 'raincloud':
             # Build options list
-            selected = rain_comp or (compound_options[0]['value'] if compound_options else None)
-            rain_fig = go.Figure()
-            if selected:
-                melt_df = raw_df[[selected]].join(ndf_sample_type).reset_index().rename(columns={
+            violin_options = compound_options
+            # default selections: keep current or first 1
+            selected_list = violin_comp_checks or ([violin_options[0]['value']] if violin_options else [])
+            graphs = []
+            for selected in selected_list:
+                if selected not in violin_matrix.columns:
+                    continue
+                melt_df = violin_matrix[[selected]].join(ndf_sample_type).reset_index().rename(columns={
                     'ms_file_label': 'Sample',
                     'sample_type': 'Sample Type',
                     selected: 'Intensity',
                 })
-                # log2 transform with small epsilon to avoid log(0)
-                melt_df['Intensity (log2)'] = np.log2(melt_df['Intensity'].clip(lower=1e-9))
-                rain_fig = px.violin(
+                if norm_value == 'none':
+                    melt_df['PlotValue'] = np.log2(melt_df['Intensity'].clip(lower=1e-9))
+                    y_label = 'log2 (Intensity)'
+                else:
+                    melt_df['PlotValue'] = melt_df['Intensity']
+                    y_label = 'Normalized intensity'
+                fig = px.violin(
                     melt_df,
                     x='Sample Type',
-                    y='Intensity (log2)',
+                    y='PlotValue',
                     color='Sample Type',
                     color_discrete_map=color_map if color_map else None,
                     box=False,
                     points='all',
-                    hover_data=['Sample', 'Sample Type', 'Intensity', 'Intensity (log2)'],
+                    hover_data=['Sample', 'Sample Type', 'Intensity', 'PlotValue'],
                 )
-                rain_fig.update_traces(jitter=0.25, meanline_visible=False, pointpos=-0.5, selector=dict(type='violin'))
+                fig.update_traces(jitter=0.25, meanline_visible=False, pointpos=-0.5, selector=dict(type='violin'))
                 # Clamp KDE tails with spanmode='hard', similar to seaborn cut; use 1st-99th percentiles
                 low, high = (
-                    melt_df['Intensity (log2)'].quantile(0.01),
-                    melt_df['Intensity (log2)'].quantile(0.99),
+                    melt_df['PlotValue'].quantile(0.01),
+                    melt_df['PlotValue'].quantile(0.99),
                 )
-                rain_fig.update_traces(spanmode='hard', span=[low, high], side='positive', scalemode='width', 
-                                       selector=dict(type='violin'))
-                rain_fig.update_layout(
+                fig.update_traces(spanmode='hard', span=[low, high], side='positive', scalemode='width',
+                                  selector=dict(type='violin'))
+                # Simple significance test: t-test for 2 groups, ANOVA for >2
+                groups = [g['PlotValue'].to_numpy() for _, g in melt_df.groupby('Sample Type')]
+                method = None
+                p_val = None
+                if len(groups) == 2:
+                    method = "t-test"
+                    _, p_val = ttest_ind(groups[0], groups[1], equal_var=False, nan_policy='omit')
+                elif len(groups) > 2:
+                    method = "ANOVA"
+                    _, p_val = f_oneway(*groups)
+
+                if method and p_val is not None:
+                    display_p = f"{p_val:.3e}"
+                    fig.add_annotation(
+                        xref="paper",
+                        yref="paper",
+                        x=1.0,
+                        y=1.08,
+                        xanchor="right",
+                        yanchor="top",
+                        text=f"{method}, p={display_p}",
+                        showarrow=False,
+                        font=dict(size=12, color="#444"),
+                    )
+                fig.update_layout(
                     title=f"{selected}",
                     title_font=dict(size=16),
-                    yaxis_title='log2 (Intensity)',
+                    yaxis_title=y_label,
                     xaxis_title='Sample Type',
-                    yaxis=dict(range=[0, None], fixedrange=False),
+                    yaxis=dict(range=[0, None] if norm_value == 'none' else [None, None], fixedrange=False),
                     margin=dict(l=60, r=20, t=50, b=60),
                     legend=dict(
                             title=dict(text="Sample Type<br>", font=dict(size=14)),
@@ -488,8 +624,9 @@ def callbacks(app, fsc, cache):
                     xaxis_tickfont=dict(size=12),
                     yaxis_tickfont=dict(size=12),
                 )
+                graphs.append(dcc.Graph(figure=fig, style={'marginBottom': 20, 'width': '100%'}))
 
-            return dash.no_update, dash.no_update, rain_fig, compound_options, selected
+            return dash.no_update, dash.no_update, graphs, violin_options, selected_list
 
         return dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update
 
