@@ -611,7 +611,7 @@ def callbacks(app, fsc, cache):
                     y_label = 'Intensity'
                 else:
                     melt_df['PlotValue'] = melt_df['Intensity']
-                    y_label = 'Normalized intensity'
+                    y_label = 'Intensity'
                 fig = px.violin(
                     melt_df,
                     x='Sample Type',
