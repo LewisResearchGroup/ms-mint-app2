@@ -417,7 +417,7 @@ def compute_and_insert_chromatograms_from_ms_data(con: duckdb.DuckDBPyConnection
                             ms2_targets AS (SELECT DISTINCT t.peak_label, s.ms_file_label
                                             FROM targets t
                                                      CROSS JOIN samples_to_use s
-                                            WHERE t.filterLine IS NOT NULL -- ESTO asegura que es MS2
+                                            WHERE t.filterLine IS NOT NULL -- ensures this is MS2
                                                 AND t.peak_selection IS TRUE
                                                OR NOT EXISTS (SELECT 1
                                                               FROM targets t1
@@ -519,7 +519,7 @@ def compute_and_insert_chromatograms_from_ms_data(con: duckdb.DuckDBPyConnection
     else:
         ms2_to_compute = ms2_missing
 
-    # Calcular pesos para el progreso
+    # Compute weights for progress reporting
     total_to_compute = ms1_to_compute + ms2_to_compute
     ms1_weight = ms1_to_compute / total_to_compute if process_ms1 else 0
     ms2_weight = ms2_to_compute / total_to_compute if process_ms2 else 0
@@ -940,7 +940,7 @@ def compute_chromatograms_in_batches(wdir: str,
         print(f"✓ {global_total_pairs:,} pending pairs ({elapsed:.2f}s)")
         print(f"Processing in batches of {batch_size}...\n")
 
-        global_processed = 0  # contador acumulado
+        global_processed = 0  # accumulated counter
         global_stats: dict[str, dict] = {}
 
         for ms_type, total_pairs_type, min_id, max_id in rows:
@@ -1368,13 +1368,13 @@ def compute_peak_properties(con: duckdb.DuckDBPyConnection,
                               FROM chromatograms c
                                        JOIN pairs_to_process p ON c.peak_label = p.peak_label
                                   AND c.ms_file_label = p.ms_file_label),
--- Calcula total_intensity (sin filtro de rt)
+-- Compute total_intensity (without rt filter)
                  total_stats AS (SELECT peak_label,
                                         ms_file_label,
                                         SUM(intensity) AS total_intensity
                                  FROM unnested
                                  GROUP BY peak_label, ms_file_label),
--- Filtra por rango rt_min - rt_max
+-- Filter by rt_min - rt_max window
                  filtered_range AS (SELECT u.peak_label,
                                            u.ms_file_label,
                                            u.scan_time,
@@ -1395,7 +1395,7 @@ def compute_peak_properties(con: duckdb.DuckDBPyConnection,
                                        COUNT(*)                           AS peak_n_datapoints
                                 FROM filtered_range
                                 GROUP BY peak_label, ms_file_label),
--- Calcula peak_area_top3
+-- Compute peak_area_top3
                  top3_calc AS (SELECT peak_label,
                                       ms_file_label,
                                       ROUND(AVG(intensity), 0) AS peak_area_top3
@@ -1406,7 +1406,7 @@ def compute_peak_properties(con: duckdb.DuckDBPyConnection,
                                      FROM filtered_range) sub
                                WHERE rn <= 3
                                GROUP BY peak_label, ms_file_label),
--- Encuentra el scan_time del peak_max
+-- Find scan_time of peak_max
                  rt_of_max AS (SELECT peak_label,
                                       ms_file_label,
                                       scan_time AS peak_rt_of_max
