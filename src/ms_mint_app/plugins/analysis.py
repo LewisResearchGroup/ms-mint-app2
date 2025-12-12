@@ -461,15 +461,22 @@ def callbacks(app, fsc, cache):
             y_axis = y_comp or 'PC2'
             loadings = results['loadings']
             component_id = x_axis
+            loading_category_order = None
             if component_id in loadings.index:
-                top_features = loadings.loc[component_id].abs().sort_values(ascending=False).head(15).index
+                ordered = loadings.loc[component_id].abs().sort_values(ascending=False).head(10)
+                # Reverse order so the largest loading renders at the top of the horizontal chart
+                loading_category_order = list(reversed(ordered.index.tolist()))
                 loading_bar = go.Bar(
-                    x=top_features,
-                    y=loadings.loc[component_id, top_features],
+                    x=ordered.loc[loading_category_order],
+                    y=loading_category_order,
+                    orientation='h',
                     name=component_id,
-                    width=0.6,
                     marker=dict(color='#bbbbbb'),
                     showlegend=False,
+                    text=loading_category_order,
+                    textposition='outside',
+                    cliponaxis=False,
+                    hovertemplate='<b>%{y}</b><br>|Loading|=%{x:.4f}<extra></extra>',
                 )
             else:
                 loading_bar = None
@@ -506,7 +513,7 @@ def callbacks(app, fsc, cache):
                 specs=[[{'rowspan': 2}, {}],
                        [None, {}]],
                 column_widths=[0.55, 0.45],
-                vertical_spacing=0.12,
+                vertical_spacing=0.15,
                 horizontal_spacing=0.1,
                 subplot_titles=(
                     f"PCA ({x_axis} vs {y_axis})",
@@ -527,10 +534,21 @@ def callbacks(app, fsc, cache):
 
             if loading_bar:
                 fig.add_trace(loading_bar, row=2, col=2)
+                fig.update_yaxes(
+                    categoryorder='array',
+                    categoryarray=loading_category_order,
+                    showticklabels=False,
+                    row=2,
+                    col=2,
+                )
+                # Nudge the subplot title away from the bars for a bit more breathing room
+                for ann in fig['layout']['annotations']:
+                    if isinstance(ann.text, str) and ann.text.startswith("Loadings"):
+                        ann.y = ann.y + 0.02
 
             fig.update_layout(
                 height=700,
-                margin=dict(l=140, r=30, t=60, b=50),
+                margin=dict(l=160, r=200, t=70, b=60),
                 legend_title_text="Sample Type",
                 legend=dict(
                     x=-0.05,
