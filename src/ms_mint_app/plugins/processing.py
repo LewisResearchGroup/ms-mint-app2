@@ -129,7 +129,7 @@ _layout = html.Div(
                             {
                                 'title': 'peak_n_datapoints',
                                 'dataIndex': 'peak_n_datapoints',
-                                'width': '150px',
+                                'width': '160px',
                             },
                             {
                                 'title': 'peak_min',
