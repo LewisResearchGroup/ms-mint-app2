@@ -29,7 +29,7 @@ NORM_OPTIONS = [
 TAB_DEFAULT_NORM = {
     'clustermap': 'zscore',
     'pca': 'durbin',
-    'raincloud': 'none',
+    'raincloud': 'durbin',
 }
 
 
@@ -570,8 +570,31 @@ def callbacks(app, fsc, cache):
         elif tab_key == 'raincloud':
             # Build options list
             violin_options = compound_options
-            # default selections: keep current or first 1
-            selected_list = violin_comp_checks or ([violin_options[0]['value']] if violin_options else [])
+            # Default selection: highest absolute loading on PC1 (per current metric/norm).
+            # If user actively changed the selector, keep their choice; otherwise refresh to top PC1.
+            default_violin = []
+            if violin_options:
+                try:
+                    pca_results = run_pca_samples_in_cols(
+                        violin_matrix,
+                        n_components=min(violin_matrix.shape[0], violin_matrix.shape[1], 5)
+                    )
+                    loadings = pca_results.get('loadings')
+                    if loadings is not None and 'PC1' in loadings.index:
+                        default_violin = [loadings.loc['PC1'].abs().idxmax()]
+                except Exception:
+                    default_violin = [violin_options[0]['value']]
+
+            from dash import callback_context
+            triggered = callback_context.triggered[0]["prop_id"].split(".")[0] if callback_context.triggered else ""
+            user_selected = triggered == 'violin-comp-checks'
+
+            if user_selected:
+                # Respect manual picks, but still fall back if empty.
+                selected_list = violin_comp_checks or default_violin or ([violin_options[0]['value']] if violin_options else [])
+            else:
+                # Metric/norm/tab changes refresh to the current PC1 leader, ignoring stale state.
+                selected_list = default_violin or ([violin_options[0]['value']] if violin_options else [])
             graphs = []
             for selected in selected_list:
                 if selected not in violin_matrix.columns:
