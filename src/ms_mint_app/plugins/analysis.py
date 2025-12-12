@@ -443,6 +443,8 @@ def callbacks(app, fsc, cache):
             from io import BytesIO
             buf = BytesIO()
             fig.savefig(buf, format="png", dpi=300)
+            # Avoid accumulating open figures across callbacks
+            plt.close(fig.fig)
             # fig.savefig('test.png', format="png")
             import base64
             fig_data = base64.b64encode(buf.getbuffer()).decode("ascii")
