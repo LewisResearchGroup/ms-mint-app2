@@ -21,10 +21,10 @@ PCA_COMPONENT_OPTIONS = [
     for i in range(1, 6)
 ]
 NORM_OPTIONS = [
-    {'label': 'None (log2 raw)', 'value': 'none'},
+    {'label': 'None (raw)', 'value': 'none'},
     {'label': 'Z-score', 'value': 'zscore'},
-    {'label': 'Durbin', 'value': 'durbin'},
-    {'label': 'Z-score + Durbin', 'value': 'zscore_durbin'},
+    {'label': 'Rocke-Durbin', 'value': 'durbin'},
+    {'label': 'Z-score + Rocke-Durbin', 'value': 'zscore_durbin'},
 ]
 TAB_DEFAULT_NORM = {
     'clustermap': 'zscore',
@@ -241,7 +241,7 @@ _layout = html.Div(
                     ),
                     fac.AntdSpace(
                         [
-                            fac.AntdText("Normalization:", style={'fontWeight': 500}),
+                            fac.AntdText("Transformations:", style={'fontWeight': 500}),
                             fac.AntdSelect(
                                 id='analysis-normalization-select',
                                 options=NORM_OPTIONS,
@@ -605,8 +605,8 @@ def callbacks(app, fsc, cache):
                     selected: 'Intensity',
                 })
                 if norm_value == 'none':
-                    melt_df['PlotValue'] = np.log2(melt_df['Intensity'].clip(lower=1e-9))
-                    y_label = 'log2 (Intensity)'
+                    melt_df['PlotValue'] = melt_df['Intensity']
+                    y_label = 'Intensity'
                 else:
                     melt_df['PlotValue'] = melt_df['Intensity']
                     y_label = 'Normalized intensity'
