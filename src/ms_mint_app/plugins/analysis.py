@@ -521,8 +521,8 @@ def callbacks(app, fsc, cache):
                 lloq = row.get('LLOQ', None)
                 uloq = row.get('ULOQ', None)
                 params_text = (
-                    f"slope={slope:.3f}<br>"
-                    f"intercept={intercept:.3f}<br>"
+                    f"slope={slope:.1f}<br>"
+                    f"intercept={intercept:.0f}<br>"
                     f"LLOQ={lloq:.2g}<br>"
                     f"ULOQ={uloq:.2g}"
                 )
@@ -533,7 +533,6 @@ def callbacks(app, fsc, cache):
             xaxis=dict(
                 title=xlabel,
                 type="log",
-                tickformat="~s",
                 ticks="outside",
             ),
             yaxis=dict(
