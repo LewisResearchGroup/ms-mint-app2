@@ -525,9 +525,21 @@ def callbacks(app, fsc, cache):
             except Exception:
                 params_text = None
         fig.update_layout(
-            title=peak_label,
-            xaxis=dict(title=xlabel, type="log"),
-            yaxis=dict(title=f"{peak_label} intensity (AU)", type="log"),
+            title=dict(text=peak_label, x=0.5, xanchor='center'),
+            xaxis=dict(
+                title=xlabel,
+                type="log",
+                tickformat="~s",
+                ticks="outside",
+            ),
+            yaxis=dict(
+                title=f"{peak_label} intensity (AU)",
+                type="log",
+                tickformat="~s",
+                tickmode="auto",
+                nticks=6,
+                ticks="outside",
+            ),
             legend=dict(orientation="h", y=1.08, x=0),
             margin=dict(l=60, r=20, t=60, b=60),
             template="plotly_white",
@@ -536,8 +548,8 @@ def callbacks(app, fsc, cache):
             fig.add_annotation(
                 xref="paper",
                 yref="paper",
-                x=0.05,
-                y=0.95,
+                x=0.02,
+                y=0.98,
                 xanchor="left",
                 yanchor="top",
                 text=params_text,
