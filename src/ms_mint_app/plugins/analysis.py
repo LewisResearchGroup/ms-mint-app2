@@ -153,7 +153,8 @@ pca_tab = html.Div(
     ]
 )
 
-scalir_tab = html.Div(
+scalir_tab = dcc.Loading(
+    children=html.Div(
     [
         fac.AntdAlert(
             message="SCALiR calibration",
@@ -314,6 +315,9 @@ scalir_tab = html.Div(
         dcc.Store(id='scalir-results-store'),
     ],
     style={'overflow': 'auto', 'height': 'calc(100vh - 156px)'}
+    ),
+    type='default',
+    id='scalir-loading',
 )
 
 _layout = html.Div(
