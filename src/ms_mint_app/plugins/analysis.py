@@ -1,4 +1,7 @@
 import dash
+import base64
+from io import BytesIO, StringIO
+from pathlib import Path
 import feffery_antd_components as fac
 import feffery_utils_components as fuc
 import numpy as np
@@ -14,6 +17,14 @@ from ..duckdb_manager import duckdb_connection, create_pivot
 from ..plugin_interface import PluginInterface
 import plotly.express as px
 from scipy.stats import ttest_ind, f_oneway
+from .scalir import (
+    intersect_peaks,
+    fit_estimator,
+    build_concentration_table,
+    training_plot_frame,
+    plot_standard_curve,
+    slugify_label,
+)
 
 _label = "Analysis"
 PCA_COMPONENT_OPTIONS = [
@@ -142,6 +153,169 @@ pca_tab = html.Div(
     ]
 )
 
+scalir_tab = html.Div(
+    [
+        fac.AntdAlert(
+            message="SCALiR calibration",
+            description=html.Div(
+                [
+                    html.Div("Load a standards table and fit calibration curves using current workspace results."),
+                ]
+            ),
+            type="info",
+            showIcon=True,
+            style={'marginBottom': 12},
+        ),
+        fac.AntdSpace(
+            [
+                fac.AntdText("Params:", strong=True, style={'marginRight': 8}),
+                fac.AntdSelect(
+                    id='scalir-intensity',
+                    options=[
+                        {'label': 'Peak Area', 'value': 'peak_area'},
+                        {'label': 'Peak Max', 'value': 'peak_max'},
+                    ],
+                    value='peak_area',
+                    style={'width': 160},
+                ),
+                fac.AntdSelect(
+                    id='scalir-slope-mode',
+                    options=[
+                        {'label': 'Fixed slope', 'value': 'fixed'},
+                        {'label': 'Constrained slope', 'value': 'interval'},
+                        {'label': 'Free slope', 'value': 'wide'},
+                    ],
+                    value='fixed',
+                    style={'width': 180},
+                ),
+                fac.AntdInputNumber(
+                    id='scalir-slope-low',
+                    value=0.85,
+                    min=0.1,
+                    max=5,
+                    step=0.01,
+                    placeholder='Slope low',
+                    style={'width': 110},
+                ),
+                fac.AntdInputNumber(
+                    id='scalir-slope-high',
+                    value=1.15,
+                    min=0.1,
+                    max=5,
+                    step=0.01,
+                    placeholder='Slope high',
+                    style={'width': 110},
+                ),
+                fac.AntdSwitch(
+                    id='scalir-generate-plots',
+                    checked=False,
+                    checkedChildren='Save plots',
+                    unCheckedChildren='Skip plots',
+                ),
+                fac.AntdButton(
+                    'Run SCALiR',
+                    id='scalir-run-btn',
+                    type='primary',
+                    style={'minWidth': 110},
+                ),
+                fac.AntdButton(
+                    'Clear',
+                    id='scalir-reset-btn',
+                    type='default',
+                    danger=False,
+                ),
+            ],
+            wrap=True,
+            size='small',
+            style={'marginBottom': 12},
+        ),
+        html.Div(
+            [
+                fac.AntdSpace(
+                    [
+                        fac.AntdText(
+                            'Standards file (CSV):',
+                            strong=True,
+                            style={'margin': 0, 'lineHeight': '32px'},
+                        ),
+                        html.Div(
+                            [
+                                dcc.Upload(
+                                    id='scalir-standards-upload',
+                                    children=fac.AntdButton(
+                                        'Select standards file',
+                                        icon=fac.AntdIcon(icon='antd-upload'),
+                                        type='default',
+                                        block=True,
+                                        style={
+                                            'width': '180px',
+                                            'height': '36px',
+                                            'display': 'flex',
+                                            'alignItems': 'center',
+                                            'justifyContent': 'center',
+                                            'gap': 6,
+                                        },
+                                    ),
+                                    style={'padding': 0},
+                                    multiple=False,
+                                ),
+                                fac.AntdText(
+                                    id='scalir-standards-note',
+                                    style={'color': '#555', 'fontSize': 12, 'lineHeight': '32px', 'marginLeft': 8},
+                                ),
+                            ],
+                            style={'display': 'flex', 'alignItems': 'center', 'gap': '8px'},
+                        ),
+                    ],
+                    align='center',
+                    size='small',
+                    style={'width': '100%', 'marginTop': 4},
+                ),
+                html.Div(id='scalir-status-text', style={'marginTop': 6}),
+                fac.AntdSpace(
+                    [
+                        fac.AntdText(id='scalir-conc-path'),
+                        fac.AntdText(id='scalir-params-path'),
+                    ],
+                    direction='vertical',
+                    size='small',
+                    style={'marginTop': 8},
+                ),
+            ],
+            style={'marginBottom': 12, 'padding': '0 0px'},
+        ),
+        fac.AntdSpace(
+            [
+                fac.AntdSelect(
+                    id='scalir-metabolite-select',
+                    options=[],
+                    value=[],
+                    mode='multiple',
+                    allowClear=False,
+                    maxTagCount=3,
+                    placeholder='Select metabolite(s)',
+                    style={'width': 320},
+                ),
+                fac.AntdText(id='scalir-plot-path'),
+            ],
+            align='center',
+            style={'marginBottom': 12},
+        ),
+        html.Div(
+            id='scalir-plot-graphs',
+            style={
+                'display': 'none',
+                'flexWrap': 'wrap',
+                'gap': '16px',
+                'paddingTop': '8px',
+                'justifyContent': 'flex-start',
+            },
+        ),
+        dcc.Store(id='scalir-results-store'),
+    ],
+    style={'overflow': 'auto', 'height': 'calc(100vh - 156px)'}
+)
+
 _layout = html.Div(
     [
         fac.AntdFlex(
@@ -211,6 +385,7 @@ _layout = html.Div(
                         ]
                     ),
                 },
+                {'key': 'scalir', 'label': 'SCALiR', 'children': scalir_tab},
             ],
             centered=True,
             defaultActiveKey='clustermap',
@@ -257,6 +432,7 @@ _layout = html.Div(
                     ),
                 ],
                 size='small',
+                id='analysis-metric-container',
             ),
         )
     ]
@@ -270,13 +446,177 @@ def layout():
 
 
 def callbacks(app, fsc, cache):
+    def _parse_uploaded_standards(contents, filename):
+        if not contents or not filename:
+            raise ValueError("No standards file provided.")
+        content_type, content_string = contents.split(",", 1)
+        decoded = base64.b64decode(content_string)
+        if filename.lower().endswith((".xls", ".xlsx")):
+            return pd.read_excel(BytesIO(decoded))
+        try:
+            return pd.read_csv(StringIO(decoded.decode("utf-8")))
+        except UnicodeDecodeError:
+            return pd.read_csv(BytesIO(decoded))
+
+    def _plot_curve_fig(frame: pd.DataFrame, peak_label: str, units: pd.DataFrame = None, params_df: pd.DataFrame = None):
+        subset = frame[frame.peak_label == peak_label]
+        if subset.empty:
+            return go.Figure()
+
+        unit = None
+        if units is not None and "unit" in units.columns:
+            match = units[units.peak_label == peak_label]
+            if not match.empty:
+                unit = match.unit.iloc[0]
+
+        in_range = subset[subset.in_range == 1]
+        out_range = subset[subset.in_range != 1]
+
+        fig = go.Figure()
+
+        if not out_range.empty:
+            fig.add_trace(
+                go.Scatter(
+                    x=out_range.true_conc,
+                    y=out_range.value,
+                    mode="markers",
+                    marker=dict(color="#888888", size=10),
+                    name="Outside range",
+                )
+            )
+        if not in_range.empty:
+            fig.add_trace(
+                go.Scatter(
+                    x=in_range.true_conc,
+                    y=in_range.value,
+                    mode="markers",
+                    marker=dict(color="#111111", size=10),
+                    name="In range",
+                )
+            )
+            line_data = in_range.sort_values("pred_conc")
+            fig.add_trace(
+                go.Scatter(
+                    x=line_data.pred_conc,
+                    y=line_data.value,
+                    mode="lines",
+                    line=dict(color="#111111", width=2),
+                    name="Fit",
+                )
+            )
+
+        xlabel = f"{peak_label} concentration"
+        if unit:
+            xlabel = f"{xlabel} ({unit})"
+        params_text = None
+        if params_df is not None and not params_df.empty:
+            try:
+                row = params_df[params_df.peak_label == peak_label].iloc[0]
+                slope = row.get('slope', None)
+                intercept = row.get('intercept', None)
+                lloq = row.get('LLOQ', None)
+                uloq = row.get('ULOQ', None)
+                params_text = (
+                    f"slope={slope:.3f}<br>"
+                    f"intercept={intercept:.3f}<br>"
+                    f"LLOQ={lloq:.2g}<br>"
+                    f"ULOQ={uloq:.2g}"
+                )
+            except Exception:
+                params_text = None
+        fig.update_layout(
+            title=peak_label,
+            xaxis=dict(title=xlabel, type="log"),
+            yaxis=dict(title=f"{peak_label} intensity (AU)", type="log"),
+            legend=dict(orientation="h", y=1.08, x=0),
+            margin=dict(l=60, r=20, t=60, b=60),
+            template="plotly_white",
+        )
+        if params_text:
+            fig.add_annotation(
+                xref="paper",
+                yref="paper",
+                x=0.05,
+                y=0.95,
+                xanchor="left",
+                yanchor="top",
+                text=params_text,
+                showarrow=False,
+                font=dict(size=12, color="#444"),
+                align="left",
+                bgcolor="rgba(255,255,255,0.8)",
+                bordercolor="rgba(0,0,0,0.1)",
+                borderpad=4,
+            )
+        fig.update_xaxes(showgrid=True)
+        fig.update_yaxes(showgrid=True)
+        return fig
+
     @app.callback(
-        Output('analysis-normalization-select', 'value'),
+        Output('analysis-metric-container', 'style'),
+        Input('analysis-tabs', 'activeKey'),
+        prevent_initial_call=False,
+    )
+    def toggle_metric_visibility(active_tab):
+        if active_tab == 'scalir':
+            return {'display': 'none'}
+        return {}
+
+    @app.callback(
+        Output('scalir-standards-note', 'children'),
+        Input('scalir-standards-upload', 'filename'),
+        prevent_initial_call=False,
+    )
+    def show_standards_filename(filename):
+        if filename:
+            return f"Selected: {filename}"
+        return "No standards file selected."
+
+    @app.callback(
+        Output('analysis-normalization-select', 'value', allow_duplicate=True),
         Input('analysis-tabs', 'activeKey'),
         prevent_initial_call=True,
     )
     def set_norm_default_for_tab(active_tab):
         return TAB_DEFAULT_NORM.get(active_tab, 'zscore')
+
+    @app.callback(
+        Output('scalir-status-text', 'children', allow_duplicate=True),
+        Output('scalir-conc-path', 'children', allow_duplicate=True),
+        Output('scalir-params-path', 'children', allow_duplicate=True),
+        Output('scalir-metabolite-select', 'options', allow_duplicate=True),
+        Output('scalir-metabolite-select', 'value', allow_duplicate=True),
+        Output('scalir-plot-graphs', 'children', allow_duplicate=True),
+        Output('scalir-plot-graphs', 'style', allow_duplicate=True),
+        Output('scalir-results-store', 'data', allow_duplicate=True),
+        Output('scalir-standards-upload', 'contents', allow_duplicate=True),
+        Output('scalir-standards-upload', 'filename', allow_duplicate=True),
+        Output('scalir-standards-note', 'children', allow_duplicate=True),
+        Input('scalir-reset-btn', 'nClicks'),
+        prevent_initial_call=True,
+    )
+    def reset_scalir(n_clicks):
+        if not n_clicks:
+            raise PreventUpdate
+        return (
+            "",
+            "",
+            "",
+            [],
+            [],
+            [],
+            {
+                'display': 'none',
+                'flexWrap': 'wrap',
+                'gap': '16px',
+                'paddingTop': '8px',
+                'justifyContent': 'flex-start',
+            },
+            None,
+            None,
+            None,
+            "No standards file selected.",
+        )
 
     @app.callback(
         Output('bar-graph-matplotlib', 'src'),
@@ -353,6 +693,7 @@ def callbacks(app, fsc, cache):
 
             from sklearn.preprocessing import StandardScaler
             scaler = StandardScaler()
+            norm_value = norm_value or TAB_DEFAULT_NORM.get(tab_key, 'zscore')
             if norm_value == 'zscore':
                 zdf = pd.DataFrame(scaler.fit_transform(df), index=df.index, columns=df.columns)
                 ndf = zdf
@@ -677,20 +1018,230 @@ def callbacks(app, fsc, cache):
         return dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update
 
     @app.callback(
+        Output('scalir-status-text', 'children'),
+        Output('scalir-conc-path', 'children'),
+        Output('scalir-params-path', 'children'),
+        Output('scalir-metabolite-select', 'options'),
+        Output('scalir-metabolite-select', 'value'),
+        Output('scalir-plot-graphs', 'children'),
+        Output('scalir-plot-graphs', 'style'),
+        Output('scalir-results-store', 'data'),
+        Input('scalir-run-btn', 'nClicks'),
+        State('scalir-standards-upload', 'contents'),
+        State('scalir-standards-upload', 'filename'),
+        State('scalir-intensity', 'value'),
+        State('scalir-slope-mode', 'value'),
+        State('scalir-slope-low', 'value'),
+        State('scalir-slope-high', 'value'),
+        State('scalir-generate-plots', 'checked'),
+        State('wdir', 'data'),
+        State('analysis-tabs', 'activeKey'),
+        State('section-context', 'data'),
+        prevent_initial_call=True,
+    )
+    def run_scalir(n_clicks, standards_contents, standards_filename, intensity, slope_mode, slope_low, slope_high,
+                   generate_plots, wdir, active_tab, section_context):
+        if not n_clicks or not section_context or section_context.get('page') != 'Analysis' or active_tab != 'scalir':
+            raise PreventUpdate
+
+        hidden_style = {
+            'display': 'none',
+            'flexWrap': 'wrap',
+            'gap': '16px',
+            'paddingTop': '8px',
+            'justifyContent': 'flex-start',
+        }
+
+        if not wdir:
+            return ("No active workspace.", "", "", [], [], [], hidden_style, None)
+
+        try:
+            standards_df = _parse_uploaded_standards(standards_contents, standards_filename)
+        except Exception as exc:
+            return (f"Upload a standards table (CSV). Error: {exc}", "", "", [], [], [], hidden_style, None)
+
+        with duckdb_connection(wdir) as conn:
+            if conn is None:
+                raise PreventUpdate
+            if not intensity:
+                intensity = 'peak_area'
+            try:
+                mint_df = conn.execute(f"""
+                    SELECT ms_file_label AS ms_file, peak_label, {intensity}
+                    FROM results
+                    WHERE {intensity} IS NOT NULL
+                """).df()
+            except Exception as exc:
+                return (f"Could not load results: {exc}", "", "", [], [], [], hidden_style, None)
+
+        if mint_df.empty:
+            return ("No results found for calibration.", "", "", [], [], [], hidden_style, None)
+
+        units_df = None
+        if "unit" in standards_df.columns:
+            units_df = standards_df[["peak_label", "unit"]].copy()
+            standards_df = standards_df.drop(columns=["unit"])
+
+        try:
+            mint_filtered, standards_filtered, units_filtered, common = intersect_peaks(
+                mint_df, standards_df, units_df
+            )
+        except Exception as exc:
+            return (f"Could not align standards with results: {exc}", "", "", [], [], [], hidden_style, None)
+
+        if not common:
+            return ("No overlapping peak_label values between results and standards.", "", "", [], [], [], hidden_style, None)
+
+        low = slope_low or 0.85
+        high = slope_high or 1.15
+        slope_interval = (min(low, high), max(low, high))
+
+        try:
+            estimator, std_results, x_train, y_train, params = fit_estimator(
+                mint_filtered, standards_filtered, intensity, slope_mode or "fixed", slope_interval
+            )
+            concentrations = build_concentration_table(
+                estimator, mint_filtered, intensity, units_filtered
+            )
+        except Exception as exc:
+            return (f"Error fitting calibration: {exc}", "", "", [], [], [], hidden_style, None)
+
+        output_dir = Path(wdir) / "analysis" / "scalir"
+        plots_dir = output_dir / "plots"
+        output_dir.mkdir(parents=True, exist_ok=True)
+        if generate_plots:
+            plots_dir.mkdir(parents=True, exist_ok=True)
+
+        concentrations_path = output_dir / "concentrations.csv"
+        params_path = output_dir / "standard_curve_parameters.csv"
+        concentrations.to_csv(concentrations_path, index=False)
+        params.to_csv(params_path, index=False)
+
+        try:
+            train_frame = training_plot_frame(estimator, x_train, y_train, params)
+        except Exception:
+            train_frame = pd.DataFrame()
+
+        if generate_plots and not train_frame.empty:
+            for label in common:
+                plot_standard_curve(train_frame, label, units_filtered, plots_dir)
+
+        metabolite_options = [{'label': label, 'value': label} for label in common]
+        first_label = common[0] if common else None
+        initial_selection = [first_label] if first_label else []
+        plots = []
+        for lbl in initial_selection:
+            plots.append(
+                dcc.Graph(
+                    figure=_plot_curve_fig(train_frame, lbl, units_filtered),
+                    style={
+                        'flex': '0 0 calc(33.333% - 12px)',
+                        'minWidth': '320px',
+                        'maxWidth': '520px',
+                        'minHeight': '320px',
+                    },
+                    config={'displaylogo': False},
+                )
+            )
+        plot_style = {
+            'display': 'flex' if plots else 'none',
+            'flexWrap': 'wrap',
+            'gap': '16px',
+            'paddingTop': '8px',
+            'justifyContent': 'flex-start',
+        }
+
+        store_data = {
+            "train_frame": train_frame.to_json(orient="split") if not train_frame.empty else None,
+            "units": units_filtered.to_json(orient="split") if units_filtered is not None else None,
+            "params": params.to_json(orient="split") if not params.empty else None,
+            "plot_dir": str(plots_dir),
+            "common": common,
+            "generated_all_plots": bool(generate_plots),
+        }
+
+        status_text = f"Fitted {len(common)} metabolites with intensity '{intensity}'."
+        return (
+            status_text,
+            f"Concentrations: {concentrations_path}",
+            f"Curve parameters: {params_path}",
+            metabolite_options,
+            initial_selection,
+            plots,
+            plot_style,
+            store_data,
+        )
+
+    @app.callback(
+        Output('scalir-plot-graphs', 'children', allow_duplicate=True),
+        Output('scalir-plot-graphs', 'style', allow_duplicate=True),
+        Output('scalir-plot-path', 'children'),
+        Input('scalir-metabolite-select', 'value'),
+        State('scalir-results-store', 'data'),
+        prevent_initial_call=True,
+    )
+    def update_scalir_plot(selected_labels, store_data):
+        if not store_data or not selected_labels:
+            raise PreventUpdate
+
+        train_frame_json = store_data.get("train_frame")
+        if not train_frame_json:
+            raise PreventUpdate
+
+        train_frame = pd.read_json(StringIO(train_frame_json), orient="split")
+        units_json = store_data.get("units")
+        units_df = pd.read_json(StringIO(units_json), orient="split") if units_json else None
+        params_json = store_data.get("params")
+        params_df = pd.read_json(StringIO(params_json), orient="split") if params_json else None
+
+        labels = selected_labels if isinstance(selected_labels, list) else [selected_labels]
+        plots = []
+        for lbl in labels:
+            plots.append(
+                dcc.Graph(
+                    figure=_plot_curve_fig(train_frame, lbl, units_df, params_df),
+                    style={
+                        'flex': '0 0 calc(33.333% - 12px)',
+                        'minWidth': '320px',
+                        'maxWidth': '520px',
+                        'minHeight': '320px',
+                    },
+                    config={'displaylogo': False},
+                )
+            )
+
+        plot_dir = Path(store_data.get("plot_dir", ""))
+        plot_path = ""
+        if labels and store_data.get("generated_all_plots") and plot_dir:
+            candidate = plot_dir / f"{slugify_label(labels[0])}_curve.png"
+            if candidate.exists():
+                plot_path = f"Plot saved at: {candidate}"
+
+        return plots, {
+            'display': 'flex',
+            'flexWrap': 'wrap',
+            'gap': '16px',
+            'paddingTop': '8px',
+            'justifyContent': 'flex-start',
+        }, plot_path
+
+    @app.callback(
         Output('clustermap-spinner', 'spinning'),
         Input('analysis-tabs', 'activeKey'),
         Input('bar-graph-matplotlib', 'src'),
+        Input('analysis-metric-select', 'value'),
+        Input('analysis-normalization-select', 'value'),
         prevent_initial_call=True,
     )
-    def toggle_clustermap_spinner(active_tab, bar_src):
+    def toggle_clustermap_spinner(active_tab, bar_src, metric_value, norm_value):
         from dash import callback_context
 
         if active_tab != 'clustermap':
             return False
 
         trigger = callback_context.triggered[0]["prop_id"].split(".")[0] if callback_context.triggered else ""
-        # When user switches to clustermap tab, force spinner on even if previous image exists
-        if trigger == 'analysis-tabs':
+        # When user switches to clustermap tab or changes metric/normalization, force spinner on even if previous image exists
+        if trigger in ('analysis-tabs', 'analysis-metric-select', 'analysis-normalization-select'):
             return True
 
         # Otherwise, keep spinning until image src is set
