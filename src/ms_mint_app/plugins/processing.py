@@ -530,6 +530,17 @@ def callbacks(app, fsc, cache):
         if section_context and section_context['page'] != 'Processing':
             raise PreventUpdate
 
+        # Autosave results table on tab load/refresh for durability
+        try:
+            if wdir:
+                results_dir = Path(wdir) / "results"
+                results_dir.mkdir(parents=True, exist_ok=True)
+                with duckdb_connection(wdir) as conn:
+                    conn.execute("COPY (SELECT * FROM results) TO ? (HEADER, DELIMITER ',')",
+                                 (str(results_dir / "results_backup.csv"),))
+        except Exception:
+            pass
+
         start_time = time.perf_counter()
 
         f = ['processing-delete-all', 'processing-delete-selected']
@@ -905,5 +916,16 @@ def callbacks(app, fsc, cache):
                            set_progress=set_progress,
                            n_cpus=n_cpus,
                            ram=ram)
+
+        # Persist the results table to a workspace folder for resilience
+        try:
+            with duckdb_connection(wdir) as conn:
+                results_df = conn.execute("SELECT * FROM results").df()
+            results_dir = Path(wdir) / "results"
+            results_dir.mkdir(parents=True, exist_ok=True)
+            results_df.to_csv(results_dir / "results_backup.csv", index=False)
+        except Exception:
+            pass
+
         print(f"Results computed in {time.perf_counter() - start:.2f} seconds")
         return True, False
