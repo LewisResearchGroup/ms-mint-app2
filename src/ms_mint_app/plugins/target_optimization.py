@@ -8,6 +8,7 @@ import numpy as np
 import plotly.graph_objects as go
 import psutil
 import time
+from pathlib import Path
 from dash import html, dcc, Patch
 from dash.dependencies import Input, Output, State, ALL
 from dash.exceptions import PreventUpdate
@@ -988,9 +989,18 @@ def callbacks(app, fsc, cache, cpu=None):
                                            )
                                        """, [selection_ms_type, selection_ms_type,
                                              selection_bookmark, selection_bookmark,
-                                             selected_targets, selected_targets]).fetchall()
+                                            selected_targets, selected_targets]).fetchall()
 
             all_targets = [row[0] for row in all_targets]
+
+            # Autosave the current targets table to the workspace data folder so UI edits are persisted.
+            try:
+                data_dir = Path(wdir) / "data"
+                data_dir.mkdir(parents=True, exist_ok=True)
+                targets_df = conn.execute("SELECT * FROM targets").df()
+                targets_df.to_csv(data_dir / "targets_backup.csv", index=False)
+            except Exception:
+                pass
 
             query = f"""
                                 WITH picked_samples AS (
