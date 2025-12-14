@@ -80,9 +80,9 @@ def run_pca_samples_in_cols(df: pd.DataFrame, n_components=None, random_state=0)
     pc_labels = [f"PC{i + 1}" for i in range(pca.n_components_)]
 
     loadings = pd.DataFrame(
-        pca.components_,
-        columns=df.columns,
-        index=pc_labels,
+        pca.components_.T * np.sqrt(pca.explained_variance_), # https://stats.stackexchange.com/questions/143905/loadings-vs-eigenvectors-in-pca-when-to-use-one-or-another
+        columns=pc_labels,
+        index=df.columns,
     )
     scores_df = pd.DataFrame(
         scores,
@@ -817,12 +817,13 @@ def callbacks(app, fsc, cache):
             results['scores']['sample_label'] = results['scores'].index
             x_axis = x_comp or 'PC1'
             y_axis = y_comp or 'PC2'
-            loadings = results['loadings']
             component_id = x_axis
+            loading_bar = None
             loading_category_order = None
-            if component_id in loadings.index:
-                ordered = loadings.loc[component_id].abs().sort_values(ascending=False).head(10)
-                # Reverse order so the largest loading renders at the top of the horizontal chart
+            loadings_df = results.get('loadings')
+            has_component = isinstance(loadings_df, pd.DataFrame) and component_id in loadings_df.columns
+            if has_component:
+                ordered = loadings_df[component_id].abs().sort_values(ascending=False).head(10)
                 loading_category_order = list(reversed(ordered.index.tolist()))
                 loading_bar = go.Bar(
                     x=ordered.loc[loading_category_order],
@@ -836,8 +837,6 @@ def callbacks(app, fsc, cache):
                     cliponaxis=False,
                     hovertemplate='<b>%{y}</b><br>|Loading|=%{x:.4f}<extra></extra>',
                 )
-            else:
-                loading_bar = None
 
             variance_bar = go.Bar(
                 x=results['explained_variance_ratio'].index,
@@ -876,7 +875,7 @@ def callbacks(app, fsc, cache):
                 subplot_titles=(
                     f"PCA ({x_axis} vs {y_axis})",
                     "Cummulative Variance",
-                    f"Loadings ({component_id})" if component_id in loadings.index else "Loadings",
+                    f"|Loadings| ({component_id})" if has_component else "Loadings",
                 ),
             )
 
@@ -926,10 +925,11 @@ def callbacks(app, fsc, cache):
             return dash.no_update, fig, dash.no_update, compound_options, dash.no_update
 
         elif tab_key == 'raincloud':
-            # Build options list
+            # Build options list; sort by absolute PC1 loading if available so the most
+            # influential metabolites surface first.
+            loadings_for_sort = None
             violin_options = compound_options
             # Default selection: highest absolute loading on PC1 (per current metric/norm).
-            # If user actively changed the selector, keep their choice; otherwise refresh to top PC1.
             default_violin = []
             if violin_options:
                 try:
@@ -938,10 +938,16 @@ def callbacks(app, fsc, cache):
                         n_components=min(violin_matrix.shape[0], violin_matrix.shape[1], 5)
                     )
                     loadings = pca_results.get('loadings')
-                    if loadings is not None and 'PC1' in loadings.index:
-                        default_violin = [loadings.loc['PC1'].abs().idxmax()]
+                    if loadings is not None and 'PC1' in loadings.columns:
+                        loadings_for_sort = loadings
+                        default_violin = [loadings['PC1'].abs().idxmax()]
                 except Exception:
                     default_violin = [violin_options[0]['value']]
+
+            if loadings_for_sort is not None and 'PC1' in loadings_for_sort.columns:
+                pc1_sorted = loadings_for_sort['PC1'].abs().sort_values(ascending=False)
+                option_map = {opt['value']: opt for opt in compound_options}
+                violin_options = [option_map[val] for val in pc1_sorted.index if val in option_map]
 
             from dash import callback_context
             triggered = callback_context.triggered[0]["prop_id"].split(".")[0] if callback_context.triggered else ""
