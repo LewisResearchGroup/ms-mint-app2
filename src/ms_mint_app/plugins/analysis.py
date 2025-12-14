@@ -658,6 +658,10 @@ def callbacks(app, fsc, cache):
         if not wdir:
             raise PreventUpdate
 
+        from dash import callback_context
+        ctx = callback_context
+        triggered_prop = ctx.triggered[0]["prop_id"].split(".")[0] if ctx.triggered else ""
+
         with duckdb_connection(wdir) as conn:
             metric = metric_value or 'peak_area'
             df = create_pivot(conn, value=metric)
@@ -708,6 +712,7 @@ def callbacks(app, fsc, cache):
 
             from sklearn.preprocessing import StandardScaler
             scaler = StandardScaler()
+            provided_norm = norm_value  # keep the user-provided value (None on first layout pass)
             norm_value = norm_value or TAB_DEFAULT_NORM.get(tab_key, 'zscore')
             if norm_value == 'zscore':
                 zdf = pd.DataFrame(scaler.fit_transform(df), index=df.index, columns=df.columns)
@@ -798,6 +803,19 @@ def callbacks(app, fsc, cache):
 
             from io import BytesIO
             buf = BytesIO()
+            # Save a high-resolution copy to disk for durability/exports
+            try:
+                # Avoid double-saving when the norm dropdown hasn't populated yet (provided_norm is None)
+                # Also skip the immediate tab-change trigger; wait for the follow-up with the final norm value.
+                if wdir and provided_norm is not None and triggered_prop != 'analysis-tabs':
+                    cm_dir = Path(wdir) / "analysis" / "clustermap"
+                    cm_dir.mkdir(parents=True, exist_ok=True)
+                    safe_metric = slugify_label(metric)
+                    file_name = f"{safe_metric}_{norm_value}_clustermap.png"
+                    fig.savefig(cm_dir / file_name, format="png", dpi=600)
+            except Exception:
+                pass
+
             fig.savefig(buf, format="png", dpi=300)
             # Avoid accumulating open figures across callbacks
             plt.close(fig.fig)
