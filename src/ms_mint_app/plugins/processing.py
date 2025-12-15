@@ -599,6 +599,12 @@ _layout = html.Div(
             current=0,
             id='processing-tour-hint',
             className='targets-tour-hint',
+            style={
+                'background': '#ffffff',
+                'border': '0.5px solid #1677ff',
+                'boxShadow': '0 6px 16px rgba(0,0,0,0.15), 0 0 0 1px rgba(22,119,255,0.2)',
+                'opacity': 1,
+            },
         ),
         dcc.Store('results-action-store'),
         dcc.Store(id='processing-tour-hint-store', data={'open': True}, storage_type='session'),

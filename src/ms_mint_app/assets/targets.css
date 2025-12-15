@@ -1,16 +1,16 @@
 .targets-tour-hint .ant-tour-arrow {
-    filter: drop-shadow(0 0 0 2px #1677ff) drop-shadow(0 0 10px rgba(22, 119, 255, 0.6));
+    filter: drop-shadow(0 0 0 1px #1677ff) drop-shadow(0 0 6px rgba(22, 119, 255, 0.35));
 }
 
 .targets-tour-hint .ant-tour-arrow-content {
     background: #ffffff;
-    box-shadow: 0 0 0 2px #1677ff, 0 0 10px rgba(22, 119, 255, 0.6);
+    box-shadow: 0 0 0 1px #1677ff, 0 0 6px rgba(22, 119, 255, 0.35);
 }
 
 .targets-tour-hint .ant-tour-inner,
 .targets-tour-hint.ant-tour .ant-tour-inner {
-    border: 2px solid #1677ff !important;
-    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18), 0 0 0 2px rgba(22, 119, 255, 0.4) !important;
+    border: 0.5px solid #1677ff !important;
+    box-shadow: 0 6px 16px rgba(0, 0, 0, 0.15), 0 0 0 1px rgba(22, 119, 255, 0.2) !important;
 }
 
 .targets-tour-hint .ant-tour-content,
@@ -20,16 +20,15 @@
 
 /* fallback: strengthen all tours if class not present */
 .ant-tour .ant-tour-inner {
-    border: 2px solid rgba(22, 119, 255, 0.9) !important;
-    outline: 2px solid rgba(22, 119, 255, 0.6) !important;
-    outline-offset: 0 !important;
-    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.24), 0 0 0 3px rgba(22, 119, 255, 0.35) !important;
+    border: 0.5px solid rgba(22, 119, 255, 0.7) !important;
+    outline: none !important;
+    box-shadow: 0 6px 16px rgba(0, 0, 0, 0.15), 0 0 0 1px rgba(22, 119, 255, 0.2) !important;
     background: #ffffff !important;
     opacity: 1 !important;
 }
 
 .ant-tour .ant-tour-arrow-content {
-    box-shadow: 0 0 0 2px rgba(22, 119, 255, 0.9), 0 0 14px rgba(22, 119, 255, 0.55) !important;
+    box-shadow: 0 0 0 1px rgba(22, 119, 255, 0.7), 0 0 8px rgba(22, 119, 255, 0.35) !important;
     background: #ffffff !important;
     opacity: 1 !important;
 }
