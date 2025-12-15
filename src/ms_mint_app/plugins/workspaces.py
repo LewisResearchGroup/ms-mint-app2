@@ -109,13 +109,57 @@ _layout = html.Div(
             html.Div(fac.AntdText('Are you sure you want to delete this workspace?', strong=True))],
             title="Delete Workspace",
             id="ws-delete-modal",
-            okText="Delete",
-            renderFooter=True,
+                okText="Delete",
+                renderFooter=True,
+                locale='en-us',
+                okButtonProps={
+                    'danger': True
+                }
+        ),
+        fac.AntdTour(
             locale='en-us',
-            okButtonProps={
-                'danger': True
-            }
-        )
+            steps=[
+                {
+                    'title': 'Workspaces Tour',
+                    'description': 'Overview of creating, selecting, and managing workspaces.',
+                },
+                {
+                    'title': 'Workspace list',
+                    'description': 'Select a workspace to load it. Sort/filter by name, created date, or activity.',
+                    'targetSelector': '#ws-table'
+                },
+                {
+                    'title': 'Create workspace',
+                    'description': 'Add a new workspace for your project.',
+                    'targetSelector': '#ws-create'
+                },
+                {
+                    'title': 'Delete workspace',
+                    'description': 'Remove the selected workspace and all its files/results.',
+                    'targetSelector': '#ws-delete'
+                },
+            ],
+            id='workspace-tour',
+            open=False,
+            current=0,
+        ),
+        fac.AntdTour(
+            locale='en-us',
+            steps=[
+                {
+                    'title': 'Need help?',
+                    'description': 'Click the info icon to open a quick tour of Workspaces.',
+                    'targetSelector': '#workspace-tour-icon',
+                },
+            ],
+            mask=False,
+            placement='rightTop',
+            open=False,
+            current=0,
+            id='workspace-tour-hint',
+            className='targets-tour-hint',
+        ),
+        dcc.Store(id='workspace-tour-hint-store', data={'open': True}, storage_type='session'),
     ]
 )
 
@@ -128,6 +172,46 @@ _outputs = html.Div(
 
 
 def callbacks(app, fsc, cache):
+    @app.callback(
+        Output('workspace-tour', 'current'),
+        Output('workspace-tour', 'open'),
+        Input('workspace-tour-icon', 'nClicks'),
+        prevent_initial_call=True,
+    )
+    def workspace_tour_open(n_clicks):
+        return 0, True
+
+    @app.callback(
+        Output('workspace-tour-hint', 'open'),
+        Output('workspace-tour-hint', 'current'),
+        Input('workspace-tour-hint-store', 'data'),
+    )
+    def workspace_hint_sync(store_data):
+        if not store_data:
+            raise PreventUpdate
+        return store_data.get('open', True), 0
+
+    @app.callback(
+        Output('workspace-tour-hint-store', 'data'),
+        Input('workspace-tour-hint', 'closeCounts'),
+        Input('workspace-tour-icon', 'nClicks'),
+        State('workspace-tour-hint-store', 'data'),
+        prevent_initial_call=True,
+    )
+    def workspace_hide_hint(close_counts, n_clicks, store_data):
+        ctx = dash.callback_context
+        if not ctx.triggered:
+            raise PreventUpdate
+
+        trigger = ctx.triggered[0]['prop_id'].split('.')[0]
+        if trigger == 'workspace-tour-icon':
+            return {'open': False}
+
+        if close_counts:
+            return {'open': False}
+
+        return store_data or {'open': True}
+
     @app.callback(
         Output('ws-create-form-item', 'validateStatus'),
         Output('ws-create-form-item', 'help'),
