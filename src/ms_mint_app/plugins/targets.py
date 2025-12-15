@@ -99,17 +99,20 @@ _layout = html.Div(
                             iconPosition='end',
                             style={'textTransform': 'uppercase'},
                         ),
-                        fac.AntdDropdown(
-                            id='targets-options',
-                            title='Options',
-                            buttonMode=True,
-                            arrow=True,
-                            menuItems=[
-                                {'title': fac.AntdText('Delete selected', strong=True, type='warning'),
-                                 'key': 'delete-selected'},
-                                {'title': fac.AntdText('Clear table', strong=True, type='danger'), 'key': 'delete-all'},
-                            ],
-                            buttonProps={'style': {'textTransform': 'uppercase'}},
+                        html.Div(
+                            fac.AntdDropdown(
+                                id='targets-options',
+                                title='Options',
+                                buttonMode=True,
+                                arrow=True,
+                                menuItems=[
+                                    {'title': fac.AntdText('Delete selected', strong=True, type='warning'),
+                                     'key': 'delete-selected'},
+                                    {'title': fac.AntdText('Clear table', strong=True, type='danger'), 'key': 'delete-all'},
+                                ],
+                                buttonProps={'style': {'textTransform': 'uppercase'}},
+                            ),
+                            id='targets-options-wrapper',
                         ),
                     ],
                     align='center',
@@ -357,17 +360,48 @@ _layout = html.Div(
                     'description': 'This is a tour of the targets plugin.',
                 },
                 {
-                    'title': 'Table Columns info',
-                    'description': 'To access the information related to each column, I can position the mouse over '
-                                   'the column and an information box will be displayed with the most important '
-                                   'aspects of the column, such as description, definition, types, etc.',
-                    # 'targetId': 'upload-btn-tour-demo-1',
-                    'targetSelector': "#targets-table-container div.tabulator-col:nth-of-type(2)"
+                    'title': 'Download template',
+                    'description': 'Download the targets template CSV to start with the right columns and descriptions.',
+                    'targetSelector': '#download-target-template-btn'
+                },
+                {
+                    'title': 'Download targets',
+                    'description': 'Export the current targets table (with filters/sort applied on server) for review or sharing.',
+                    'targetSelector': '#download-target-list-btn'
+                },
+                {
+                    'title': 'Options',
+                    'description': 'Use these options to delete selected rows and clear the table.',
+                    'targetSelector': '#targets-options-wrapper'
+                },
+                {
+                    'title': 'Filter & sort',
+                    'description': 'Use header controls to search, filter by value, and sort columns.',
+                    'targetSelector': '#targets-table-container'
                 },
             ],
             id='targets-tour',
+            open=False,
+            current=0,
+        ),
+        fac.AntdTour(
+            locale='en-us',
+            steps=[
+                {
+                    'title': 'Need help?',
+                    'description': 'Click the info icon to open a quick tour of the Targets table.',
+                    'targetSelector': '#targets-tour-icon',
+                },
+            ],
+            mask=False,
+            placement='rightTop',
+            open=False,
+            current=0,
+            id='targets-tour-hint',
+            className='targets-tour-hint',
         ),
         dcc.Store(id="targets-action-store"),
+        dcc.Store(id="targets-tour-hint-store", data={'open': True}, storage_type='session'),
         dcc.Download('download-targets-csv'),
     ],
 )
@@ -692,3 +726,34 @@ def callbacks(app, fsc=None, cache=None):
     def targets_tour(n_clicks):
         print(f"{n_clicks = }")
         return 0, True
+
+    @app.callback(
+        Output('targets-tour-hint', 'open'),
+        Output('targets-tour-hint', 'current'),
+        Input('targets-tour-hint-store', 'data'),
+    )
+    def sync_hint_store(store_data):
+        if not store_data:
+            raise PreventUpdate
+        return store_data.get('open', True), 0
+
+    @app.callback(
+        Output('targets-tour-hint-store', 'data'),
+        Input('targets-tour-hint', 'closeCounts'),
+        Input('targets-tour-icon', 'nClicks'),
+        State('targets-tour-hint-store', 'data'),
+        prevent_initial_call=True,
+    )
+    def hide_hint(close_counts, n_clicks, store_data):
+        ctx = dash.callback_context
+        if not ctx.triggered:
+            raise PreventUpdate
+
+        trigger = ctx.triggered[0]['prop_id'].split('.')[0]
+        if trigger == 'targets-tour-icon':
+            return {'open': False}
+
+        if close_counts:
+            return {'open': False}
+
+        return store_data or {'open': True}

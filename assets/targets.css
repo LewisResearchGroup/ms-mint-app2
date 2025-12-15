@@ -1,0 +1,7 @@
+.targets-tour-hint .ant-tour-arrow {
+    filter: drop-shadow(0 0 0 2px #1677ff) drop-shadow(0 0 10px rgba(22, 119, 255, 0.6));
+}
+
+.targets-tour-hint .ant-tour-arrow-content {
+    background: #ffffff;
+}
