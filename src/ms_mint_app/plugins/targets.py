@@ -39,6 +39,7 @@ TARGET_TEMPLATE_DESCRIPTIONS = [
     'Free-form notes'
 ]
 TARGET_TEMPLATE_CSV = ",".join(TARGET_TEMPLATE_COLUMNS) + "\n" + ",".join(TARGET_TEMPLATE_DESCRIPTIONS) + "\n"
+TARGET_DESCRIPTION_MAP = dict(zip(TARGET_TEMPLATE_COLUMNS, TARGET_TEMPLATE_DESCRIPTIONS))
 
 
 class TargetsPlugin(PluginInterface):
@@ -218,72 +219,72 @@ _layout = html.Div(
                         ],
                         titlePopoverInfo={
                             'peak_label': {
-                                'title': 'peak_label',
-                                'content': 'This is peak_label field',
+                                'title': 'Target',
+                                'content': TARGET_DESCRIPTION_MAP['peak_label'],
                             },
                             'peak_selection': {
-                                'title': 'peak_selection',
-                                'content': 'This is peak_selection field',
+                                'title': 'Selection',
+                                'content': TARGET_DESCRIPTION_MAP['peak_selection'],
                             },
                             'mz_mean': {
-                                'title': 'mz_mean',
-                                'content': 'This is mz_mean field',
+                                'title': 'MZ-Mean',
+                                'content': TARGET_DESCRIPTION_MAP['mz_mean'],
                             },
                             'mz_width': {
-                                'title': 'mz_width',
-                                'content': 'This is mz_width field',
+                                'title': 'MZ-Width',
+                                'content': TARGET_DESCRIPTION_MAP['mz_width'],
                             },
                             'mz': {
                                 'title': 'mz',
-                                'content': 'This is mz field',
+                                'content': TARGET_DESCRIPTION_MAP['mz'],
                             },
                             'rt': {
                                 'title': 'rt',
-                                'content': 'This is rt field',
+                                'content': TARGET_DESCRIPTION_MAP['rt'],
                             },
                             'rt_min': {
                                 'title': 'rt_min',
-                                'content': 'This is rt_min field',
+                                'content': TARGET_DESCRIPTION_MAP['rt_min'],
                             },
                             'rt_max': {
                                 'title': 'rt_max',
-                                'content': 'This is rt_max field',
+                                'content': TARGET_DESCRIPTION_MAP['rt_max'],
                             },
                             'rt_unit': {
                                 'title': 'rt_unit',
-                                'content': 'This is rt_unit field',
+                                'content': TARGET_DESCRIPTION_MAP['rt_unit'],
                             },
                             'intensity_threshold': {
-                                'title': 'intensity_threshold',
-                                'content': 'This is intensity_threshold field',
+                                'title': 'Intensity Threshold',
+                                'content': TARGET_DESCRIPTION_MAP['intensity_threshold'],
                             },
                             'ms_type': {
                                 'title': 'MS-Type',
-                                'content': 'This is polarity field',
+                                'content': TARGET_DESCRIPTION_MAP['ms_type'],
                             },
                             'polarity': {
                                 'title': 'polarity',
-                                'content': 'This is polarity field',
+                                'content': TARGET_DESCRIPTION_MAP['polarity'],
                             },
                             'filterLine': {
                                 'title': 'filterLine',
-                                'content': 'This is filterLine field',
+                                'content': TARGET_DESCRIPTION_MAP['filterLine'],
                             },
                             'proton': {
                                 'title': 'proton',
-                                'content': 'This is proton field',
+                                'content': 'Ion charge state (Neutral, Positive, or Negative)',
                             },
                             'category': {
                                 'title': 'category',
-                                'content': 'This is category field',
+                                'content': TARGET_DESCRIPTION_MAP['category'],
                             },
                             'notes': {
                                 'title': 'notes',
-                                'content': 'Notes for this target',
+                                'content': TARGET_DESCRIPTION_MAP['notes'],
                             },
                             'source': {
                                 'title': 'source',
-                                'content': 'This is source field',
+                                'content': TARGET_DESCRIPTION_MAP['source'],
                             },
                         },
                         filterOptions={
