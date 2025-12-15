@@ -26,7 +26,7 @@ TARGET_TEMPLATE_DESCRIPTIONS = [
     'Retention time (default: in seconds)',
     'Lower RT bound (default: in seconds)',
     'Upper RT bound (default: in seconds)',
-    'RT unit (e.g. s or min, default: in seconds)',
+    'RT unit (e.g. s or min; default: in seconds)',
     'Intensity cutoff (anything lower than this value is considered zero)',
     'Polarity (Positive or Negative)',
     'Filter ID for MS2 scans',
@@ -82,20 +82,32 @@ _layout = html.Div(
                     ],
                     align='center',
                 ),
-                fac.AntdDropdown(
-                    id='targets-options',
-                    title='Options',
-                    buttonMode=True,
-                    arrow=True,
-                    menuItems=[
-                        {'title': 'Download targets list', 'icon': 'antd-download', 'key': 'download-target-list'},
-                        {'title': 'Download template', 'icon': 'antd-download', 'key': 'download-target-template'},
-                        {'isDivider': True},
-                        {'title': fac.AntdText('Delete selected', strong=True, type='warning'),
-                         'key': 'delete-selected'},
-                        {'title': fac.AntdText('Clear table', strong=True, type='danger'), 'key': 'delete-all'},
+                fac.AntdFlex(
+                    [
+                        fac.AntdButton(
+                            'Download template',
+                            id='download-target-template-btn',
+                            icon=fac.AntdIcon(icon='antd-download'),
+                            iconPosition='end',
+                            style={'textTransform': 'uppercase'},
+                        ),
+                        fac.AntdDropdown(
+                            id='targets-options',
+                            title='Options',
+                            buttonMode=True,
+                            arrow=True,
+                            menuItems=[
+                                {'title': 'Download targets list', 'icon': 'antd-download', 'key': 'download-target-list'},
+                                {'isDivider': True},
+                                {'title': fac.AntdText('Delete selected', strong=True, type='warning'),
+                                 'key': 'delete-selected'},
+                                {'title': fac.AntdText('Clear table', strong=True, type='danger'), 'key': 'delete-all'},
+                            ],
+                            buttonProps={'style': {'textTransform': 'uppercase'}},
+                        ),
                     ],
-                    buttonProps={'style': {'textTransform': 'uppercase'}},
+                    align='center',
+                    gap='small',
                 ),
             ],
             justify="space-between",
@@ -630,17 +642,24 @@ def callbacks(app, fsc=None, cache=None):
         Output("download-targets-csv", "data"),
 
         Input("targets-options", "nClicks"),
+        Input("download-target-template-btn", "nClicks"),
         State("targets-options", "clickedKey"),
         State("wdir", "data"),
         prevent_initial_call=True,
     )
-    def download_results(nClicks, clickedKey, wdir):
+    def download_results(options_clicks, template_clicks, clickedKey, wdir):
 
         from pathlib import Path
         from ..duckdb_manager import duckdb_connection_mint
 
-        if nClicks is None or clickedKey not in ['download-target-list', 'download-target-template']:
+        ctx = dash.callback_context
+        if not ctx.triggered:
             raise PreventUpdate
+
+        trigger = ctx.triggered[0]['prop_id'].split('.')[0]
+
+        if trigger == 'download-target-template-btn':
+            return dcc.send_string(TARGET_TEMPLATE_CSV, "targets_template.csv")
 
         if clickedKey == 'download-target-list':
             ws_key = Path(wdir).stem
@@ -654,8 +673,8 @@ def callbacks(app, fsc=None, cache=None):
                     raise PreventUpdate
                 df = conn.execute("SELECT * FROM targets").df()
                 filename = f"{ws_name}_targets.csv"
-        elif clickedKey == 'download-target-template':
-            return dcc.send_string(TARGET_TEMPLATE_CSV, "targets_template.csv")
+        else:
+            raise PreventUpdate
         return dcc.send_data_frame(df.to_csv, filename, index=False)
 
     @app.callback(
