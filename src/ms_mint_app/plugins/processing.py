@@ -62,23 +62,32 @@ _layout = html.Div(
                     ],
                     align='center',
                 ),
-                html.Div(
-                    fac.AntdDropdown(
-                        id='processing-options',
-                        title='Options',
-                        buttonMode=True,
-                        arrow=True,
-                        menuItems=[
-                            {'title': fac.AntdText('Download', strong=True), 'key': 'processing-download'},
-                            {'isDivider': True},
-                            {'title': fac.AntdText('Delete selected', strong=True, type='warning'),
-                             'key': 'processing-delete-selected'},
-                            {'title': fac.AntdText('Clear table', strong=True, type='danger'),
-                             'key': 'processing-delete-all'},
-                        ],
-                        buttonProps={'style': {'textTransform': 'uppercase'}},
-                    ),
+                fac.AntdFlex(
+                    [
+                        fac.AntdButton(
+                            'Download Results',
+                            id='processing-download-btn',
+                            icon=fac.AntdIcon(icon='antd-download'),
+                            iconPosition='end',
+                            style={'textTransform': 'uppercase'},
+                        ),
+                        fac.AntdDropdown(
+                            id='processing-options',
+                            title='Options',
+                            buttonMode=True,
+                            arrow=True,
+                            menuItems=[
+                                {'title': fac.AntdText('Delete selected', strong=True, type='warning'),
+                                 'key': 'processing-delete-selected'},
+                                {'title': fac.AntdText('Clear table', strong=True, type='danger'),
+                                 'key': 'processing-delete-all'},
+                            ],
+                            buttonProps={'style': {'textTransform': 'uppercase'}},
+                        ),
+                    ],
                     id='processing-options-wrapper',
+                    align='center',
+                    gap='small',
                 ),
             ],
             justify="space-between",
@@ -799,12 +808,11 @@ def callbacks(app, fsc, cache):
     @app.callback(
         Output("download-results-modal", "visible"),
 
-        Input("processing-options", "nClicks"),
-        State("processing-options", "clickedKey"),
+        Input("processing-download-btn", "nClicks"),
         prevent_initial_call=True,
     )
-    def open_download_results(n_clicks, clickedKey):
-        if n_clicks is None or clickedKey != 'processing-download':
+    def open_download_results(n_clicks):
+        if not n_clicks:
             raise PreventUpdate
         return True
 
