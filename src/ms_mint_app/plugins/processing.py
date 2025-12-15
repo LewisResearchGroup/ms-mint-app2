@@ -62,20 +62,23 @@ _layout = html.Div(
                     ],
                     align='center',
                 ),
-                fac.AntdDropdown(
-                    id='processing-options',
-                    title='Options',
-                    buttonMode=True,
-                    arrow=True,
-                    menuItems=[
-                        {'title': fac.AntdText('Download', strong=True), 'key': 'processing-download'},
-                        {'isDivider': True},
-                        {'title': fac.AntdText('Delete selected', strong=True, type='warning'),
-                         'key': 'processing-delete-selected'},
-                        {'title': fac.AntdText('Clear table', strong=True, type='danger'),
-                         'key': 'processing-delete-all'},
-                    ],
-                    buttonProps={'style': {'textTransform': 'uppercase'}},
+                html.Div(
+                    fac.AntdDropdown(
+                        id='processing-options',
+                        title='Options',
+                        buttonMode=True,
+                        arrow=True,
+                        menuItems=[
+                            {'title': fac.AntdText('Download', strong=True), 'key': 'processing-download'},
+                            {'isDivider': True},
+                            {'title': fac.AntdText('Delete selected', strong=True, type='warning'),
+                             'key': 'processing-delete-selected'},
+                            {'title': fac.AntdText('Clear table', strong=True, type='danger'),
+                             'key': 'processing-delete-all'},
+                        ],
+                        buttonProps={'style': {'textTransform': 'uppercase'}},
+                    ),
+                    id='processing-options-wrapper',
                 ),
             ],
             justify="space-between",
@@ -545,7 +548,51 @@ _layout = html.Div(
             width=700,
             locale='en-us',
         ),
+        fac.AntdTour(
+            locale='en-us',
+            steps=[
+                {
+                    'title': 'Processing Tour',
+                    'description': 'Quick guide to processing results.',
+                },
+                {
+                    'title': 'Run MINT',
+                    'description': 'Launch processing for selected files and targets.',
+                    'targetSelector': '#processing-btn'
+                },
+                {
+                    'title': 'Options',
+                    'description': 'Download results or delete selected/all rows.',
+                    'targetSelector': '#processing-options-wrapper'
+                },
+                {
+                    'title': 'Filter & sort',
+                    'description': 'Use header controls to search, filter, and sort results.',
+                    'targetSelector': '#results-table-container'
+                },
+            ],
+            id='processing-tour',
+            open=False,
+            current=0,
+        ),
+        fac.AntdTour(
+            locale='en-us',
+            steps=[
+                {
+                    'title': 'Need help?',
+                    'description': 'Click the info icon to open a quick tour of Processing.',
+                    'targetSelector': '#processing-tour-icon',
+                },
+            ],
+            mask=False,
+            placement='rightTop',
+            open=False,
+            current=0,
+            id='processing-tour-hint',
+            className='targets-tour-hint',
+        ),
         dcc.Store('results-action-store'),
+        dcc.Store(id='processing-tour-hint-store', data={'open': True}, storage_type='session'),
         dcc.Download('download-csv'),
     ]
 )
@@ -877,6 +924,46 @@ def callbacks(app, fsc, cache):
                 df = create_pivot(conn, d_dm_rows[0], d_dm_cols[0], d_dm_value[0], table='results')
                 filename = f"{ws_name}_{d_dm_value[0]}_results.csv"
         return dcc.send_data_frame(df.to_csv, filename, index=False)
+
+    @app.callback(
+        Output('processing-tour', 'current'),
+        Output('processing-tour', 'open'),
+        Input('processing-tour-icon', 'nClicks'),
+        prevent_initial_call=True,
+    )
+    def processing_tour_open(n_clicks):
+        return 0, True
+
+    @app.callback(
+        Output('processing-tour-hint', 'open'),
+        Output('processing-tour-hint', 'current'),
+        Input('processing-tour-hint-store', 'data'),
+    )
+    def processing_hint_sync(store_data):
+        if not store_data:
+            raise PreventUpdate
+        return store_data.get('open', True), 0
+
+    @app.callback(
+        Output('processing-tour-hint-store', 'data'),
+        Input('processing-tour-hint', 'closeCounts'),
+        Input('processing-tour-icon', 'nClicks'),
+        State('processing-tour-hint-store', 'data'),
+        prevent_initial_call=True,
+    )
+    def processing_hide_hint(close_counts, n_clicks, store_data):
+        ctx = dash.callback_context
+        if not ctx.triggered:
+            raise PreventUpdate
+
+        trigger = ctx.triggered[0]['prop_id'].split('.')[0]
+        if trigger == 'processing-tour-icon':
+            return {'open': False}
+
+        if close_counts:
+            return {'open': False}
+
+        return store_data or {'open': True}
 
     @app.callback(
         Output("processing-modal", "visible"),
