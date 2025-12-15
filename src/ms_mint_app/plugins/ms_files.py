@@ -20,6 +20,41 @@ from ..duckdb_manager import duckdb_connection, build_where_and_params, build_or
 from ..plugin_interface import PluginInterface
 
 _label = "MS-Files"
+MS_METADATA_TEMPLATE_COLUMNS = [
+    'ms_file_label',
+    'label',
+    'color',
+    'use_for_optimization',
+    'use_for_analysis',
+    'sample_type',
+    'polarity',
+    'ms_type',
+    'run_order',
+    'plate',
+    'plate_row',
+    'plate_column',
+]
+MS_METADATA_TEMPLATE_DESCRIPTIONS = [
+    'Unique file name; must match the MS file on disk',
+    'Friendly label to display in plots and reports',
+    'Hex color for visualizations (auto-generated if blank)',
+    'True to include in optimization steps',
+    'True to include in analysis outputs',
+    'Sample category (e.g.; Sample; QC; Blank; Standard)',
+    'Polarity (Positive or Negative)',
+    'Acquisition type (ms1 or ms2)',
+    'Numeric injection/run order',
+    'Plate identifier (if applicable)',
+    'Plate row (e.g.; A; B; C)',
+    'Plate column number',
+]
+MS_METADATA_TEMPLATE_CSV = (
+    ",".join(MS_METADATA_TEMPLATE_COLUMNS)
+    + "\n"
+    + ",".join(MS_METADATA_TEMPLATE_DESCRIPTIONS)
+    + "\n"
+)
+MS_METADATA_DESCRIPTION_MAP = dict(zip(MS_METADATA_TEMPLATE_COLUMNS, MS_METADATA_TEMPLATE_DESCRIPTIONS))
 
 home_path = Path.home()
 
@@ -84,20 +119,40 @@ _layout = html.Div(
                     ],
                     align='center',
                 ),
-                fac.AntdDropdown(
-                    id='ms-options',
-                    title='Options',
-                    buttonMode=True,
-                    arrow=True,
-                    menuItems=[
-                        {'title': 'Generate colors', 'icon': 'antd-highlight', 'key': 'generate-colors'},
-                        {'title': 'Regenerate colors', 'icon': 'pi-broom', 'key': 'regenerate-colors'},
-                        {'isDivider': True},
-                        {'title': fac.AntdText('Delete selected', strong=True, type='warning'),
-                         'key': 'delete-selected'},
-                        {'title': fac.AntdText('Clear table', strong=True, type='danger'), 'key': 'delete-all'},
+                fac.AntdFlex(
+                    [
+                        fac.AntdButton(
+                            'Download template',
+                            id='download-ms-template-btn',
+                            icon=fac.AntdIcon(icon='antd-download'),
+                            iconPosition='end',
+                            style={'textTransform': 'uppercase'},
+                        ),
+                        fac.AntdButton(
+                            'Download MS-files',
+                            id='download-ms-files-btn',
+                            icon=fac.AntdIcon(icon='antd-download'),
+                            iconPosition='end',
+                            style={'textTransform': 'uppercase'},
+                        ),
+                        fac.AntdDropdown(
+                            id='ms-options',
+                            title='Options',
+                            buttonMode=True,
+                            arrow=True,
+                            menuItems=[
+                                {'title': 'Generate colors', 'icon': 'antd-highlight', 'key': 'generate-colors'},
+                                {'title': 'Regenerate colors', 'icon': 'pi-broom', 'key': 'regenerate-colors'},
+                                {'isDivider': True},
+                                {'title': fac.AntdText('Delete selected', strong=True, type='warning'),
+                                 'key': 'delete-selected'},
+                                {'title': fac.AntdText('Clear table', strong=True, type='danger'), 'key': 'delete-all'},
+                            ],
+                            buttonProps={'style': {'textTransform': 'uppercase'}},
+                        ),
                     ],
-                    buttonProps={'style': {'textTransform': 'uppercase'}},
+                    align='center',
+                    gap='small',
                 ),
             ],
             justify="space-between",
@@ -216,56 +271,56 @@ _layout = html.Div(
                         ],
                         titlePopoverInfo={
                             'ms_file_label': {
-                                'title': 'ms_file_label',
-                                'content': 'This is ms_file_label field',
+                                'title': 'MS-File Label',
+                                'content': MS_METADATA_DESCRIPTION_MAP['ms_file_label'],
                             },
                             'label': {
-                                'title': 'label',
-                                'content': 'This is label field',
+                                'title': 'Label',
+                                'content': MS_METADATA_DESCRIPTION_MAP['label'],
                             },
-                            'dash_component': {
-                                'title': 'dash_component',
-                                'content': 'This is dash_component field',
+                            'color': {
+                                'title': 'Color',
+                                'content': MS_METADATA_DESCRIPTION_MAP['color'],
                             },
                             'use_for_optimization': {
-                                'title': 'use_for_optimization',
-                                'content': 'This is use_for_optimization field',
+                                'title': 'For Optimization',
+                                'content': MS_METADATA_DESCRIPTION_MAP['use_for_optimization'],
                             },
                             'use_for_analysis': {
-                                'title': 'use_for_analysis',
-                                'content': 'This is use_for_analysis field',
+                                'title': 'For Analysis',
+                                'content': MS_METADATA_DESCRIPTION_MAP['use_for_analysis'],
                             },
                             'sample_type': {
-                                'title': 'sample_type',
-                                'content': 'This is sample_type field',
+                                'title': 'Sample Type',
+                                'content': MS_METADATA_DESCRIPTION_MAP['sample_type'],
                             },
                             'polarity': {
-                                'title': 'polarity',
-                                'content': 'This is polarity field',
+                                'title': 'Polarity',
+                                'content': MS_METADATA_DESCRIPTION_MAP['polarity'],
                             },
                             'ms_type': {
-                                'title': 'ms_type',
-                                'content': 'This is ms_type field',
+                                'title': 'MS Type',
+                                'content': MS_METADATA_DESCRIPTION_MAP['ms_type'],
                             },
                             'file_type': {
-                                'title': 'file_type',
-                                'content': 'This is file_type field',
+                                'title': 'File Type',
+                                'content': 'Raw file format (e.g., mzML, mzXML)',
                             },
                             'run_order': {
-                                'title': 'run_order',
-                                'content': 'This is run_order field',
+                                'title': 'Run Order',
+                                'content': MS_METADATA_DESCRIPTION_MAP['run_order'],
                             },
                             'plate': {
-                                'title': 'plate',
-                                'content': 'This is plate field',
+                                'title': 'Plate',
+                                'content': MS_METADATA_DESCRIPTION_MAP['plate'],
                             },
                             'plate_row': {
-                                'title': 'plate_row',
-                                'content': 'This is plate_row field',
+                                'title': 'Plate Row',
+                                'content': MS_METADATA_DESCRIPTION_MAP['plate_row'],
                             },
                             'plate_column': {
-                                'title': 'plate_column',
-                                'content': 'This is plate_column field',
+                                'title': 'Plate Column',
+                                'content': MS_METADATA_DESCRIPTION_MAP['plate_column'],
                             },
                         },
                         filterOptions={
@@ -306,6 +361,7 @@ _layout = html.Div(
             id='ms-files-table-container',
             style={'paddingTop': '1rem'},
         ),
+        dcc.Download(id='download-ms-files-csv'),
         dcc.Store(id="ms-table-action-store", data={}),
     ]
 )
@@ -498,6 +554,41 @@ def callbacks(cls, app, fsc, cache, args_namespace):
                 raise PreventUpdate
             conn.execute(f"UPDATE samples SET {recentlySwitchDataIndex} = ? WHERE ms_file_label = ?",
                          (recentlySwitchStatus, recentlySwitchRow['ms_file_label']))
+
+    @app.callback(
+        Output("download-ms-files-csv", "data"),
+        Input("download-ms-template-btn", "nClicks"),
+        Input("download-ms-files-btn", "nClicks"),
+        State("wdir", "data"),
+        prevent_initial_call=True,
+    )
+    def download_ms_files(template_clicks, list_clicks, wdir):
+        ctx = dash.callback_context
+        if not ctx.triggered:
+            raise PreventUpdate
+
+        trigger = ctx.triggered[0]['prop_id'].split('.')[0]
+        if trigger == 'download-ms-template-btn':
+            return dcc.send_string(MS_METADATA_TEMPLATE_CSV, "ms_files_template.csv")
+
+        if trigger == 'download-ms-files-btn':
+            from ..duckdb_manager import duckdb_connection_mint
+
+            ws_key = Path(wdir).stem
+            with duckdb_connection_mint(Path(wdir).parent.parent) as mint_conn:
+                if mint_conn is None:
+                    raise PreventUpdate
+                ws_name = mint_conn.execute("SELECT name FROM workspaces WHERE key = ?", [ws_key]).fetchone()[0]
+
+            with duckdb_connection(wdir) as conn:
+                if conn is None:
+                    raise PreventUpdate
+                df = conn.execute("SELECT * FROM samples").df()
+
+            filename = f"{ws_name}_ms_files.csv"
+            return dcc.send_data_frame(df.to_csv, filename, index=False)
+
+        raise PreventUpdate
 
 
     @app.callback(
