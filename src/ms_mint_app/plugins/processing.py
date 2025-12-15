@@ -129,7 +129,7 @@ _layout = html.Div(
                             {
                                 'title': 'peak_n_datapoints',
                                 'dataIndex': 'peak_n_datapoints',
-                                'width': '160px',
+                                'width': '170px',
                             },
                             {
                                 'title': 'peak_min',
@@ -161,56 +161,100 @@ _layout = html.Div(
                         ],
                         titlePopoverInfo={
                             'ms_file_label': {
-                                'title': 'ms_file_label',
-                                'content': 'This is ms_file_label field',
+                                'title': 'MS-File Label',
+                                'content': 'MS file identifier; matches the MS-Files table.',
                             },
                             'label': {
-                                'title': 'label',
-                                'content': 'This is label field',
+                                'title': 'Label',
+                                'content': 'Friendly label from MS-Files.',
                             },
                             'dash_component': {
-                                'title': 'dash_component',
-                                'content': 'This is dash_component field',
+                                'title': 'Component',
+                                'content': 'Internal dash component name.',
                             },
                             'use_for_optimization': {
-                                'title': 'use_for_optimization',
-                                'content': 'This is use_for_optimization field',
+                                'title': 'For Optimization',
+                                'content': 'If true, file was included in optimization steps.',
                             },
                             'use_for_analysis': {
-                                'title': 'use_for_analysis',
-                                'content': 'This is use_for_analysis field',
+                                'title': 'For Analysis',
+                                'content': 'If true, file was included in analysis outputs.',
                             },
                             'sample_type': {
-                                'title': 'sample_type',
-                                'content': 'This is sample_type field',
+                                'title': 'Sample Type',
+                                'content': 'Sample category (Sample, QC, Blank, Standard).',
                             },
                             'polarity': {
-                                'title': 'polarity',
-                                'content': 'This is polarity field',
+                                'title': 'Polarity',
+                                'content': 'Instrument polarity (Positive or Negative).',
                             },
                             'ms_type': {
-                                'title': 'ms_type',
-                                'content': 'This is ms_type field',
+                                'title': 'MS Type',
+                                'content': 'Acquisition type (ms1 or ms2).',
                             },
                             'file_type': {
-                                'title': 'file_type',
-                                'content': 'This is file_type field',
+                                'title': 'File Type',
+                                'content': 'Raw file format (e.g., mzML, mzXML).',
                             },
                             'run_order': {
-                                'title': 'run_order',
-                                'content': 'This is run_order field',
+                                'title': 'Run Order',
+                                'content': 'Injection order for the MS file.',
                             },
                             'plate': {
-                                'title': 'plate',
-                                'content': 'This is plate field',
+                                'title': 'Plate',
+                                'content': 'Plate identifier if provided.',
                             },
                             'plate_row': {
-                                'title': 'plate_row',
-                                'content': 'This is plate_row field',
+                                'title': 'Plate Row',
+                                'content': 'Plate row (e.g., A, B, C).',
                             },
                             'plate_column': {
-                                'title': 'plate_column',
-                                'content': 'This is plate_column field',
+                                'title': 'Plate Column',
+                                'content': 'Plate column number.',
+                            },
+                            'peak_label': {
+                                'title': 'Target',
+                                'content': 'Target name from the Targets table.',
+                            },
+                            'peak_area': {
+                                'title': 'peak_area',
+                                'content': 'Integrated area under the peak.',
+                            },
+                            'peak_area_top3': {
+                                'title': 'peak_area_top3',
+                                'content': 'Sum of the three highest intensity points.',
+                            },
+                            'peak_mean': {
+                                'title': 'peak_mean',
+                                'content': 'Mean intensity across the peak.',
+                            },
+                            'peak_median': {
+                                'title': 'peak_median',
+                                'content': 'Median intensity across the peak.',
+                            },
+                            'peak_n_datapoints': {
+                                'title': 'peak_n_datapoints',
+                                'content': 'Number of datapoints spanning the peak.',
+                            },
+                            'peak_min': {
+                                'title': 'peak_min',
+                                'content': 'Minimum intensity within the peak.',
+                            },
+                            'peak_max': {
+                                'title': 'peak_max',
+                                'content': 'Maximum intensity within the peak.',
+                            },
+                            'peak_rt_of_max': {
+                                'title': 'peak_rt_of_max',
+                                'content': 'Retention time at maximum intensity.',
+                            },
+                            'total_intensity': {
+                                'title': 'total_intensity',
+                                'content': 'Sum of all intensities in the peak window.',
+                            },
+                            'intensity': {
+                                'title': 'Intensity',
+                                'content': 'Mini-plot showing the chromatogram shape.',
                             },
                         },
                         filterOptions={
