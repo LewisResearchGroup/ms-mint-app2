@@ -1,4 +1,5 @@
 import logging
+import base64
 
 import dash
 import feffery_antd_components as fac
@@ -11,6 +12,33 @@ from ..duckdb_manager import duckdb_connection, build_where_and_params, build_or
 from ..plugin_interface import PluginInterface
 
 _label = "Targets"
+# Template column headers and descriptions for quick downloads
+TARGET_TEMPLATE_COLUMNS = [
+    'peak_label', 'mz_mean', 'mz_width', 'mz', 'rt', 'rt_min', 'rt_max', 'rt_unit',
+    'intensity_threshold', 'polarity', 'filterLine', 'ms_type', 'category',
+    'peak_selection', 'score', 'bookmark', 'source', 'notes'
+]
+TARGET_TEMPLATE_DESCRIPTIONS = [
+    'Unique metabolite/feature name',
+    'Mean m/z (centroid)',
+    'm/z window or tolerance',
+    'Precursor m/z (MS2)',
+    'Retention time (default: in seconds)',
+    'Lower RT bound (default: in seconds)',
+    'Upper RT bound (default: in seconds)',
+    'RT unit (e.g. s or min, default: in seconds)',
+    'Intensity cutoff (anything lower than this value is considered zero)',
+    'Polarity (Positive or Negative)',
+    'Filter ID for MS2 scans',
+    'ms1 or ms2',
+    'Category',
+    'True if selected for analysis',
+    'Score',
+    'True if bookmarked',
+    'Data source or file',
+    'Free-form notes'
+]
+TARGET_TEMPLATE_CSV = ",".join(TARGET_TEMPLATE_COLUMNS) + "\n" + ",".join(TARGET_TEMPLATE_DESCRIPTIONS) + "\n"
 
 
 class TargetsPlugin(PluginInterface):
@@ -627,11 +655,7 @@ def callbacks(app, fsc=None, cache=None):
                 df = conn.execute("SELECT * FROM targets").df()
                 filename = f"{ws_name}_targets.csv"
         elif clickedKey == 'download-target-template':
-            import pandas as pd
-            df = pd.DataFrame(columns=['peak_label', 'mz_mean', 'mz_width', 'mz', 'rt', 'rt_min', 'rt_max',
-                                       'rt_unit', 'intensity_threshold', 'polarity', 'filterLine', 'category',
-                                       'peak_selection'])
-            filename = "targets_template.csv"
+            return dcc.send_string(TARGET_TEMPLATE_CSV, "targets_template.csv")
         return dcc.send_data_frame(df.to_csv, filename, index=False)
 
     @app.callback(
