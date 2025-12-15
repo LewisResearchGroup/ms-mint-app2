@@ -57,7 +57,7 @@ _layout = fac.AntdLayout(
                             'Optimization', level=4, style={'margin': '0', 'whiteSpace': 'nowrap'}
                         ),
                         fac.AntdIcon(
-                            id='ms-files-tour-icon',
+                            id='optimization-tour-icon',
                             icon='pi-info',
                             style={"cursor": "pointer", 'paddingLeft': '10px'},
                         ),
@@ -175,7 +175,8 @@ _layout = fac.AntdLayout(
                                         'flex': '1',
                                         'overflow': 'auto',
                                         'minHeight': '0'
-                                    }
+                                    },
+                                    id='sample-selection'
                                 ),
 
                                 html.Div(
@@ -278,7 +279,8 @@ _layout = fac.AntdLayout(
                                             style={'padding': 10, 'justifyContent': 'center'}
                                         )
                                     ],
-                                    style={'overflow': 'hidden'}
+                                    style={'overflow': 'hidden'},
+                                    id='sidebar-options'
                                 ),
                             ],
                             vertical=True,
@@ -782,6 +784,55 @@ _layout = fac.AntdLayout(
         dcc.Store(id="delete-target-clicked"),
         dcc.Store(id='chromatogram-view-plot-max'),
         dcc.Store(id='update-chromatograms', data=False),
+        fac.AntdTour(
+            locale='en-us',
+            steps=[
+                {
+                    'title': 'Optimization Tour',
+                    'description': 'Quick guide to compute and preview chromatograms.',
+                },
+                {
+                    'title': 'Compute chromatograms',
+                    'description': 'Runs chromatogram extraction for selected targets and files.',
+                    'targetSelector': '#compute-chromatograms-btn'
+                },
+                {
+                    'title': 'Target filter',
+                    'description': 'Narrow targets shown below using this selector.',
+                    'targetSelector': '#targets-select'
+                },
+                {
+                    'title': 'Sample selection',
+                    'description': 'Selected samples to show in the cards.',
+                    'targetSelector': '#sample-selection'
+                },
+                {
+                    'title': 'Options',
+                    'description': 'Configure MS type, selection, sorting, log scale, and plot dimensions.',
+                    'targetSelector': '#sidebar-options'
+                },
+            ],
+            id='optimization-tour',
+            open=False,
+            current=0,
+        ),
+        fac.AntdTour(
+            locale='en-us',
+            steps=[
+                {
+                    'title': 'Need help?',
+                    'description': 'Click the info icon to open a quick tour of Optimization.',
+                    'targetSelector': '#optimization-tour-icon',
+                },
+            ],
+            mask=False,
+            placement='rightTop',
+            open=False,
+            current=0,
+            id='optimization-tour-hint',
+            className='targets-tour-hint',
+        ),
+        dcc.Store(id='optimization-tour-hint-store', data={'open': True}, storage_type='session'),
     ],
     style={'height': '100%'},
 )
@@ -835,6 +886,46 @@ def callbacks(app, fsc, cache, cpu=None):
         Input("chromatogram-view-modal", 'visible'),
         prevent_initial_call=True
     )
+
+    @app.callback(
+        Output('optimization-tour', 'current'),
+        Output('optimization-tour', 'open'),
+        Input('optimization-tour-icon', 'nClicks'),
+        prevent_initial_call=True,
+    )
+    def optimization_tour_open(n_clicks):
+        return 0, True
+
+    @app.callback(
+        Output('optimization-tour-hint', 'open'),
+        Output('optimization-tour-hint', 'current'),
+        Input('optimization-tour-hint-store', 'data'),
+    )
+    def optimization_hint_sync(store_data):
+        if not store_data:
+            raise PreventUpdate
+        return store_data.get('open', True), 0
+
+    @app.callback(
+        Output('optimization-tour-hint-store', 'data'),
+        Input('optimization-tour-hint', 'closeCounts'),
+        Input('optimization-tour-icon', 'nClicks'),
+        State('optimization-tour-hint-store', 'data'),
+        prevent_initial_call=True,
+    )
+    def optimization_hide_hint(close_counts, n_clicks, store_data):
+        ctx = dash.callback_context
+        if not ctx.triggered:
+            raise PreventUpdate
+
+        trigger = ctx.triggered[0]['prop_id'].split('.')[0]
+        if trigger == 'optimization-tour-icon':
+            return {'open': False}
+
+        if close_counts:
+            return {'open': False}
+
+        return store_data or {'open': True}
 
     ############# TREE BEGIN #####################################
     @app.callback(
