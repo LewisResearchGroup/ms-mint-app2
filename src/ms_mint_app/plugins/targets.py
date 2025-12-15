@@ -91,14 +91,19 @@ _layout = html.Div(
                             iconPosition='end',
                             style={'textTransform': 'uppercase'},
                         ),
+                        fac.AntdButton(
+                            'Download targets',
+                            id='download-target-list-btn',
+                            icon=fac.AntdIcon(icon='antd-download'),
+                            iconPosition='end',
+                            style={'textTransform': 'uppercase'},
+                        ),
                         fac.AntdDropdown(
                             id='targets-options',
                             title='Options',
                             buttonMode=True,
                             arrow=True,
                             menuItems=[
-                                {'title': 'Download targets list', 'icon': 'antd-download', 'key': 'download-target-list'},
-                                {'isDivider': True},
                                 {'title': fac.AntdText('Delete selected', strong=True, type='warning'),
                                  'key': 'delete-selected'},
                                 {'title': fac.AntdText('Clear table', strong=True, type='danger'), 'key': 'delete-all'},
@@ -643,11 +648,11 @@ def callbacks(app, fsc=None, cache=None):
 
         Input("targets-options", "nClicks"),
         Input("download-target-template-btn", "nClicks"),
-        State("targets-options", "clickedKey"),
+        Input("download-target-list-btn", "nClicks"),
         State("wdir", "data"),
         prevent_initial_call=True,
     )
-    def download_results(options_clicks, template_clicks, clickedKey, wdir):
+    def download_results(options_clicks, template_clicks, list_clicks, wdir):
 
         from pathlib import Path
         from ..duckdb_manager import duckdb_connection_mint
@@ -661,7 +666,7 @@ def callbacks(app, fsc=None, cache=None):
         if trigger == 'download-target-template-btn':
             return dcc.send_string(TARGET_TEMPLATE_CSV, "targets_template.csv")
 
-        if clickedKey == 'download-target-list':
+        if trigger == 'download-target-list-btn':
             ws_key = Path(wdir).stem
             with duckdb_connection_mint(Path(wdir).parent.parent) as mint_conn:
                 if mint_conn is None:
