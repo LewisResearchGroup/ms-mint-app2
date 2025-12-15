@@ -135,20 +135,23 @@ _layout = html.Div(
                             iconPosition='end',
                             style={'textTransform': 'uppercase'},
                         ),
-                        fac.AntdDropdown(
-                            id='ms-options',
-                            title='Options',
-                            buttonMode=True,
-                            arrow=True,
-                            menuItems=[
-                                {'title': 'Generate colors', 'icon': 'antd-highlight', 'key': 'generate-colors'},
-                                {'title': 'Regenerate colors', 'icon': 'pi-broom', 'key': 'regenerate-colors'},
-                                {'isDivider': True},
-                                {'title': fac.AntdText('Delete selected', strong=True, type='warning'),
-                                 'key': 'delete-selected'},
-                                {'title': fac.AntdText('Clear table', strong=True, type='danger'), 'key': 'delete-all'},
-                            ],
-                            buttonProps={'style': {'textTransform': 'uppercase'}},
+                        html.Div(
+                            fac.AntdDropdown(
+                                id='ms-options',
+                                title='Options',
+                                buttonMode=True,
+                                arrow=True,
+                                menuItems=[
+                                    {'title': 'Generate colors', 'icon': 'antd-highlight', 'key': 'generate-colors'},
+                                    {'title': 'Regenerate colors', 'icon': 'pi-broom', 'key': 'regenerate-colors'},
+                                    {'isDivider': True},
+                                    {'title': fac.AntdText('Delete selected', strong=True, type='warning'),
+                                     'key': 'delete-selected'},
+                                    {'title': fac.AntdText('Clear table', strong=True, type='danger'), 'key': 'delete-all'},
+                                ],
+                                buttonProps={'style': {'textTransform': 'uppercase'}},
+                            ),
+                            id='ms-options-wrapper',
                         ),
                     ],
                     align='center',
@@ -361,6 +364,55 @@ _layout = html.Div(
             id='ms-files-table-container',
             style={'paddingTop': '1rem'},
         ),
+        fac.AntdTour(
+            locale='en-us',
+            steps=[
+                {
+                    'title': 'MS-Files Tour',
+                    'description': 'Quick guide to the MS-Files table.',
+                },
+                {
+                    'title': 'Download template',
+                    'description': 'Download the MS metadata template CSV with the expected columns.',
+                    'targetSelector': '#download-ms-template-btn'
+                },
+                {
+                    'title': 'Download MS-files',
+                    'description': 'Export the current MS files table (server-side filters/sorts applied).',
+                    'targetSelector': '#download-ms-files-btn'
+                },
+                {
+                    'title': 'Options',
+                    'description': 'Generate/re-generate colors, or delete selected rows/all rows.',
+                    'targetSelector': '#ms-options-wrapper'
+                },
+                {
+                    'title': 'Filter & sort',
+                    'description': 'Use header controls to search, filter, and sort your MS files.',
+                    'targetSelector': '#ms-files-table-container'
+                },
+            ],
+            id='ms-files-tour',
+            open=False,
+            current=0,
+        ),
+        fac.AntdTour(
+            locale='en-us',
+            steps=[
+                {
+                    'title': 'Need help?',
+                    'description': 'Click the info icon to open a quick tour of the MS-Files table.',
+                    'targetSelector': '#ms-files-tour-icon',
+                },
+            ],
+            mask=False,
+            placement='rightTop',
+            open=False,
+            current=0,
+            id='ms-files-tour-hint',
+            className='targets-tour-hint',
+        ),
+        dcc.Store(id="ms-tour-hint-store", data={'open': True}, storage_type='session'),
         dcc.Download(id='download-ms-files-csv'),
         dcc.Store(id="ms-table-action-store", data={}),
     ]
@@ -851,3 +903,43 @@ def callbacks(cls, app, fsc, cache, args_namespace):
                                         showProgress=True,
                                         stack=True
                                         ), ms_table_action_store
+
+    @app.callback(
+        Output('ms-files-tour', 'current'),
+        Output('ms-files-tour', 'open'),
+        Input('ms-files-tour-icon', 'nClicks'),
+        prevent_initial_call=True,
+    )
+    def ms_files_tour(n_clicks):
+        return 0, True
+
+    @app.callback(
+        Output('ms-files-tour-hint', 'open'),
+        Output('ms-files-tour-hint', 'current'),
+        Input('ms-tour-hint-store', 'data'),
+    )
+    def ms_hint_sync(store_data):
+        if not store_data:
+            raise PreventUpdate
+        return store_data.get('open', True), 0
+
+    @app.callback(
+        Output('ms-tour-hint-store', 'data'),
+        Input('ms-files-tour-hint', 'closeCounts'),
+        Input('ms-files-tour-icon', 'nClicks'),
+        State('ms-tour-hint-store', 'data'),
+        prevent_initial_call=True,
+    )
+    def ms_hide_hint(close_counts, n_clicks, store_data):
+        ctx = dash.callback_context
+        if not ctx.triggered:
+            raise PreventUpdate
+
+        trigger = ctx.triggered[0]['prop_id'].split('.')[0]
+        if trigger == 'ms-files-tour-icon':
+            return {'open': False}
+
+        if close_counts:
+            return {'open': False}
+
+        return store_data or {'open': True}
