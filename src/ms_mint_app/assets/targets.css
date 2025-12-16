@@ -12,17 +12,17 @@
    2. MAIN BOX STYLING (Borders & Radius)
    ========================================================================== */
 
-/* Apply to both your specific class and the generic fallback */
+/* Apply to both specific class and the generic fallback */
 .targets-tour-hint .ant-tour-inner,
 .targets-tour-hint.ant-tour .ant-tour-inner,
 .ant-tour .ant-tour-inner {
-    /* FIX: Match radius to content so corners don't look weird */
+    /* Match radius to content so corners don't look weird */
     border-radius: 8px !important;
 
-    /* FIX: Use 1px instead of 0.5px for a sharp, clean line */
+    /* Use 1px instead of 0.5px for a sharp, clean line */
     border: 1px solid #1677ff !important;
 
-    /* FIX: Remove the secondary shadow ring to stop the "double border" blur */
+    /* Remove the secondary shadow ring to stop the "double border" blur */
     box-shadow: 0 6px 16px rgba(0, 0, 0, 0.15) !important;
 
     background: #ffffff !important;
