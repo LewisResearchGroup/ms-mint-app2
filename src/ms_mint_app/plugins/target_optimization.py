@@ -565,24 +565,8 @@ _layout = fac.AntdLayout(
                                             margin=dict(l=40, r=10, t=50, b=80),
                                         )
                                     ),
-                                    config={'displayModeBar': True},
+                                    config={'displayModeBar': True, 'edits': {'shapePosition': True}},
                                     style={'width': '100%', 'height': '600px'}
-                                ),
-                                html.Div(
-                                    [
-                                        dcc.RangeSlider(
-                                            id='rt-range-slider',
-                                            step=1,
-                                            allowCross=False,
-                                            updatemode="drag",
-                                        ),
-                                        fac.AntdFlex(
-                                            id="rt-values-span",
-                                            justify='space-between',
-                                            align='center'
-                                        ),
-                                    ],
-                                    id='rslider',
                                 ),
                             ],
                             id='chromatogram-view-container',
@@ -660,13 +644,39 @@ _layout = fac.AntdLayout(
                                         html.Div(
                                             [
                                                 html.Span(
+                                                    'Edit RT-span:',
+                                                    style={
+                                                        'display': 'inline-block',
+                                                        'width': '170px',
+                                                        'textAlign': 'left',
+                                                        'paddingRight': '8px'
+                                                    }
+                                                ),
+                                                html.Div(
+                                                    fac.AntdSwitch(
+                                                        id='chromatogram-view-lock-range',
+                                                        checked=False,
+                                                        checkedChildren='Lock',
+                                                        unCheckedChildren='Edit'
+                                                    ),
+                                                    style={
+                                                        'width': '110px',
+                                                        'display': 'flex',
+                                                        'justifyContent': 'flex-start'
+                                                    }
+                                                ),
+                                            ],
+                                            style={'display': 'flex', 'alignItems': 'center'}
+                                        ),
+                                        html.Div(
+                                            [
+                                                html.Span(
                                                     'Notes:',
                                                     style={
                                                         'display': 'inline-block',
                                                         'width': '170px',
                                                         'textAlign': 'left',
-                                                        'paddingRight': '8px',
-                                                        'marginBottom': '6px'
+                                                        'paddingRight': '8px'
                                                     }
                                                 ),
                                                 fac.AntdInput(
@@ -682,7 +692,8 @@ _layout = fac.AntdLayout(
                                                 'display': 'flex',
                                                 'flexDirection': 'column',
                                                 'alignItems': 'flex-start',
-                                                'width': '100%'
+                                                'width': '100%',
+                                                'marginTop': '6px'
                                             }
                                         ),
                                     ],
@@ -859,38 +870,6 @@ def callbacks(app, fsc, cache, cpu=None):
         Input('optimization-sidebar-collapse', 'nClicks'),
         State('optimization-sidebar', 'collapsed'),
         prevent_initial_call=True,
-    )
-
-    # clientside callback for set width rangeslider == plot bglayer
-    app.clientside_callback(
-        """
-        function(relayoutData, visible) {
-            if (visible !== true) {
-                return window.dash_clientside.no_update;
-            }
-            return new Promise((resolve) => {
-                setTimeout(() => {
-                    const root = document.getElementById("chromatogram-view-plot");
-                    const bg = root?.querySelector("div > div > div svg > g.draglayer > g.xy > rect");
-                    
-                    if (bg) {
-                        const pl = bg.x.baseVal.value - 25;
-                        const w = bg.width.baseVal.value + 50;
-                        
-                        if (isFinite(w) && w > 0) {
-                            resolve({"marginLeft": pl + "px", "width": w + "px"});
-                            return;
-                        }
-                    }
-                    resolve(window.dash_clientside.no_update);
-                }, 250);  // 150ms suele ser suficiente
-            });
-        }
-        """,
-        Output("rslider", "style"),
-        Input("chromatogram-view-plot", "relayoutData"),
-        Input("chromatogram-view-modal", 'visible'),
-        prevent_initial_call=True
     )
 
     @app.callback(
@@ -1089,7 +1068,7 @@ def callbacks(app, fsc, cache, cpu=None):
                                            )
                                        """, [selection_ms_type, selection_ms_type,
                                              selection_bookmark, selection_bookmark,
-                                            selected_targets, selected_targets]).fetchall()
+                                             selected_targets, selected_targets]).fetchall()
 
             all_targets = [row[0] for row in all_targets]
 
@@ -1659,30 +1638,42 @@ def callbacks(app, fsc, cache, cpu=None):
         fig['data'] = traces
         fig['layout']['legend']['groupclick'] = 'toggleitem'
 
-        fig['layout']['annotations'][0] = {
-            'bgcolor': 'white',
-            'font': {'color': 'black', 'size': 14, 'weight': 'bold'},
-            'showarrow': True,
-            'text': 'RT',
-            'x': rt,
-            'xanchor': 'left',
-            'xref': 'x',
-            'y': 1,
-            'yanchor': 'top',
-            'yref': 'y domain'
-        }
-
-        fig['layout']['shapes'] = [
+        fig['layout']['annotations'] = [
             {
-                'line': {'color': 'black', 'width': 3},
-                'type': 'line',
-                'x0': rt,
-                'x1': rt,
+                'bgcolor': 'white',
+                'font': {'color': 'black', 'size': 12, 'weight': 'bold'},
+                'showarrow': True,
+                'ax': -20,
+                'ay': -15,
+                'axref': 'pixel',
+                'ayref': 'pixel',
+                'text': f"RT-min: {rt_min:.2f}s" if rt_min is not None else 'RT-min',
+                'x': rt_min,
+                'xanchor': 'right',
                 'xref': 'x',
-                'y0': 0,
-                'y1': 1,
+                'y': 1,
+                'yanchor': 'top',
                 'yref': 'y domain'
             },
+            {
+                'bgcolor': 'white',
+                'font': {'color': 'black', 'size': 12, 'weight': 'bold'},
+                'showarrow': True,
+                'ax': 20,
+                'ay': -15,
+                'axref': 'pixel',
+                'ayref': 'pixel',
+                'text': f"RT-max: {rt_max:.2f}s" if rt_max is not None else 'RT-max',
+                'x': rt_max,
+                'xanchor': 'left',
+                'xref': 'x',
+                'y': 1,
+                'yanchor': 'top',
+                'yref': 'y domain'
+            },
+        ]
+
+        fig['layout']['shapes'] = [
             {
                 'fillcolor': 'green',
                 'line': {'width': 0},
@@ -1736,94 +1727,16 @@ def callbacks(app, fsc, cache, cpu=None):
     @app.callback(
         Output('chromatogram-view-plot', 'figure', allow_duplicate=True),
         Output('slider-data', 'data', allow_duplicate=True),
-        Output('action-buttons-container', 'style'),
+        Output('action-buttons-container', 'style', allow_duplicate=True),
 
-        Input('rt-range-slider', 'value'),
-        State('slider-data', 'data'),
-        State('slider-reference-data', 'data'),
-        prevent_initial_call=True
-    )
-    def slider_value_changed(slider_value, slider_data, slider_reference_data):
-        fig = Patch()
-        s_data = slider_value.copy()
-
-        if not slider_data['v_comp']['rt_min']:
-            s_data = [slider_data['value']['rt_min']] + s_data
-        if not slider_data['v_comp']['rt']:
-            s_data.insert(1, slider_data['value']['rt'])
-        if not slider_data['v_comp']['rt_max']:
-            s_data = s_data + [slider_data['value']['rt_max']]
-
-        rt_min, rt, rt_max = s_data
-
-        fig['layout']['shapes'] = [
-            {
-                'line': {'color': 'black', 'width': 3},
-                'type': 'line',
-                'x0': rt,
-                'x1': rt,
-                'xref': 'x',
-                'y0': 0,
-                'y1': 1,
-                'yref': 'y domain'
-            },
-            {
-                'fillcolor': 'green',
-                'line': {'width': 0},
-                'opacity': 0.1,
-                'type': 'rect',
-                'x0': rt_min,
-                'x1': rt_max,
-                'xref': 'x',
-                'y0': 0,
-                'y1': 1,
-                'yref': 'y domain'
-            }
-        ]
-        fig['layout']['annotations'][0] = {
-            'bgcolor': 'white',
-            'font': {'color': 'black', 'size': 14, 'weight': 'bold'},
-            'showarrow': True,
-            'text': 'RT',
-            'x': rt,
-            'xanchor': 'left',
-            'xref': 'x',
-            'y': 1,
-            'yanchor': 'top',
-            'yref': 'y domain'
-        }
-
-        slider_data['value'] = {'rt_min': rt_min, 'rt': rt, 'rt_max': rt_max}
-        has_changes = False
-        if slider_data and slider_reference_data:
-            has_changes = slider_data['value'] != slider_reference_data['value']
-        buttons_style = {
-            'visibility': 'visible' if has_changes else 'hidden',
-            'opacity': '1' if has_changes else '0',
-            'transition': 'opacity 0.3s ease-in-out'
-        }
-        return fig, slider_data, buttons_style
-
-    @app.callback(
-        Output('slider-data', 'data'),
-        Output('rt-range-slider', 'min'),
-        Output('rt-range-slider', 'max'),
-        Output('rt-range-slider', 'step'),
-        Output('rt-range-slider', 'value'),
-        Output('rt-range-slider', 'pushable'),
-        Output('rt-range-slider', 'tooltip'),
-        Output('rt-range-slider', 'marks'),
-
-        Input("chromatogram-view-plot", "relayoutData"),
+        Input('chromatogram-view-plot', 'relayoutData'),
         Input('slider-reference-data', 'data'),
-        State('chromatogram-preview-log-y', 'checked'),
-        State('chromatogram-view-log-y', 'checked'),
         State('slider-data', 'data'),
+        State('chromatogram-view-lock-range', 'checked'),
         prevent_initial_call=True
     )
-    def set_chromatogram_view_options(relayout, slider_reference_data, global_log_scale, log_scale, slider_data):
-
-        if not relayout or not slider_reference_data:
+    def update_rt_range_from_shape(relayout, slider_reference_data, slider_data, lock_range):
+        if not slider_reference_data:
             raise PreventUpdate
 
         ctx = dash.callback_context
@@ -1834,87 +1747,92 @@ def callbacks(app, fsc, cache, cpu=None):
                 slider_data = slider_reference_data.copy()
             else:
                 slider_data['value'] = slider_reference_data['value']
-            value = [vc for vc, sv in zip(slider_data['value'].values(), slider_data['v_comp'].values()) if sv]
-            s_min = slider_data['min']
-            s_max = slider_data['max']
-            if s_max - s_min > 1:
-                slider_data['step'] = 0.1
-                decimals = 1
-            else:
-                slider_data['step'] = 0.01
-                decimals = 2
-            slider_data['pushable'] = slider_data['step']
-            slider_data['marks'] = {
-                float(i): str(round(i, decimals))
-                for i in np.linspace(s_min, s_max, 6)
+
+            fig = Patch()
+            fig['layout']['shapes'][0]['x0'] = slider_data['value']['rt_min']
+            fig['layout']['shapes'][0]['x1'] = slider_data['value']['rt_max']
+            fig['layout']['shapes'][0]['y0'] = 0
+            fig['layout']['shapes'][0]['y1'] = 1
+            fig['layout']['shapes'][0]['yref'] = 'y domain'
+            fig['layout']['shapes'][0]['fillcolor'] = 'red' if lock_range else 'green'
+            fig['layout']['shapes'][0]['opacity'] = 0.1
+
+            fig['layout']['annotations'][0]['x'] = slider_data['value']['rt_min']
+            fig['layout']['annotations'][0]['text'] = f"RT-min: {slider_data['value']['rt_min']:.2f}s"
+            fig['layout']['annotations'][1]['x'] = slider_data['value']['rt_max']
+            fig['layout']['annotations'][1]['text'] = f"RT-max: {slider_data['value']['rt_max']:.2f}s"
+
+            buttons_style = {
+                'visibility': 'hidden',
+                'opacity': '0',
+                'transition': 'opacity 0.3s ease-in-out'
             }
-            return (slider_data, slider_data['min'], slider_data['max'], slider_data['step'], value,
-                    slider_data['pushable'], {"placement": "bottom", "always_visible": False}, slider_data['marks'])
-        else:
-            if not relayout:
-                raise PreventUpdate
-            if relayout.get('xaxis.range[0]', None):
-                x_min_relayout = round(relayout.get('xaxis.range[0]'), 1)
-            elif relayout.get('xaxis.range', None):
-                x_min_relayout = round(relayout.get('xaxis.range')[0], 1)
-            elif relayout.get('xaxis.autorange', False):
-                x_min_relayout = slider_reference_data['min']
-            elif relayout.get('autosize', False):
-                x_min_relayout = slider_reference_data['min']
-            else:
-                x_min_relayout = None
+            return fig, slider_data, buttons_style
 
-            if relayout.get('xaxis.range[1]', None):
-                x_max_relayout = round(relayout.get('xaxis.range[1]'), 1)
-            elif relayout.get('xaxis.range', None):
-                x_max_relayout = round(relayout.get('xaxis.range')[1], 1)
-            elif relayout.get('xaxis.autorange', False):
-                x_max_relayout = slider_reference_data['max']
-            elif relayout.get('autosize', False):
-                x_max_relayout = slider_reference_data['max']
-            else:
-                x_max_relayout = None
+        if not relayout:
+            raise PreventUpdate
 
-            if x_min_relayout is None or x_max_relayout is None:
-                return dash.no_update
+        if lock_range:
+            raise PreventUpdate
 
-            if not slider_data:
-                slider_data = slider_reference_data.copy()
+        x0 = relayout.get('shapes[0].x0')
+        x1 = relayout.get('shapes[0].x1')
+        if x0 is None or x1 is None:
+            raise PreventUpdate
 
-            slider_repr = {'rt_min': False, 'rt': False, 'rt_max': False}
-            if x_min_relayout < slider_data['value']['rt_min']:
-                slider_repr['rt_min'] = True
-            if x_min_relayout < slider_data['value']['rt'] < x_max_relayout:
-                slider_repr['rt'] = True
-            if x_max_relayout > slider_data['value']['rt_max']:
-                slider_repr['rt_max'] = True
+        if not slider_data:
+            slider_data = slider_reference_data.copy()
 
-            s_min = x_min_relayout
-            s_max = x_max_relayout
-            if s_max - s_min > 1:
-                step = 0.1
-                decimals = 1
-            else:
-                step = 0.01
-                decimals = 2
+        rt_min_new = min(x0, x1)
+        rt_max_new = max(x0, x1)
 
-            new_slider_data = slider_data.copy()
-            new_slider_data['min'] = x_min_relayout
-            new_slider_data['max'] = x_max_relayout
-            new_slider_data['marks'] = {
-                float(i): str(round(i, decimals))
-                for i in np.linspace(s_min, s_max, 6)
-            },
-            new_slider_data['v_comp'] = slider_repr
-            new_slider_data['step'] = step
-            new_slider_data['pushable'] = step
+        slider_data['value'] = {
+            'rt_min': rt_min_new,
+            'rt': slider_data['value'].get('rt'),
+            'rt_max': rt_max_new,
+        }
 
-            value = [vc for vc, sv in zip(slider_data['value'].values(), slider_repr.values()) if sv]
+        has_changes = slider_data['value'] != slider_reference_data['value']
+        buttons_style = {
+            'visibility': 'visible' if has_changes else 'hidden',
+            'opacity': '1' if has_changes else '0',
+            'transition': 'opacity 0.3s ease-in-out'
+        }
 
-            return (new_slider_data, x_min_relayout, x_max_relayout, step, value, step,
-                    {"placement": "bottom", "always_visible": False},
-                    {float(i): str(round(i, decimals)) for i in np.linspace(s_min, s_max, 6)}
-                    )
+        fig = Patch()
+        fig['layout']['shapes'][0]['x0'] = rt_min_new
+        fig['layout']['shapes'][0]['x1'] = rt_max_new
+        fig['layout']['shapes'][0]['y0'] = 0
+        fig['layout']['shapes'][0]['y1'] = 1
+        fig['layout']['shapes'][0]['yref'] = 'y domain'
+        fig['layout']['shapes'][0]['fillcolor'] = 'green'
+        fig['layout']['shapes'][0]['opacity'] = 0.1
+
+        fig['layout']['annotations'][0]['x'] = rt_min_new
+        fig['layout']['annotations'][0]['text'] = f"RT-min: {rt_min_new:.2f}s"
+        fig['layout']['annotations'][1]['x'] = rt_max_new
+        fig['layout']['annotations'][1]['text'] = f"RT-max: {rt_max_new:.2f}s"
+
+        return fig, slider_data, buttons_style
+
+    @app.callback(
+        Output('chromatogram-view-plot', 'config', allow_duplicate=True),
+        Output('chromatogram-view-plot', 'figure', allow_duplicate=True),
+        Input('chromatogram-view-lock-range', 'checked'),
+        prevent_initial_call=True
+    )
+    def chromatogram_view_lock_range(lock_range):
+        config_patch = Patch()
+        config_patch['edits']['shapePosition'] = not lock_range
+
+        fig = Patch()
+        fig['layout']['shapes'][0]['fillcolor'] = 'red' if lock_range else 'green'
+        fig['layout']['shapes'][0]['opacity'] = 0.1
+        fig['layout']['shapes'][0]['y0'] = 0
+        fig['layout']['shapes'][0]['y1'] = 1
+        fig['layout']['shapes'][0]['yref'] = 'y domain'
+
+        return config_patch, fig
 
     ############# VIEW END #######################################
 
@@ -2014,46 +1932,6 @@ def callbacks(app, fsc, cache, cpu=None):
     ############# COMPUTE CHROMATOGRAM END #######################################
 
     @app.callback(
-        Output('rt-values-span', 'children'),
-        Input('slider-data', 'data'),
-        prevent_initial_call=True
-    )
-    def rt_representation(slider_data):
-        if not slider_data:
-            raise PreventUpdate
-
-        rt_min, rt, rt_max = slider_data['value'].values()
-
-        return fac.AntdFlex(
-            [
-                fac.AntdCompact(
-                    [
-                        fac.AntdText('RT-min:', strong=True),
-                        fac.AntdText(f"{rt_min:.1f}s", code=True),
-                    ],
-                    style={'visibility': slider_data['v_comp']['rt_min']}
-                ),
-                fac.AntdCompact(
-                    [
-                        fac.AntdText('RT:', strong=True),
-                        fac.AntdText(f"{rt:.1f}s", code=True),
-                    ],
-                    style={'visibility': slider_data['v_comp']['rt']}
-                ),
-                fac.AntdCompact(
-                    [
-                        fac.AntdText('RT-max:', strong=True),
-                        fac.AntdText(f"{rt_max:.1f}s", code=True),
-                    ],
-                    style={'visibility': slider_data['v_comp']['rt_max']}
-                ),
-            ],
-            justify='space-between',
-            align='center',
-            style={'width': '100%', 'padding': '0 25px'}
-        )
-
-    @app.callback(
         # Output('chromatogram-view-modal', 'visible', allow_duplicate=True),
         Output('notifications-container', 'children', allow_duplicate=True),
         Output('action-buttons-container', 'style', allow_duplicate=True),
@@ -2095,7 +1973,6 @@ def callbacks(app, fsc, cache, cpu=None):
             True
         )
 
-
     @app.callback(
         # only save the current values stored in slider-reference-data since this will shut all the actions
         Output('slider-reference-data', 'data', allow_duplicate=True),
@@ -2131,7 +2008,7 @@ def callbacks(app, fsc, cache, cpu=None):
 
         prop_id = ctx_trigger['index']
         return True, fac.AntdParagraph(f"Are you sure you want to delete `{data_target[prop_id]}` target?"), \
-        data_target[prop_id]
+            data_target[prop_id]
 
     #
     @app.callback(
