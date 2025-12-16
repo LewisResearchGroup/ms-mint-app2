@@ -1717,14 +1717,43 @@ def callbacks(app, fsc, cache, cpu=None):
         fig['layout']['xaxis']['autorange'] = False
         fig['layout']['yaxis']['autorange'] = False
 
-        if log_scale:
-            fig['layout']['yaxis']['type'] = 'log'
-            log_y_min = math.log10(y_min) if y_min > 0 else y_min
-            log_y_max = math.log10(y_max) if y_max > 0 else y_max
-            fig['layout']['yaxis']['range'] = [log_y_min, log_y_max]
+        def _calc_y_range_from_traces(data, x_left, x_right, is_log=False):
+            ys = []
+            for trace in data or []:
+                xs = trace.get('x', [])
+                ys_trace = trace.get('y', [])
+                for xv, yv in zip(xs, ys_trace):
+                    if xv is None or yv is None:
+                        continue
+                    if x_left <= xv <= x_right:
+                        ys.append(yv)
+
+            if not ys:
+                return None
+
+            if is_log:
+                ys = [y for y in ys if y is not None and y > 0]
+                if not ys:
+                    return None
+                y_min_local, y_max_local = min(ys), max(ys)
+                return [math.log10(y_min_local), math.log10(y_max_local * 1.05)]
+
+            y_min_local, y_max_local = min(ys), max(ys)
+            y_min_local = 0 if y_min_local > 0 else y_min_local
+            return [y_min_local, y_max_local * 1.05]
+
+        fig['layout']['yaxis']['type'] = 'log' if log_scale else 'linear'
+        y_range_zoom = _calc_y_range_from_traces(traces, nx_min, nx_max, is_log=log_scale)
+        if y_range_zoom:
+            fig['layout']['yaxis']['range'] = y_range_zoom
+            fig['layout']['yaxis']['autorange'] = False
         else:
-            fig['layout']['yaxis']['type'] = 'linear'
-            fig['layout']['yaxis']['range'] = [y_min, y_max]
+            if log_scale:
+                log_y_min = math.log10(y_min) if y_min > 0 else y_min
+                log_y_max = math.log10(y_max) if y_max > 0 else y_max
+                fig['layout']['yaxis']['range'] = [log_y_min, log_y_max]
+            else:
+                fig['layout']['yaxis']['range'] = [y_min, y_max]
 
         fig['layout']['margin'] = dict(l=60, r=10, t=40, b=40)
 
@@ -1750,10 +1779,11 @@ def callbacks(app, fsc, cache, cpu=None):
         Input('chromatogram-view-plot', 'relayoutData'),
         Input('slider-reference-data', 'data'),
         State('slider-data', 'data'),
+        State('chromatogram-view-plot', 'figure'),
         State('chromatogram-view-lock-range', 'checked'),
         prevent_initial_call=True
     )
-    def update_rt_range_from_shape(relayout, slider_reference_data, slider_data, lock_range):
+    def update_rt_range_from_shape(relayout, slider_reference_data, slider_data, figure_state, lock_range):
         if not slider_reference_data:
             raise PreventUpdate
 
@@ -1790,7 +1820,56 @@ def callbacks(app, fsc, cache, cpu=None):
         if not relayout:
             raise PreventUpdate
 
-        if lock_range:
+        def _calc_y_range(data, x_left, x_right, is_log=False):
+            ys = []
+            for trace in data or []:
+                xs = trace.get('x', [])
+                ys_trace = trace.get('y', [])
+                for xv, yv in zip(xs, ys_trace):
+                    if xv is None or yv is None:
+                        continue
+                    if x_left <= xv <= x_right:
+                        ys.append(yv)
+
+            if not ys:
+                return None
+
+            if is_log:
+                ys = [y for y in ys if y is not None and y > 0]
+                if not ys:
+                    return None
+                y_min_local, y_max_local = min(ys), max(ys)
+                return [math.log10(y_min_local), math.log10(y_max_local * 1.05)]
+
+            y_min_local, y_max_local = min(ys), max(ys)
+            y_min_local = 0 if y_min_local > 0 else y_min_local
+            return [y_min_local, y_max_local * 1.05]
+
+        x_range = (relayout.get('xaxis.range[0]'), relayout.get('xaxis.range[1]'))
+        y_range = (relayout.get('yaxis.range[0]'), relayout.get('yaxis.range[1]'))
+        has_shape_update = relayout.get('shapes[0].x0') is not None or relayout.get('shapes[0].x1') is not None
+
+        # Allow plotly zooming (x and y) to drive axis ranges even when the RT span is locked.
+        if (x_range[0] is not None and x_range[1] is not None) or (y_range[0] is not None and y_range[1] is not None):
+            fig_zoom = Patch()
+            is_log = figure_state and figure_state.get('layout', {}).get('yaxis', {}).get('type') == 'log'
+
+            if x_range[0] is not None and x_range[1] is not None:
+                fig_zoom['layout']['xaxis']['range'] = [x_range[0], x_range[1]]
+                fig_zoom['layout']['xaxis']['autorange'] = False
+
+            if y_range[0] is not None and y_range[1] is not None:
+                fig_zoom['layout']['yaxis']['range'] = [y_range[0], y_range[1]]
+                fig_zoom['layout']['yaxis']['autorange'] = False
+            elif x_range[0] is not None and x_range[1] is not None and figure_state:
+                y_calc = _calc_y_range(figure_state.get('data', []), x_range[0], x_range[1], is_log)
+                if y_calc:
+                    fig_zoom['layout']['yaxis']['range'] = y_calc
+                    fig_zoom['layout']['yaxis']['autorange'] = False
+
+            return fig_zoom, dash.no_update, dash.no_update
+
+        if lock_range and has_shape_update:
             raise PreventUpdate
 
         x0 = relayout.get('shapes[0].x0')
@@ -1825,6 +1904,15 @@ def callbacks(app, fsc, cache, cpu=None):
         fig['layout']['shapes'][0]['yref'] = 'y domain'
         fig['layout']['shapes'][0]['fillcolor'] = 'green'
         fig['layout']['shapes'][0]['opacity'] = 0.1
+
+        # adjust y-range to the current x zoom window for better scaling
+        is_log = figure_state and figure_state.get('layout', {}).get('yaxis', {}).get('type') == 'log'
+        if x_range[0] is not None and x_range[1] is not None and figure_state:
+            x_left, x_right = sorted([x_range[0], x_range[1]])
+            y_range_zoom = _calc_y_range(figure_state.get('data', []), x_left, x_right, is_log)
+            if y_range_zoom:
+                fig['layout']['yaxis']['range'] = y_range_zoom
+                fig['layout']['yaxis']['autorange'] = False
 
         fig['layout']['annotations'][0]['x'] = rt_min_new
         fig['layout']['annotations'][0]['text'] = f"RT-min: {rt_min_new:.2f}s"
