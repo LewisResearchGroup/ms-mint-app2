@@ -103,23 +103,23 @@ def _create_tables(conn: duckdb.DuckDBPyConnection):
                  CREATE TABLE IF NOT EXISTS ms1_data
                  (
                      ms_file_label      VARCHAR,  -- Label of the MS file, linking to samples
-                     scan_id            INTEGER, -- Scan ID
-                     mz                 DOUBLE,  -- Mass-to-charge ratio
-                     intensity          DOUBLE,  -- Intensity
-                     scan_time          DOUBLE  -- Scan time
+                     scan_id            INTEGER,  -- Scan ID
+                     mz                 DOUBLE,   -- Mass-to-charge ratio
+                     intensity          DOUBLE,   -- Intensity
+                     scan_time          DOUBLE    -- Scan time
                  );
                  """)
     conn.execute("""
                  CREATE TABLE IF NOT EXISTS ms2_data
                  (
                      ms_file_label      VARCHAR,  -- Label of the MS file, linking to samples
-                     scan_id            INTEGER, -- Scan ID
-                     mz                 DOUBLE,  -- Mass-to-charge ratio
-                     intensity          DOUBLE,  -- Intensity
-                     scan_time          DOUBLE,  -- Scan time
-                     mz_precursor       DOUBLE,  -- Precursor m/z
-                     filterLine         VARCHAR, -- Filter line from the raw file
-                     filterLine_ELMAVEN VARCHAR -- Filter line formatted for El-Maven
+                     scan_id            INTEGER,  -- Scan ID
+                     mz                 DOUBLE,   -- Mass-to-charge ratio
+                     intensity          DOUBLE,   -- Intensity
+                     scan_time          DOUBLE,   -- Scan time
+                     mz_precursor       DOUBLE,   -- Precursor m/z
+                     filterLine         VARCHAR,  -- Filter line from the raw file
+                     filterLine_ELMAVEN VARCHAR   -- Filter line formatted for El-Maven
                  );
                  """)
 
@@ -142,8 +142,8 @@ def _create_tables(conn: duckdb.DuckDBPyConnection):
                      peak_selection      BOOLEAN,             -- Preselected target
                      score               DOUBLE,              -- Score of the target
                      bookmark            BOOLEAN,             -- Bookmark the target
-                     source              VARCHAR,              -- Filename of the target list
-                     notes               VARCHAR  -- Additional notes for the target
+                     source              VARCHAR,             -- Filename of the target list
+                     notes               VARCHAR              -- Additional notes for the target
                  );
                  """)
 
@@ -337,12 +337,12 @@ def build_paginated_query_by_peak(
                     agg_exprs.append(f'{agg_func}("{col}") AS _ord_{col}')
                     order_exprs.append(f"_ord_{col} {direction}")
 
-    # Si no hay orden, usa peak_label por defecto
+    # If there is no ordering, use peak_label by default
     if not agg_exprs:
         agg_exprs.append("peak_label AS _ord_peak_label")
         order_exprs.append("_ord_peak_label ASC")
 
-    # 4. Construye la query con CTEs
+    # 4. Build the query with CTEs
     sql = f"""
     WITH filtered AS (
       SELECT *
@@ -650,13 +650,13 @@ def compute_and_insert_chromatograms_from_ms_data(con: duckdb.DuckDBPyConnection
                 print(f"Progress monitoring error: {e}")
                 break
 
-    # Iniciar monitoreo
+    # Start monitoring
     if set_progress:
         progress_thread = Thread(target=monitor_progress, daemon=True)
         progress_thread.start()
 
     try:
-        # Ejecutar MS1
+        # Run MS1
         if process_ms1:
             print("Processing MS1 chromatograms...")
             current_query_type[0] = 'ms1'
@@ -665,7 +665,7 @@ def compute_and_insert_chromatograms_from_ms_data(con: duckdb.DuckDBPyConnection
             if set_progress:
                 set_progress(round(accumulated_progress[0], 1))
 
-        # Ejecutar MS2
+        # Run MS2
         if process_ms2:
             print("Processing MS2 chromatograms...")
             current_query_type[0] = 'ms2'
@@ -1045,7 +1045,7 @@ def compute_results_in_batches(wdir: str,
     include_arrays=True: include scan_time and intensity arrays (SLOWER)
     """
 
-    # Macro INLINE - retorna tabla directamente (AS TABLE)
+    # INLINE macro - returns the table directly (AS TABLE)
     QUERY_CREATE_HELPERS = """
         CREATE OR REPLACE MACRO compute_chromatogram_metrics(scan_times, intensities, rt_min, rt_max) AS TABLE (
             WITH unnested_data AS (
@@ -1179,12 +1179,12 @@ def compute_results_in_batches(wdir: str,
         with duckdb_connection(wdir, n_cpus=n_cpus, ram=ram) as con:
             con.execute("DELETE FROM results")
 
-    # Crear macro helper
+    # Create helper macro
     with duckdb_connection(wdir, n_cpus=n_cpus, ram=ram) as conn:
         print("Creating helper macro...")
         conn.execute(QUERY_CREATE_HELPERS)
 
-    # Crear tabla de pares pendientes
+    # Create pending pairs table
     with duckdb_connection(wdir, n_cpus=n_cpus, ram=ram) as conn:
         conn.execute("DROP TABLE IF EXISTS pending_result_pairs")
 
@@ -1210,7 +1210,7 @@ def compute_results_in_batches(wdir: str,
         print(f"✓ {total_count:,} pending pairs ({elapsed:.2f}s)")
         print(f"Processing in batches of {batch_size}...\n")
 
-    # Procesar en batches
+    # Process in batches
     processed = 0
     failed = 0
     batches = 0
@@ -1299,7 +1299,7 @@ def compute_results_in_batches(wdir: str,
         conn.execute("CHECKPOINT")
         print(f" {time.time() - flush_start:.2f}s")
 
-    # Limpiar
+    # Clean up
     with duckdb_connection(wdir, n_cpus=n_cpus, ram=ram) as conn:
         conn.execute("DROP TABLE IF EXISTS pending_result_pairs")
 
@@ -1382,7 +1382,7 @@ def compute_peak_properties(con: duckdb.DuckDBPyConnection,
                                     FROM unnested u
                                              JOIN targets t ON u.peak_label = t.peak_label
                                     WHERE u.scan_time BETWEEN t.rt_min AND t.rt_max),
--- Agrupa los datos filtrados en listas
+-- Group the filtered data into lists
                  aggregated AS (SELECT peak_label,
                                        ms_file_label,
                                        LIST(scan_time ORDER BY scan_time) AS scan_time,
@@ -1462,13 +1462,13 @@ def compute_peak_properties(con: duckdb.DuckDBPyConnection,
                 print(f"Progress monitoring error: {e}")
                 break
 
-    # Iniciar monitoreo
+    # Start monitoring
     if set_progress:
         progress_thread = Thread(target=monitor_progress, daemon=True)
         progress_thread.start()
 
     try:
-        # Ejecutar MS1
+        # Run MS1
         print("Processing MS1 chromatograms...")
         con.execute(query, [bookmarked, recompute])
         accumulated_progress[0] = 100
