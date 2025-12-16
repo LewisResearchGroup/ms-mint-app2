@@ -1378,9 +1378,11 @@ def callbacks(app, fsc, cache, cpu=None):
                 conn.execute("UPDATE targets SET notes = ? WHERE peak_label = ?",
                              (target_note, target_clicked))
 
-            if slider_ref and slider_data and slider_ref['value'] == slider_data['value']:
+            # allow close if no slider data or no changes
+            if (not slider_ref or not slider_data) or slider_ref.get('value') == slider_data.get('value'):
                 return False, None, update_chromatograms or dash.no_update
-            # if it has_changes, don't close it
+
+            # if it has changes, don't close it (handled via confirm modal)
             return dash.no_update, dash.no_update, dash.no_update
         elif trigger_id == 'confirm-unsave-modal':
             # Close modal without saving changes
@@ -1653,7 +1655,7 @@ def callbacks(app, fsc, cache, cpu=None):
             {
                 'bgcolor': 'white',
                 'font': {'color': 'black', 'size': 12, 'weight': 'bold'},
-                'showarrow': True,
+                'showarrow': False,
                 'ax': -20,
                 'ay': -15,
                 'axref': 'pixel',
@@ -1664,12 +1666,15 @@ def callbacks(app, fsc, cache, cpu=None):
                 'xref': 'x',
                 'y': 1,
                 'yanchor': 'top',
-                'yref': 'y domain'
+                # 'yref': 'y domain',
+                'yref': 'paper',
+                'yshift': 15
+
             },
             {
                 'bgcolor': 'white',
                 'font': {'color': 'black', 'size': 12, 'weight': 'bold'},
-                'showarrow': True,
+                'showarrow': False,
                 'ax': 20,
                 'ay': -15,
                 'axref': 'pixel',
@@ -1680,7 +1685,9 @@ def callbacks(app, fsc, cache, cpu=None):
                 'xref': 'x',
                 'y': 1,
                 'yanchor': 'top',
-                'yref': 'y domain'
+                # 'yref': 'y domain',
+                'yref': 'paper',
+                'yshift': 15
             },
         ]
 
