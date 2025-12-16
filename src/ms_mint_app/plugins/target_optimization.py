@@ -1398,8 +1398,19 @@ def callbacks(app, fsc, cache, cpu=None):
         prevent_initial_call=True
     )
     def show_confirm_modal(close_clicks, reference_data, slider_data):
-        has_changes = slider_data['value'] != reference_data['value']
-        return bool(close_clicks and has_changes)
+        if not close_clicks:
+            raise PreventUpdate
+
+        if not reference_data or not slider_data:
+            return False
+
+        reference_value = reference_data.get('value') if isinstance(reference_data, dict) else None
+        slider_value = slider_data.get('value') if isinstance(slider_data, dict) else None
+        if reference_value is None or slider_value is None:
+            return False
+
+        has_changes = slider_value != reference_value
+        return bool(has_changes)
 
     ############# VIEW MODAL END #######################################
 
