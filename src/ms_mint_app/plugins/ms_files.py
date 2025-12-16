@@ -418,7 +418,7 @@ _layout = html.Div(
                 'opacity': 1,
             },
         ),
-        dcc.Store(id="ms-tour-hint-store", data={'open': True}, storage_type='session'),
+        dcc.Store(id="ms-tour-hint-store", data={'open': False}, storage_type='local'),
         dcc.Download(id='download-ms-files-csv'),
         dcc.Store(id="ms-table-action-store", data={}),
     ]

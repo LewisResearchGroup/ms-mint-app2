@@ -849,7 +849,7 @@ _layout = fac.AntdLayout(
                 'opacity': 1,
             },
         ),
-        dcc.Store(id='optimization-tour-hint-store', data={'open': True}, storage_type='session'),
+        dcc.Store(id='optimization-tour-hint-store', data={'open': False}, storage_type='local'),
     ],
     style={'height': '100%'},
 )

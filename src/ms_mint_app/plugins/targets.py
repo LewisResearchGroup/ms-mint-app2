@@ -407,7 +407,7 @@ _layout = html.Div(
             },
         ),
         dcc.Store(id="targets-action-store"),
-        dcc.Store(id="targets-tour-hint-store", data={'open': True}, storage_type='session'),
+        dcc.Store(id="targets-tour-hint-store", data={'open': False}, storage_type='local'),
         dcc.Download('download-targets-csv'),
     ],
 )

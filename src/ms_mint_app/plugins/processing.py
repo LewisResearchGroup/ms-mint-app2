@@ -607,7 +607,7 @@ _layout = html.Div(
             },
         ),
         dcc.Store('results-action-store'),
-        dcc.Store(id='processing-tour-hint-store', data={'open': True}, storage_type='session'),
+        dcc.Store(id='processing-tour-hint-store', data={'open': False}, storage_type='local'),
         dcc.Download('download-csv'),
     ]
 )
