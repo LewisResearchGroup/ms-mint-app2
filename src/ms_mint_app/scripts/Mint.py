@@ -276,6 +276,10 @@ def main():
         import threading
         threading.Thread(target=wait_and_open_browser).start()
 
+    from ms_mint_app.instance import SingleInstance
+    single = SingleInstance(name="ms-mint-app", temp_dir=args.data_dir, debug=args.debug)
+    single.ensure_single(force=True)
+
     if args.data_dir is not None:
         os.environ["MINT_DATA_DIR"] = args.data_dir
 
