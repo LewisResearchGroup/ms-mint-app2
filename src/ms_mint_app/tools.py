@@ -657,8 +657,8 @@ def process_targets(wdir, set_progress, selected_files):
         if conn is None:
             raise PreventUpdate
         conn.execute(
-            "INSERT INTO targets(peak_label, mz_mean, mz_width, mz, rt, rt_min, rt_max, rt_unit, intensity_threshold, "
-            "polarity, filterLine, ms_type, category, score, peak_selection, bookmark, source, notes) "
+            "INSERT OR REPLACE INTO targets(peak_label, mz_mean, mz_width, mz, rt, rt_min, rt_max, rt_unit, "
+            "intensity_threshold, polarity, filterLine, ms_type, category, score, peak_selection, bookmark, source, notes) "
             "SELECT peak_label, mz_mean, mz_width, mz, rt, rt_min, rt_max, rt_unit, intensity_threshold, polarity, "
             "filterLine, ms_type, category, score, peak_selection, bookmark, source, notes "
             "FROM targets_df ORDER BY mz_mean, peak_label"
