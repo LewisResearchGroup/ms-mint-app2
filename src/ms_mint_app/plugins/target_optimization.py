@@ -1977,6 +1977,7 @@ def callbacks(app, fsc, cache, cpu=None):
 
     ############# COMPUTE CHROMATOGRAM BEGIN #####################################
     @app.callback(
+        Output("notifications-container", "children", allow_duplicate=True),
         Output("compute-chromatogram-modal", "visible"),
         Output("chromatogram-warning", "style"),
         Output("chromatogram-warning", "message"),
@@ -1998,7 +1999,33 @@ def callbacks(app, fsc, cache, cpu=None):
         # check if some chromatogram was computed
         with duckdb_connection(wdir) as conn:
             if conn is None:
-                return dash.no_update
+                return (
+                    fac.AntdNotification(
+                        message="Compute Chromatograms",
+                        description="Workspace is not available. Please select or create a workspace.",
+                        type="error",
+                        duration=4,
+                        placement="bottom",
+                        showProgress=True,
+                    ),
+                    False, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update
+                )
+
+            ms_files = conn.execute("SELECT COUNT(*) FROM samples WHERE use_for_optimization = TRUE").fetchone()
+            targets = conn.execute("SELECT COUNT(*) FROM targets").fetchone()
+
+            if not ms_files or ms_files[0] == 0 or not targets or targets[0] == 0:
+                return (
+                    fac.AntdNotification(
+                        message="Compute Chromatograms",
+                        description="Need at least one MS-file (marked for optimization) and one target before computing chromatograms.",
+                        type="warning",
+                        duration=4,
+                        placement="bottom",
+                        showProgress=True,
+                    ),
+                    False, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update
+                )
 
             chromatograms = conn.execute("SELECT COUNT(*) FROM chromatograms").fetchone()
             if chromatograms:
@@ -2016,7 +2043,15 @@ def callbacks(app, fsc, cache, cpu=None):
         target_message = (f'Selected {selected_targets} targets'
                           if selected_targets
                           else 'There are no targets selected. The chromatograms will be computed for all targets.')
-        return True, warning_style, warning_message, target_message, ram_max, help
+        return (
+            dash.no_update,
+            True,
+            warning_style,
+            warning_message,
+            target_message,
+            ram_max,
+            help,
+        )
 
     @app.callback(
         Output('chromatograms', 'data'),
