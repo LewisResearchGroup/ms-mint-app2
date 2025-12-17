@@ -736,6 +736,12 @@ _layout = fac.AntdLayout(
                                             id="save-btn",
                                             type="primary",
                                         ),
+                                        fac.AntdButton(
+                                            "Delete target",
+                                            id="delete-target-from-modal",
+                                            danger=True,
+                                            type="dashed",
+                                        ),
                                     ],
                                     addSplitLine=True,
                                     size='small'
@@ -752,6 +758,12 @@ _layout = fac.AntdLayout(
                         ),
                         fac.AntdSpace(
                             [
+                                fac.AntdButton(
+                                    "Delete target",
+                                    id="delete-target-from-modal",
+                                    danger=True,
+                                    type="dashed",
+                                ),
                                 fac.AntdButton(
                                     "Close",
                                     id="chromatogram-view-close",
@@ -2241,27 +2253,43 @@ def callbacks(app, fsc, cache, cpu=None):
         Output('delete-target-clicked', 'children'),
 
         Input({'type': 'delete-target-card', 'index': ALL}, 'nClicks'),
+        Input('delete-target-from-modal', 'nClicks'),
         State({'type': 'target-card-preview', 'index': ALL}, 'data-target'),
+        State('target-preview-clicked', 'data'),
         prevent_initial_call=True
     )
-    def show_delete_modal(delete_clicks, data_target):
+    def show_delete_modal(delete_clicks, delete_modal_click, data_target, target_clicked):
 
         ctx = dash.callback_context
-        if not delete_clicks or not ctx.triggered:
+        if not ctx.triggered:
             raise PreventUpdate
-        ctx_trigger = json.loads(ctx.triggered[0]['prop_id'].split('.')[0])
+        trigger = ctx.triggered[0]['prop_id'].split('.')[0]
 
-        if len(dash.callback_context.triggered) > 1:
+        # Delete from card icon
+        if trigger.startswith('{'):
+            if not delete_clicks:
+                raise PreventUpdate
+            ctx_trigger = json.loads(trigger)
+            if len(dash.callback_context.triggered) > 1:
+                raise PreventUpdate
+            prop_id = ctx_trigger['index']
+            target = data_target[prop_id]
+        # Delete from modal button
+        elif trigger == 'delete-target-from-modal':
+            if not delete_modal_click or not target_clicked:
+                raise PreventUpdate
+            target = target_clicked
+        else:
             raise PreventUpdate
 
-        prop_id = ctx_trigger['index']
-        return True, fac.AntdParagraph(f"Are you sure you want to delete `{data_target[prop_id]}` target?"), \
-            data_target[prop_id]
+        return True, fac.AntdParagraph(f"Are you sure you want to delete `{target}` target?"), target
 
     #
     @app.callback(
         Output('notifications-container', 'children', allow_duplicate=True),
         Output('drop-chromatogram', 'data'),
+        Output('delete-targets-modal', 'visible', allow_duplicate=True),
+        Output('chromatogram-view-modal', 'visible', allow_duplicate=True),
 
         Input('delete-targets-modal', 'okCounts'),
         State('delete-target-clicked', 'children'),
@@ -2273,7 +2301,7 @@ def callbacks(app, fsc, cache, cpu=None):
             raise PreventUpdate
         with duckdb_connection(wdir) as conn:
             if conn is None:
-                return dash.no_update
+                return dash.no_update, dash.no_update, dash.no_update, dash.no_update
             conn.execute("DELETE FROM chromatograms WHERE peak_label = ?", [target])
             conn.execute("DELETE FROM targets WHERE peak_label = ?", [target])
             conn.execute("DELETE FROM results WHERE peak_label = ?", [target])
@@ -2285,7 +2313,9 @@ def callbacks(app, fsc, cache, cpu=None):
                                      showProgress=True,
                                      stack=True
                                      ),
-                True)
+                True,
+                False,
+                False)
 
     @app.callback(
         Output('notifications-container', 'children', allow_duplicate=True),

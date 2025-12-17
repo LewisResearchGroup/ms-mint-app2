@@ -117,19 +117,20 @@
 - [x] se muestra el mismo target en dos paginas continuas
 - [x] eliminar un boton de generar color en ms files
 - [x] add el boton para descargar metadata
+- [x] arreglar el cancel de la generacion de cromatogramas porque no termina (asumo se por el while)
+- [x] establecer limites en y para el valor min > 1
+- [x] remover target desde la modal
 ### Open
 - [ ] extraer sample type desde el nombre del archivo. por ejemplo, si tiene MHPool, el sample type es "MHPool" (elementos blank, mhpool, std)
 - [ ] cambiar el boton Ok/cancel del modal de confirmacion de cierre sin guardar por save/cancel
 - [ ] modal para notificar cuando borras tablas grandes
 - [ ] revisar el patron de tiempo de generacion de cromatogramas, hay un patron de poco tiempo, mucho tiempo
-- [ ] arreglar el cancel de la generacion de cromatogramas porque no termina (asumo se por el while)
 - [ ] en resultados cuando se filtra tiene mala interaccion con la paginacion. hay que moverla para la pagina 1. 
 - [ ] Tambien debe ajustarse el numero de elementos de acuerdo al filtrado
-- [ ] establecer limites en y para el valor min > 1
 - [ ] z-order para las traces
 - [ ] cambiar las tablas a una arquitectura basada en uuid4 para poder editar los nombre de los targets y otras cosas
 - [ ] anotar nuevo target duplicando el cromatograma. se añade un nuevo target con otro rt-span usando el chromatograma precomputado 
-- [ ] remover target desde la modal
+
 - [ ] poner indicador de ocupado para los botones de descarga
 - [ ] (*) hacer que cuando se levante la app mate cualquier instancia que exista de esta o procesos huerfanos
 - [ ] cambiar el Run order y demas columnas a group 1 - 5
