@@ -1075,6 +1075,9 @@ def callbacks(app, fsc, cache):
         progress=[
             Output("processing-progress", "percent"),
         ],
+        cancel=[
+            Input('cancel-processing', 'nClicks')
+        ],
         prevent_initial_call=True
     )
     def compute_results(set_progress, okCounts, recompute, n_cpus, ram, batch_size, bookmarked, wdir):
@@ -1111,3 +1114,15 @@ def callbacks(app, fsc, cache):
 
         print(f"Results computed in {time.perf_counter() - start:.2f} seconds")
         return True, False
+
+    @app.callback(
+        Output('processing-progress-container', 'style', allow_duplicate=True),
+        Output('processing-options-container', 'style', allow_duplicate=True),
+        Output('processing-modal', 'visible', allow_duplicate=True),
+        Input('cancel-processing', 'nClicks'),
+        prevent_initial_call=True
+    )
+    def cancel_results_processing(cancel_clicks):
+        if not cancel_clicks:
+            raise PreventUpdate
+        return {'display': 'none'}, {'display': 'flex'}, False
