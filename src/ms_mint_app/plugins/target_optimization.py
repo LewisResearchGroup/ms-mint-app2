@@ -2142,6 +2142,9 @@ def callbacks(app, fsc, cache, cpu=None):
         progress=[
             Output("chromatogram-processing-progress", "percent"),
         ],
+        cancel=[
+            Input('cancel-chromatogram-processing', 'nClicks')
+        ],
         prevent_initial_call=True
     )
     def compute_chromatograms(set_progress, okCounts, recompute_ms1, recompute_ms2, n_cpus, ram, batch_size, wdir):
@@ -2160,6 +2163,18 @@ def callbacks(app, fsc, cache, cpu=None):
         return True, False
 
     ############# COMPUTE CHROMATOGRAM END #######################################
+
+    @app.callback(
+        Output('chromatogram-processing-progress-container', 'style', allow_duplicate=True),
+        Output('chromatogram-compute-options-container', 'style', allow_duplicate=True),
+        Output('compute-chromatogram-modal', 'visible', allow_duplicate=True),
+        Input('cancel-chromatogram-processing', 'nClicks'),
+        prevent_initial_call=True
+    )
+    def cancel_compute_chromatograms(cancel_clicks):
+        if not cancel_clicks:
+            raise PreventUpdate
+        return {'display': 'none'}, {'display': 'flex'}, False
 
     @app.callback(
         # Output('chromatogram-view-modal', 'visible', allow_duplicate=True),
