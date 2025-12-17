@@ -658,11 +658,25 @@ def callbacks(app, fsc, cache):
         if not wdir:
             raise PreventUpdate
 
+        # Early guard: if there are no results yet, return empty placeholders instead of erroring.
+        empty_fig = go.Figure()
+        empty_fig.update_layout(
+            title="No results available",
+            template="plotly_white",
+        )
+
         from dash import callback_context
         ctx = callback_context
         triggered_prop = ctx.triggered[0]["prop_id"].split(".")[0] if ctx.triggered else ""
 
         with duckdb_connection(wdir) as conn:
+            if conn is None:
+                return None, empty_fig, [], [], []
+
+            results_count = conn.execute("SELECT COUNT(*) FROM results").fetchone()[0]
+            if results_count == 0:
+                return None, empty_fig, [], [], []
+
             metric = metric_value or 'peak_area'
             df = create_pivot(conn, value=metric)
             df.set_index('ms_file_label', inplace=True)
@@ -708,7 +722,7 @@ def callbacks(app, fsc, cache):
             raw_df[raw_numeric_cols] = raw_numeric
 
             if df.empty or raw_numeric.empty:
-                raise PreventUpdate
+                return None, empty_fig, [], [], []
 
             from sklearn.preprocessing import StandardScaler
             scaler = StandardScaler()
@@ -739,6 +753,8 @@ def callbacks(app, fsc, cache):
                 violin_matrix = ndf
             else:
                 violin_matrix = df
+            if violin_matrix.is_empty():
+                return None, empty_fig, [], [], []
 
         if tab_key == 'clustermap':
             import seaborn as sns
