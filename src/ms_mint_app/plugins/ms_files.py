@@ -241,7 +241,7 @@ _layout = html.Div(
                             {
                                 'title': 'Polarity',
                                 'dataIndex': 'polarity',
-                                'width': '100px',
+                                'width': '150px',
                             },
                             {
                                 'title': 'MS Type',
@@ -275,55 +275,55 @@ _layout = html.Div(
                         ],
                         titlePopoverInfo={
                             'ms_file_label': {
-                                'title': 'MS-File Label',
+                                'title': 'ms_file_label',
                                 'content': MS_METADATA_DESCRIPTION_MAP['ms_file_label'],
                             },
                             'label': {
-                                'title': 'Label',
+                                'title': 'label',
                                 'content': MS_METADATA_DESCRIPTION_MAP['label'],
                             },
                             'color': {
-                                'title': 'Color',
+                                'title': 'color',
                                 'content': MS_METADATA_DESCRIPTION_MAP['color'],
                             },
                             'use_for_optimization': {
-                                'title': 'For Optimization',
+                                'title': 'use_for_optimization',
                                 'content': MS_METADATA_DESCRIPTION_MAP['use_for_optimization'],
                             },
                             'use_for_analysis': {
-                                'title': 'For Analysis',
+                                'title': 'use_for_analysis',
                                 'content': MS_METADATA_DESCRIPTION_MAP['use_for_analysis'],
                             },
                             'sample_type': {
-                                'title': 'Sample Type',
+                                'title': 'sample_type',
                                 'content': MS_METADATA_DESCRIPTION_MAP['sample_type'],
                             },
                             'polarity': {
-                                'title': 'Polarity',
+                                'title': 'polarity',
                                 'content': MS_METADATA_DESCRIPTION_MAP['polarity'],
                             },
                             'ms_type': {
-                                'title': 'MS Type',
+                                'title': 'ms_type',
                                 'content': MS_METADATA_DESCRIPTION_MAP['ms_type'],
                             },
                             'file_type': {
-                                'title': 'File Type',
+                                'title': 'file_type',
                                 'content': 'Raw file format (e.g., mzML, mzXML)',
                             },
                             'run_order': {
-                                'title': 'Run Order',
+                                'title': 'run_order',
                                 'content': MS_METADATA_DESCRIPTION_MAP['run_order'],
                             },
                             'plate': {
-                                'title': 'Plate',
+                                'title': 'plate',
                                 'content': MS_METADATA_DESCRIPTION_MAP['plate'],
                             },
                             'plate_row': {
-                                'title': 'Plate Row',
+                                'title': 'plate_row',
                                 'content': MS_METADATA_DESCRIPTION_MAP['plate_row'],
                             },
                             'plate_column': {
-                                'title': 'Plate Column',
+                                'title': 'plate_column',
                                 'content': MS_METADATA_DESCRIPTION_MAP['plate_column'],
                             },
                         },
