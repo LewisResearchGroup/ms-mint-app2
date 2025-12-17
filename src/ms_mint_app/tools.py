@@ -458,13 +458,15 @@ def get_targets_v2(files_path):
             if dtype == 'string':
                 targets_df[col] = targets_df[col].astype('string')
             elif dtype == 'boolean':
-                targets_df[col] = targets_df[col].astype('boolean').fillna(False)
+                if col != 'peak_selection':  # handle peak_selection defaults separately below
+                    targets_df[col] = targets_df[col].astype('boolean').fillna(False)
             elif dtype == float:
                 targets_df[col] = pd.to_numeric(targets_df[col], errors='coerce')
 
     # Fill default values
-    targets_df['peak_selection'] = targets_df['peak_selection'].astype('boolean').fillna(False)
-    targets_df['bookmark'] = targets_df['bookmark'].astype('boolean').fillna(False)
+    # Default to selected when the column is missing/blank so uploaded targets are included by default.
+    targets_df['peak_selection'] = targets_df['peak_selection'].fillna(True).astype(bool)
+    targets_df['bookmark'] = targets_df['bookmark'].fillna(False).astype(bool)
 
     # Summary log
     logging.info("Processing summary:")
