@@ -4,7 +4,7 @@ general
 
 explorer
 - [x] (*) añadir soporte para unidades que no sean el home
-- [ ] catch errores de procesamiento de archivos ms_files para evitar crashes 
+- [x] catch errores de procesamiento de archivos ms_files para evitar crashes 
 - [x] (enhancement) probar el componente transfer pero sin eliminar elementos de la izquierda 
   - doble click para transferir o seleccionar archivos
   - shift + click para seleccion multiple continua
@@ -42,11 +42,11 @@ Optimization
 - [x] con el filtro de ms_type se requiere modificar las sample_type que se muestran en el tree
 - [x] cuando esta en log scale y se hace zoom se reinicia el eje
 - [x] el log scale deja de funcionar
-- [ ] sin metadata no hay ningun ms_file marcado para optimizacion y debe notificarse en "Compute Chromatograms" para no computar nada
-- [ ] similar para targets
+- [x] sin metadata no hay ningun ms_file marcado para optimizacion y debe notificarse en "Compute Chromatograms" para no computar nada
+- [x] similar para targets
 - [x] barra de progreso. Ver si la query internamente puede mostrar progreso, de lo contrario subdividir en lotes para mostrar progreso y asi mejorar la UX 
 - [x] rollback delete cromatogramas
-- [ ] remover tentativamente la linea del RT (se computara de forma automatica)
+- [x] remover tentativamente la linea del RT (se computara de forma automatica)
 - [x] order by tiene problemas. no se ordena toda la tabla antes de paginar
 - [x] cards no alineadas
 
@@ -55,7 +55,6 @@ Processing
 - [x] solo esta procesando los que estan marcados para optimizacion. falta computar los cromatogramas de todos los ms_files
 - [x] la busqueda tiene mala interacion con el numero de paginas
 - [x] remover results cuando se elimine samples y targets
-- [ ]
 
 
 Workspaces
@@ -68,8 +67,8 @@ mint
 
 # Features
 - [ ] extraer sample type desde el nombre del archivo. por ejemplo, si tiene MHPool, el sample type es "MHPool" (elementos blank, mhpool, std)
-- [ ] colores por grupos. para grupos standard asignar colores a todo el grupo, para el resto, asignar colores individualmente
-- [ ] establecer aspect ratio para numero de elementos definidos en la paginacion (4, 10, 20, 50)
+- [x] colores por grupos. para grupos standard asignar colores a todo el grupo, para el resto, asignar colores individualmente
+- [x] establecer aspect ratio para numero de elementos definidos en la paginacion (4, 10, 20, 50)
 - [x] (*) el filtrado por mz se cambia a filtrado por scan_id, si mz no existe se asigna 0 (incluye todos los valores)
 - [x] buscar compuestos en optimization (barra de busqueda)
 - [x] incluir opcion para 50 cards en optimization
@@ -87,11 +86,11 @@ mint
 - [x] en los chromatograms poner intensity = 1 en vez de 0, para evitar que se rompa el grafico en log scale
 - [x] arreglar targets si tiene rt en min convertirlo a segundos 
 - [x] arreglar el slider de rt span con el zoom
-- [ ] hacer pruebas de rendimiento de descarga de resultados. probar alternativas a duckdb con pandas o polars
-- [ ] cambiar colors por sample_type y paletas degradadas para cada grupo.
+- [x] hacer pruebas de rendimiento de descarga de resultados. probar alternativas a duckdb con pandas o polars
+- [x] cambiar colors por sample_type y paletas degradadas para cada grupo.
 - [x] log file (parcialmente)
-- [ ] (*) corregir el catch de los errors en el procesamiento de archivos
-- [ ] cuando se borran los ultimos archivos de ms_files se va complemente la paginacion
+- [x] (*) corregir el catch de los errors en el procesamiento de archivos
+- [x] cuando se borran los ultimos archivos de ms_files se va complemente la paginacion
 - [x] poner ms_file_label y label del mismo ancho
 - [ ] modal para notificar cuando borras tablas grandes
 - [ ] notificacion de duplicados hay que reducirlo
@@ -100,7 +99,7 @@ mint
 - [ ] arreglar el cancel de la generacion de cromatogramas porque no termina (asumo se por el while)
 - [ ] en resultados cuando se filtra tiene mala interaccion con la paginacion. hay que moverla para la pagina 1. 
 - [ ] Tambien debe ajustarse el numero de elementos de acuerdo al filtrado
-- [ ] aplicar el calculo por batches en processing
+- [x] aplicar el calculo por batches en processing
 - [x] (*) Implementar los analisis
 - [ ] establecer limites en y para el valor min > 1
 - [ ] probar el threshold
