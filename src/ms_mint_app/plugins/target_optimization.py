@@ -2040,6 +2040,7 @@ def callbacks(app, fsc, cache, cpu=None):
         Output("chromatogram-targets-info", "message"),
         Output("chromatogram-compute-ram", "max"),
         Output("chromatogram-compute-ram-item", "help"),
+        Output("chromatogram-processing-progress", "percent", allow_duplicate=True),
 
         Input("compute-chromatograms-btn", "nClicks"),
         State('chromatogram-compute-ram', 'value'),
@@ -2064,7 +2065,7 @@ def callbacks(app, fsc, cache, cpu=None):
                         placement="bottom",
                         showProgress=True,
                     ),
-                    False, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update
+                    False, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, 0
                 )
 
             ms_files = conn.execute("SELECT COUNT(*) FROM samples WHERE use_for_optimization = TRUE").fetchone()
@@ -2080,7 +2081,7 @@ def callbacks(app, fsc, cache, cpu=None):
                         placement="bottom",
                         showProgress=True,
                     ),
-                    False, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update
+                    False, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, 0
                 )
 
             chromatograms = conn.execute("SELECT COUNT(*) FROM chromatograms").fetchone()
@@ -2107,6 +2108,7 @@ def callbacks(app, fsc, cache, cpu=None):
             target_message,
             ram_max,
             help,
+            0,
         )
 
     @app.callback(
@@ -2168,13 +2170,14 @@ def callbacks(app, fsc, cache, cpu=None):
         Output('chromatogram-processing-progress-container', 'style', allow_duplicate=True),
         Output('chromatogram-compute-options-container', 'style', allow_duplicate=True),
         Output('compute-chromatogram-modal', 'visible', allow_duplicate=True),
+        Output('chromatogram-processing-progress', 'percent', allow_duplicate=True),
         Input('cancel-chromatogram-processing', 'nClicks'),
         prevent_initial_call=True
     )
     def cancel_compute_chromatograms(cancel_clicks):
         if not cancel_clicks:
             raise PreventUpdate
-        return {'display': 'none'}, {'display': 'flex'}, False
+        return {'display': 'none'}, {'display': 'flex'}, False, 0
 
     @app.callback(
         # Output('chromatogram-view-modal', 'visible', allow_duplicate=True),
