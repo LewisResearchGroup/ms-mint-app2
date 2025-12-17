@@ -8,9 +8,8 @@ from .plugins.ms_files import MsFilesPlugin
 from .plugins.targets import TargetsPlugin
 from .plugins.target_optimization import TargetOptimizationPlugin
 from .plugins.processing import ProcessingPlugin
-from .plugins.quality_control import QualityControlPlugin
+# from .plugins.quality_control import QualityControlPlugin
 from .plugins.analysis import AnalysisPlugin
-from .plugins.ms2_browser import MS2BrowserPlugin
 
 
 class PluginManager:
@@ -26,7 +25,6 @@ class PluginManager:
         #self.register_plugin("Add Metabolites", AddMetabolitesPlugin())
         self.register_plugin("Optimization", TargetOptimizationPlugin())
         # add the new MS2 browser plugin
-        # self.register_plugin("MS2 Browser", MS2BrowserPlugin())
         self.register_plugin("Processing", ProcessingPlugin())
         # self.register_plugin("Quality Control", QualityControlPlugin())
         self.register_plugin("Analysis", AnalysisPlugin())

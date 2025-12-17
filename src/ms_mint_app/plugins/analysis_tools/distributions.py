@@ -11,8 +11,8 @@ import dash_bootstrap_components as dbc
 from dash.exceptions import PreventUpdate
 from dash.dependencies import Input, Output, State
 
-from ms_mint.Mint import Mint
-from ms_mint.standards import MINT_RESULTS_COLUMNS
+# from ms_mint.Mint import Mint
+# from ms_mint.standards import MINT_RESULTS_COLUMNS
 from ... import tools as T
 
 

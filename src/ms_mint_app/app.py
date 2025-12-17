@@ -12,7 +12,6 @@ from dash_extensions.enrich import FileSystemCache
 from flask_caching import Cache
 from flask_login import current_user
 
-import ms_mint
 import ms_mint_app
 from .duckdb_manager import duckdb_connection_mint
 from .plugin_interface import PluginInterface
@@ -227,23 +226,14 @@ _layout = fac.AntdLayout(
                                     [
                                         fac.AntdFlex(
                                             [
-                                                fac.AntdText('ms-mint:', strong=True),
-                                                fac.AntdText(str(ms_mint.__version__), code=True),
-
-                                            ],
-                                            justify='space-between',
-                                            align='center',
-                                        ),
-                                        fac.AntdFlex(
-                                            [
-                                                fac.AntdText('ms-mint-app:', strong=True),
+                                                fac.AntdText('version:', strong=True),
                                                 fac.AntdText(str(ms_mint_app.__version__), code=True),
                                             ],
                                             justify='space-between',
                                             align='center',
                                         ),
                                     ],
-                                    style={'margin': '4px'},
+                                    style={'margin': '10px 4px'},
                                     id='version-info',
                                 ),
                             ],
@@ -377,8 +367,7 @@ def register_callbacks(app, cache, fsc, args):
 
 def create_app(**kwargs):
     logging.info('Create application')
-    logging.info(f'ms-mint: {ms_mint.__version__}, ({ms_mint.__file__})')
-    logging.info(f'ms-mint-app: {ms_mint_app.__version__}, ({ms_mint.__file__})')
+    logging.info(f'ms-mint-app: {ms_mint_app.__version__}')
 
     if 'REDIS_URL' in os.environ:
         # Use Redis & Celery if REDIS_URL set as an env variable

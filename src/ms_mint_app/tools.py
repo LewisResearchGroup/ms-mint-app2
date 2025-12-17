@@ -1,262 +1,305 @@
 import base64
-from datetime import date
 import io
 import logging
 import math
 import os
 import random
+import re
 import tempfile
+import zlib
 from pathlib import Path
-from glob import glob
-from typing import Union
+from typing import Dict, Optional, Iterator, Any, List
 
 import numpy as np
 import pandas as pd
+import pyarrow as pa
+from pyarrow import parquet as pq
 from dash.exceptions import PreventUpdate
+from lxml.etree import XMLSyntaxError
 from scipy.ndimage import binary_opening
-from tqdm import tqdm
 
-from ms_mint.io import ms_file_to_df
-from ms_mint.standards import TARGETS_COLUMNS
-from ms_mint.targets import standardize_targets, read_targets
 from .duckdb_manager import duckdb_connection
-from .filelock import FileLock
 
-def today():
-    return date.today().strftime("%y%m%d")
-
-
-def list_to_options(x):
-    return [{"label": e, "value": e} for e in x]
+_RT_SECONDS = re.compile(
+    r"^P(?:T(?:(?P<h>\d+(?:\.\d+)?)H)?(?:(?P<m>\d+(?:\.\d+)?)M)?(?:(?P<s>\d+(?:\.\d+)?)S)?)$",
+    re.I
+)
 
 
-def lock(fn):
-    return FileLock(f"{fn}.lock", timeout=1)
-
-
-def get_targets_from_upload(file_path: str, ms_mode=None):
-    """
-    Read a target CSV file and return a DataFrame.
-
-    Args:
-        file_path: Path to the target CSV file.
-
-    Returns:
-        DataFrame containing the target data.
-    """
-    failed = False
+def rt_to_seconds(val) -> float:
+    """Convierte retentionTime a segundos (si viene PT…); si ya es numérico, lo devuelve tal cual."""
+    if isinstance(val, (int, float)):
+        return float(val)
+    s = (val or "").strip()
+    # si ya viene "0.12345" lo tomamos como segundos
     try:
-        df = pd.read_csv(file_path)
-        df = standardize_targets(df, ms_mode=ms_mode, filename=os.path.basename(file_path))
-        df = df[TARGETS_COLUMNS]
-    except Exception as e:
-        print(f"Error reading {file_path}: {e}")
-        df = pd.DataFrame()
-        failed = True
-    return df, failed
+        return float(s)
+    except ValueError:
+        pass
+    m = _RT_SECONDS.match(s)
+    if not m:
+        return 0.0
+    h = float(m.group("h") or 0.0)
+    mi = float(m.group("m") or 0.0)
+    se = float(m.group("s") or 0.0)
+    return h * 3600.0 + mi * 60.0 + se
 
 
-class Chromatograms:
-    def __init__(self, wdir, targets, ms_files, progress_callback=None):
-        self.wdir = wdir
-        self.targets = targets
-        self.ms_files = ms_files
-        self.n_peaks = len(targets)
-        self.n_files = len(ms_files)
-        self.progress_callback = progress_callback
+def _decode_peaks_optimized(attrs: Dict[str, str], text: Optional[str]) -> tuple[np.ndarray, np.ndarray]:
+    """
+    OPTIMIZACIÓN CLAVE: Decodifica mz e intensity en UNA SOLA operación
+    usando structured arrays (como pyteomics).
 
-    def create_all(self):
-        for fn in tqdm(self.ms_files):
-            self.create_all_for_ms_file(fn)
-        return self
+    Esto es ~2-3x más rápido que decodificar por separado.
+    """
+    if not text:
+        return np.array([], dtype=np.float32), np.array([], dtype=np.float32)
 
-    def create_all_for_ms_file(self, ms_file: str):
-        fn = ms_file
-        df = ms_file_to_df(fn)
-        for ndx, row in self.targets.iterrows():
-            mz_mean, mz_width = row[["mz_mean", "mz_width"]]
-            fn_chro = get_chromatogram_fn(fn, mz_mean, mz_width, self.wdir)
-            if os.path.isfile(fn_chro):
-                continue
-            dirname = os.path.dirname(fn_chro)
-            if not os.path.isdir(dirname):
-                os.makedirs(dirname)
-            dmz = mz_mean * 1e-6 * mz_width
-            chrom = df[(df["mz"] - mz_mean).abs() <= dmz]
-            chrom["scan_time"] = chrom["scan_time"].round(3)
-            chrom = chrom.groupby("scan_time").max().reset_index()
-            chrom[["scan_time", "intensity"]].to_feather(fn_chro)
+    # Determinar dtype según precisión
+    dt = np.float32 if attrs.get("precision") == "32" else np.float64
 
-    def get_single(self, mz_mean, mz_width, ms_file):
-        return self._get_chromatogram(ms_file, mz_mean, mz_width, self.wdir)
+    # CLAVE: Crear structured dtype para ambos arrays (mz, intensity)
+    # byteorder '>' = big-endian (network byte order)
+    endian = ">" if attrs.get("byteOrder") in ("network", "big") else "<"
+    dtype = np.dtype([("mz", dt), ("intensity", dt)]).newbyteorder(endian)
 
-    def _get_chromatogram(self, ms_file, mz_mean, mz_width, wdir):
-        fn = self._get_chromatogram_fn(ms_file, mz_mean, mz_width, wdir)
-        if not os.path.isfile(fn):
-            chrom = self._create_chromatogram(ms_file, mz_mean, mz_width, fn)
-        else:
-            try:
-                chrom = pd.read_feather(fn)
-            except:
-                os.remove(fn)
-                logging.warning(f"Cound not read {fn}.")
-                return None
+    # Decodificar base64
+    raw = base64.b64decode(text)
 
-        chrom = chrom.rename(
-            columns={
-                "retentionTime": "scan_time",
-                "intensity array": "intensity",
-                "m/z array": "mz",
+    # Descomprimir si es necesario
+    if attrs.get("compressionType") == "zlib":
+        raw = zlib.decompress(raw)
+
+    # UNA SOLA conversión de bytes a arrays
+    arr = np.frombuffer(raw, dtype=dtype)
+
+    # Extraer campos del structured array (sin copia, solo vistas)
+    return arr["mz"], arr["intensity"]
+
+
+def iter_mzxml_fast(path: str | Path, *, decode_binary: bool = True) -> Iterator[Dict[str, Any]]:
+    from lxml import etree  # ← IMPORTACIÓN CRÍTICA
+
+    path = Path(path)
+
+    # CAMBIO CLAVE: lxml.etree con remove_comments=True
+    context = etree.iterparse(
+        path.as_posix(),
+        events=("start", "end"),
+        remove_comments=True,  # Acelera el parsing
+        huge_tree=False,  # Seguridad (default)
+    )
+
+    # Get root para limpiar memoria
+    _, root = next(context)
+
+    current: Dict[str, Any] = {}
+    have_peaks = False
+
+    for ev, elem in context:
+        # lxml usa .tag directamente (sin namespace por defecto en mzXML)
+        tag = elem.tag
+        if '}' in tag:  # Solo si hay namespace
+            tag = tag.rsplit("}", 1)[-1]
+
+        if ev == "start" and tag == "scan":
+            a = elem.attrib
+            current = {
+                "num": int(a.get("num", "0")),
+                "msLevel": int(a.get("msLevel", "0")),
+                "retentionTime": rt_to_seconds(a.get("retentionTime", "0")),
+                "polarity": (
+                    "Positive" if a.get("polarity") == "+"
+                    else ("Negative" if a.get("polarity") == "-" else None)
+                ),
+                "filterLine": a.get("filterLine"),
             }
+            have_peaks = False
+
+        elif ev == "end" and tag == "precursorMz":
+            txt = (elem.text or "").strip()
+            if txt:
+                try:
+                    current["precursorMz"] = float(txt)
+                except ValueError:
+                    pass
+
+        elif ev == "end" and tag == "peaks":
+            if decode_binary:
+                # OPTIMIZACIÓN CLAVE: Usa la versión optimizada
+                mz, it = _decode_peaks_optimized(elem.attrib, (elem.text or "").strip() or None)
+                current["m/z array"] = mz
+                current["intensity array"] = it
+                have_peaks = True
+            else:
+                current["peaks"] = {"attrs": dict(elem.attrib), "text": elem.text}
+
+        elif ev == "end" and tag == "scan":
+            # ELMAVEN-like extra (opcional)
+            if current.get("msLevel") == 2 and have_peaks:
+                pol_str = current.get("polarity") or ""
+                prec = current.get("precursorMz")
+                mz_arr = current.get("m/z array", [])
+                mz0 = float(mz_arr[0]) if len(mz_arr) else None
+                if prec is not None and mz0 is not None:
+                    current["filterLine_ELMAVEN"] = f"{pol_str} {prec:.3f} [{mz0:.3f}]"
+
+            yield current
+            root.clear()  # libera memoria
+
+
+BATCH_SIZE_POINTS = 50_000_000
+
+
+def _build_table_from_lists(lists_dict: Dict[str, List], ms_level: int) -> pa.Table:
+    """Helper para convertir las listas actuales en un pa.Table."""
+    if ms_level == 1:
+        arrays_dict = {
+            'ms_file_label': pa.array(lists_dict['labels'], type=pa.string()),
+            'scan_id': pa.array(lists_dict['scan_ids'], type=pa.int32()),
+            'mz': pa.array(lists_dict['mzs'], type=pa.float64()),
+            'intensity': pa.array(lists_dict['intensities'], type=pa.float64()),
+            'scan_time': pa.array(lists_dict['scan_times'], type=pa.float64()),
+        }
+    else:  # MS2
+        arrays_dict = {
+            'ms_file_label': pa.array(lists_dict['labels'], type=pa.string()),
+            'scan_id': pa.array(lists_dict['scan_ids'], type=pa.int32()),
+            'mz': pa.array(lists_dict['mzs'], type=pa.float64()),
+            'intensity': pa.array(lists_dict['intensities'], type=pa.float64()),
+            'scan_time': pa.array(lists_dict['scan_times'], type=pa.float64()),
+            'mz_precursor': pa.array(lists_dict['mz_precursors'], type=pa.float64()),
+            'filterLine': pa.array(lists_dict['filterLines'], type=pa.string()),
+            'filterLine_ELMAVEN': pa.array(lists_dict['filterLines_ELMAVEN'], type=pa.string()),
+        }
+    return pa.Table.from_pydict(arrays_dict)
+
+
+def _init_lists() -> Dict[str, List]:
+    """Helper para inicializar/resetear las listas."""
+    return {
+        'labels': [], 'scan_ids': [], 'scan_times': [],
+        'mzs': [], 'intensities': [],
+        'mz_precursors': [], 'filterLines': [], 'filterLines_ELMAVEN': []
+    }
+
+
+def convert_mzxml_to_parquet_fast_batches(
+        file_path: str,
+        time_unit: str = "s",
+        remove_original: bool = False,
+        tmp_dir: Optional[str] = None,
+):
+    file_path = Path(file_path)
+    time_factor = 60.0 if time_unit == "min" else 1.0
+    file_stem = file_path.stem
+
+    # --- INICIO LÓGICA DE LOTES ---
+    table_batches = []
+    current_lists = _init_lists()
+    # --- FIN LÓGICA DE LOTES ---
+
+    ms_level = None
+    polarity = None
+    first_scan = True
+
+    total_points = 0  # Contador para los lotes
+    try:
+        for data in iter_mzxml_fast(file_path.as_posix(), decode_binary=True):
+            mz_arr = data.get("m/z array")
+            if mz_arr is None or len(mz_arr) == 0:
+                continue
+
+            inten_arr = data.get("intensity array")
+            n_points = len(mz_arr)
+            total_points += n_points
+
+            if first_scan:
+                ms_level = int(data.get("msLevel", 0))
+                polarity = "Positive" if data.get("polarity") == "+" else "Negative"
+                first_scan = False
+
+            scan_id = int(data.get("num", 0))
+            scan_time = float(data.get("retentionTime", 0.0)) * time_factor
+
+            current_lists['labels'].extend([file_stem] * n_points)
+            current_lists['scan_ids'].extend([scan_id] * n_points)
+            current_lists['scan_times'].extend([scan_time] * n_points)
+            current_lists['mzs'].extend(mz_arr)
+            current_lists['intensities'].extend(inten_arr)
+
+            if ms_level == 2:
+                mz_prec = None
+                fline = data.get("filterLine")
+                fline_elm = None
+                try:
+                    mz_prec = float(data["precursorMz"][0]["precursorMz"])
+                    if mz_prec is not None and n_points > 0:
+                        fline_elm = f"{polarity} {mz_prec:.3f} [{mz_arr[0]:.3f}]"
+                except (KeyError, IndexError, TypeError):
+                    pass
+                current_lists['mz_precursors'].extend([mz_prec] * n_points)
+                current_lists['filterLines'].extend([fline] * n_points)
+                current_lists['filterLines_ELMAVEN'].extend([fline_elm] * n_points)
+            else:
+                current_lists['mz_precursors'].extend([None] * n_points)
+                current_lists['filterLines'].extend([None] * n_points)
+                current_lists['filterLines_ELMAVEN'].extend([None] * n_points)
+
+            # --- INICIO LÓGICA DE LOTES ---
+            # Comprobar si el lote actual ha superado el umbral
+            if total_points > BATCH_SIZE_POINTS:
+                table_batches.append(_build_table_from_lists(current_lists, ms_level))
+                # Resetear listas y contador
+                current_lists = _init_lists()
+                total_points = 0
+            # --- FIN LÓGICA DE LOTES ---
+    except XMLSyntaxError as e:
+        raise ValueError(f"Invalid XML in {file_path}: {str(e)}") from e
+    except Exception as e:
+        raise ValueError(f"Invalid XML in {file_path}: {e}") from e
+
+    # --- INICIO LÓGICA DE LOTES ---
+    # Añadir el último lote si queda algo
+    if total_points > 0:
+        table_batches.append(_build_table_from_lists(current_lists, ms_level))
+
+    # Si no se leyó nada (archivo vacío o inválido)
+    if not table_batches:
+        print(f"Advertencia: No se encontraron datos válidos en {file_path}")
+        # Retornar con valores nulos o manejar como error
+        return 0, file_path, file_stem, 1, "Unknown", None
+
+    table = pa.concat_tables(table_batches)
+
+    if ms_level is None: ms_level = 1
+    if polarity is None: polarity = "Unknown"
+
+    if not tmp_dir:
+        tmp_dir = tempfile.mkdtemp()
+    tmp_fn = Path(tmp_dir, f"{file_stem}.parquet")
+
+    # if ms_level == 1:
+    #     indices = pa.compute.sort_indices(table, sort_keys=[("mz", "ascending")])
+    #     table = pa.compute.take(table, indices)
+    # elif ms_level == 2:
+    #     indices = pa.compute.sort_indices(table, sort_keys=[("filterLine", "ascending")])
+    #     table = pa.compute.take(table, indices)
+    try:
+        pq.write_table(
+            table,
+            tmp_fn,
         )
+    except Exception as e:
+        raise ValueError(f"Failed to write {tmp_fn}: {e}") from e
 
-        return chrom
+    if remove_original:
+        try:
+            os.remove(file_path)
+        except OSError:
+            pass
 
-    @staticmethod
-    def _create_chromatogram(
-            ms_file: Union[str, Path],
-            mz_mean: float,
-            mz_width: float,
-            fn_out: Union[str, Path],
-            time_step: float = 0.25
-    ) -> pd.DataFrame:
-        """
-        Create a chromatogram from mass spectrometry data.
-
-        Args:
-            ms_file: Path to the mass spectrometry file
-            mz_mean: Mean m/z value for filtering
-            mz_width: Width of m/z window in ppm
-            fn_out: Output file path for the Feather file
-            time_step: Time step for equidistant time points (default: 0.25)
-
-        Returns:
-            pd.DataFrame: Processed chromatogram data with equidistant time points
-                         Returns empty DataFrame if no data is found
-        """
-
-        # Convert MS file to DataFrame
-        df = ms_file_to_df(ms_file)
-        # Create output directory if not exists
-        dirname: str = os.path.dirname(str(fn_out))
-        if not os.path.isdir(dirname):
-            os.makedirs(dirname, exist_ok=True)
-
-        if mz_width:
-            # Calculate m/z tolerance
-            dmz = mz_mean * 1e-6 * mz_width
-            # Filter DataFrame to specific m/z range
-            chrom = df[(df["mz"] - mz_mean).abs() <= dmz]
-        else:
-            chrom = df
-
-        # If no data found, return empty DataFrame
-        if chrom.empty:
-            empty_result = pd.DataFrame(columns=["scan_time", "intensity"])
-
-            # Save empty DataFrame to Feather file
-            with lock(fn_out):
-                empty_result.to_feather(fn_out)
-            return empty_result
-        # Group by scan time and get max intensity
-        cols_to_drop_list = ["polarity", 'filterLine', 'filterLine_to_ELMAVEN']
-        if cols_to_drop := [col for col in cols_to_drop_list if col in df.columns]:
-            chrom = chrom.drop(columns=cols_to_drop)
-        chrom = chrom.groupby("scan_time").max().reset_index()
-
-        # Determine start and end times
-        start_time: float = chrom['scan_time'].min()
-        end_time: float = chrom['scan_time'].max()
-
-        # Check if start_time or end_time is NaN
-        if np.isnan(start_time) or np.isnan(end_time):
-            empty_result: pd.DataFrame = pd.DataFrame(columns=["scan_time", "intensity"])
-
-            # Save empty DataFrame to Feather file
-            with lock(fn_out):
-                empty_result.to_feather(fn_out)
-
-            return empty_result
-
-        # Create equidistant time points
-        time_points: np.ndarray = np.arange(start_time, end_time + time_step, time_step)
-
-        # Interpolate intensities
-        interpolated_intensities: np.ndarray = np.interp(
-            time_points,
-            chrom['scan_time'],
-            chrom['intensity']
-        )
-
-        # Create new equidistant DataFrame
-        equidistant_chrom: pd.DataFrame = pd.DataFrame({
-            'scan_time': time_points,
-            'intensity': interpolated_intensities
-        })
-
-        # Round scan time to 3 decimal places
-        equidistant_chrom['scan_time'] = equidistant_chrom['scan_time'].round(3)
-
-        # Save to Feather file
-        with lock(fn_out):
-            equidistant_chrom[["scan_time", "intensity"]].to_feather(fn_out)
-
-        return equidistant_chrom
-
-    @staticmethod
-    def _get_chromatogram_fn(ms_file, mz_mean, mz_width, wdir):
-        ms_file = os.path.basename(ms_file)
-        base, _ = os.path.splitext(ms_file)
-        fn = (
-                os.path.join(wdir, "chromato", f"{mz_mean}-{mz_width}".replace(".", "_"), base)
-                + ".feather"
-        )
-        return fn
-
-
-def get_targets_fn(wdir):
-    return os.path.join(wdir, "targets", "targets.csv")
-
-
-def get_targets(wdir):
-    fn = get_targets_fn(wdir)
-    if os.path.isfile(fn):
-        targets = read_targets(fn)
-    else:
-        targets = pd.DataFrame(columns=TARGETS_COLUMNS)
-    return targets
-
-
-def update_targets(wdir, peak_label, rt_min=None, rt_max=None, rt=None):
-    targets = get_targets(wdir)
-
-    if isinstance(peak_label, int):
-        targets = targets.reset_index()
-
-    if rt_min is not None and not np.isnan(rt_min):
-        targets.loc[targets['peak_label'] == peak_label, "rt_min"] = rt_min
-    if rt_max is not None and not np.isnan(rt_max):
-        targets.loc[targets['peak_label'] == peak_label, "rt_max"] = rt_max
-    if rt is not None and not np.isnan(rt):
-        targets.loc[targets['peak_label'] == peak_label, "rt"] = rt
-
-    # if isinstance(peak_label, int):
-    #     targets = targets.set_index("peak_label")
-
-    fn = get_targets_fn(wdir)
-    with lock(fn):
-        targets.to_csv(fn)
-
-
-def get_results_fn(wdir):
-    return os.path.join(wdir, "results", "results.csv")
-
-
-def get_results(wdir):
-    fn = get_results_fn(wdir)
-    df = pd.read_csv(fn)
-    df["ms_file_label"] = [filename_to_label(fn) for fn in df["ms_file"]]
-    return df
+    return file_path, file_stem, ms_level, polarity, tmp_fn.as_posix()
 
 
 def get_metadata(files_path):
@@ -769,170 +812,6 @@ def proportional_min1_selection(df, group_col, list_col, total_select, seed=None
 
     return quotas, selected
 
-def write_metadata(meta, wdir):
-    fn = get_metadata_fn(wdir)
-    with lock(fn):
-        meta.to_csv(fn, index=False)
-
-
-def get_metadata_fn(wdir):
-    fn = os.path.join(wdir, "metadata", "metadata.csv")
-    return fn
-
-
-def get_ms_dirname(wdir):
-    return os.path.join(wdir, "ms_files")
-
-
-def get_ms_fns(wdir, abs_path=True):
-    path = get_ms_dirname(wdir)
-    fns = glob(os.path.join(path, "**", "*.*"), recursive=True)
-    fns = [fn for fn in fns if is_ms_file(fn)]
-    if not abs_path:
-        fns = [os.path.basename(fn) for fn in fns]
-    return fns
-
-
-def is_ms_file(fn: str):
-    if (
-            fn.lower().endswith(".mzxml")
-            or fn.lower().endswith(".mzml")
-            or fn.lower().endswith(".feather")
-    ):
-        return True
-    return False
-
-
-def get_complete_results(
-        wdir,
-        include_labels=None,
-        exclude_labels=None,
-        file_types=None,
-        include_excluded=False,
-):
-    meta = get_metadata(wdir)
-    resu = get_results(wdir)
-
-    if not include_excluded:
-        meta = meta[meta["in_analysis"]]
-    df = pd.merge(meta, resu, on=["ms_file_label"])
-    if include_labels is not None and len(include_labels) > 0:
-        df = df[df.peak_label.isin(include_labels)]
-    if exclude_labels is not None and len(exclude_labels) > 0:
-        df = df[~df.peak_label.isin(exclude_labels)]
-    if file_types is not None and file_types != []:
-        df = df[df.sample_type.isin(file_types)]
-    df["log(peak_max+1)"] = df.peak_max.apply(np.log1p)
-    if "index" in df.columns:
-        df = df.drop("index", axis=1)
-    return df
-
-
-def gen_tabulator_columns(
-        col_names=None,
-        add_ms_file_col=False,
-        add_color_col=False,
-        add_peakopt_col=False,
-        add_ms_file_active_col=False,
-        col_width="12px",
-        editor="input",
-):
-    if col_names is None:
-        col_names = []
-    col_names = list(col_names)
-
-    standard_columns = [
-        "ms_file_label",
-        "in_analysis",
-        "color",
-        "index",
-        "use_for_optimization",
-    ]
-
-    for col in standard_columns:
-        if col in col_names:
-            col_names.remove(col)
-
-    columns = [
-        {
-            "formatter": "rowSelection",
-            "titleFormatter": "rowSelection",
-            "titleFormatterParams": {
-                "rowRange": "active"  # only toggle the values of the active filtered rows
-            },
-            "hozAlign": "center",
-            "headerSort": False,
-            "width": "1px",
-            "frozen": True,
-        }
-    ]
-
-    if add_ms_file_col:
-        columns.append(
-            {
-                "title": "ms_file_label",
-                "field": "ms_file_label",
-                "headerFilter": True,
-                "headerSort": True,
-                "editor": "input",
-                "sorter": "string",
-                "frozen": True,
-            }
-        )
-
-    if add_color_col:
-        columns.append(
-            {
-                "title": "color",
-                "field": "color",
-                "headerFilter": False,
-                "editor": "input",
-                "formatter": "color",
-                "width": "3px",
-                "headerSort": False,
-            }
-        )
-
-    if add_peakopt_col:
-        columns.append(
-            {
-                "title": "use_for_optimization",
-                "field": "use_for_optimization",
-                "headerFilter": False,
-                "formatter": "tickCross",
-                "width": "6px",
-                "headerSort": True,
-                "hozAlign": "center",
-                "editor": True,
-            }
-        )
-
-    if add_ms_file_active_col:
-        columns.append(
-            {
-                "title": "in_analysis",
-                "field": "in_analysis",
-                "headerFilter": True,
-                "formatter": "tickCross",
-                "width": "6px",
-                "headerSort": True,
-                "hozAlign": "center",
-                "editor": True,
-            }
-        )
-
-    for col in col_names:
-        content = {
-            "title": col,
-            "field": col,
-            "headerFilter": True,
-            # "width": col_width,
-            "editor": editor,
-        }
-
-        columns.append(content)
-    return columns
-
 
 def fig_to_src(fig, dpi=100):
     out_img = io.BytesIO()
@@ -941,70 +820,6 @@ def fig_to_src(fig, dpi=100):
     out_img.seek(0)  # rewind file
     encoded = base64.b64encode(out_img.read()).decode("ascii").replace("\n", "")
     return "data:image/png;base64,{}".format(encoded)
-
-
-def merge_metadata(old_df: pd.DataFrame, new_df: pd.DataFrame, index_col='ms_file_label') -> pd.DataFrame:
-    """
-    This function updates one existing dataframe 
-    with information from a second dataframe.
-    If a column of the new dataframe does not 
-    exist it will be created.
-
-    Parameters:
-    old (pd.DataFrame): The DataFrame to merge new data into.
-    new (pd.DataFrame): The DataFrame containing the new data to merge.
-
-    Returns:
-    pd.DataFrame: The merged DataFrame.
-
-    """
-    old_df = old_df.set_index(index_col)
-    new_df = new_df.groupby(index_col).first().replace("null", None)
-    if 'file_type' in new_df.columns:
-        new_df = new_df.drop(columns=['file_type'])
-
-    if len(old_df.columns.intersection(new_df.columns).tolist()) > 1:
-        old_df.update(new_df)  # actualiza solo donde hay match
-    else:
-        old_df = old_df.join(new_df, on=index_col)
-    return old_df.reset_index()
-
-
-def get_figure_fn(kind, wdir, label, format):
-    path = os.path.join(wdir, "figures", kind)
-    clean_label = clean_string(label)
-    fn = f"{kind}__{clean_label}.{format}"
-    fn = os.path.join(path, fn)
-    return path, fn
-
-
-def clean_string(fn: str):
-    for x in ['"', "'", "(", ")", "[", "]", " ", "\\", "/", "{", "}"]:
-        fn = fn.replace(x, "_")
-    return fn
-
-
-def write_targets(targets, wdir):
-    fn = get_targets_fn(wdir)
-    if "peak_label" in targets.columns:
-        targets = targets.set_index("peak_label")
-    with lock(fn):
-        targets.to_csv(fn)
-
-
-def filename_to_label(fn: str):
-    if is_ms_file(fn):
-        fn = os.path.splitext(fn)[0][:-4]
-    return os.path.basename(fn)
-
-
-def df_to_in_memory_excel_file(df):
-    def to_xlsx(bytes_io):
-        xslx_writer = pd.ExcelWriter(bytes_io, engine="xlsxwriter")
-        df.to_excel(xslx_writer, index=True, sheet_name="sheet1")
-        xslx_writer.close()
-
-    return to_xlsx
 
 
 def fix_first_emtpy_line_after_upload_workaround(file_path):
@@ -1023,44 +838,3 @@ def fix_first_emtpy_line_after_upload_workaround(file_path):
 
         with open(file_path, 'w') as file:
             file.writelines(lines)
-
-
-def describe_transformation(var_name, apply, groupby, scaler):
-    # Only apply the function if it's provided
-    if apply is not None:
-        apply_desc = transformations[apply]['description']
-        apply_desc = apply_desc.replace('x', var_name)
-    else:
-        apply_desc = var_name
-
-    # If scaler or groupby is None, no scaling applied so return just the transformed variable
-    if groupby is None or scaler is None:
-        return apply_desc
-
-    if not scaler:
-        return apply_desc
-
-    # Define human-readable names for known scalers
-    scaler_mapping = {"standard": "Standard scaling", "robust": "Robust scaling", '': ''}  # expand as needed
-    if isinstance(scaler, str):
-        scaler_description = scaler_mapping.get(scaler.lower(), scaler)
-    else:
-        scaler_description = scaler.__name__
-
-    # Groupby can be a list or a string, so make sure it's a list for consistent handling
-    if isinstance(groupby, str):
-        groupby = [groupby]
-
-    groupby_description = ", ".join(groupby)
-
-    # Scaling was applied, so return the description in < >
-    return f"<{apply_desc}> ({scaler_description}, grouped by {groupby_description})"
-
-
-log2p1 = lambda x: np.log2(1 + x)
-log1p = np.log1p
-
-transformations = {
-    "log1p": {'function': log1p, 'description': 'log10(x + 1)'},
-    "log2p1": {'function': log2p1, 'description': 'log2(x + 1)'}
-}
