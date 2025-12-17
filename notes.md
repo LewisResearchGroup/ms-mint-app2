@@ -3,9 +3,9 @@ general
 
 
 explorer
-- [ ] (*) añadir soporte para unidades que no sean el home
+- [x] (*) añadir soporte para unidades que no sean el home
 - [ ] catch errores de procesamiento de archivos ms_files para evitar crashes 
-- [ ] (enhancement) probar el componente transfer pero sin eliminar elementos de la izquierda 
+- [x] (enhancement) probar el componente transfer pero sin eliminar elementos de la izquierda 
   - doble click para transferir o seleccionar archivos
   - shift + click para seleccion multiple continua
   - ctrl + click para seleccion multiple discontinua
@@ -28,6 +28,7 @@ Targets
 - [x] order dont work
 - [ ] cuando falla un target no notifica bien
 - [ ] (*) el archivo de targets que se genera no lo lee. revisar las columnas que son None o que se computan internamente
+- [ ] preselect no se marca en la tabla cuando se refresca
 
 Optimization
 - [x] Chromatogram View. Cuando se salva, el rslider se reinicia al modo completo.
@@ -43,7 +44,7 @@ Optimization
 - [x] el log scale deja de funcionar
 - [ ] sin metadata no hay ningun ms_file marcado para optimizacion y debe notificarse en "Compute Chromatograms" para no computar nada
 - [ ] similar para targets
-- [ ] barra de progreso. Ver si la query internamente puede mostrar progreso, de lo contrario subdividir en lotes para mostrar progreso y asi mejorar la UX 
+- [x] barra de progreso. Ver si la query internamente puede mostrar progreso, de lo contrario subdividir en lotes para mostrar progreso y asi mejorar la UX 
 - [x] rollback delete cromatogramas
 - [ ] remover tentativamente la linea del RT (se computara de forma automatica)
 - [x] order by tiene problemas. no se ordena toda la tabla antes de paginar
@@ -52,8 +53,8 @@ Optimization
 
 Processing
 - [x] solo esta procesando los que estan marcados para optimizacion. falta computar los cromatogramas de todos los ms_files
-- [ ] la busqueda tiene mala interacion con el numero de paginas
-- [ ] remover results cuando se elimine samples y targets
+- [x] la busqueda tiene mala interacion con el numero de paginas
+- [x] remover results cuando se elimine samples y targets
 - [ ]
 
 
@@ -76,12 +77,46 @@ mint
 - [x] preview solo el rt span
 - [x] view renderizar el grafico con zoom alrededor del rt span (que incluya un 20% del eje x)
 - [x] (*) acceder a los discos externos (usb, sd, etc)
-- [ ] arreglar el save automatico cuando se cierra la modal de view
+- [x] arreglar el save automatico cuando se cierra la modal de view
 - [ ] cambiar el boton Ok/cancel del modal de confirmacion de cierre sin guardar por save/cancel
 - [x] establecer number de records como opcion en el page size de la paginacion
 - [x] actualizar la preview cuando se edite el rt span
 - [x] En la preview quieren que se vea el rt span usando la escala de esa región
-- [ ] arreglar ticks en el eje y en log scale
-- [ ] arreglar Legend behavior. guarda el estado anterior. hay que reinicializarlo cuando se cierra la modal de view
-- [ ] en los chromatograms poner intensity = 1 en vez de 0, para evitar que se rompa el grafico en log scale
-
+- [x] arreglar ticks en el eje y en log scale
+- [x] arreglar Legend behavior. guarda el estado anterior. hay que reinicializarlo cuando se cierra la modal de view
+- [x] en los chromatograms poner intensity = 1 en vez de 0, para evitar que se rompa el grafico en log scale
+- [x] arreglar targets si tiene rt en min convertirlo a segundos 
+- [x] arreglar el slider de rt span con el zoom
+- [ ] hacer pruebas de rendimiento de descarga de resultados. probar alternativas a duckdb con pandas o polars
+- [ ] cambiar colors por sample_type y paletas degradadas para cada grupo.
+- [x] log file (parcialmente)
+- [ ] (*) corregir el catch de los errors en el procesamiento de archivos
+- [ ] cuando se borran los ultimos archivos de ms_files se va complemente la paginacion
+- [x] poner ms_file_label y label del mismo ancho
+- [ ] modal para notificar cuando borras tablas grandes
+- [ ] notificacion de duplicados hay que reducirlo
+- [x] bajar el recurso de duckdb al 50%
+- [ ] revisar el patron de tiempo de generacion de cromatogramas, hay un patron de poco tiempo, mucho tiempo
+- [ ] arreglar el cancel de la generacion de cromatogramas porque no termina (asumo se por el while)
+- [ ] en resultados cuando se filtra tiene mala interaccion con la paginacion. hay que moverla para la pagina 1. 
+- [ ] Tambien debe ajustarse el numero de elementos de acuerdo al filtrado
+- [ ] aplicar el calculo por batches en processing
+- [x] (*) Implementar los analisis
+- [ ] establecer limites en y para el valor min > 1
+- [ ] probar el threshold
+- [ ] z-order para las traces
+- [ ] cambiar las tablas a una arquitectura basada en uuid4 para poder editar los nombre de los targets y otras cosas
+- [ ] anotar nuevo target duplicando el cromatograma. se añade un nuevo target con otro rt-span usando el chromatograma precomputado 
+- [ ] remover target desde la modal
+- [ ] probar selection box para el rt-span
+- [ ] poner indicador de ocupado para los botones de descarga
+- [ ] los archivos descargados deben tener el identificador del ws y demas cosas
+- [ ] revisar cuando los targets se eliminan que no quede el bookmark marcado
+- [ ] (*) hacer que cuando se levante la app mate cualquier instancia que exista de esta o procesos huerfanos
+- [ ] (*) establecer limites en y autorange cuando se hace el zoom a la region en la view
+- [ ] revisar cuando se sube una segunda tabla de targets si falla
+- [ ] mostrar progreso de procesamiento de archivos ms_file, metadata y targets
+- [x] se muestra el mismo target en dos paginas continuas
+- [ ] eliminar un boton de generar color en ms files
+- [ ] add el boton para descargar metadata
+- [ ] cambiar el Run order y demas columnas a group 1 - 5
