@@ -6,6 +6,7 @@
 .ant-tour-title {
     white-space: nowrap !important;
     padding-right: 24px !important; /* Adds buffer space for the close button */
+    font-weight: 400 !important;;
 }
 
 /* ==========================================================================
