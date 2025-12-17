@@ -248,23 +248,23 @@ _layout = html.Div(
                         ],
                         titlePopoverInfo={
                             'peak_label': {
-                                'title': 'Target',
+                                'title': 'peak_label',
                                 'content': TARGET_DESCRIPTION_MAP['peak_label'],
                             },
                             'peak_selection': {
-                                'title': 'Selection',
+                                'title': 'peak_selection',
                                 'content': TARGET_DESCRIPTION_MAP['peak_selection'],
                             },
                             'bookmark': {
-                                'title': 'Bookmark',
+                                'title': 'bookmark',
                                 'content': TARGET_DESCRIPTION_MAP['bookmark'],
                             },
                             'mz_mean': {
-                                'title': 'MZ-Mean',
+                                'title': 'mz_mean',
                                 'content': TARGET_DESCRIPTION_MAP['mz_mean'],
                             },
                             'mz_width': {
-                                'title': 'MZ-Width',
+                                'title': 'mz_width',
                                 'content': TARGET_DESCRIPTION_MAP['mz_width'],
                             },
                             'mz': {
@@ -288,11 +288,11 @@ _layout = html.Div(
                                 'content': TARGET_DESCRIPTION_MAP['rt_unit'],
                             },
                             'intensity_threshold': {
-                                'title': 'Intensity Threshold',
+                                'title': 'intensity_threshold',
                                 'content': TARGET_DESCRIPTION_MAP['intensity_threshold'],
                             },
                             'ms_type': {
-                                'title': 'MS-Type',
+                                'title': 'ms_type',
                                 'content': TARGET_DESCRIPTION_MAP['ms_type'],
                             },
                             'polarity': {
@@ -521,19 +521,19 @@ def callbacks(app, fsc=None, cache=None):
                     .otherwise(pl.col('peak_selection'))
                     .cast(pl.Boolean)
                     .alias('peak_selection_resolved'),
-                    pl.col('bookmark').fill_null(False).cast(pl.Boolean)
+                    pl.col('bookmark').fill_null(False).cast(pl.Boolean).alias('bookmark_resolved'),
                 )
                 .with_columns(
                     pl.col('peak_selection_resolved').map_elements(
                         lambda value: {'checked': bool(value)},
                         return_dtype=pl.Object
                     ).alias('peak_selection'),
-                    pl.col('bookmark').map_elements(
+                    pl.col('bookmark_resolved').map_elements(
                         lambda value: {'checked': bool(value)},
                         return_dtype=pl.Object
                     ).alias('bookmark'),
                 )
-                .drop(['peak_selection_resolved'])
+                .drop(['peak_selection_resolved', 'bookmark_resolved'])
             )
 
             # total rows:
