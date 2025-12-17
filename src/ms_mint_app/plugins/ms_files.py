@@ -9,6 +9,7 @@ import feffery_utils_components as fuc
 import pandas as pd
 import polars as pl
 import time
+import math
 from dash import html, dcc
 from dash.dependencies import Input, Output, State
 from dash.exceptions import PreventUpdate
@@ -704,9 +705,15 @@ def callbacks(cls, app, fsc, cache, args_namespace):
 
             # total rows:
             number_records = int(dfpl["__total__"][0]) if len(dfpl) else 0
+            max_page = max(math.ceil(number_records / page_size), 1)
+            current = min(max(current, 1), max_page)
 
-            # fix page if it underflowed:
-            current = max(current if number_records > (current - 1) * page_size else current - 1, 1)
+            # If we just removed the page we were on, re-query for the new page index
+            if params_paged[-1] != (current - 1) * page_size:
+                params_paged = params + [page_size, (current - 1) * page_size]
+                with duckdb_connection(wdir) as conn:
+                    dfpl = conn.execute(sql, params_paged).pl()
+                number_records = int(dfpl["__total__"][0]) if len(dfpl) else 0
 
 
             with (duckdb_connection(wdir) as conn):
@@ -753,8 +760,10 @@ def callbacks(cls, app, fsc, cache, args_namespace):
             return [
                 data.to_dicts(),
                 [],
-                {**pagination, 'total': number_records, 'current': current, 'pageSizeOptions': sorted([5, 10, 25, 50,
-                100, number_records])},
+                {**pagination,
+                 'total': number_records,
+                 'current': current,
+                 'pageSizeOptions': sorted(set([5, 10, 25, 50, 100] + ([number_records] if number_records else [])))},
                 output_filterOptions
             ]
         return dash.no_update
