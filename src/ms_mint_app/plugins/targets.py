@@ -179,6 +179,12 @@ _layout = html.Div(
                                 'width': '120px',
                             },
                             {
+                                'title': 'Bookmark',
+                                'dataIndex': 'bookmark',
+                                'width': '140px',
+                                'renderOptions': {'renderType': 'switch'},
+                            },
+                            {
                                 'title': 'Intensity Threshold',
                                 'dataIndex': 'intensity_threshold',
                                 'width': '200px',
@@ -476,6 +482,10 @@ def callbacks(app, fsc=None, cache=None):
                     lambda value: {'checked': value},
                     return_dtype=pl.Object
                 ).alias('peak_selection'),
+                pl.col('bookmark').map_elements(
+                    lambda value: {'checked': value},
+                    return_dtype=pl.Object
+                ).alias('bookmark'),
             )
 
             # total rows:
