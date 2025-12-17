@@ -46,6 +46,8 @@ def downsample_for_preview(scan_time, intensity, max_points=100):
 
 
 MAX_NUM_CARDS = 50
+DEFAULT_GRAPH_WIDTH = 250
+DEFAULT_GRAPH_HEIGHT = 180
 
 _layout = fac.AntdLayout(
     [
@@ -249,13 +251,15 @@ _layout = fac.AntdLayout(
                                                         [
                                                             fac.AntdInputNumber(
                                                                 id='chromatogram-graph-width',
-                                                                defaultValue=250,
+                                                                value=DEFAULT_GRAPH_WIDTH,
+                                                                defaultValue=DEFAULT_GRAPH_WIDTH,
                                                                 min=180,
                                                                 max=1400
                                                             ),
                                                             fac.AntdInputNumber(
                                                                 id='chromatogram-graph-height',
-                                                                defaultValue=180,
+                                                                value=DEFAULT_GRAPH_HEIGHT,
+                                                                defaultValue=DEFAULT_GRAPH_HEIGHT,
                                                                 min=100,
                                                                 max=700
                                                             ),
@@ -390,7 +394,7 @@ _layout = fac.AntdLayout(
                                                     id='chromatogram-preview-pagination',
                                                     defaultPageSize=20,
                                                     showSizeChanger=True,
-                                                    pageSizeOptions=[4, 10, 20, 50],
+                                                    pageSizeOptions=[4, 9, 20, 50],
                                                     locale='en-us',
                                                     align='center',
                                                     showTotalSuffix='targets',
@@ -990,19 +994,48 @@ def callbacks(app, fsc, cache, cpu=None):
     ############# GRAPH OPTIONS BEGIN #####################################
     @app.callback(
         Output({'type': 'graph', 'index': ALL}, 'style'),
+        Output('chromatogram-graph-width', 'value'),
+        Output('chromatogram-graph-height', 'value'),
         Input('chromatogram-graph-button', 'nClicks'),
+        Input('chromatogram-preview-pagination', 'pageSize'),
         State('chromatogram-graph-width', 'value'),
         State('chromatogram-graph-height', 'value'),
         prevent_initial_call=True
     )
-    def set_chromatogram_graph_size(nClicks, width, height):
-
-        if not nClicks:
+    def set_chromatogram_graph_size(nClicks, page_size, width, height):
+        """
+        Auto-tune preview plot size based on cards per page, while still allowing manual overrides.
+        """
+        ctx = dash.callback_context
+        if not ctx.triggered:
             raise PreventUpdate
-        return [{
-            'width': width, 'height': height,
+
+        trigger = ctx.triggered[0]['prop_id'].split('.')[0]
+
+        def autosize(ps, w, h):
+            if ps == 4:
+                return 500, 350
+            if ps == 9:
+                return 350, 220
+            if ps in (20, 50):
+                return DEFAULT_GRAPH_WIDTH, DEFAULT_GRAPH_HEIGHT
+            return w, h
+
+        width = width or DEFAULT_GRAPH_WIDTH
+        height = height or DEFAULT_GRAPH_HEIGHT
+
+        if trigger == 'chromatogram-preview-pagination':
+            width, height = autosize(page_size, width, height)
+        elif trigger != 'chromatogram-graph-button':
+            raise PreventUpdate
+
+        return ([{
+            'width': width,
+            'height': height,
             'margin': '0px',
-        } for _ in range(MAX_NUM_CARDS)]
+        } for _ in range(MAX_NUM_CARDS)],
+            width,
+            height)
 
     ############# GRAPH OPTIONS END #######################################
 
