@@ -753,8 +753,8 @@ def callbacks(app, fsc, cache):
                 violin_matrix = ndf
             else:
                 violin_matrix = df
-            if violin_matrix.is_empty():
-                return None, empty_fig, [], [], []
+            if violin_matrix.empty:
+                return dash.no_update, empty_fig, go.Figure(), [], [], []
 
         if tab_key == 'clustermap':
             import seaborn as sns

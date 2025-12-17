@@ -26,6 +26,7 @@ MS_METADATA_TEMPLATE_COLUMNS = [
     'label',
     'color',
     'use_for_optimization',
+    'use_for_processing',
     'use_for_analysis',
     'sample_type',
     'polarity',
@@ -39,7 +40,8 @@ MS_METADATA_TEMPLATE_DESCRIPTIONS = [
     'Unique file name; must match the MS file on disk',
     'Friendly label to display in plots and reports',
     'Hex color for visualizations (auto-generated if blank)',
-    'True to include in optimization steps',
+    'True to include in optimization steps (COMPUTE CHROMATOGRAMS)',
+    'True to include in processing (RUN MINT)',
     'True to include in analysis outputs',
     'Sample category (e.g.; Sample; QC; Blank; Standard)',
     'Polarity (Positive or Negative)',
@@ -227,6 +229,12 @@ _layout = html.Div(
                                 'width': '170px',
                             },
                             {
+                                'title': 'For Processing',
+                                'dataIndex': 'use_for_processing',
+                                'renderOptions': {'renderType': 'switch'},
+                                'width': '170px',
+                            },
+                            {
                                 'title': 'For Analysis',
                                 'dataIndex': 'use_for_analysis',
                                 'renderOptions': {'renderType': 'switch'},
@@ -290,6 +298,10 @@ _layout = html.Div(
                                 'title': 'use_for_optimization',
                                 'content': MS_METADATA_DESCRIPTION_MAP['use_for_optimization'],
                             },
+                            'use_for_processing': {
+                                'title': 'use_for_processing',
+                                'content': MS_METADATA_DESCRIPTION_MAP['use_for_processing'],
+                            },
                             'use_for_analysis': {
                                 'title': 'use_for_analysis',
                                 'content': MS_METADATA_DESCRIPTION_MAP['use_for_analysis'],
@@ -333,6 +345,8 @@ _layout = html.Div(
                             'color': {'filterMode': 'keyword'},
                             'use_for_optimization': {'filterMode': 'checkbox',
                                                       'filterCustomItems': ['True', 'False']},
+                            'use_for_processing': {'filterMode': 'checkbox',
+                                                   'filterCustomItems': ['True', 'False']},
                             'use_for_analysis': {'filterMode': 'checkbox',
                                                   'filterCustomItems': ['True', 'False']},
                             'sample_type': {'filterMode': 'checkbox'},
@@ -749,6 +763,10 @@ def callbacks(cls, app, fsc, cache, args_namespace):
                     lambda value: {'checked': value},
                     return_dtype=pl.Object  # Specify that the result is a Python object
                 ).alias('use_for_optimization'),
+                pl.col('use_for_processing').map_elements(
+                    lambda value: {'checked': value},
+                    return_dtype=pl.Object
+                ).alias('use_for_processing'),
                 pl.col('use_for_analysis').map_elements(
                     lambda value: {'checked': value},
                     return_dtype=pl.Object

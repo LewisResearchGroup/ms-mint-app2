@@ -87,6 +87,7 @@ def _create_tables(conn: duckdb.DuckDBPyConnection):
                      ms_file_label        VARCHAR PRIMARY KEY,
                      ms_type              ms_type_enum,
                      use_for_optimization BOOLEAN DEFAULT true,
+                     use_for_processing   BOOLEAN DEFAULT true,
                      use_for_analysis     BOOLEAN DEFAULT true,
                      polarity             polarity_enum,
                      color                VARCHAR DEFAULT '#bbbbbb',
@@ -97,6 +98,13 @@ def _create_tables(conn: duckdb.DuckDBPyConnection):
                      plate_row            VARCHAR,
                      plate_column         TINYINT
                  );
+                 """)
+
+    # Backfill new processing flag for existing DBs
+    conn.execute("ALTER TABLE samples ADD COLUMN IF NOT EXISTS use_for_processing BOOLEAN DEFAULT true;")
+    conn.execute("""
+                 UPDATE samples
+                 SET use_for_processing = COALESCE(use_for_processing, use_for_analysis, TRUE)
                  """)
 
     conn.execute("""
@@ -402,7 +410,7 @@ def compute_and_insert_chromatograms_from_ms_data(con: duckdb.DuckDBPyConnection
                        WITH samples_to_use AS (SELECT DISTINCT ms_file_label
                                                FROM samples
                                                WHERE use_for_optimization = TRUE
-                                                  OR use_for_analysis = TRUE),
+                                                  OR use_for_processing = TRUE),
                             ms1_targets AS (SELECT DISTINCT t.peak_label, s.ms_file_label
                                             FROM targets t
                                                      CROSS JOIN samples_to_use s
@@ -483,7 +491,7 @@ def compute_and_insert_chromatograms_from_ms_data(con: duckdb.DuckDBPyConnection
                                  FROM targets t
                                           CROSS JOIN samples s
                                  WHERE s.use_for_optimization = TRUE
-                                    OR s.use_for_analysis = TRUE
+                                    OR s.use_for_processing = TRUE
                                      AND t.mz_mean IS NOT NULL
                                      AND t.mz_width IS NOT NULL
                                      AND t.peak_selection IS TRUE
@@ -506,7 +514,7 @@ def compute_and_insert_chromatograms_from_ms_data(con: duckdb.DuckDBPyConnection
                                  FROM targets t
                                           CROSS JOIN samples s
                                  WHERE s.use_for_optimization = TRUE
-                                    OR s.use_for_analysis = TRUE
+                                    OR s.use_for_processing = TRUE
                                      AND t.filterLine IS NOT NULL
                                      AND t.peak_selection IS TRUE
                                     OR NOT EXISTS (SELECT 1
@@ -534,7 +542,7 @@ def compute_and_insert_chromatograms_from_ms_data(con: duckdb.DuckDBPyConnection
                                                  s.ms_file_label
                                           FROM targets t
                                                    JOIN samples s
-                                                        ON (CASE WHEN ? THEN s.use_for_optimization ELSE s.use_for_analysis END) =
+                                                        ON (CASE WHEN ? THEN s.use_for_optimization ELSE s.use_for_processing END) =
                                                            TRUE
                                           WHERE t.mz_mean IS NOT NULL
                                               AND t.mz_width IS NOT NULL
@@ -579,7 +587,7 @@ def compute_and_insert_chromatograms_from_ms_data(con: duckdb.DuckDBPyConnection
                                                  s.ms_file_label
                                           FROM targets AS t
                                                    JOIN samples s
-                                                        ON (CASE WHEN ? THEN s.use_for_optimization ELSE s.use_for_analysis END) =
+                                                        ON (CASE WHEN ? THEN s.use_for_optimization ELSE s.use_for_processing END) =
                                                            TRUE
                                           WHERE t.filterLine IS NOT NULL
                                               AND t.peak_selection IS TRUE
@@ -742,7 +750,7 @@ def compute_chromatograms_in_batches(wdir: str,
                                                             )),
                                       sample_filter AS (SELECT ms_file_label
                                                         FROM samples
-                                                        WHERE (CASE WHEN ? THEN use_for_optimization ELSE use_for_analysis END) = TRUE),
+                                                        WHERE (CASE WHEN ? THEN use_for_optimization ELSE use_for_processing END) = TRUE),
                                       existing_pairs AS (SELECT DISTINCT peak_label,
                                                                          ms_file_label,
                                                                          ms_type
@@ -1346,7 +1354,7 @@ def compute_peak_properties(con: duckdb.DuckDBPyConnection,
                                       FROM chromatograms c
                                                JOIN targets t ON c.peak_label = t.peak_label
                                       WHERE c.ms_file_label IN
-                                            (SELECT ms_file_label FROM samples WHERE use_for_analysis = TRUE)
+                                            (SELECT ms_file_label FROM samples WHERE use_for_processing = TRUE)
                                         AND t.rt_min IS NOT NULL
                                         AND t.rt_max IS NOT NULL
                                         AND CASE
@@ -1506,6 +1514,7 @@ def create_pivot(conn, rows=None, cols=None, value='peak_area', table='results')
                 r.{value}
             FROM results r
             JOIN samples s ON s.ms_file_label = r.ms_file_label
+            WHERE s.use_for_analysis = TRUE
             ORDER BY s.ms_type, r.peak_label
         )
         ON peak_label
