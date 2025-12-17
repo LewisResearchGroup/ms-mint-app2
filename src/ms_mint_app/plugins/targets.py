@@ -14,12 +14,29 @@ from ..plugin_interface import PluginInterface
 _label = "Targets"
 # Template column headers and descriptions for quick downloads
 TARGET_TEMPLATE_COLUMNS = [
-    'peak_label', 'mz_mean', 'mz_width', 'mz', 'rt', 'rt_min', 'rt_max', 'rt_unit',
-    'intensity_threshold', 'polarity', 'filterLine', 'ms_type', 'category',
-    'peak_selection', 'score', 'bookmark', 'source', 'notes'
+    'peak_label',
+    'peak_selection',
+    'bookmark',
+    'mz_mean',
+    'mz_width',
+    'mz',
+    'rt',
+    'rt_min',
+    'rt_max',
+    'rt_unit',
+    'intensity_threshold',
+    'polarity',
+    'filterLine',
+    'ms_type',
+    'category',
+    'score',
+    'notes',
+    'source',
 ]
 TARGET_TEMPLATE_DESCRIPTIONS = [
     'Unique metabolite/feature name',
+    'True if selected for analysis',
+    'True if bookmarked',
     'Mean m/z (centroid)',
     'm/z window or tolerance',
     'Precursor m/z (MS2)',
@@ -32,11 +49,9 @@ TARGET_TEMPLATE_DESCRIPTIONS = [
     'Filter ID for MS2 scans',
     'ms1 or ms2',
     'Category',
-    'True if selected for analysis',
     'Score',
-    'True if bookmarked',
+    'Free-form notes',
     'Data source or file',
-    'Free-form notes'
 ]
 TARGET_TEMPLATE_CSV = ",".join(TARGET_TEMPLATE_COLUMNS) + "\n" + ",".join(TARGET_TEMPLATE_DESCRIPTIONS) + "\n"
 TARGET_DESCRIPTION_MAP = dict(zip(TARGET_TEMPLATE_COLUMNS, TARGET_TEMPLATE_DESCRIPTIONS))
@@ -139,7 +154,13 @@ _layout = html.Div(
                             {
                                 'title': 'Selection',
                                 'dataIndex': 'peak_selection',
-                                'width': '120px',
+                                'width': '150px',
+                                'renderOptions': {'renderType': 'switch'},
+                            },
+                            {
+                                'title': 'Bookmark',
+                                'dataIndex': 'bookmark',
+                                'width': '150px',
                                 'renderOptions': {'renderType': 'switch'},
                             },
                             {
@@ -179,12 +200,6 @@ _layout = html.Div(
                                 'width': '120px',
                             },
                             {
-                                'title': 'Bookmark',
-                                'dataIndex': 'bookmark',
-                                'width': '140px',
-                                'renderOptions': {'renderType': 'switch'},
-                            },
-                            {
                                 'title': 'Intensity Threshold',
                                 'dataIndex': 'intensity_threshold',
                                 'width': '200px',
@@ -193,7 +208,7 @@ _layout = html.Div(
                             {
                                 'title': 'MS-Type',
                                 'dataIndex': 'ms_type',
-                                'width': '120px',
+                                'width': '150px',
                             },
                             {
                                 'title': 'Polarity',
@@ -213,17 +228,22 @@ _layout = html.Div(
                             {
                                 'title': 'Category',
                                 'dataIndex': 'category',
+                                'width': '150px',
+                            },
+                            {
+                                'title': 'Score',
+                                'dataIndex': 'score',
                                 'width': '120px',
                             },
                             {
                                 'title': 'Notes',
                                 'dataIndex': 'notes',
-                                'width': '240px',
+                                'width': '300px',
                             },
                             {
                                 'title': 'Source',
                                 'dataIndex': 'source',
-                                'width': '400px',
+                                'width': '200px',
                             },
                         ],
                         titlePopoverInfo={
@@ -234,6 +254,10 @@ _layout = html.Div(
                             'peak_selection': {
                                 'title': 'Selection',
                                 'content': TARGET_DESCRIPTION_MAP['peak_selection'],
+                            },
+                            'bookmark': {
+                                'title': 'Bookmark',
+                                'content': TARGET_DESCRIPTION_MAP['bookmark'],
                             },
                             'mz_mean': {
                                 'title': 'MZ-Mean',
@@ -287,6 +311,10 @@ _layout = html.Div(
                                 'title': 'category',
                                 'content': TARGET_DESCRIPTION_MAP['category'],
                             },
+                            'score': {
+                                'title': 'score',
+                                'content': TARGET_DESCRIPTION_MAP['score'],
+                            },
                             'notes': {
                                 'title': 'notes',
                                 'content': TARGET_DESCRIPTION_MAP['notes'],
@@ -298,6 +326,10 @@ _layout = html.Div(
                         },
                         filterOptions={
                             'peak_label': {'filterMode': 'keyword'},
+                            'peak_selection': {'filterMode': 'checkbox',
+                                               'filterCustomItems': ['True', 'False']},
+                            'bookmark': {'filterMode': 'checkbox',
+                                         'filterCustomItems': ['True', 'False']},
                             'mz_mean': {'filterMode': 'keyword'},
                             'mz_width': {'filterMode': 'keyword'},
                             'mz': {'filterMode': 'keyword'},
@@ -319,13 +351,16 @@ _layout = html.Div(
                             'category': {'filterMode': 'checkbox',
                                          # 'filterCustomItems': ['True', 'False']
                                          },
+                            'score': {'filterMode': 'keyword'},
                             'notes': {'filterMode': 'keyword'},
                             'source': {'filterMode': 'keyword'},
 
                         },
                         sortOptions={
-                            'sortDataIndexes': ['peak_label', 'mz_mean', 'mz_width', 'mz', 'rt', 'rt_min', 'rt_max',
-                                                'intensity_threshold', 'category']},
+                            'sortDataIndexes': ['peak_label', 'peak_selection', 'bookmark', 'mz_mean', 'mz_width',
+                                                'mz', 'rt', 'rt_min', 'rt_max',
+                                                'intensity_threshold', 'polarity', 'filterLine', 'ms_type',
+                                                'category', 'score']},
                         pagination={
                             'position': 'bottomCenter',
                             'pageSize': 15,
@@ -477,15 +512,28 @@ def callbacks(app, fsc=None, cache=None):
             with duckdb_connection(wdir) as conn:
                 dfpl = conn.execute(sql, params_paged).pl()
 
-            data = dfpl.with_columns(
-                pl.col('peak_selection').map_elements(
-                    lambda value: {'checked': value},
-                    return_dtype=pl.Object
-                ).alias('peak_selection'),
-                pl.col('bookmark').map_elements(
-                    lambda value: {'checked': value},
-                    return_dtype=pl.Object
-                ).alias('bookmark'),
+            data = (
+                dfpl
+                .with_columns(
+                    # If peak_selection is null, fall back to bookmark; default False.
+                    pl.when(pl.col('peak_selection').is_null())
+                    .then(pl.col('bookmark').fill_null(False))
+                    .otherwise(pl.col('peak_selection'))
+                    .cast(pl.Boolean)
+                    .alias('peak_selection_resolved'),
+                    pl.col('bookmark').fill_null(False).cast(pl.Boolean)
+                )
+                .with_columns(
+                    pl.col('peak_selection_resolved').map_elements(
+                        lambda value: {'checked': bool(value)},
+                        return_dtype=pl.Object
+                    ).alias('peak_selection'),
+                    pl.col('bookmark').map_elements(
+                        lambda value: {'checked': bool(value)},
+                        return_dtype=pl.Object
+                    ).alias('bookmark'),
+                )
+                .drop(['peak_selection_resolved'])
             )
 
             # total rows:
@@ -728,6 +776,9 @@ def callbacks(app, fsc=None, cache=None):
                 if conn is None:
                     raise PreventUpdate
                 df = conn.execute("SELECT * FROM targets").df()
+                # Reorder columns to match the template/export expectation
+                cols = TARGET_TEMPLATE_COLUMNS
+                df = df[[c for c in cols if c in df.columns]]
                 filename = f"{ws_name}_targets.csv"
         else:
             raise PreventUpdate
