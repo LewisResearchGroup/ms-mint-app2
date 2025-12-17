@@ -821,6 +821,7 @@ def callbacks(cls, app, fsc, cache, args_namespace):
         elif clickedKey == "delete-selected":
             remove_ms1_file = [row["ms_file_label"] for row in selectedRows if row['ms_type'] == 'ms1']
             remove_ms2_file = [row["ms_file_label"] for row in selectedRows if row['ms_type'] == 'ms2']
+            remove_ms_files = remove_ms1_file + remove_ms2_file
 
             with duckdb_connection(wdir) as conn:
                 if conn is None:
@@ -828,13 +829,14 @@ def callbacks(cls, app, fsc, cache, args_namespace):
                 if remove_ms1_file:
                     conn.execute("DELETE FROM ms1_data WHERE ms_file_label IN ?", (remove_ms1_file,))
                 if remove_ms2_file:
-                    conn.execute("DELETE FROM ms2_data WHERE ms_file_label IN ?", (remove_ms1_file,))
-                conn.execute("DELETE FROM chromatograms WHERE ms_file_label IN ?", (remove_ms1_file + remove_ms2_file,))
-                conn.execute("DELETE FROM results WHERE ms_file_label = ?", (remove_ms1_file + remove_ms2_file,))
-                conn.execute("DELETE FROM samples WHERE ms_file_label IN ?", (remove_ms1_file + remove_ms2_file,))
+                    conn.execute("DELETE FROM ms2_data WHERE ms_file_label IN ?", (remove_ms2_file,))
+                if remove_ms_files:
+                    conn.execute("DELETE FROM chromatograms WHERE ms_file_label IN ?", (remove_ms_files,))
+                    conn.execute("DELETE FROM results WHERE ms_file_label IN ?", (remove_ms_files,))
+                    conn.execute("DELETE FROM samples WHERE ms_file_label IN ?", (remove_ms_files,))
                 conn.execute("CHECKPOINT")
 
-            total_removed = len(remove_ms1_file + remove_ms2_file)
+            total_removed = len(remove_ms_files)
             ms_table_action_store = {'action': 'delete', 'status': 'success'}
         else:
             with duckdb_connection(wdir) as conn:
