@@ -10,7 +10,7 @@ from dash.dependencies import Input, Output, State
 from dash.exceptions import PreventUpdate
 
 from ..duckdb_manager import duckdb_connection_mint, duckdb_connection
-from ..logging_setup import activate_workspace_logging
+from ..logging_setup import activate_workspace_logging, deactivate_workspace_logging
 from ..plugin_interface import PluginInterface
 
 _label = "Workspaces"
@@ -298,8 +298,6 @@ def callbacks(app, fsc, cache):
         if not okCounts:
             raise PreventUpdate
 
-        print(f'{selectedRowKeys = }')
-
         with duckdb_connection_mint(tmpdir) as mint_conn:
             next_active = mint_conn.execute("SELECT key FROM workspaces "
                                             "WHERE active = false ORDER BY last_activity DESC LIMIT 1").fetchone()
@@ -311,7 +309,17 @@ def callbacks(app, fsc, cache):
 
             if name:
                 ws_path = Path(tmpdir, 'workspaces', str(selectedRowKeys[0]))
-                shutil.rmtree(ws_path)
+                deactivate_workspace_logging()
+
+                def _onerror(func, p, exc_info):
+                    import os
+                    try:
+                        os.chmod(p, 0o700)
+                        func(p)
+                    except Exception:
+                        raise
+
+                shutil.rmtree(ws_path, onerror=_onerror)
                 ws_name = name[0]
 
                 return fac.AntdNotification(message=f"Workspace {ws_name} deleted.",
