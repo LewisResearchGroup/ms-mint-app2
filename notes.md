@@ -27,7 +27,7 @@ ms_files
 Targets
 - [x] order dont work
 - [ ] cuando falla un target no notifica bien
-- [ ] (*) el archivo de targets que se genera no lo lee. revisar las columnas que son None o que se computan internamente
+- [x] (*) el archivo de targets que se genera no lo lee. revisar las columnas que son None o que se computan internamente
 - [ ] preselect no se marca en la tabla cuando se refresca
 
 Optimization
@@ -93,7 +93,7 @@ mint
 - [x] cuando se borran los ultimos archivos de ms_files se va complemente la paginacion
 - [x] poner ms_file_label y label del mismo ancho
 - [ ] modal para notificar cuando borras tablas grandes
-- [ ] notificacion de duplicados hay que reducirlo
+- [x] notificacion de duplicados hay que reducirlo
 - [x] bajar el recurso de duckdb al 50%
 - [ ] revisar el patron de tiempo de generacion de cromatogramas, hay un patron de poco tiempo, mucho tiempo
 - [ ] arreglar el cancel de la generacion de cromatogramas porque no termina (asumo se por el while)
@@ -107,15 +107,15 @@ mint
 - [ ] cambiar las tablas a una arquitectura basada en uuid4 para poder editar los nombre de los targets y otras cosas
 - [ ] anotar nuevo target duplicando el cromatograma. se añade un nuevo target con otro rt-span usando el chromatograma precomputado 
 - [ ] remover target desde la modal
-- [ ] probar selection box para el rt-span
+- [x] probar selection box para el rt-span
 - [ ] poner indicador de ocupado para los botones de descarga
 - [ ] los archivos descargados deben tener el identificador del ws y demas cosas
 - [ ] revisar cuando los targets se eliminan que no quede el bookmark marcado
 - [ ] (*) hacer que cuando se levante la app mate cualquier instancia que exista de esta o procesos huerfanos
-- [ ] (*) establecer limites en y autorange cuando se hace el zoom a la region en la view
+- [x] (*) establecer limites en y autorange cuando se hace el zoom a la region en la view
 - [ ] revisar cuando se sube una segunda tabla de targets si falla
-- [ ] mostrar progreso de procesamiento de archivos ms_file, metadata y targets
+- [x] mostrar progreso de procesamiento de archivos ms_file, metadata y targets
 - [x] se muestra el mismo target en dos paginas continuas
 - [ ] eliminar un boton de generar color en ms files
-- [ ] add el boton para descargar metadata
+- [x] add el boton para descargar metadata
 - [ ] cambiar el Run order y demas columnas a group 1 - 5
