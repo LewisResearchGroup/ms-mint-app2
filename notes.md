@@ -116,6 +116,6 @@ mint
 - [x] revisar cuando se sube una segunda tabla de targets si falla
 - [x] mostrar progreso de procesamiento de archivos ms_file, metadata y targets
 - [x] se muestra el mismo target en dos paginas continuas
-- [ ] eliminar un boton de generar color en ms files
+- [x] eliminar un boton de generar color en ms files
 - [x] add el boton para descargar metadata
 - [ ] cambiar el Run order y demas columnas a group 1 - 5

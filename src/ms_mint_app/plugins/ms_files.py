@@ -148,7 +148,6 @@ _layout = html.Div(
                                 arrow=True,
                                 menuItems=[
                                     {'title': 'Generate colors', 'icon': 'antd-highlight', 'key': 'generate-colors'},
-                                    {'title': 'Regenerate colors', 'icon': 'pi-broom', 'key': 'regenerate-colors'},
                                     {'isDivider': True},
                                     {'title': fac.AntdText('Delete selected', strong=True, type='warning'),
                                      'key': 'delete-selected'},
@@ -205,13 +204,13 @@ _layout = html.Div(
                             {
                                 'title': 'MS-File Label',
                                 'dataIndex': 'ms_file_label',
-                                'width': '270px',
+                                'width': '300px',
                                 'fixed': 'left'
                             },
                             {
                                 'title': 'Label',
                                 'dataIndex': 'label',
-                                'width': '270px',
+                                'width': '300px',
                                 'editable': True,
                                 'editOptions': {
                                     'mode': 'text-area',
@@ -221,7 +220,7 @@ _layout = html.Div(
                             {
                                 'title': 'Color',
                                 'dataIndex': 'color',
-                                'width': '80px',
+                                'width': '100px',
                                 'renderOptions': {'renderType': 'button'},
                             },
                             {
@@ -400,7 +399,7 @@ _layout = html.Div(
                 },
                 {
                     'title': 'Options',
-                    'description': 'Generate/re-generate colors, or delete selected rows/all rows.',
+                    'description': 'Generate colors or delete selected rows/all rows.',
                     'targetSelector': '#ms-options-wrapper'
                 },
                 {
@@ -588,14 +587,11 @@ def callbacks(cls, app, fsc, cache, args_namespace):
         if (
                 not ctx.triggered or
                 not nClicks or
-                not clickedKey or
-                clickedKey not in ['generate-colors', 'regenerate-colors']
+                clickedKey != 'generate-colors'
         ):
             raise PreventUpdate
-        if clickedKey == "generate-colors":
-            n_colors = generate_colors(wdir)
-        else:
-            n_colors = generate_colors(wdir, regenerate=True)
+        # Single option: always generate colors by sample type, refreshing missing/placeholder values.
+        n_colors = generate_colors(wdir, regenerate=True)
 
         if n_colors == 0:
             notification = fac.AntdNotification(message='No colors generated',
