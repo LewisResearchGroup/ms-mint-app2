@@ -991,6 +991,7 @@ def callbacks(app, fsc, cache):
         Output("notifications-container", "children", allow_duplicate=True),
         Output("processing-modal", "visible"),
         Output("processing-warning", "style"),
+        Output("processing-progress", "percent", allow_duplicate=True),
 
         Input("processing-btn", "nClicks"),
         State('wdir', 'data'),
@@ -1015,6 +1016,7 @@ def callbacks(app, fsc, cache):
                     ),
                     False,
                     dash.no_update,
+                    0,
                 )
 
             ms_files = conn.execute("SELECT COUNT(*) FROM samples").fetchone()
@@ -1032,6 +1034,7 @@ def callbacks(app, fsc, cache):
                     ),
                     False,
                     dash.no_update,
+                    0,
                 )
 
             results = conn.execute("SELECT COUNT(*) FROM results").fetchone()
@@ -1040,7 +1043,7 @@ def callbacks(app, fsc, cache):
 
         style = {'display': 'block'} if computed_results else {'display': 'none'}
 
-        return dash.no_update, True, style
+        return dash.no_update, True, style, 0
 
     @app.callback(
         Output('results-action-store', 'data'),
@@ -1119,10 +1122,11 @@ def callbacks(app, fsc, cache):
         Output('processing-progress-container', 'style', allow_duplicate=True),
         Output('processing-options-container', 'style', allow_duplicate=True),
         Output('processing-modal', 'visible', allow_duplicate=True),
+        Output('processing-progress', 'percent', allow_duplicate=True),
         Input('cancel-processing', 'nClicks'),
         prevent_initial_call=True
     )
     def cancel_results_processing(cancel_clicks):
         if not cancel_clicks:
             raise PreventUpdate
-        return {'display': 'none'}, {'display': 'flex'}, False
+        return {'display': 'none'}, {'display': 'flex'}, False, 0
