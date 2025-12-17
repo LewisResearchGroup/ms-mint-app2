@@ -649,6 +649,10 @@ class FileExplorer:
                     selected_files[folder] = []
                 selected_files[folder].append(file_path)
 
+            # defaults for branches
+            failed_targets = []
+            stats = {}
+
             if processing_type['type'] == "ms-files":
                 total_processed, failed_files = process_ms_files(wdir, set_progress, selected_files, cpu_input)
                 message = "MS Files processed"
@@ -659,12 +663,23 @@ class FileExplorer:
                 total_processed, failed_files, failed_targets, stats = process_targets(wdir, set_progress, selected_files)
                 message = "Targets processed"
 
+            duplicate_targets = stats.get("duplicate_peak_labels", 0) if processing_type['type'] == "targets" else 0
+            failed_targets_count = len(failed_targets) if processing_type['type'] == "targets" else 0
+
             if total_processed:
+                details = []
                 if failed_files:
-                    description = f"Processed {total_processed} files; {len(failed_files)} failed. See logs for details."
-                    mss_type = "warning"
+                    details.append(f"{len(failed_files)} file(s) failed")
+                if failed_targets_count:
+                    details.append(f"{failed_targets_count} target row(s) failed")
+                if duplicate_targets:
+                    details.append(f"{duplicate_targets} duplicate target label(s) deduplicated")
+
+                if details:
+                    description = f"Processed {total_processed} files; " + "; ".join(details) + ". See logs for details."
+                    mss_type = "warning" if not failed_files else "warning"
                 else:
-                    description = f"Successful processed {total_processed} files"
+                    description = f"Successfully processed {total_processed} files"
                     mss_type = "success"
             else:
                 description = f"Failed processing {len(failed_files)} files. See logs for details."

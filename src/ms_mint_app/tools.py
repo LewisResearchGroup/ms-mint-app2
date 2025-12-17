@@ -432,7 +432,18 @@ def get_targets_v2(files_path):
     # Build DataFrame with valid targets
     targets_df = pd.DataFrame(valid_targets)
 
-    # Eliminar duplicados basados en peak_label
+    # Eliminar duplicados basados en peak_label, pero registrar los duplicados encontrados
+    duplicate_labels = (
+        targets_df[targets_df.duplicated(subset="peak_label", keep=False)]
+        .get("peak_label", pd.Series([], dtype="string"))
+        .dropna()
+        .unique()
+        .tolist()
+    )
+    if duplicate_labels:
+        logging.warning(
+            "Found duplicate target labels; keeping first occurrence: %s", duplicate_labels
+        )
     targets_df = targets_df.drop_duplicates(subset="peak_label")
 
     # Ensure all reference columns exist
@@ -447,13 +458,13 @@ def get_targets_v2(files_path):
             if dtype == 'string':
                 targets_df[col] = targets_df[col].astype('string')
             elif dtype == 'boolean':
-                targets_df[col] = targets_df[col].fillna(False).astype(bool)
+                targets_df[col] = targets_df[col].astype('boolean').fillna(False)
             elif dtype == float:
                 targets_df[col] = pd.to_numeric(targets_df[col], errors='coerce')
 
     # Fill default values
-    targets_df['peak_selection'] = targets_df['peak_selection'].fillna(False)
-    targets_df['bookmark'] = targets_df['bookmark'].fillna(False)
+    targets_df['peak_selection'] = targets_df['peak_selection'].astype('boolean').fillna(False)
+    targets_df['bookmark'] = targets_df['bookmark'].astype('boolean').fillna(False)
 
     # Summary log
     logging.info("Processing summary:")
@@ -471,7 +482,9 @@ def get_targets_v2(files_path):
         'files_failed': files_failed,
         'targets_processed': targets_processed,
         'targets_failed': targets_failed,
-        'unique_valid_targets': len(targets_df)
+        'unique_valid_targets': len(targets_df),
+        'duplicate_peak_labels': len(duplicate_labels),
+        'duplicate_peak_labels_list': duplicate_labels,
     }
 
     return targets_df[ref_names], failed_files, failed_targets, stats
