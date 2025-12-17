@@ -980,6 +980,7 @@ def callbacks(app, fsc, cache):
         return store_data or {'open': True}
 
     @app.callback(
+        Output("notifications-container", "children", allow_duplicate=True),
         Output("processing-modal", "visible"),
         Output("processing-warning", "style"),
 
@@ -995,7 +996,35 @@ def callbacks(app, fsc, cache):
         # check if some results was computed
         with duckdb_connection(wdir) as conn:
             if conn is None:
-                return dash.no_update
+                return (
+                    fac.AntdNotification(
+                        message="Run MINT",
+                        description="Workspace is not available. Please select or create a workspace.",
+                        type="error",
+                        duration=4,
+                        placement="bottom",
+                        showProgress=True,
+                    ),
+                    False,
+                    dash.no_update,
+                )
+
+            ms_files = conn.execute("SELECT COUNT(*) FROM samples").fetchone()
+            targets = conn.execute("SELECT COUNT(*) FROM targets").fetchone()
+
+            if not ms_files or ms_files[0] == 0 or not targets or targets[0] == 0:
+                return (
+                    fac.AntdNotification(
+                        message="Run MINT",
+                        description="Need at least one MS-file and one target before running MINT processing.",
+                        type="warning",
+                        duration=4,
+                        placement="bottom",
+                        showProgress=True,
+                    ),
+                    False,
+                    dash.no_update,
+                )
 
             results = conn.execute("SELECT COUNT(*) FROM results").fetchone()
             if results:
@@ -1003,7 +1032,7 @@ def callbacks(app, fsc, cache):
 
         style = {'display': 'block'} if computed_results else {'display': 'none'}
 
-        return True, style
+        return dash.no_update, True, style
 
     @app.callback(
         Output('results-action-store', 'data'),
