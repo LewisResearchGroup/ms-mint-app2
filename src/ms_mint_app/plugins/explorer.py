@@ -661,23 +661,21 @@ class FileExplorer:
 
             if total_processed:
                 if failed_files:
-                    f_map = Counter([ff.values() for ff in failed_files])
-                    description = (f"Successful processed {total_processed} files with {len(failed_files)} failed "
-                                   f" {list(f_map.items())}")
+                    description = f"Processed {total_processed} files; {len(failed_files)} failed. See logs for details."
                     mss_type = "warning"
                 else:
                     description = f"Successful processed {total_processed} files"
                     mss_type = "success"
             else:
-                f_map = Counter([ff.values() for ff in failed_files])
-                description = f"Failed processing {len(failed_files)} files {list(f_map.items())}"
+                description = f"Failed processing {len(failed_files)} files. See logs for details."
                 mss_type = "error"
             notification = fac.AntdNotification(message=message,
                                                 description=description,
                                                 type=mss_type,
                                                 duration=3,
                                                 placement='bottom',
-                                                showProgress=True)
+                                                showProgress=True,
+                                                style={"maxWidth": 420, "width": "420px"})
             processed_action_store = {'action': 'processing', 'status': 'success'}
 
             return notification, processed_action_store, False

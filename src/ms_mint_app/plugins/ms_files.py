@@ -58,6 +58,7 @@ MS_METADATA_TEMPLATE_CSV = (
     + "\n"
 )
 MS_METADATA_DESCRIPTION_MAP = dict(zip(MS_METADATA_TEMPLATE_COLUMNS, MS_METADATA_TEMPLATE_DESCRIPTIONS))
+NOTIFICATION_COMPACT_STYLE = {"maxWidth": 420, "width": "420px"}
 
 home_path = Path.home()
 
@@ -553,7 +554,8 @@ def callbacks(cls, app, fsc, cache, args_namespace):
                                          duration=3,
                                          placement='bottom',
                                          showProgress=True,
-                                         stack=True
+                                         stack=True,
+                                         style=NOTIFICATION_COMPACT_STYLE
                                          ),
                     ms_table_action_store
                     )
@@ -566,7 +568,8 @@ def callbacks(cls, app, fsc, cache, args_namespace):
                                          duration=3,
                                          placement='bottom',
                                          showProgress=True,
-                                         stack=True
+                                         stack=True,
+                                         style=NOTIFICATION_COMPACT_STYLE
                                          ),
                     dash.no_update)
 
@@ -599,7 +602,8 @@ def callbacks(cls, app, fsc, cache, args_namespace):
                                                 duration=3,
                                                 placement='bottom',
                                                 showProgress=True,
-                                                stack=True
+                                                stack=True,
+                                                style=NOTIFICATION_COMPACT_STYLE
                                                 )
         else:
             notification = fac.AntdNotification(message='Colors generated successfully',
@@ -608,7 +612,8 @@ def callbacks(cls, app, fsc, cache, args_namespace):
                                      duration=3,
                                      placement='bottom',
                                      showProgress=True,
-                                     stack=True
+                                     stack=True,
+                                     style=NOTIFICATION_COMPACT_STYLE
                                      )
         ms_table_action_store = {'action': 'color-changed', 'status': 'success'}
         return notification, ms_table_action_store
@@ -889,7 +894,8 @@ def callbacks(cls, app, fsc, cache, args_namespace):
                                      duration=3,
                                      placement='bottom',
                                      showProgress=True,
-                                     stack=True
+                                     stack=True,
+                                     style=NOTIFICATION_COMPACT_STYLE
                                      ),
                 ms_table_action_store)
 
@@ -925,7 +931,8 @@ def callbacks(cls, app, fsc, cache, args_namespace):
                                         duration=3,
                                         placement='bottom',
                                         showProgress=True,
-                                        stack=True
+                                        stack=True,
+                                        style=NOTIFICATION_COMPACT_STYLE
                                         ), ms_table_action_store
         except Exception as e:
             logging.error(f"Error updating metadata: {e}")
@@ -936,7 +943,8 @@ def callbacks(cls, app, fsc, cache, args_namespace):
                                         duration=3,
                                         placement='bottom',
                                         showProgress=True,
-                                        stack=True
+                                        stack=True,
+                                        style=NOTIFICATION_COMPACT_STYLE
                                         ), ms_table_action_store
 
     @app.callback(
