@@ -1820,39 +1820,6 @@ def callbacks(app, fsc, cache, cpu=None):
         if not slider_reference_data:
             raise PreventUpdate
 
-        ctx = dash.callback_context
-        prop_id = ctx.triggered[0]['prop_id'].split('.')[0]
-
-        if prop_id == 'slider-reference-data':
-            if not slider_data:
-                slider_data = slider_reference_data.copy()
-            else:
-                slider_data['value'] = slider_reference_data['value']
-
-            fig = Patch()
-            fig['layout']['shapes'][0]['x0'] = slider_data['value']['rt_min']
-            fig['layout']['shapes'][0]['x1'] = slider_data['value']['rt_max']
-            fig['layout']['shapes'][0]['y0'] = 0
-            fig['layout']['shapes'][0]['y1'] = 1
-            fig['layout']['shapes'][0]['yref'] = 'y domain'
-            fig['layout']['shapes'][0]['fillcolor'] = 'red' if lock_range else 'green'
-            fig['layout']['shapes'][0]['opacity'] = 0.1
-
-            fig['layout']['annotations'][0]['x'] = slider_data['value']['rt_min']
-            fig['layout']['annotations'][0]['text'] = f"RT-min: {slider_data['value']['rt_min']:.2f}s"
-            fig['layout']['annotations'][1]['x'] = slider_data['value']['rt_max']
-            fig['layout']['annotations'][1]['text'] = f"RT-max: {slider_data['value']['rt_max']:.2f}s"
-
-            buttons_style = {
-                'visibility': 'hidden',
-                'opacity': '0',
-                'transition': 'opacity 0.3s ease-in-out'
-            }
-            return fig, slider_data, buttons_style
-
-        if not relayout:
-            raise PreventUpdate
-
         def _calc_y_range(data, x_left, x_right, is_log=False):
             ys = []
             for trace in data or []:
@@ -1877,6 +1844,51 @@ def callbacks(app, fsc, cache, cpu=None):
             y_min_local, y_max_local = min(ys), max(ys)
             y_min_local = 0 if y_min_local > 0 else y_min_local
             return [y_min_local, y_max_local * 1.05]
+
+        ctx = dash.callback_context
+        prop_id = ctx.triggered[0]['prop_id'].split('.')[0]
+
+        if prop_id == 'slider-reference-data':
+            if not slider_data:
+                slider_data = slider_reference_data.copy()
+            else:
+                slider_data['value'] = slider_reference_data['value']
+            rt_min_ref = slider_data['value']['rt_min']
+            rt_max_ref = slider_data['value']['rt_max']
+            is_log = figure_state and figure_state.get('layout', {}).get('yaxis', {}).get('type') == 'log'
+            pad = 2.5  # seconds of padding on each side of the RT span
+
+            fig = Patch()
+            fig['layout']['shapes'][0]['x0'] = rt_min_ref
+            fig['layout']['shapes'][0]['x1'] = rt_max_ref
+            fig['layout']['shapes'][0]['y0'] = 0
+            fig['layout']['shapes'][0]['y1'] = 1
+            fig['layout']['shapes'][0]['yref'] = 'y domain'
+            fig['layout']['shapes'][0]['fillcolor'] = 'red' if lock_range else 'green'
+            fig['layout']['shapes'][0]['opacity'] = 0.1
+            fig['layout']['xaxis']['range'] = [rt_min_ref - pad, rt_max_ref + pad]
+            fig['layout']['xaxis']['autorange'] = False
+
+            if figure_state:
+                y_calc = _calc_y_range(figure_state.get('data', []), rt_min_ref, rt_max_ref, is_log)
+                if y_calc:
+                    fig['layout']['yaxis']['range'] = y_calc
+                    fig['layout']['yaxis']['autorange'] = False
+
+            fig['layout']['annotations'][0]['x'] = rt_min_ref
+            fig['layout']['annotations'][0]['text'] = f"RT-min: {rt_min_ref:.2f}s"
+            fig['layout']['annotations'][1]['x'] = rt_max_ref
+            fig['layout']['annotations'][1]['text'] = f"RT-max: {rt_max_ref:.2f}s"
+
+            buttons_style = {
+                'visibility': 'hidden',
+                'opacity': '0',
+                'transition': 'opacity 0.3s ease-in-out'
+            }
+            return fig, slider_data, buttons_style
+
+        if not relayout:
+            raise PreventUpdate
 
         x_range = (relayout.get('xaxis.range[0]'), relayout.get('xaxis.range[1]'))
         y_range = (relayout.get('yaxis.range[0]'), relayout.get('yaxis.range[1]'))
@@ -1938,14 +1950,16 @@ def callbacks(app, fsc, cache, cpu=None):
         fig['layout']['shapes'][0]['fillcolor'] = 'green'
         fig['layout']['shapes'][0]['opacity'] = 0.1
 
-        # adjust y-range to the current x zoom window for better scaling
+        # adjust axes to the current RT span box for better scaling
         is_log = figure_state and figure_state.get('layout', {}).get('yaxis', {}).get('type') == 'log'
-        if x_range[0] is not None and x_range[1] is not None and figure_state:
-            x_left, x_right = sorted([x_range[0], x_range[1]])
-            y_range_zoom = _calc_y_range(figure_state.get('data', []), x_left, x_right, is_log)
+        if figure_state:
+            y_range_zoom = _calc_y_range(figure_state.get('data', []), rt_min_new, rt_max_new, is_log)
             if y_range_zoom:
                 fig['layout']['yaxis']['range'] = y_range_zoom
                 fig['layout']['yaxis']['autorange'] = False
+            pad = 2.5  # seconds of padding on each side
+            fig['layout']['xaxis']['range'] = [rt_min_new - pad, rt_max_new + pad]
+            fig['layout']['xaxis']['autorange'] = False
 
         fig['layout']['annotations'][0]['x'] = rt_min_new
         fig['layout']['annotations'][0]['text'] = f"RT-min: {rt_min_new:.2f}s"
