@@ -34,7 +34,7 @@ class SingleInstance:
 
     def _get_pid_file(self, temp_dir):
         """Gets PID file path based on OS"""
-        base = temp_dir or Path(os.environ.get('TEMP', '.')) if platform.system() == 'Windows' else Path('/tmp')
+        base = Path(temp_dir) or Path(os.environ.get('TEMP', '.')) if platform.system() == 'Windows' else Path('/tmp')
         return base / f"{self.name}.pid"
 
     def _handle_signal(self, signum, frame):
