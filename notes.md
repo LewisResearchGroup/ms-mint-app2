@@ -130,7 +130,6 @@
 - [ ] z-order para las traces
 - [ ] cambiar las tablas a una arquitectura basada en uuid4 para poder editar los nombre de los targets y otras cosas
 - [ ] anotar nuevo target duplicando el cromatograma. se añade un nuevo target con otro rt-span usando el chromatograma precomputado 
-
 - [ ] poner indicador de ocupado para los botones de descarga
 - [ ] (*) hacer que cuando se levante la app mate cualquier instancia que exista de esta o procesos huerfanos
 - [ ] cambiar el Run order y demas columnas a group 1 - 5
