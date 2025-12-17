@@ -35,8 +35,8 @@
 - [x] order dont work
 - [x] (*) el archivo de targets que se genera no lo lee. revisar las columnas que son None o que se computan internamente
 ### Open
-- [ ] cuando falla un target no notifica bien
-- [ ] preselect no se marca en la tabla cuando se refresca
+- [x] cuando falla un target no notifica bien
+- [x] preselect no se marca en la tabla cuando se refresca
 
 ## Optimization
 ### Done

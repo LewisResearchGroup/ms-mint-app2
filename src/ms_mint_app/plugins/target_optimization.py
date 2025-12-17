@@ -1462,22 +1462,62 @@ def callbacks(app, fsc, cache, cpu=None):
 
         y_min, y_max = max_y
         fig = Patch()
-        if log_scale:
-            if figure['layout']['yaxis']['type'] == 'log':
-                raise PreventUpdate
-            fig['layout']['yaxis']['type'] = 'log'
-            log_y_min = math.log10(y_min) if y_min > 0 else y_min
-            log_y_max = math.log10(y_max) if y_max > 0 else y_max
 
-            fig['layout']['yaxis']['range'] = [log_y_min, log_y_max]
+        def _calc_y_range(data, x_left, x_right, is_log=False):
+            ys = []
+            for trace in data or []:
+                xs = trace.get('x', [])
+                ys_trace = trace.get('y', [])
+                for xv, yv in zip(xs, ys_trace):
+                    if xv is None or yv is None:
+                        continue
+                    if x_left <= xv <= x_right:
+                        ys.append(yv)
+
+            if not ys:
+                return None
+
+            if is_log:
+                ys = [y for y in ys if y is not None and y > 1]
+                if not ys:
+                    return None
+                y_min_local, y_max_local = min(ys), max(ys)
+                return [math.log10(y_min_local), math.log10(y_max_local * 1.05)]
+
+            y_min_local, y_max_local = min(ys), max(ys)
+            y_min_local = 0 if y_min_local > 0 else y_min_local
+            return [y_min_local, y_max_local * 1.05]
+
+        # Try to use the current x-range (zoom or RT span) to compute an informed y-range.
+        x_range = figure.get('layout', {}).get('xaxis', {}).get('range')
+        if x_range and len(x_range) == 2:
+            x_left, x_right = x_range
         else:
-            if figure['layout']['yaxis']['type'] == 'linear':
-                raise PreventUpdate
-            fig['layout']['yaxis']['type'] = 'linear'
-            linear_y_min = y_min
-            linear_y_max = y_max
+            shape = (figure.get('layout', {}).get('shapes') or [{}])[0]
+            x_left, x_right = shape.get('x0'), shape.get('x1')
+            if x_left is None or x_right is None:
+                x_left = x_right = None
 
-            fig['layout']['yaxis']['range'] = [linear_y_min, linear_y_max]
+        if log_scale:
+            fig['layout']['yaxis']['type'] = 'log'
+            y_range_calc = None
+            if x_left is not None and x_right is not None:
+                y_range_calc = _calc_y_range(figure.get('data', []), min(x_left, x_right), max(x_left, x_right), True)
+            if y_range_calc:
+                fig['layout']['yaxis']['range'] = y_range_calc
+            else:
+                log_y_min = math.log10(y_min) if y_min > 0 else y_min
+                log_y_max = math.log10(y_max) if y_max > 0 else y_max
+                fig['layout']['yaxis']['range'] = [log_y_min, log_y_max]
+        else:
+            fig['layout']['yaxis']['type'] = 'linear'
+            y_range_calc = None
+            if x_left is not None and x_right is not None:
+                y_range_calc = _calc_y_range(figure.get('data', []), min(x_left, x_right), max(x_left, x_right), False)
+            if y_range_calc:
+                fig['layout']['yaxis']['range'] = y_range_calc
+            else:
+                fig['layout']['yaxis']['range'] = [y_min, y_max]
         return fig
 
     @app.callback(
@@ -1765,7 +1805,8 @@ def callbacks(app, fsc, cache, cpu=None):
                 return None
 
             if is_log:
-                ys = [y for y in ys if y is not None and y > 0]
+                # Drop non-positive values; use the smallest intensity strictly greater than 1 as the floor.
+                ys = [y for y in ys if y is not None and y > 1]
                 if not ys:
                     return None
                 y_min_local, y_max_local = min(ys), max(ys)
@@ -1835,7 +1876,8 @@ def callbacks(app, fsc, cache, cpu=None):
                 return None
 
             if is_log:
-                ys = [y for y in ys if y is not None and y > 0]
+                # Drop non-positive values; use the smallest intensity strictly greater than 1 as the floor.
+                ys = [y for y in ys if y is not None and y > 1]
                 if not ys:
                     return None
                 y_min_local, y_max_local = min(ys), max(ys)
