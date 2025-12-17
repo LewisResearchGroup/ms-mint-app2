@@ -1,4 +1,5 @@
 import base64
+from datetime import date
 import io
 import logging
 import math
@@ -20,7 +21,9 @@ from ms_mint.standards import TARGETS_COLUMNS
 from ms_mint.targets import standardize_targets, read_targets
 from .duckdb_manager import duckdb_connection
 from .filelock import FileLock
-from .plugins.ms_files import generate_colors
+
+def today():
+    return date.today().strftime("%y%m%d")
 
 
 def list_to_options(x):
@@ -636,6 +639,8 @@ def process_metadata(wdir, set_progress, selected_files):
         """
         conn.execute(stmt)
 
+        # Import lazily to avoid circular dependency at module import time.
+        from .plugins.ms_files import generate_colors
         generate_colors(wdir)
 
     set_progress(100)

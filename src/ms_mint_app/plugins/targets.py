@@ -8,6 +8,7 @@ from dash import html, dcc
 from dash.dependencies import Input, Output, State
 from dash.exceptions import PreventUpdate
 
+from .. import tools as T
 from ..duckdb_manager import duckdb_connection, build_where_and_params, build_order_by
 from ..plugin_interface import PluginInterface
 
@@ -760,18 +761,25 @@ def callbacks(app, fsc=None, cache=None):
         if not ctx.triggered:
             raise PreventUpdate
 
+        if not wdir:
+            raise PreventUpdate
+
+        ws_key = Path(wdir).stem
+        with duckdb_connection_mint(Path(wdir).parent.parent) as mint_conn:
+            if mint_conn is None:
+                raise PreventUpdate
+            ws_row = mint_conn.execute("SELECT name FROM workspaces WHERE key = ?", [ws_key]).fetchone()
+            if ws_row is None:
+                raise PreventUpdate
+            ws_name = ws_row[0]
+
         trigger = ctx.triggered[0]['prop_id'].split('.')[0]
 
         if trigger == 'download-target-template-btn':
-            return dcc.send_string(TARGET_TEMPLATE_CSV, "targets_template.csv")
+            filename = f"{T.today()}-MINT__{ws_name}-targets_template.csv"
+            return dcc.send_string(TARGET_TEMPLATE_CSV, filename)
 
         if trigger == 'download-target-list-btn':
-            ws_key = Path(wdir).stem
-            with duckdb_connection_mint(Path(wdir).parent.parent) as mint_conn:
-                if mint_conn is None:
-                    raise PreventUpdate
-                ws_name = mint_conn.execute("SELECT name FROM workspaces WHERE key = ?", [ws_key]).fetchone()[0]
-
             with duckdb_connection(wdir) as conn:
                 if conn is None:
                     raise PreventUpdate
@@ -779,7 +787,7 @@ def callbacks(app, fsc=None, cache=None):
                 # Reorder columns to match the template/export expectation
                 cols = TARGET_TEMPLATE_COLUMNS
                 df = df[[c for c in cols if c in df.columns]]
-                filename = f"{ws_name}_targets.csv"
+                filename = f"{T.today()}-MINT__{ws_name}-targets.csv"
         else:
             raise PreventUpdate
         return dcc.send_data_frame(df.to_csv, filename, index=False)

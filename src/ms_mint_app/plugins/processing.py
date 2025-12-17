@@ -10,6 +10,7 @@ from dash import html
 from dash.dependencies import Input, Output, State
 from dash.exceptions import PreventUpdate
 
+from .. import tools as T
 from ..duckdb_manager import duckdb_connection, build_paginated_query_by_peak, create_pivot, \
     duckdb_connection_mint, compute_chromatograms_in_batches, compute_results_in_batches
 from ..plugin_interface import PluginInterface
@@ -910,11 +911,18 @@ def callbacks(app, fsc, cache):
 
         ctx = dash.callback_context
         prop_id = ctx.triggered[0]['prop_id'].split('.')[0]
+
+        if not wdir:
+            raise PreventUpdate
+
         ws_key = Path(wdir).stem
         with duckdb_connection_mint(Path(wdir).parent.parent) as mint_conn:
             if mint_conn is None:
                 raise PreventUpdate
-            ws_name = mint_conn.execute("SELECT name FROM workspaces WHERE key = ?", [ws_key]).fetchone()[0]
+            ws_row = mint_conn.execute("SELECT name FROM workspaces WHERE key = ?", [ws_key]).fetchone()
+            if ws_row is None:
+                raise PreventUpdate
+            ws_name = ws_row[0]
 
         if prop_id == 'download-all-results-btn':
             with duckdb_connection(wdir) as conn:
@@ -931,12 +939,12 @@ def callbacks(app, fsc, cache):
                     JOIN samples s ON s.ms_file_label = r.ms_file_label 
                     ORDER BY s.ms_type, r.peak_label, r.ms_file_label
                 """).df()
-                filename = f"{ws_name}_all_results.csv"
+                filename = f"{T.today()}-MINT__{ws_name}-all_results.csv"
 
         else:
             with duckdb_connection(wdir) as conn:
                 df = create_pivot(conn, d_dm_rows[0], d_dm_cols[0], d_dm_value[0], table='results')
-                filename = f"{ws_name}_{d_dm_value[0]}_results.csv"
+                filename = f"{T.today()}-MINT__{ws_name}-{d_dm_value[0]}_results.csv"
         return dcc.send_data_frame(df.to_csv, filename, index=False)
 
     @app.callback(
