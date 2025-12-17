@@ -102,18 +102,18 @@ mint
 - [x] aplicar el calculo por batches en processing
 - [x] (*) Implementar los analisis
 - [ ] establecer limites en y para el valor min > 1
-- [ ] probar el threshold
+- [x] probar el threshold
 - [ ] z-order para las traces
 - [ ] cambiar las tablas a una arquitectura basada en uuid4 para poder editar los nombre de los targets y otras cosas
 - [ ] anotar nuevo target duplicando el cromatograma. se añade un nuevo target con otro rt-span usando el chromatograma precomputado 
 - [ ] remover target desde la modal
 - [x] probar selection box para el rt-span
 - [ ] poner indicador de ocupado para los botones de descarga
-- [ ] los archivos descargados deben tener el identificador del ws y demas cosas
-- [ ] revisar cuando los targets se eliminan que no quede el bookmark marcado
+- [x] los archivos descargados deben tener el identificador del ws y demas cosas
+- [x] revisar cuando los targets se eliminan que no quede el bookmark marcado
 - [ ] (*) hacer que cuando se levante la app mate cualquier instancia que exista de esta o procesos huerfanos
 - [x] (*) establecer limites en y autorange cuando se hace el zoom a la region en la view
-- [ ] revisar cuando se sube una segunda tabla de targets si falla
+- [x] revisar cuando se sube una segunda tabla de targets si falla
 - [x] mostrar progreso de procesamiento de archivos ms_file, metadata y targets
 - [x] se muestra el mismo target en dos paginas continuas
 - [ ] eliminar un boton de generar color en ms files

@@ -492,6 +492,8 @@ def callbacks(app, fsc=None, cache=None):
             column_types = {r["column_name"]: r["column_type"] for r in schema.to_dicts()}
             where_sql, params = build_where_and_params(filter_, filterOptions)
             order_by_sql = build_order_by(sorter, column_types, tie=('peak_label', 'ASC'))
+            if not order_by_sql:
+                order_by_sql = 'ORDER BY "mz_mean" ASC, "peak_label" COLLATE NOCASE ASC'
 
             sql = f"""
                         WITH filtered AS (
