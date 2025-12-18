@@ -357,12 +357,7 @@ def callbacks(app, fsc, cache):
             raise PreventUpdate
 
         with duckdb_connection_mint(tmpdir) as mint_conn:
-            if ws_action is None:
-                stmt = "SELECT * FROM workspaces ORDER BY last_activity DESC"
-            else:
-                stmt = "SELECT * FROM workspaces"
-
-            data = mint_conn.execute(stmt).df()
+            data = mint_conn.execute("SELECT * FROM workspaces ORDER BY last_activity DESC").df()
             print(f"{data = }")
 
             if not data.empty:
