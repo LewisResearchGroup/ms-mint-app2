@@ -433,6 +433,7 @@ _layout = fac.AntdLayout(
             ],
             style={'padding': '1rem 0', 'background': 'white'},
         ),
+        html.Div(id="optimization-notifications-container"),
         fac.AntdModal(
             [
                 fac.AntdFlex(
@@ -756,12 +757,6 @@ _layout = fac.AntdLayout(
                                             id="save-btn",
                                             type="primary",
                                         ),
-                                        fac.AntdButton(
-                                            "Delete target",
-                                            id="delete-target-from-modal",
-                                            danger=True,
-                                            type="dashed",
-                                        ),
                                     ],
                                     addSplitLine=True,
                                     size='small'
@@ -953,6 +948,26 @@ def callbacks(app, fsc, cache, cpu=None):
 
         return store_data or {'open': True}
 
+    @app.callback(
+        Output("optimization-notifications-container", "children"),
+        Input('section-context', 'data'),
+        Input("wdir", "data"),
+    )
+    def warn_missing_workspace(section_context, wdir):
+        if not section_context or section_context.get('page') != 'Optimization':
+            return dash.no_update
+        if wdir:
+            return []
+        return fac.AntdNotification(
+            message="Activate a workspace",
+            description="Select or create a workspace before using Optimization.",
+            type="warning",
+            duration=4,
+            placement='bottom',
+            showProgress=True,
+            stack=True,
+        )
+
     ############# TREE BEGIN #####################################
     @app.callback(
         Output('sample-type-tree', 'treeData'),
@@ -974,12 +989,14 @@ def callbacks(app, fsc, cache, cpu=None):
         ctx = dash.callback_context
         prop_id = ctx.triggered[0]['prop_id'].split('.')[0]
 
-        if section_context['page'] != 'Optimization':
+        if not section_context or section_context.get('page') != 'Optimization':
             raise PreventUpdate
+        if not wdir:
+            return [], [], [], {'display': 'none'}, {'display': 'block'}
 
         with duckdb_connection(wdir) as conn:
             if conn is None:
-                return dash.no_update, dash.no_update, dash.no_update
+                return [], [], [], {'display': 'none'}, {'display': 'block'}
             df = conn.execute("""
                               SELECT sample_type,
                                      list({'title': label, 'key': label}) as children,
@@ -1001,7 +1018,7 @@ def callbacks(app, fsc, cache, cpu=None):
             if prop_id == 'mark-tree-action':
                 print(f"{df['checked_keys'].values = }")
                 checked_keys = [v for value in df['checked_keys'].values for v in value]  # Es el mismo en todas las
-            elif prop_id in 'section-context':
+            elif prop_id == 'section-context':
                 quotas, checked_keys = proportional_min1_selection(df, 'sample_type', 'checked_keys', 50, 12345)
             else:
                 checked_keys = dash.no_update
@@ -1104,6 +1121,8 @@ def callbacks(app, fsc, cache, cpu=None):
         ctx = dash.callback_context
         if 'targets-select' in ctx.triggered[0]['prop_id'] and selected_targets:
             current_page = 1
+        if not wdir:
+            raise PreventUpdate
 
         start_idx = (current_page - 1) * page_size
         t1 = time.perf_counter()
@@ -1145,12 +1164,19 @@ def callbacks(app, fsc, cache, cpu=None):
 
             all_targets = [row[0] for row in all_targets]
 
-            # Autosave the current targets table to the workspace data folder so UI edits are persisted.
+            # Autosave the current targets table to the workspace data folder, but throttle I/O.
             try:
                 data_dir = Path(wdir) / "data"
                 data_dir.mkdir(parents=True, exist_ok=True)
-                targets_df = conn.execute("SELECT * FROM targets").df()
-                targets_df.to_csv(data_dir / "targets_backup.csv", index=False)
+                backup_path = data_dir / "targets_backup.csv"
+                should_write = True
+                if backup_path.exists():
+                    last_write = backup_path.stat().st_mtime
+                    # Avoid hammering disk on every preview refresh.
+                    should_write = (time.time() - last_write) > 30
+                if should_write:
+                    targets_df = conn.execute("SELECT * FROM targets").df()
+                    targets_df.to_csv(backup_path, index=False)
             except Exception:
                 pass
 
@@ -1359,7 +1385,9 @@ def callbacks(app, fsc, cache, cpu=None):
         if 'targets-select' in ctx.triggered[0]['prop_id']:
             targets_select_options = dash.no_update
         else:
-            targets_select_options = all_targets
+            targets_select_options = [
+                {"label": target, "value": target} for target in all_targets
+            ]
 
         print(f"{time.perf_counter() - t1 = }")
         return titles, figures, bookmarks, len(all_targets), [], targets_select_options
@@ -1593,6 +1621,8 @@ def callbacks(app, fsc, cache, cpu=None):
     )
     def chromatogram_view_modal(target_clicked, log_scale, checkedKeys, wdir):
 
+        if not wdir:
+            raise PreventUpdate
         with duckdb_connection(wdir) as conn:
             d = conn.execute("SELECT rt, rt_min, rt_max, COALESCE(notes, '') FROM targets WHERE peak_label = ?",
                              [target_clicked]).fetchall()
@@ -2353,9 +2383,26 @@ def callbacks(app, fsc, cache, cpu=None):
         with duckdb_connection(wdir) as conn:
             if conn is None:
                 return dash.no_update, dash.no_update, dash.no_update, dash.no_update
-            conn.execute("DELETE FROM chromatograms WHERE peak_label = ?", [target])
-            conn.execute("DELETE FROM targets WHERE peak_label = ?", [target])
-            conn.execute("DELETE FROM results WHERE peak_label = ?", [target])
+            try:
+                conn.execute("BEGIN")
+                conn.execute("DELETE FROM chromatograms WHERE peak_label = ?", [target])
+                conn.execute("DELETE FROM targets WHERE peak_label = ?", [target])
+                conn.execute("DELETE FROM results WHERE peak_label = ?", [target])
+                conn.execute("COMMIT")
+            except Exception:
+                conn.execute("ROLLBACK")
+                return (fac.AntdNotification(
+                            message="Delete target failed",
+                            description="Could not delete target data; no changes were applied.",
+                            type="error",
+                            duration=4,
+                            placement='bottom',
+                            showProgress=True,
+                            stack=True
+                        ),
+                        dash.no_update,
+                        False,
+                        False)
 
         return (fac.AntdNotification(message=f"{target} chromatograms deleted",
                                      type="success",
@@ -2380,6 +2427,8 @@ def callbacks(app, fsc, cache, cpu=None):
         # TODO: change bookmark to bool since the AntdRate component returns an int and the db require a bool
         ctx = dash.callback_context
         if not ctx.triggered or len(dash.callback_context.triggered) > 1:
+            raise PreventUpdate
+        if not wdir:
             raise PreventUpdate
 
         ctx_trigger = json.loads(ctx.triggered[0]['prop_id'].split('.')[0])

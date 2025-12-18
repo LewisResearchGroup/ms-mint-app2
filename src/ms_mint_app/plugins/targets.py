@@ -183,6 +183,7 @@ _layout = html.Div(
                                 'title': 'RT',
                                 'dataIndex': 'rt',
                                 'width': '150px',
+                                'editable': True,
                             },
                             {
                                 'title': 'RT-min',
@@ -194,11 +195,13 @@ _layout = html.Div(
                                 'title': 'RT-max',
                                 'dataIndex': 'rt_max',
                                 'width': '150px',
+                                'editable': True,
                             },
                             {
                                 'title': 'RT-Unit',
                                 'dataIndex': 'rt_unit',
                                 'width': '120px',
+                                'editable': True,
                             },
                             {
                                 'title': 'Intensity Threshold',
@@ -240,6 +243,7 @@ _layout = html.Div(
                                 'title': 'Notes',
                                 'dataIndex': 'notes',
                                 'width': '300px',
+                                'editable': True,
                             },
                             {
                                 'title': 'Source',
@@ -385,6 +389,7 @@ _layout = html.Div(
             id='targets-table-container',
             style={'paddingTop': '1rem'},
         ),
+        html.Div(id="targets-notifications-container"),
 
         fac.AntdModal(
             "Are you sure you want to delete the selected targets?",
@@ -487,6 +492,8 @@ def callbacks(app, fsc=None, cache=None):
         # them
         if section_context and section_context['page'] != 'Targets':
             raise PreventUpdate
+        if not wdir:
+            raise PreventUpdate
 
         if pagination:
             page_size = pagination['pageSize']
@@ -551,17 +558,21 @@ def callbacks(app, fsc=None, cache=None):
             current = max(current if number_records > (current - 1) * page_size else current - 1, 1)
 
             with (duckdb_connection(wdir) as conn):
-                st_custom_items = filterOptions['category'].get('filterCustomItems')
-                category_filters = conn.execute("SELECT DISTINCT category "
-                                                "FROM targets "
-                                                "ORDER BY category ASC").df()['category'].to_list()
-                if st_custom_items != category_filters:
-                    output_filterOptions = filterOptions.copy()
-                    output_filterOptions['category']['filterCustomItems'] = (category_filters
-                                                                             if category_filters != [None] else
-                                                                             [])
-                else:
+                category_filters = conn.execute(
+                    "SELECT DISTINCT category FROM targets ORDER BY category ASC"
+                ).df()['category'].to_list()
+
+                if not isinstance(filterOptions, dict) or 'category' not in filterOptions:
                     output_filterOptions = dash.no_update
+                else:
+                    st_custom_items = filterOptions['category'].get('filterCustomItems')
+                    if st_custom_items != category_filters:
+                        output_filterOptions = filterOptions.copy()
+                        output_filterOptions['category']['filterCustomItems'] = (
+                            category_filters if category_filters != [None] else []
+                        )
+                    else:
+                        output_filterOptions = dash.no_update
 
             return [
                 data.to_dicts(),
@@ -571,6 +582,26 @@ def callbacks(app, fsc=None, cache=None):
                 output_filterOptions
             ]
         return dash.no_update
+
+    @app.callback(
+        Output("targets-notifications-container", "children"),
+        Input('section-context', 'data'),
+        Input("wdir", "data"),
+    )
+    def warn_missing_workspace(section_context, wdir):
+        if not section_context or section_context.get('page') != 'Targets':
+            return dash.no_update
+        if wdir:
+            return []
+        return fac.AntdNotification(
+            message="Activate a workspace",
+            description="Select or create a workspace before working with Targets.",
+            type="warning",
+            duration=4,
+            placement='bottom',
+            showProgress=True,
+            stack=True,
+        )
 
     @app.callback(
         Output('delete-table-targets-modal', 'visible'),
@@ -647,6 +678,8 @@ def callbacks(app, fsc=None, cache=None):
         """
         if okCounts is None or clickedKey not in ['delete-selected', 'delete-all']:
             raise PreventUpdate
+        if not wdir:
+            raise PreventUpdate
         if clickedKey == "delete-selected" and not selectedRows:
             targets_action_store = {'action': 'delete', 'status': 'failed'}
             total_removed = 0
@@ -656,9 +689,25 @@ def callbacks(app, fsc=None, cache=None):
             with duckdb_connection(wdir) as conn:
                 if conn is None:
                     raise PreventUpdate
-                conn.execute("DELETE FROM targets WHERE peak_label IN ?", (remove_targets,))
-                conn.execute("DELETE FROM chromatograms WHERE peak_label IN ?", (remove_targets,))
-                # conn.execute("DELETE FROM results WHERE peak_label IN ?", (remove_targets,))
+                try:
+                    conn.execute("BEGIN")
+                    conn.execute("DELETE FROM targets WHERE peak_label IN ?", (remove_targets,))
+                    conn.execute("DELETE FROM chromatograms WHERE peak_label IN ?", (remove_targets,))
+                    # conn.execute("DELETE FROM results WHERE peak_label IN ?", (remove_targets,))
+                    conn.execute("COMMIT")
+                except Exception as e:
+                    conn.execute("ROLLBACK")
+                    logging.error(f"Error deleting selected targets: {e}")
+                    return (fac.AntdNotification(
+                                message="Delete Targets failed",
+                                description="Could not delete the selected targets; no changes were applied.",
+                                type="error",
+                                duration=4,
+                                placement='bottom',
+                                showProgress=True,
+                                stack=True
+                            ),
+                            {'action': 'delete', 'status': 'failed'})
             total_removed = len(remove_targets)
             targets_action_store = {'action': 'delete', 'status': 'success'}
         elif clickedKey == "delete-all":
@@ -671,10 +720,26 @@ def callbacks(app, fsc=None, cache=None):
                 if total_removed_q:
                     total_removed = total_removed_q[0]
 
-                    conn.execute("DELETE FROM targets")
-                    conn.execute("DELETE FROM chromatograms")
-                    # conn.execute("DELETE FROM results")
-                    targets_action_store = {'action': 'delete', 'status': 'success'}
+                    try:
+                        conn.execute("BEGIN")
+                        conn.execute("DELETE FROM targets")
+                        conn.execute("DELETE FROM chromatograms")
+                        # conn.execute("DELETE FROM results")
+                        conn.execute("COMMIT")
+                        targets_action_store = {'action': 'delete', 'status': 'success'}
+                    except Exception as e:
+                        conn.execute("ROLLBACK")
+                        logging.error(f"Error deleting all targets: {e}")
+                        return (fac.AntdNotification(
+                                    message="Delete Targets failed",
+                                    description="Could not delete all targets; no changes were applied.",
+                                    type="error",
+                                    duration=4,
+                                    placement='bottom',
+                                    showProgress=True,
+                                    stack=True
+                                ),
+                                {'action': 'delete', 'status': 'failed'})
         return (fac.AntdNotification(message="Delete Targets",
                                      description=f"Deleted {total_removed} targets",
                                      type="success" if total_removed > 0 else "error",
@@ -705,6 +770,19 @@ def callbacks(app, fsc=None, cache=None):
 
         if row_edited is None or column_edited is None:
             raise PreventUpdate
+
+        allowed_columns = {
+            "rt",
+            "rt_min",
+            "rt_max",
+            "rt_unit",
+            "intensity_threshold",
+            "notes",
+            "category",
+            "score",
+        }
+        if column_edited not in allowed_columns:
+            raise PreventUpdate
         try:
             with duckdb_connection(wdir) as conn:
                 if conn is None:
@@ -715,7 +793,7 @@ def callbacks(app, fsc=None, cache=None):
                     conn.execute(query, ['Unset', row_edited['peak_label']])
                 else:
                     conn.execute(query, [row_edited[column_edited], row_edited['peak_label']])
-                targets_action_store = {'action': 'delete', 'status': 'success'}
+                targets_action_store = {'action': 'edit', 'status': 'success'}
             return fac.AntdNotification(message="Successfully edition saved",
                                         type="success",
                                         duration=3,
@@ -725,7 +803,7 @@ def callbacks(app, fsc=None, cache=None):
                                         ), targets_action_store
         except Exception as e:
             logging.error(f"Error updating metadata: {e}")
-            targets_action_store = {'action': 'delete', 'status': 'failed'}
+            targets_action_store = {'action': 'edit', 'status': 'failed'}
             return fac.AntdNotification(message="Failed to save edition",
                                         description=f"Failing to save edition with: {str(e)}",
                                         type="error",
@@ -743,6 +821,13 @@ def callbacks(app, fsc=None, cache=None):
         prevent_initial_call=True
     )
     def save_switch_changes(recentlySwitchDataIndex, recentlySwitchStatus, recentlySwitchRow, wdir):
+
+        if recentlySwitchDataIndex is None or recentlySwitchStatus is None or not recentlySwitchRow:
+            raise PreventUpdate
+
+        allowed_switch_columns = {"peak_selection", "bookmark"}
+        if recentlySwitchDataIndex not in allowed_switch_columns:
+            raise PreventUpdate
 
         with duckdb_connection(wdir) as conn:
             if conn is None:
@@ -768,17 +853,17 @@ def callbacks(app, fsc=None, cache=None):
         if not ctx.triggered:
             raise PreventUpdate
 
-        if not wdir:
-            raise PreventUpdate
-
-        ws_key = Path(wdir).stem
-        with duckdb_connection_mint(Path(wdir).parent.parent) as mint_conn:
-            if mint_conn is None:
-                raise PreventUpdate
-            ws_row = mint_conn.execute("SELECT name FROM workspaces WHERE key = ?", [ws_key]).fetchone()
-            if ws_row is None:
-                raise PreventUpdate
-            ws_name = ws_row[0]
+        ws_name = "workspace"
+        if wdir:
+            try:
+                ws_key = Path(wdir).stem
+                with duckdb_connection_mint(Path(wdir).parent.parent) as mint_conn:
+                    if mint_conn is not None:
+                        ws_row = mint_conn.execute("SELECT name FROM workspaces WHERE key = ?", [ws_key]).fetchone()
+                        if ws_row is not None:
+                            ws_name = ws_row[0]
+            except Exception:
+                pass
 
         trigger = ctx.triggered[0]['prop_id'].split('.')[0]
 
@@ -787,6 +872,8 @@ def callbacks(app, fsc=None, cache=None):
             return dcc.send_string(TARGET_TEMPLATE_CSV, filename)
 
         if trigger == 'download-target-list-btn':
+            if not wdir:
+                raise PreventUpdate
             with duckdb_connection(wdir) as conn:
                 if conn is None:
                     raise PreventUpdate
