@@ -149,6 +149,19 @@ def main():
     
     # Define local variables
     is_frozen = hasattr(sys, "_MEIPASS")
+
+    if is_frozen:
+        try:
+            mpl_cfg = P(DATADIR) / ".cache" / "matplotlib"
+            mpl_cfg.mkdir(parents=True, exist_ok=True)
+            os.environ.setdefault("MPLCONFIGDIR", str(mpl_cfg))
+
+            import logging as _logging
+
+            _logging.getLogger("matplotlib").setLevel(_logging.WARNING)
+            _logging.getLogger("matplotlib.font_manager").setLevel(_logging.WARNING)
+        except Exception:
+            pass
     true_get_distribution = importlib_metadata.version
     _Dist = namedtuple("_Dist", ["version"])
     
