@@ -574,23 +574,28 @@ _layout = html.Div(
             locale='en-us',
             steps=[
                 {
-                    'title': 'Processing Tour',
-                    'description': 'Quick guide to processing results.',
+                    'title': 'Welcome',
+                    'description': 'This tutorial walks through running MINT, selecting targets, and reviewing results.',
                 },
                 {
-                    'title': 'Run MINT',
-                    'description': 'Launch processing for selected files and targets.',
+                    'title': 'Run processing',
+                    'description': 'Click “Run MINT” to compute chromatograms and results for the selected workspace.',
                     'targetSelector': '#processing-btn'
                 },
                 {
-                    'title': 'Options',
-                    'description': 'Download results or delete selected/all rows.',
-                    'targetSelector': '#processing-options-wrapper'
+                    'title': 'Pick targets',
+                    'description': 'Choose one or more targets to show in the results table after running MINT.',
+                    'targetSelector': '#processing-peak-select'
                 },
                 {
-                    'title': 'Filter & sort',
-                    'description': 'Use header controls to search, filter, and sort results.',
+                    'title': 'Review results',
+                    'description': 'Filter/sort results.',
                     'targetSelector': '#results-table-container'
+                },
+                {
+                    'title': 'Export or clean up',
+                    'description': 'Download all results/dense matrices or delete selected/all rows from the options.',
+                    'targetSelector': '#processing-options-wrapper'
                 },
             ],
             id='processing-tour',
