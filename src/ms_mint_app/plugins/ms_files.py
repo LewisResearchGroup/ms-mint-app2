@@ -606,6 +606,17 @@ def callbacks(cls, app, fsc, cache, args_namespace):
     )
     def save_switch_changes(recentlySwitchDataIndex, recentlySwitchStatus, recentlySwitchRow, wdir):
 
+        if not wdir or not recentlySwitchDataIndex or recentlySwitchStatus is None or not recentlySwitchRow:
+            raise PreventUpdate
+
+        allowed_switch_columns = {
+            "use_for_optimization",
+            "use_for_processing",
+            "use_for_analysis",
+        }
+        if recentlySwitchDataIndex not in allowed_switch_columns:
+            raise PreventUpdate
+
         with duckdb_connection(wdir) as conn:
             if conn is None:
                 raise PreventUpdate
@@ -903,7 +914,15 @@ def callbacks(cls, app, fsc, cache, args_namespace):
         if not ctx.triggered:
             raise PreventUpdate
 
-        if row_edited is None or column_edited is None:
+        if not wdir or row_edited is None or column_edited is None:
+            raise PreventUpdate
+
+        allowed_columns = {
+            "label",
+            "sample_type",
+            *GROUP_COLUMNS,
+        }
+        if column_edited not in allowed_columns:
             raise PreventUpdate
         try:
             with duckdb_connection(wdir) as conn:
