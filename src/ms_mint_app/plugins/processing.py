@@ -1287,6 +1287,7 @@ def callbacks(app, fsc, cache):
         return True, False
 
     @app.callback(
+        Output('results-action-store', 'data', allow_duplicate=True),
         Output('processing-progress-container', 'style', allow_duplicate=True),
         Output('processing-options-container', 'style', allow_duplicate=True),
         Output('processing-modal', 'visible', allow_duplicate=True),
@@ -1299,4 +1300,12 @@ def callbacks(app, fsc, cache):
     def cancel_results_processing(cancel_clicks):
         if not cancel_clicks:
             raise PreventUpdate
-        return {'display': 'none'}, {'display': 'flex'}, False, 0, "", ""
+        return (
+            {'action': 'processing', 'status': 'cancelled', 'timestamp': time.time()},
+            {'display': 'none'},
+            {'display': 'flex'},
+            False,
+            0,
+            "",
+            "",
+        )
