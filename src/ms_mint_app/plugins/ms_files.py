@@ -639,17 +639,17 @@ def callbacks(cls, app, fsc, cache, args_namespace):
         if not ctx.triggered:
             raise PreventUpdate
 
-        if not wdir:
-            raise PreventUpdate
-
-        ws_key = Path(wdir).stem
-        with duckdb_connection_mint(Path(wdir).parent.parent) as mint_conn:
-            if mint_conn is None:
-                raise PreventUpdate
-            ws_row = mint_conn.execute("SELECT name FROM workspaces WHERE key = ?", [ws_key]).fetchone()
-            if ws_row is None:
-                raise PreventUpdate
-            ws_name = ws_row[0]
+        ws_name = "workspace"
+        if wdir:
+            try:
+                ws_key = Path(wdir).stem
+                with duckdb_connection_mint(Path(wdir).parent.parent) as mint_conn:
+                    if mint_conn is not None:
+                        ws_row = mint_conn.execute("SELECT name FROM workspaces WHERE key = ?", [ws_key]).fetchone()
+                        if ws_row is not None:
+                            ws_name = ws_row[0]
+            except Exception:
+                pass
 
         trigger = ctx.triggered[0]['prop_id'].split('.')[0]
         if trigger == 'download-ms-template-btn':
@@ -657,6 +657,8 @@ def callbacks(cls, app, fsc, cache, args_namespace):
             return dcc.send_string(MS_METADATA_TEMPLATE_CSV, filename)
 
         if trigger == 'download-ms-files-btn':
+            if not wdir:
+                raise PreventUpdate
             with duckdb_connection(wdir) as conn:
                 if conn is None:
                     raise PreventUpdate
@@ -975,7 +977,7 @@ def callbacks(cls, app, fsc, cache, args_namespace):
                     raise PreventUpdate
                 query = f"UPDATE samples SET {column_edited} = ? WHERE ms_file_label = ?"
                 conn.execute(query, [row_edited[column_edited], row_edited['ms_file_label']])
-                ms_table_action_store = {'action': 'delete', 'status': 'success'}
+                ms_table_action_store = {'action': 'edit', 'status': 'success'}
             return fac.AntdNotification(message="Successfully edition saved",
                                         type="success",
                                         duration=3,
@@ -986,7 +988,7 @@ def callbacks(cls, app, fsc, cache, args_namespace):
                                         ), ms_table_action_store
         except Exception as e:
             logging.error(f"Error updating metadata: {e}")
-            ms_table_action_store = {'action': 'delete', 'status': 'failed'}
+            ms_table_action_store = {'action': 'edit', 'status': 'failed'}
             return fac.AntdNotification(message="Failed to save edition",
                                         description=f"Failing to save edition with: {str(e)}",
                                         type="error",
