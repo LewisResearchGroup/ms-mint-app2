@@ -822,28 +822,33 @@ _layout = fac.AntdLayout(
             locale='en-us',
             steps=[
                 {
-                    'title': 'Optimization Tour',
-                    'description': 'Quick guide to compute and preview chromatograms.',
+                    'title': 'Welcome',
+                    'description': 'Follow this tutorial to compute chromatograms and tune targets.',
                 },
                 {
-                    'title': 'Compute chromatograms',
-                    'description': 'Runs chromatogram extraction for selected targets and files.',
-                    'targetSelector': '#compute-chromatograms-btn'
-                },
-                {
-                    'title': 'Target filter',
-                    'description': 'Narrow targets shown below using this selector.',
-                    'targetSelector': '#targets-select'
-                },
-                {
-                    'title': 'Sample selection',
-                    'description': 'Selected samples to show in the cards.',
+                    'title': 'Select samples',
+                    'description': 'Choose which samples are plotted in the cards for quick comparison.',
                     'targetSelector': '#sample-selection'
                 },
                 {
-                    'title': 'Options',
-                    'description': 'Configure MS type, selection, sorting, log scale, and plot dimensions.',
+                    'title': 'Select targets',
+                    'description': 'Filter which targets appear in the optimization cards.',
+                    'targetSelector': '#targets-select'
+                },
+                {
+                    'title': 'Tune options',
+                    'description': 'Adjust MS type, target ordering, log scale, and plot sizing to aid review.',
                     'targetSelector': '#sidebar-options'
+                },
+                {
+                    'title': 'Review cards',
+                    'description': 'Scroll the cards below to inspect chromatograms and edit target bounds directly.',
+                    'targetSelector': '#chromatogram-preview-container'
+                },
+                {
+                    'title': 'Compute chromatograms',
+                    'description': 'Extract chromatograms for the selected targets/files.',
+                    'targetSelector': '#compute-chromatograms-btn'
                 },
             ],
             id='optimization-tour',
