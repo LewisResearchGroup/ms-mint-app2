@@ -2,6 +2,7 @@ import dash
 import base64
 from io import BytesIO, StringIO
 from pathlib import Path
+import time
 import feffery_antd_components as fac
 import feffery_utils_components as fuc
 from itertools import cycle
@@ -919,7 +920,13 @@ def callbacks(app, fsc, cache):
                     cm_dir.mkdir(parents=True, exist_ok=True)
                     safe_metric = slugify_label(metric)
                     file_name = f"{safe_metric}_{norm_value}_clustermap.png"
-                    fig.savefig(cm_dir / file_name, format="png", dpi=600)
+                    save_path = cm_dir / file_name
+                    should_save = True
+                    if save_path.exists():
+                        last_write = save_path.stat().st_mtime
+                        should_save = (time.time() - last_write) > 30
+                    if should_save:
+                        fig.savefig(save_path, format="png", dpi=600)
             except Exception:
                 pass
 
