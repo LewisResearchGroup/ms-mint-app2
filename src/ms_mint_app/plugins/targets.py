@@ -389,6 +389,7 @@ _layout = html.Div(
             id='targets-table-container',
             style={'paddingTop': '1rem'},
         ),
+        html.Div(id="targets-notifications-container"),
 
         fac.AntdModal(
             "Are you sure you want to delete the selected targets?",
@@ -491,6 +492,8 @@ def callbacks(app, fsc=None, cache=None):
         # them
         if section_context and section_context['page'] != 'Targets':
             raise PreventUpdate
+        if not wdir:
+            raise PreventUpdate
 
         if pagination:
             page_size = pagination['pageSize']
@@ -575,6 +578,26 @@ def callbacks(app, fsc=None, cache=None):
                 output_filterOptions
             ]
         return dash.no_update
+
+    @app.callback(
+        Output("targets-notifications-container", "children"),
+        Input('section-context', 'data'),
+        Input("wdir", "data"),
+    )
+    def warn_missing_workspace(section_context, wdir):
+        if not section_context or section_context.get('page') != 'Targets':
+            return dash.no_update
+        if wdir:
+            return []
+        return fac.AntdNotification(
+            message="Activate a workspace",
+            description="Select or create a workspace before working with Targets.",
+            type="warning",
+            duration=4,
+            placement='bottom',
+            showProgress=True,
+            stack=True,
+        )
 
     @app.callback(
         Output('delete-table-targets-modal', 'visible'),
