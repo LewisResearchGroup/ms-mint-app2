@@ -49,6 +49,10 @@ MAX_NUM_CARDS = 50
 DEFAULT_GRAPH_WIDTH = 250
 DEFAULT_GRAPH_HEIGHT = 180
 
+# Use a valid empty Plotly figure (not `{}`) so container resizes/redraws don't
+# trigger Plotly's "_doPlot" warning for graphs that haven't been plotted yet.
+EMPTY_PLOTLY_FIGURE = {"data": [], "layout": {"template": "plotly_white"}}
+
 _layout = fac.AntdLayout(
     [
         fac.AntdHeader(
@@ -155,24 +159,27 @@ _layout = fac.AntdLayout(
                                     style={'marginRight': 30, 'height': 32, 'overflow': 'hidden'}
                                 ),
                                 html.Div(
-                                    [
-                                        fac.AntdTree(
-                                            id='sample-type-tree',
-                                            treeData=[],
-                                            multiple=True,
-                                            checkable=True,
-                                            defaultExpandAll=True,
-                                            showIcon=True,
-                                            style={'display': 'none'}
-                                        ),
-                                        fac.AntdEmpty(
-                                            id='sample-type-tree-empty',
-                                            description='No samples marked for optimization',
-                                            locale='en-us',
-                                            image='simple',
-                                            styles={'root': {'height': '100%', 'alignContent': 'center'}}
-                                        )
-                                    ],
+                                    fac.AntdSpin(
+                                        [
+                                            fac.AntdTree(
+                                                id='sample-type-tree',
+                                                treeData=[],
+                                                multiple=True,
+                                                checkable=True,
+                                                defaultExpandAll=True,
+                                                showIcon=True,
+                                                style={'display': 'none'}
+                                            ),
+                                            fac.AntdEmpty(
+                                                id='sample-type-tree-empty',
+                                                description='No samples marked for optimization',
+                                                locale='en-us',
+                                                image='simple',
+                                                styles={'root': {'height': '100%', 'alignContent': 'center'}}
+                                            )
+                                        ],
+                                        style={'height': '100%'}
+                                    ),
                                     style={
                                         'flex': '1',
                                         'overflow': 'auto',
@@ -1046,8 +1053,8 @@ def callbacks(app, fsc, cache, cpu=None):
             'height': height,
             'margin': '0px',
         } for _ in range(MAX_NUM_CARDS)],
-            width,
-            height)
+                width,
+                height)
 
     ############# GRAPH OPTIONS END #######################################
 
@@ -1325,7 +1332,7 @@ def callbacks(app, fsc, cache, cpu=None):
             figures.append(fig)
 
         titles.extend([None for _ in range(MAX_NUM_CARDS - len(figures))])
-        figures.extend([{} for _ in range(MAX_NUM_CARDS - len(figures))])
+        figures.extend([EMPTY_PLOTLY_FIGURE for _ in range(MAX_NUM_CARDS - len(figures))])
         bookmarks.extend([0 for _ in range(MAX_NUM_CARDS - len(bookmarks))])
 
         if 'targets-select' in ctx.triggered[0]['prop_id']:
@@ -1350,7 +1357,8 @@ def callbacks(app, fsc, cache, cpu=None):
         cards_classes = []
 
         for i, figure in enumerate(figures):
-            if figure:
+            has_traces = bool(figure) and bool(figure.get('data'))
+            if has_traces:
                 cc = current_class[i].split() if current_class[i] else []
                 cc.remove('is-hidden') if 'is-hidden' in cc else None
                 cards_classes.append(' '.join(cc))
