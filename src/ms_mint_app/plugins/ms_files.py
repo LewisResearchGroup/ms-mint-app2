@@ -355,28 +355,38 @@ _layout = html.Div(
             locale='en-us',
             steps=[
                 {
-                    'title': 'MS-Files Tour',
-                    'description': 'Quick guide to the MS-Files table.',
+                    'title': 'Welcome',
+                    'description': 'This tutorial shows how to load, review, and export MS files.',
                 },
                 {
-                    'title': 'Download template',
-                    'description': 'Download the MS metadata template CSV with the expected columns.',
+                    'title': 'Load raw files',
+                    'description': 'Click “Load MS-Files” to browse and add raw data files to this workspace.',
+                    'targetSelector': "[id='{\"action\":\"file-explorer\",\"type\":\"ms-files\"}']"
+                },
+                {
+                    'title': 'Use the metadata template',
+                    'description': 'Download the metadata template if you need the expected column names.',
                     'targetSelector': '#download-ms-template-btn'
                 },
                 {
-                    'title': 'Download MS-files',
-                    'description': 'Export the current MS files table (server-side filters/sorts applied).',
-                    'targetSelector': '#download-ms-files-btn'
+                    'title': 'Add metadata',
+                    'description': '(Optional) Use “Load Metadata” to import a CSV with sample info (labels, types, etc.).',
+                    'targetSelector': "[id='{\"action\":\"file-explorer\",\"type\":\"metadata\"}']"
                 },
                 {
                     'title': 'Options',
-                    'description': 'Generate colors or delete selected rows/all rows.',
+                    'description': 'Generate colors or delete selected/all rows from the options menu.',
                     'targetSelector': '#ms-options-wrapper'
                 },
                 {
-                    'title': 'Filter & sort',
-                    'description': 'Use header controls to search, filter, and sort your MS files.',
+                    'title': 'Review and filter',
+                    'description': 'Inspect, filter, and sort MS files here; select rows to delete or export.',
                     'targetSelector': '#ms-files-table-container'
+                },
+                {
+                    'title': 'Export',
+                    'description': 'Download the current table (with server-side filters) for backup or sharing.',
+                    'targetSelector': '#download-ms-files-btn'
                 },
             ],
             id='ms-files-tour',
