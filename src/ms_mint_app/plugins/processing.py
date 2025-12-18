@@ -318,6 +318,7 @@ _layout = html.Div(
             id='results-table-container',
             style={'paddingTop': '1rem'},
         ),
+        html.Div(id="processing-notifications-container"),
         fac.AntdModal(
             [
                 fac.AntdFlex(
@@ -649,6 +650,25 @@ def layout():
 
 
 def callbacks(app, fsc, cache):
+    @app.callback(
+        Output("processing-notifications-container", "children"),
+        Input('section-context', 'data'),
+        Input("wdir", "data"),
+    )
+    def warn_missing_workspace(section_context, wdir):
+        if not section_context or section_context.get('page') != 'Processing':
+            return dash.no_update
+        if wdir:
+            return []
+        return fac.AntdNotification(
+            message="Activate a workspace",
+            description="Select or create a workspace before using Processing.",
+            type="warning",
+            duration=4,
+            placement='bottom',
+            showProgress=True,
+            stack=True,
+        )
     @app.callback(
         Output("results-table", "data"),
         Output("results-table", "selectedRowKeys"),
