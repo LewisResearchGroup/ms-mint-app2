@@ -1144,10 +1144,26 @@ def callbacks(app, fsc, cache):
             ws_name = ws_row[0]
 
         if prop_id == 'download-all-results-btn':
+            allowed_cols = {
+                'peak_area',
+                'peak_area_top3',
+                'peak_mean',
+                'peak_median',
+                'peak_n_datapoints',
+                'peak_min',
+                'peak_max',
+                'peak_rt_of_max',
+                'total_intensity',
+            }
+            if not d_options_value or not isinstance(d_options_value, list):
+                raise PreventUpdate
+            safe_cols = [c for c in d_options_value if c in allowed_cols]
+            if not safe_cols:
+                raise PreventUpdate
             with duckdb_connection(wdir) as conn:
                 if conn is None:
                     raise PreventUpdate
-                cols = ', '.join(d_options_value)
+                cols = ', '.join(safe_cols)
                 df = conn.execute(f"""
                     SELECT 
                         r.peak_label, 
@@ -1162,6 +1178,29 @@ def callbacks(app, fsc, cache):
 
         else:
             with duckdb_connection(wdir) as conn:
+                if conn is None:
+                    raise PreventUpdate
+                allowed_rows_cols = {'ms_file_label', 'peak_label', 'ms_type'}
+                allowed_values = {
+                    'peak_area',
+                    'peak_area_top3',
+                    'peak_mean',
+                    'peak_median',
+                    'peak_n_datapoints',
+                    'peak_min',
+                    'peak_max',
+                    'peak_rt_of_max',
+                    'total_intensity',
+                }
+                if not d_dm_rows or not d_dm_cols or not d_dm_value:
+                    raise PreventUpdate
+                row_col = d_dm_rows[0]
+                col_col = d_dm_cols[0]
+                val_col = d_dm_value[0]
+                if row_col not in allowed_rows_cols or col_col not in allowed_rows_cols:
+                    raise PreventUpdate
+                if val_col not in allowed_values:
+                    raise PreventUpdate
                 df = create_pivot(conn, d_dm_rows[0], d_dm_cols[0], d_dm_value[0], table='results')
                 filename = f"{T.today()}-MINT__{ws_name}-{d_dm_value[0]}_results.csv"
         return dcc.send_data_frame(df.to_csv, filename, index=False)
