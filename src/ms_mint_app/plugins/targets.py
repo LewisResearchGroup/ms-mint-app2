@@ -674,6 +674,8 @@ def callbacks(app, fsc=None, cache=None):
         """
         if okCounts is None or clickedKey not in ['delete-selected', 'delete-all']:
             raise PreventUpdate
+        if not wdir:
+            raise PreventUpdate
         if clickedKey == "delete-selected" and not selectedRows:
             targets_action_store = {'action': 'delete', 'status': 'failed'}
             total_removed = 0
@@ -683,9 +685,25 @@ def callbacks(app, fsc=None, cache=None):
             with duckdb_connection(wdir) as conn:
                 if conn is None:
                     raise PreventUpdate
-                conn.execute("DELETE FROM targets WHERE peak_label IN ?", (remove_targets,))
-                conn.execute("DELETE FROM chromatograms WHERE peak_label IN ?", (remove_targets,))
-                # conn.execute("DELETE FROM results WHERE peak_label IN ?", (remove_targets,))
+                try:
+                    conn.execute("BEGIN")
+                    conn.execute("DELETE FROM targets WHERE peak_label IN ?", (remove_targets,))
+                    conn.execute("DELETE FROM chromatograms WHERE peak_label IN ?", (remove_targets,))
+                    # conn.execute("DELETE FROM results WHERE peak_label IN ?", (remove_targets,))
+                    conn.execute("COMMIT")
+                except Exception as e:
+                    conn.execute("ROLLBACK")
+                    logging.error(f"Error deleting selected targets: {e}")
+                    return (fac.AntdNotification(
+                                message="Delete Targets failed",
+                                description="Could not delete the selected targets; no changes were applied.",
+                                type="error",
+                                duration=4,
+                                placement='bottom',
+                                showProgress=True,
+                                stack=True
+                            ),
+                            {'action': 'delete', 'status': 'failed'})
             total_removed = len(remove_targets)
             targets_action_store = {'action': 'delete', 'status': 'success'}
         elif clickedKey == "delete-all":
@@ -698,10 +716,26 @@ def callbacks(app, fsc=None, cache=None):
                 if total_removed_q:
                     total_removed = total_removed_q[0]
 
-                    conn.execute("DELETE FROM targets")
-                    conn.execute("DELETE FROM chromatograms")
-                    # conn.execute("DELETE FROM results")
-                    targets_action_store = {'action': 'delete', 'status': 'success'}
+                    try:
+                        conn.execute("BEGIN")
+                        conn.execute("DELETE FROM targets")
+                        conn.execute("DELETE FROM chromatograms")
+                        # conn.execute("DELETE FROM results")
+                        conn.execute("COMMIT")
+                        targets_action_store = {'action': 'delete', 'status': 'success'}
+                    except Exception as e:
+                        conn.execute("ROLLBACK")
+                        logging.error(f"Error deleting all targets: {e}")
+                        return (fac.AntdNotification(
+                                    message="Delete Targets failed",
+                                    description="Could not delete all targets; no changes were applied.",
+                                    type="error",
+                                    duration=4,
+                                    placement='bottom',
+                                    showProgress=True,
+                                    stack=True
+                                ),
+                                {'action': 'delete', 'status': 'failed'})
         return (fac.AntdNotification(message="Delete Targets",
                                      description=f"Deleted {total_removed} targets",
                                      type="success" if total_removed > 0 else "error",
