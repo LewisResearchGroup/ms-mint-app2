@@ -7,6 +7,7 @@ import random
 import re
 import tempfile
 import zlib
+from datetime import date
 from pathlib import Path
 from typing import Dict, Optional, Iterator, Any, List
 
@@ -25,6 +26,11 @@ _RT_SECONDS = re.compile(
     r"^P(?:T(?:(?P<h>\d+(?:\.\d+)?)H)?(?:(?P<m>\d+(?:\.\d+)?)M)?(?:(?P<s>\d+(?:\.\d+)?)S)?)$",
     re.I
 )
+
+
+def today() -> str:
+    """Return today's date in ISO format (YYYY-MM-DD). Used for filenames."""
+    return date.today().isoformat()
 
 
 def rt_to_seconds(val) -> float:
