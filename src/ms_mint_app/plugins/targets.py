@@ -398,28 +398,33 @@ _layout = html.Div(
             locale='en-us',
             steps=[
                 {
-                    'title': 'Targets Tour',
-                    'description': 'This is a tour of the targets plugin.',
+                    'title': 'Welcome',
+                    'description': 'Follow this tutorial to load, review, and export targets.',
                 },
                 {
-                    'title': 'Download template',
-                    'description': 'Download the targets template CSV to start with the right columns and descriptions.',
+                    'title': 'Load targets',
+                    'description': 'Click “Load Targets” to import your target list (CSV).',
+                    'targetSelector': "[id='{\"action\":\"file-explorer\",\"type\":\"targets\"}']"
+                },
+                {
+                    'title': 'Use the template',
+                    'description': 'Download the template if you need the expected columns and examples.',
                     'targetSelector': '#download-target-template-btn'
                 },
                 {
-                    'title': 'Download targets',
-                    'description': 'Export the current targets table (with filters/sort applied on server) for review or sharing.',
-                    'targetSelector': '#download-target-list-btn'
+                    'title': 'Review and edit',
+                    'description': 'Inspect targets, filter/sort columns, and multi-select rows for bulk actions.',
+                    'targetSelector': '#targets-table-container'
                 },
                 {
                     'title': 'Options',
-                    'description': 'Use these options to delete selected rows and clear the table.',
+                    'description': 'Delete selected targets or clear the table from the options menu.',
                     'targetSelector': '#targets-options-wrapper'
                 },
                 {
-                    'title': 'Filter & sort',
-                    'description': 'Use header controls to search, filter by value, and sort columns.',
-                    'targetSelector': '#targets-table-container'
+                    'title': 'Export',
+                    'description': 'Download the current target table (server-side filters applied) for review or sharing.',
+                    'targetSelector': '#download-target-list-btn'
                 },
             ],
             id='targets-tour',
