@@ -849,17 +849,17 @@ def callbacks(app, fsc=None, cache=None):
         if not ctx.triggered:
             raise PreventUpdate
 
-        if not wdir:
-            raise PreventUpdate
-
-        ws_key = Path(wdir).stem
-        with duckdb_connection_mint(Path(wdir).parent.parent) as mint_conn:
-            if mint_conn is None:
-                raise PreventUpdate
-            ws_row = mint_conn.execute("SELECT name FROM workspaces WHERE key = ?", [ws_key]).fetchone()
-            if ws_row is None:
-                raise PreventUpdate
-            ws_name = ws_row[0]
+        ws_name = "workspace"
+        if wdir:
+            try:
+                ws_key = Path(wdir).stem
+                with duckdb_connection_mint(Path(wdir).parent.parent) as mint_conn:
+                    if mint_conn is not None:
+                        ws_row = mint_conn.execute("SELECT name FROM workspaces WHERE key = ?", [ws_key]).fetchone()
+                        if ws_row is not None:
+                            ws_name = ws_row[0]
+            except Exception:
+                pass
 
         trigger = ctx.triggered[0]['prop_id'].split('.')[0]
 
@@ -868,6 +868,8 @@ def callbacks(app, fsc=None, cache=None):
             return dcc.send_string(TARGET_TEMPLATE_CSV, filename)
 
         if trigger == 'download-target-list-btn':
+            if not wdir:
+                raise PreventUpdate
             with duckdb_connection(wdir) as conn:
                 if conn is None:
                     raise PreventUpdate
