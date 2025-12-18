@@ -2374,9 +2374,26 @@ def callbacks(app, fsc, cache, cpu=None):
         with duckdb_connection(wdir) as conn:
             if conn is None:
                 return dash.no_update, dash.no_update, dash.no_update, dash.no_update
-            conn.execute("DELETE FROM chromatograms WHERE peak_label = ?", [target])
-            conn.execute("DELETE FROM targets WHERE peak_label = ?", [target])
-            conn.execute("DELETE FROM results WHERE peak_label = ?", [target])
+            try:
+                conn.execute("BEGIN")
+                conn.execute("DELETE FROM chromatograms WHERE peak_label = ?", [target])
+                conn.execute("DELETE FROM targets WHERE peak_label = ?", [target])
+                conn.execute("DELETE FROM results WHERE peak_label = ?", [target])
+                conn.execute("COMMIT")
+            except Exception:
+                conn.execute("ROLLBACK")
+                return (fac.AntdNotification(
+                            message="Delete target failed",
+                            description="Could not delete target data; no changes were applied.",
+                            type="error",
+                            duration=4,
+                            placement='bottom',
+                            showProgress=True,
+                            stack=True
+                        ),
+                        dash.no_update,
+                        False,
+                        False)
 
         return (fac.AntdNotification(message=f"{target} chromatograms deleted",
                                      type="success",
