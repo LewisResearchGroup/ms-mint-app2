@@ -120,23 +120,28 @@ _layout = html.Div(
             locale='en-us',
             steps=[
                 {
-                    'title': 'Workspaces Tour',
-                    'description': 'Overview of creating, selecting, and managing workspaces.',
+                    'title': 'Welcome',
+                    'description': 'Use this short tutorial to pick, create, and clean up workspaces.',
                 },
                 {
-                    'title': 'Workspace list',
-                    'description': 'Select a workspace to load it. Sort/filter by name, created date, or activity.',
+                    'title': 'Pick a workspace',
+                    'description': 'Click a row to load the workspace; sort or filter the table if you have many.',
                     'targetSelector': '#ws-table'
                 },
                 {
-                    'title': 'Create workspace',
-                    'description': 'Add a new workspace for your project.',
+                    'title': 'Create a new one',
+                    'description': 'Use “Create Workspace” to start a fresh project with its own files/results.',
                     'targetSelector': '#ws-create'
                 },
                 {
-                    'title': 'Delete workspace',
-                    'description': 'Remove the selected workspace and all its files/results.',
+                    'title': 'Clean up',
+                    'description': 'Delete the selected workspace (and its files/results) when you no longer need it.',
                     'targetSelector': '#ws-delete'
+                },
+                {
+                    'title': 'Tip',
+                    'description': 'Changes are saved automatically after you switch workspaces.',
+                    'targetSelector': '#ws-table'
                 },
             ],
             id='workspace-tour',
