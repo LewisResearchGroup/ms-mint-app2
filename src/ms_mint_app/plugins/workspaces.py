@@ -430,6 +430,15 @@ def callbacks(app, fsc, cache):
         return data.to_dict('records'), row_content.to_dict('records'), sk
 
     @app.callback(
+        Output('ws-action-store', 'data', allow_duplicate=True),
+        Input("ws-table", "data"),
+        prevent_initial_call=True,
+    )
+    def reset_ws_action_store(_data):
+        # Clear the action flag after the table refreshes so ordering/notifications return to normal
+        return None
+
+    @app.callback(
         Output('notifications-container', 'children', allow_duplicate=True),
         Output("ws-wdir-name-text", "children"),
         Output("ws-wdir-name", "text"),
@@ -491,15 +500,31 @@ def callbacks(app, fsc, cache):
         if row_edited is None or column_edited is None:
             raise PreventUpdate
 
+        allowed_columns = {"description"}
+        if column_edited not in allowed_columns:
+            return fac.AntdNotification(
+                message="Edit not allowed",
+                description=f"Column '{column_edited}' cannot be edited.",
+                type="error",
+                duration=4,
+                placement='bottom',
+                showProgress=True,
+                stack=True
+            )
+
+        ws_key = row_edited.get('key')
+        if not ws_key:
+            raise PreventUpdate
+
         print(f"{row_edited = }")
         print(f"{column_edited = }")
 
         try:
-            with duckdb_connection_mint(tmpdir, workspace=row_edited['key']) as mint_conn:
+            with duckdb_connection_mint(tmpdir, workspace=ws_key) as mint_conn:
                 if mint_conn is None:
                     raise PreventUpdate
                 query = f"UPDATE workspaces SET {column_edited} = ? WHERE key = ?"
-                mint_conn.execute(query, [row_edited[column_edited], row_edited['key']])
+                mint_conn.execute(query, [row_edited[column_edited], ws_key])
             return fac.AntdNotification(message="Successfully edition saved",
                                         type="success",
                                         duration=3,
