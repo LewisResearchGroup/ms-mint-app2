@@ -1385,7 +1385,9 @@ def callbacks(app, fsc, cache, cpu=None):
         if 'targets-select' in ctx.triggered[0]['prop_id']:
             targets_select_options = dash.no_update
         else:
-            targets_select_options = all_targets
+            targets_select_options = [
+                {"label": target, "value": target} for target in all_targets
+            ]
 
         print(f"{time.perf_counter() - t1 = }")
         return titles, figures, bookmarks, len(all_targets), [], targets_select_options
