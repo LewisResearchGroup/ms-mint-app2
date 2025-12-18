@@ -701,6 +701,7 @@ def compute_chromatograms_in_batches(wdir: str,
                                      # conn: duckdb.DuckDBPyConnection,
                                      use_for_optimization: bool,
                                      batch_size: int = 1000,
+                                     checkpoint_every: int = 10,
                                      set_progress=None,
                                      recompute_ms1=False,
                                      recompute_ms2=False,
@@ -976,13 +977,18 @@ def compute_chromatograms_in_batches(wdir: str,
             current_id = min_id
             batch_num = 1
             total_batches = (total_pairs_type + batch_size - 1) // batch_size
+            batches_since_checkpoint = 0
 
-            while current_id <= max_id:
-                start_id = current_id
-                end_id = current_id + batch_size - 1
+            with duckdb_connection(wdir, n_cpus=n_cpus, ram=ram) as conn:
+                # Process batches in a single connection; checkpoint periodically to avoid WAL stalls
+                conn.execute("BEGIN TRANSACTION")
 
-                try:
-                    with duckdb_connection(wdir, n_cpus=n_cpus, ram=ram) as conn:
+                while current_id <= max_id:
+                    batch_count = 0
+                    start_id = current_id
+                    end_id = current_id + batch_size - 1
+
+                    try:
                         batch_count = conn.execute("""
                                                    SELECT COUNT(*)
                                                    FROM pending_pairs
@@ -1008,36 +1014,54 @@ def compute_chromatograms_in_batches(wdir: str,
                         batch_elapsed = time.time() - batch_start
                         processed += batch_count
                         batches += 1
+                        batches_since_checkpoint += 1
 
                         print(f"✓ {batch_elapsed:>5.2f}s | "
                               f"Progress {processed:>6,}/{total_pairs_type:,}")
 
+                        if checkpoint_every and batches_since_checkpoint >= checkpoint_every:
+                            conn.execute("COMMIT")
+                            conn.execute("CHECKPOINT")
+                            conn.execute("BEGIN TRANSACTION")
+                            batches_since_checkpoint = 0
+
                         batch_num += 1
 
-                except Exception as e:
-                    batch_elapsed = time.time() - batch_start if 'batch_start' in locals() else 0
-                    failed += batch_count
+                    except Exception as e:
+                        batch_elapsed = time.time() - batch_start if 'batch_start' in locals() else 0
+                        failed += batch_count
 
-                    print(f"✗ {batch_elapsed:>5.2f}s | Error: {str(e)[:80]}")
+                        print(f"✗ {batch_elapsed:>5.2f}s | Error: {str(e)[:80]}")
 
-                    with open(f'failed_batches_{ms_type}.log', 'a') as f:
-                        f.write(f"\n{'=' * 60}\n")
-                        f.write(f"Timestamp: {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
-                        f.write(f"ms_type: {ms_type}\n")
-                        f.write(f"Batch {batch_num}/{total_batches}\n")
-                        f.write(f"IDs: {start_id}-{end_id}\n")
-                        f.write(f"Error: {str(e)}\n")
-                        f.write(f"{'=' * 60}\n")
+                        with open(f'failed_batches_{ms_type}.log', 'a') as f:
+                            f.write(f"\n{'=' * 60}\n")
+                            f.write(f"Timestamp: {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
+                            f.write(f"ms_type: {ms_type}\n")
+                            f.write(f"Batch {batch_num}/{total_batches}\n")
+                            f.write(f"IDs: {start_id}-{end_id}\n")
+                            f.write(f"Error: {str(e)}\n")
+                            f.write(f"{'=' * 60}\n")
 
-                finally:
-                    # Update global progress even if the batch failed
-                    if batch_count > 0:
-                        global_processed += batch_count
-                        progress_pct_global = (global_processed / global_total_pairs) * 100
-                        if set_progress is not None:
-                            set_progress(round(progress_pct_global, 1))
+                        try:
+                            conn.execute("ROLLBACK")
+                            conn.execute("BEGIN TRANSACTION")
+                            batches_since_checkpoint = 0
+                        except Exception:
+                            pass
 
-                current_id += batch_size
+                    finally:
+                        # Update global progress even if the batch failed
+                        if batch_count > 0:
+                            global_processed += batch_count
+                            progress_pct_global = (global_processed / global_total_pairs) * 100
+                            if set_progress is not None:
+                                set_progress(round(progress_pct_global, 1))
+
+                    current_id += batch_size
+
+                # Final checkpoint/commit for this ms_type
+                conn.execute("COMMIT")
+                conn.execute("CHECKPOINT")
 
     with duckdb_connection(wdir, n_cpus=n_cpus, ram=ram) as conn:
         conn.execute("DROP TABLE IF EXISTS ms_file_scans")
