@@ -1109,6 +1109,9 @@ def callbacks(app, fsc, cache, cpu=None):
         t1 = time.perf_counter()
 
         with duckdb_connection(wdir) as conn:
+            if conn is None:
+                # If the DB is locked/unavailable, keep current preview as-is
+                raise PreventUpdate
             all_targets = conn.execute("""
                                        SELECT peak_label
                                        from targets t
@@ -2216,6 +2219,7 @@ def callbacks(app, fsc, cache, cpu=None):
     ############# COMPUTE CHROMATOGRAM END #######################################
 
     @app.callback(
+        Output('chromatograms', 'data', allow_duplicate=True),
         Output('chromatogram-processing-progress-container', 'style', allow_duplicate=True),
         Output('chromatogram-compute-options-container', 'style', allow_duplicate=True),
         Output('compute-chromatogram-modal', 'visible', allow_duplicate=True),
@@ -2228,7 +2232,15 @@ def callbacks(app, fsc, cache, cpu=None):
     def cancel_compute_chromatograms(cancel_clicks):
         if not cancel_clicks:
             raise PreventUpdate
-        return {'display': 'none'}, {'display': 'flex'}, False, 0, "", ""
+        return (
+            {'action': 'processing', 'status': 'cancelled', 'timestamp': time.time()},
+            {'display': 'none'},
+            {'display': 'flex'},
+            False,
+            0,
+            "",
+            "",
+        )
 
     @app.callback(
         # Output('chromatogram-view-modal', 'visible', allow_duplicate=True),
