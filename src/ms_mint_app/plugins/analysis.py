@@ -461,6 +461,7 @@ _layout = html.Div(
                 id='analysis-metric-container',
             ),
         )
+        , html.Div(id="analysis-notifications-container")
     ]
 )
 
@@ -472,6 +473,25 @@ def layout():
 
 
 def callbacks(app, fsc, cache):
+    @app.callback(
+        Output("analysis-notifications-container", "children"),
+        Input('section-context', 'data'),
+        Input("wdir", "data"),
+    )
+    def warn_missing_workspace(section_context, wdir):
+        if not section_context or section_context.get('page') != 'Analysis':
+            return dash.no_update
+        if wdir:
+            return []
+        return fac.AntdNotification(
+            message="Activate a workspace",
+            description="Select or create a workspace before using Analysis.",
+            type="warning",
+            duration=4,
+            placement='bottom',
+            showProgress=True,
+            stack=True,
+        )
     def _parse_uploaded_standards(contents, filename):
         if not contents or not filename:
             raise ValueError("No standards file provided.")
@@ -676,7 +696,7 @@ def callbacks(app, fsc, cache):
     def show_tab_content(section_context, tab_key, x_comp, y_comp, violin_comp_checks, metric_value, norm_value,
                         group_by, wdir):
 
-        if section_context['page'] != 'Analysis':
+        if not section_context or section_context.get('page') != 'Analysis':
             raise PreventUpdate
 
         if not wdir:
