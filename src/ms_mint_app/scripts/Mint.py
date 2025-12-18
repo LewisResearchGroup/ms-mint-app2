@@ -355,6 +355,7 @@ def main():
 
     app, cache, fsc = create_app()
     register_callbacks(app, cache, fsc, args)
+    app, cache, fsc, plugins, file_explorer = create_app()
 
     app.css.config.serve_locally = True
     app.scripts.config.serve_locally = True
