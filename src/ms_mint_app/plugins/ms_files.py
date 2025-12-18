@@ -883,15 +883,32 @@ def callbacks(cls, app, fsc, cache, args_namespace):
             with duckdb_connection(wdir) as conn:
                 if conn is None:
                     raise PreventUpdate
-                if remove_ms1_file:
-                    conn.execute("DELETE FROM ms1_data WHERE ms_file_label IN ?", (remove_ms1_file,))
-                if remove_ms2_file:
-                    conn.execute("DELETE FROM ms2_data WHERE ms_file_label IN ?", (remove_ms2_file,))
-                if remove_ms_files:
-                    conn.execute("DELETE FROM chromatograms WHERE ms_file_label IN ?", (remove_ms_files,))
-                    conn.execute("DELETE FROM results WHERE ms_file_label IN ?", (remove_ms_files,))
-                    conn.execute("DELETE FROM samples WHERE ms_file_label IN ?", (remove_ms_files,))
-                conn.execute("CHECKPOINT")
+                try:
+                    conn.execute("BEGIN")
+                    if remove_ms1_file:
+                        conn.execute("DELETE FROM ms1_data WHERE ms_file_label IN ?", (remove_ms1_file,))
+                    if remove_ms2_file:
+                        conn.execute("DELETE FROM ms2_data WHERE ms_file_label IN ?", (remove_ms2_file,))
+                    if remove_ms_files:
+                        conn.execute("DELETE FROM chromatograms WHERE ms_file_label IN ?", (remove_ms_files,))
+                        conn.execute("DELETE FROM results WHERE ms_file_label IN ?", (remove_ms_files,))
+                        conn.execute("DELETE FROM samples WHERE ms_file_label IN ?", (remove_ms_files,))
+                    conn.execute("COMMIT")
+                    conn.execute("CHECKPOINT")
+                except Exception as e:
+                    conn.execute("ROLLBACK")
+                    logging.error(f"Error deleting selected MS files: {e}")
+                    return (fac.AntdNotification(
+                                message="Delete MS-files failed",
+                                description="Could not delete the selected files; no changes were applied.",
+                                type="error",
+                                duration=4,
+                                placement='bottom',
+                                showProgress=True,
+                                stack=True,
+                                style=NOTIFICATION_COMPACT_STYLE
+                            ),
+                            {'action': 'delete', 'status': 'failed'})
 
             total_removed = len(remove_ms_files)
             ms_table_action_store = {'action': 'delete', 'status': 'success'}
