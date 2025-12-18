@@ -233,17 +233,26 @@ def callbacks(app, fsc, cache):
         if value is None:
             raise PreventUpdate
 
-        if value is not None and bool(pattern.match(value)):
+        if not tmpdir:
+            okButtonProps = {'disabled': True}
+            validateStatus = 'error'
+            help = 'Workspace path not available'
+        elif value is not None and bool(pattern.match(value)):
             with duckdb_connection_mint(tmpdir) as mint_conn:
-                ws_df = mint_conn.execute("SELECT * FROM workspaces WHERE name = ?", (value,)).df()
-                if ws_df.empty:
-                    okButtonProps = {'disabled': False}
-                    validateStatus = 'success'
-                    help = None
-                else:
+                if mint_conn is None:
                     okButtonProps = {'disabled': True}
                     validateStatus = 'error'
-                    help = 'Workspace already exists!'
+                    help = 'Cannot open workspace database'
+                else:
+                    ws_df = mint_conn.execute("SELECT * FROM workspaces WHERE name = ?", (value,)).df()
+                    if ws_df.empty:
+                        okButtonProps = {'disabled': False}
+                        validateStatus = 'success'
+                        help = None
+                    else:
+                        okButtonProps = {'disabled': True}
+                        validateStatus = 'error'
+                        help = 'Workspace already exists!'
         else:
             okButtonProps = {'disabled': True}
             validateStatus = 'error'
@@ -265,7 +274,11 @@ def callbacks(app, fsc, cache):
     def create_workspace(okCounts, tmpdir, ws_name, ws_description):
         if not okCounts:
             raise PreventUpdate
+        if not tmpdir:
+            raise PreventUpdate
         with duckdb_connection_mint(tmpdir) as mint_conn:
+            if mint_conn is None:
+                raise PreventUpdate
             previous_active = mint_conn.execute("SELECT key FROM workspaces WHERE active = true").fetchone()
 
             key = mint_conn.execute("INSERT INTO workspaces (name, description, active, created_at, last_activity) "
@@ -530,6 +543,9 @@ def callbacks(app, fsc, cache):
             raise PreventUpdate
 
         if row_edited is None or column_edited is None:
+            raise PreventUpdate
+
+        if not tmpdir:
             raise PreventUpdate
 
         allowed_columns = {"description"}
