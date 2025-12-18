@@ -995,7 +995,7 @@ def callbacks(app, fsc, cache, cpu=None):
             if prop_id == 'mark-tree-action':
                 print(f"{df['checked_keys'].values = }")
                 checked_keys = [v for value in df['checked_keys'].values for v in value]  # Es el mismo en todas las
-            elif prop_id in 'section-context':
+            elif prop_id == 'section-context':
                 quotas, checked_keys = proportional_min1_selection(df, 'sample_type', 'checked_keys', 50, 12345)
             else:
                 checked_keys = dash.no_update
