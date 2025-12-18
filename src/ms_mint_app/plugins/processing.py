@@ -691,17 +691,23 @@ def callbacks(app, fsc, cache):
         if not wdir:
             raise PreventUpdate
 
-        # Autosave results table on tab load/refresh for durability
+        # Autosave results table on tab load/refresh for durability (throttled to limit I/O).
         try:
             results_dir = Path(wdir) / "results"
             results_dir.mkdir(parents=True, exist_ok=True)
-            with duckdb_connection(wdir) as conn:
-                if conn is None:
-                    raise PreventUpdate
-                conn.execute(
-                    "COPY (SELECT * FROM results) TO ? (HEADER, DELIMITER ',')",
-                    (str(results_dir / "results_backup.csv"),),
-                )
+            backup_path = results_dir / "results_backup.csv"
+            should_write = True
+            if backup_path.exists():
+                last_write = backup_path.stat().st_mtime
+                should_write = (time.time() - last_write) > 30
+            if should_write:
+                with duckdb_connection(wdir) as conn:
+                    if conn is None:
+                        raise PreventUpdate
+                    conn.execute(
+                        "COPY (SELECT * FROM results) TO ? (HEADER, DELIMITER ',')",
+                        (str(backup_path),),
+                    )
         except PreventUpdate:
             raise
         except Exception:
