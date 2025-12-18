@@ -1164,12 +1164,19 @@ def callbacks(app, fsc, cache, cpu=None):
 
             all_targets = [row[0] for row in all_targets]
 
-            # Autosave the current targets table to the workspace data folder so UI edits are persisted.
+            # Autosave the current targets table to the workspace data folder, but throttle I/O.
             try:
                 data_dir = Path(wdir) / "data"
                 data_dir.mkdir(parents=True, exist_ok=True)
-                targets_df = conn.execute("SELECT * FROM targets").df()
-                targets_df.to_csv(data_dir / "targets_backup.csv", index=False)
+                backup_path = data_dir / "targets_backup.csv"
+                should_write = True
+                if backup_path.exists():
+                    last_write = backup_path.stat().st_mtime
+                    # Avoid hammering disk on every preview refresh.
+                    should_write = (time.time() - last_write) > 30
+                if should_write:
+                    targets_df = conn.execute("SELECT * FROM targets").df()
+                    targets_df.to_csv(backup_path, index=False)
             except Exception:
                 pass
 
