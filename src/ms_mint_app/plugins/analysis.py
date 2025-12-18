@@ -473,6 +473,13 @@ def layout():
 
 
 def callbacks(app, fsc, cache):
+    allowed_metrics = {
+        'peak_area',
+        'peak_area_top3',
+        'peak_max',
+        'peak_mean',
+        'peak_median',
+    }
     @app.callback(
         Output("analysis-notifications-container", "children"),
         Input('section-context', 'data'),
@@ -747,7 +754,7 @@ def callbacks(app, fsc, cache):
             if results_count == 0:
                 return None, empty_fig, [], [], []
 
-            metric = metric_value or 'peak_area'
+            metric = metric_value if metric_value in allowed_metrics else 'peak_area'
             df = create_pivot(conn, value=metric)
             df.set_index('ms_file_label', inplace=True)
             group_field = selected_group if selected_group in df.columns else (
@@ -1205,7 +1212,7 @@ def callbacks(app, fsc, cache):
         with duckdb_connection(wdir) as conn:
             if conn is None:
                 raise PreventUpdate
-            if not intensity:
+            if intensity not in allowed_metrics:
                 intensity = 'peak_area'
             try:
                 mint_df = conn.execute(f"""
