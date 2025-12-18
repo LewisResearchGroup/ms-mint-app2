@@ -433,6 +433,7 @@ _layout = fac.AntdLayout(
             ],
             style={'padding': '1rem 0', 'background': 'white'},
         ),
+        html.Div(id="optimization-notifications-container"),
         fac.AntdModal(
             [
                 fac.AntdFlex(
@@ -947,6 +948,26 @@ def callbacks(app, fsc, cache, cpu=None):
 
         return store_data or {'open': True}
 
+    @app.callback(
+        Output("optimization-notifications-container", "children"),
+        Input('section-context', 'data'),
+        Input("wdir", "data"),
+    )
+    def warn_missing_workspace(section_context, wdir):
+        if not section_context or section_context.get('page') != 'Optimization':
+            return dash.no_update
+        if wdir:
+            return []
+        return fac.AntdNotification(
+            message="Activate a workspace",
+            description="Select or create a workspace before using Optimization.",
+            type="warning",
+            duration=4,
+            placement='bottom',
+            showProgress=True,
+            stack=True,
+        )
+
     ############# TREE BEGIN #####################################
     @app.callback(
         Output('sample-type-tree', 'treeData'),
@@ -968,12 +989,14 @@ def callbacks(app, fsc, cache, cpu=None):
         ctx = dash.callback_context
         prop_id = ctx.triggered[0]['prop_id'].split('.')[0]
 
-        if section_context['page'] != 'Optimization':
+        if not section_context or section_context.get('page') != 'Optimization':
             raise PreventUpdate
+        if not wdir:
+            return [], [], [], {'display': 'none'}, {'display': 'block'}
 
         with duckdb_connection(wdir) as conn:
             if conn is None:
-                return dash.no_update, dash.no_update, dash.no_update
+                return [], [], [], {'display': 'none'}, {'display': 'block'}
             df = conn.execute("""
                               SELECT sample_type,
                                      list({'title': label, 'key': label}) as children,
@@ -1098,6 +1121,8 @@ def callbacks(app, fsc, cache, cpu=None):
         ctx = dash.callback_context
         if 'targets-select' in ctx.triggered[0]['prop_id'] and selected_targets:
             current_page = 1
+        if not wdir:
+            raise PreventUpdate
 
         start_idx = (current_page - 1) * page_size
         t1 = time.perf_counter()
@@ -1587,6 +1612,8 @@ def callbacks(app, fsc, cache, cpu=None):
     )
     def chromatogram_view_modal(target_clicked, log_scale, checkedKeys, wdir):
 
+        if not wdir:
+            raise PreventUpdate
         with duckdb_connection(wdir) as conn:
             d = conn.execute("SELECT rt, rt_min, rt_max, COALESCE(notes, '') FROM targets WHERE peak_label = ?",
                              [target_clicked]).fetchall()
@@ -2374,6 +2401,8 @@ def callbacks(app, fsc, cache, cpu=None):
         # TODO: change bookmark to bool since the AntdRate component returns an int and the db require a bool
         ctx = dash.callback_context
         if not ctx.triggered or len(dash.callback_context.triggered) > 1:
+            raise PreventUpdate
+        if not wdir:
             raise PreventUpdate
 
         ctx_trigger = json.loads(ctx.triggered[0]['prop_id'].split('.')[0])
