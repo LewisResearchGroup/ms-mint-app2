@@ -503,7 +503,11 @@ def callbacks(app, fsc, cache):
     def _parse_uploaded_standards(contents, filename):
         if not contents or not filename:
             raise ValueError("No standards file provided.")
+        if len(contents) > 15_000_000:
+            raise ValueError("Standards file is too large (limit: 15MB).")
         content_type, content_string = contents.split(",", 1)
+        if content_type and "csv" not in content_type and "excel" not in content_type:
+            raise ValueError("Unsupported file type. Use CSV or Excel.")
         decoded = base64.b64decode(content_string)
         if filename.lower().endswith((".xls", ".xlsx")):
             return pd.read_excel(BytesIO(decoded))
