@@ -756,12 +756,6 @@ _layout = fac.AntdLayout(
                                             id="save-btn",
                                             type="primary",
                                         ),
-                                        fac.AntdButton(
-                                            "Delete target",
-                                            id="delete-target-from-modal",
-                                            danger=True,
-                                            type="dashed",
-                                        ),
                                     ],
                                     addSplitLine=True,
                                     size='small'
