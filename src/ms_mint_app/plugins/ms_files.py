@@ -506,6 +506,8 @@ def callbacks(cls, app, fsc, cache, args_namespace):
         prevent_initial_call=True
     )
     def open_color_picker(nClicksButton, clickedCustom):
+        if not clickedCustom or 'color' not in clickedCustom:
+            raise PreventUpdate
         return True, clickedCustom['color']
 
     @app.callback(
@@ -520,7 +522,7 @@ def callbacks(cls, app, fsc, cache, args_namespace):
     )
     def set_color(okCounts, color, recentlyButtonClickedRow, data, wdir):
 
-        if recentlyButtonClickedRow is None or not okCounts:
+        if recentlyButtonClickedRow is None or not okCounts or not wdir:
             return dash.no_update, dash.no_update
 
         previous_color = recentlyButtonClickedRow['color']['content']
@@ -687,6 +689,8 @@ def callbacks(cls, app, fsc, cache, args_namespace):
 
         if section_context and section_context['page'] != 'MS-Files':
             raise PreventUpdate
+        if not wdir:
+            raise PreventUpdate
 
         start_time = time.perf_counter()
         if pagination:
@@ -789,6 +793,28 @@ def callbacks(cls, app, fsc, cache, args_namespace):
         return dash.no_update
 
     @app.callback(
+        Output("notifications-container", "children", allow_duplicate=True),
+        Input('section-context', 'data'),
+        Input("wdir", "data"),
+        prevent_initial_call=True,
+    )
+    def warn_missing_workspace(section_context, wdir):
+        if not section_context or section_context.get('page') != 'MS-Files':
+            raise PreventUpdate
+        if wdir:
+            raise PreventUpdate
+        return fac.AntdNotification(
+            message="Activate a workspace",
+            description="Select or create a workspace before working with MS files.",
+            type="warning",
+            duration=4,
+            placement='bottom',
+            showProgress=True,
+            stack=True,
+            style=NOTIFICATION_COMPACT_STYLE,
+        )
+
+    @app.callback(
         Output("delete-confirmation-modal", "visible"),
         Output("delete-confirmation-modal", "children"),
 
@@ -843,6 +869,8 @@ def callbacks(cls, app, fsc, cache, args_namespace):
     def confirm_and_delete(okCounts, selectedRows, clickedKey, wdir):
 
         if okCounts is None:
+            raise PreventUpdate
+        if not wdir:
             raise PreventUpdate
         if clickedKey == "delete-selected" and not selectedRows:
             ms_table_action_store = {'action': 'delete', 'status': 'failed'}
