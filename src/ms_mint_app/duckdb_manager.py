@@ -8,6 +8,26 @@ import time
 from .sample_metadata import GROUP_COLUMNS
 
 
+def _send_progress(set_progress, percent, stage: str = "", detail: str = ""):
+    """
+    Safely call the provided set_progress callback.
+
+    Supports custom stage/detail strings when the callback accepts them,
+    and falls back to simple percent-only updates otherwise.
+    """
+    if not set_progress:
+        return
+    try:
+        set_progress(percent, stage, detail)
+    except TypeError:
+        try:
+            set_progress(percent)
+        except Exception:
+            pass
+    except Exception:
+        pass
+
+
 @contextmanager
 def duckdb_connection(workspace_path: Path | str, register_activity=True, n_cpus=None, ram=None):
     """
@@ -950,6 +970,21 @@ def compute_chromatograms_in_batches(wdir: str,
             }
 
         global_total_pairs = sum(r[1] for r in rows)
+        files_per_type = {}
+        if set_progress:
+            files_per_type = dict(conn.execute("""
+                                               SELECT ms_type,
+                                                      COUNT(DISTINCT ms_file_label) AS total_files
+                                               FROM pending_pairs
+                                               GROUP BY ms_type
+                                               """).fetchall())
+
+        _send_progress(
+            set_progress,
+            0,
+            stage="Chromatograms",
+            detail=f"Pending pairs: {global_total_pairs:,}",
+        )
 
         print(f"✓ {global_total_pairs:,} pending pairs ({elapsed:.2f}s)")
         print(f"Processing in batches of {batch_size}...\n")
@@ -973,11 +1008,13 @@ def compute_chromatograms_in_batches(wdir: str,
             processed = 0
             failed = 0
             batches = 0
+            processed_files: set[str] = set()
 
             current_id = min_id
             batch_num = 1
             total_batches = (total_pairs_type + batch_size - 1) // batch_size
             batches_since_checkpoint = 0
+            total_files_type = files_per_type.get(ms_type, 0)
 
             with duckdb_connection(wdir, n_cpus=n_cpus, ram=ram) as conn:
                 # Process batches in a single connection; checkpoint periodically to avoid WAL stalls
@@ -1010,6 +1047,17 @@ def compute_chromatograms_in_batches(wdir: str,
                             conn.execute(QUERY_PROCESS_BATCH_MS1, [start_id, end_id])
                         elif ms_type == 'ms2':
                             conn.execute(QUERY_PROCESS_BATCH_MS2, [start_id, end_id])
+
+                        if set_progress:
+                            batch_files = conn.execute("""
+                                                       SELECT DISTINCT ms_file_label
+                                                       FROM pending_pairs
+                                                       WHERE ms_type = ?
+                                                         AND pair_id BETWEEN ? AND ?
+                                                       """, [ms_type, start_id, end_id]).fetchall()
+                            processed_files.update(
+                                row[0] for row in batch_files if row and row[0] is not None
+                            )
 
                         batch_elapsed = time.time() - batch_start
                         processed += batch_count
@@ -1054,8 +1102,18 @@ def compute_chromatograms_in_batches(wdir: str,
                         if batch_count > 0:
                             global_processed += batch_count
                             progress_pct_global = (global_processed / global_total_pairs) * 100
-                            if set_progress is not None:
-                                set_progress(round(progress_pct_global, 1))
+                            files_done = len(processed_files) if set_progress else 0
+                            detail_text = (
+                                f"{ms_type.upper()} batch {batch_num}/{total_batches} | "
+                                f"Pairs {processed:,}/{total_pairs_type:,} | "
+                                f"MS files {files_done:,}/{total_files_type:,}"
+                            )
+                            _send_progress(
+                                set_progress,
+                                round(progress_pct_global, 1),
+                                stage="Chromatograms",
+                                detail=detail_text,
+                            )
 
                     current_id += batch_size
 
@@ -1246,11 +1304,24 @@ def compute_results_in_batches(wdir: str,
         total_count, min_id, max_id = total_pairs
         print(f"✓ {total_count:,} pending pairs ({elapsed:.2f}s)")
         print(f"Processing in batches of {batch_size}...\n")
+        total_files = 0
+        if set_progress:
+            total_files = conn.execute("""
+                                       SELECT COUNT(DISTINCT ms_file_label)
+                                       FROM pending_result_pairs
+                                       """).fetchone()[0]
+        _send_progress(
+            set_progress,
+            0,
+            stage="Results",
+            detail=f"Pending pairs: {total_count:,}",
+        )
 
     # Process in batches
     processed = 0
     failed = 0
     batches = 0
+    processed_files: set[str] = set()
 
     current_id = min_id
     batch_num = 1
@@ -1285,6 +1356,16 @@ def compute_results_in_batches(wdir: str,
                 batch_start = time.time()
 
                 conn.execute(QUERY_PROCESS_BATCH, [start_id, end_id])
+
+                if set_progress:
+                    batch_files = conn.execute("""
+                                               SELECT DISTINCT ms_file_label
+                                               FROM pending_result_pairs
+                                               WHERE pair_id BETWEEN ? AND ?
+                                               """, [start_id, end_id]).fetchall()
+                    processed_files.update(
+                        row[0] for row in batch_files if row and row[0] is not None
+                    )
 
                 batch_elapsed = time.time() - batch_start
                 processed += batch_count
@@ -1324,8 +1405,17 @@ def compute_results_in_batches(wdir: str,
             finally:
                 if 'batch_count' in locals() and batch_count > 0:
                     progress_pct = (processed / total_count) * 100
-                    if set_progress is not None:
-                        set_progress(round(progress_pct, 1))
+                    files_done = len(processed_files) if set_progress else 0
+                    detail_text = (
+                        f"Results batch {batch_num}/{total_batches} | "
+                        f"Pairs {processed:,}/{total_count:,}"
+                    )
+                    _send_progress(
+                        set_progress,
+                        round(progress_pct, 1),
+                        stage="Results",
+                        detail=detail_text,
+                    )
 
             current_id += batch_size
 

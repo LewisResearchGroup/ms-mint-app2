@@ -405,9 +405,18 @@ _layout = html.Div(
                 html.Div(
                     [
                         html.H4("Running MINT..."),
+                        fac.AntdText(
+                            id='processing-progress-stage',
+                            style={'marginBottom': '0.5rem'},
+                        ),
                         fac.AntdProgress(
                             id='processing-progress',
                             percent=0,
+                        ),
+                        fac.AntdText(
+                            id='processing-progress-detail',
+                            type='secondary',
+                            style={'marginTop': '0.5rem'},
                         ),
                         fac.AntdButton(
                             'Cancel',
@@ -1137,6 +1146,8 @@ def callbacks(app, fsc, cache):
         Output("processing-modal", "visible"),
         Output("processing-warning", "style"),
         Output("processing-progress", "percent", allow_duplicate=True),
+        Output("processing-progress-stage", "children", allow_duplicate=True),
+        Output("processing-progress-detail", "children", allow_duplicate=True),
 
         Input("processing-btn", "nClicks"),
         State('wdir', 'data'),
@@ -1162,6 +1173,8 @@ def callbacks(app, fsc, cache):
                     False,
                     dash.no_update,
                     0,
+                    "",
+                    "",
                 )
 
             ms_files = conn.execute("SELECT COUNT(*) FROM samples").fetchone()
@@ -1180,6 +1193,8 @@ def callbacks(app, fsc, cache):
                     False,
                     dash.no_update,
                     0,
+                    "",
+                    "",
                 )
 
             results = conn.execute("SELECT COUNT(*) FROM results").fetchone()
@@ -1188,7 +1203,7 @@ def callbacks(app, fsc, cache):
 
         style = {'display': 'block'} if computed_results else {'display': 'none'}
 
-        return dash.no_update, True, style, 0
+        return dash.no_update, True, style, 0, "", ""
 
     @app.callback(
         Output('results-action-store', 'data'),
@@ -1221,7 +1236,9 @@ def callbacks(app, fsc, cache):
             (Output('processing-modal', 'confirmLoading'), True, False),
         ],
         progress=[
-            Output("processing-progress", "percent"),
+            Output("processing-progress", "percent", allow_duplicate=True),
+            Output("processing-progress-stage", "children", allow_duplicate=True),
+            Output("processing-progress-detail", "children", allow_duplicate=True),
         ],
         cancel=[
             Input('cancel-processing', 'nClicks')
@@ -1236,17 +1253,23 @@ def callbacks(app, fsc, cache):
             raise PreventUpdate
 
         start = time.perf_counter()
+        def progress_adapter(percent, stage="", detail=""):
+            if set_progress:
+                set_progress((percent, stage or "", detail or ""))
+
         print('Computing chromatograms...')
+        progress_adapter(0, "Chromatograms", "Preparing batches...")
         compute_chromatograms_in_batches(wdir, use_for_optimization=False, batch_size=batch_size,
-                                         set_progress=set_progress, recompute_ms1=False,
+                                         set_progress=progress_adapter, recompute_ms1=False,
                                          recompute_ms2=False, n_cpus=n_cpus, ram=ram, use_bookmarked=bookmarked)
         print('Computing results...')
+        progress_adapter(0, "Results", "Preparing batches...")
         compute_results_in_batches(wdir=wdir,
                            use_bookmarked= bookmarked,
                            recompute = recompute,
                            batch_size = batch_size,
                            checkpoint_every = 10,
-                           set_progress=set_progress,
+                           set_progress=progress_adapter,
                            n_cpus=n_cpus,
                            ram=ram)
 
@@ -1268,10 +1291,12 @@ def callbacks(app, fsc, cache):
         Output('processing-options-container', 'style', allow_duplicate=True),
         Output('processing-modal', 'visible', allow_duplicate=True),
         Output('processing-progress', 'percent', allow_duplicate=True),
+        Output('processing-progress-stage', 'children', allow_duplicate=True),
+        Output('processing-progress-detail', 'children', allow_duplicate=True),
         Input('cancel-processing', 'nClicks'),
         prevent_initial_call=True
     )
     def cancel_results_processing(cancel_clicks):
         if not cancel_clicks:
             raise PreventUpdate
-        return {'display': 'none'}, {'display': 'flex'}, False, 0
+        return {'display': 'none'}, {'display': 'flex'}, False, 0, "", ""
