@@ -299,18 +299,35 @@ def callbacks(app, fsc, cache):
     def delete_workspace(okCounts, tmpdir, selectedRowKeys):
         if not okCounts:
             raise PreventUpdate
+        if not tmpdir or not selectedRowKeys:
+            raise PreventUpdate
+
+        ws_key = selectedRowKeys[0]
 
         with duckdb_connection_mint(tmpdir) as mint_conn:
-            next_active = mint_conn.execute("SELECT key FROM workspaces "
-                                            "WHERE active = false ORDER BY last_activity DESC LIMIT 1").fetchone()
+            try:
+                mint_conn.execute("BEGIN")
+                ws_row = mint_conn.execute(
+                    "SELECT name FROM workspaces WHERE key = ?",
+                    (ws_key,)
+                ).fetchone()
+                if not ws_row:
+                    mint_conn.execute("ROLLBACK")
+                    return fac.AntdNotification(
+                        message="Workspace not found",
+                        type="error",
+                        duration=4,
+                        placement='bottom',
+                        showProgress=True,
+                        stack=True
+                    ), {'type': 'delete', 'status': 'error'}
 
-            name = mint_conn.execute("DELETE FROM workspaces WHERE key = ? RETURNING name",
-                                     (selectedRowKeys[0],)).fetchone()
-            if next_active:
-                mint_conn.execute("UPDATE workspaces SET active = true WHERE key = ?", (next_active[0],))
+                next_active = mint_conn.execute(
+                    "SELECT key FROM workspaces WHERE key != ? ORDER BY last_activity DESC LIMIT 1",
+                    (ws_key,)
+                ).fetchone()
 
-            if name:
-                ws_path = Path(tmpdir, 'workspaces', str(selectedRowKeys[0]))
+                ws_path = Path(tmpdir, 'workspaces', str(ws_key))
                 deactivate_workspace_logging()
 
                 def _onerror(func, p, exc_info):
@@ -321,15 +338,35 @@ def callbacks(app, fsc, cache):
                     except Exception:
                         raise
 
-                shutil.rmtree(ws_path, onerror=_onerror)
-                ws_name = name[0]
+                try:
+                    shutil.rmtree(ws_path, onerror=_onerror)
+                except Exception as fs_err:
+                    mint_conn.execute("ROLLBACK")
+                    return fac.AntdNotification(
+                        message="Failed to delete workspace files",
+                        description=str(fs_err),
+                        type="error",
+                        duration=5,
+                        placement='bottom',
+                        showProgress=True,
+                        stack=True
+                    ), {'type': 'delete', 'status': 'error'}
 
+                mint_conn.execute("DELETE FROM workspaces WHERE key = ?", (ws_key,))
+                if next_active:
+                    mint_conn.execute("UPDATE workspaces SET active = true WHERE key = ?", (next_active[0],))
+                mint_conn.execute("COMMIT")
+
+                ws_name = ws_row[0]
                 return fac.AntdNotification(message=f"Workspace {ws_name} deleted.",
                                             type="success",
                                             duration=3,
                                             placement='bottom',
                                             showProgress=True,
                                             stack=True), {'type': 'delete', 'status': 'success'}
+            except Exception:
+                mint_conn.execute("ROLLBACK")
+                raise
 
         return dash.no_update, {'type': 'delete', 'status': 'error'}
 
