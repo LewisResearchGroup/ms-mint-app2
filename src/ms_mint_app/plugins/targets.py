@@ -183,6 +183,7 @@ _layout = html.Div(
                                 'title': 'RT',
                                 'dataIndex': 'rt',
                                 'width': '150px',
+                                'editable': True,
                             },
                             {
                                 'title': 'RT-min',
@@ -194,11 +195,13 @@ _layout = html.Div(
                                 'title': 'RT-max',
                                 'dataIndex': 'rt_max',
                                 'width': '150px',
+                                'editable': True,
                             },
                             {
                                 'title': 'RT-Unit',
                                 'dataIndex': 'rt_unit',
                                 'width': '120px',
+                                'editable': True,
                             },
                             {
                                 'title': 'Intensity Threshold',
@@ -240,6 +243,7 @@ _layout = html.Div(
                                 'title': 'Notes',
                                 'dataIndex': 'notes',
                                 'width': '300px',
+                                'editable': True,
                             },
                             {
                                 'title': 'Source',
@@ -705,6 +709,19 @@ def callbacks(app, fsc=None, cache=None):
 
         if row_edited is None or column_edited is None:
             raise PreventUpdate
+
+        allowed_columns = {
+            "rt",
+            "rt_min",
+            "rt_max",
+            "rt_unit",
+            "intensity_threshold",
+            "notes",
+            "category",
+            "score",
+        }
+        if column_edited not in allowed_columns:
+            raise PreventUpdate
         try:
             with duckdb_connection(wdir) as conn:
                 if conn is None:
@@ -743,6 +760,13 @@ def callbacks(app, fsc=None, cache=None):
         prevent_initial_call=True
     )
     def save_switch_changes(recentlySwitchDataIndex, recentlySwitchStatus, recentlySwitchRow, wdir):
+
+        if recentlySwitchDataIndex is None or recentlySwitchStatus is None or not recentlySwitchRow:
+            raise PreventUpdate
+
+        allowed_switch_columns = {"peak_selection", "bookmark"}
+        if recentlySwitchDataIndex not in allowed_switch_columns:
+            raise PreventUpdate
 
         with duckdb_connection(wdir) as conn:
             if conn is None:
