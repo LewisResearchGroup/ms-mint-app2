@@ -385,7 +385,8 @@ def callbacks(app, fsc, cache):
                     style={'minWidth': '200px', 'flexGrow': 1, 'padding': '10px'}
                 )
 
-                with duckdb_connection(_path) as conn:
+                # Avoid bumping last_activity just for rendering the preview table
+                with duckdb_connection(_path, register_activity=False) as conn:
                     summary = conn.execute("""
                                            SELECT table_name, estimated_size as rows
                                            FROM duckdb_tables()
@@ -446,11 +447,15 @@ def callbacks(app, fsc, cache):
 
         with duckdb_connection_mint(tmpdir) as mint_conn:
             mint_conn.execute("UPDATE workspaces SET active = false WHERE key != ?", (selectedRowKeys[0],))
-            name = mint_conn.execute("UPDATE workspaces SET active = true WHERE key = ? RETURNING name",
-                                     (selectedRowKeys[0],)).fetchone()
+            name = mint_conn.execute(
+                "UPDATE workspaces SET active = true, last_activity = NOW() WHERE key = ? RETURNING name",
+                (selectedRowKeys[0],)
+            ).fetchone()
             if name:
                 ws_name = name[0]
                 wdir = Path(tmpdir, 'workspaces', selectedRowKeys[0])
+            else:
+                return dash.no_update, '', '', None
 
             if ws_action:
                 notification = dash.no_update

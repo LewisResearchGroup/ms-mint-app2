@@ -88,9 +88,12 @@ def duckdb_connection(workspace_path: Path | str, register_activity=True, n_cpus
         if con:
             if register_activity:
                 try:
-                    with duckdb_connection_mint(workspace_path.parent.parent) as mint_conn:
-                        mint_conn.execute("UPDATE workspaces SET last_activity = NOW() WHERE name = ?",
-                                          [Path(workspace_path).stem])
+                    workspace_id = Path(workspace_path).name
+                    mint_root = workspace_path.parent.parent
+                    with duckdb_connection_mint(mint_root) as mint_conn:
+                        if mint_conn:
+                            mint_conn.execute("UPDATE workspaces SET last_activity = NOW() WHERE key = ?",
+                                              [workspace_id])
                 except Exception as e:
                     print(f"Error updating workspace activity: {e}")
             if n_cpus:
@@ -116,8 +119,9 @@ def duckdb_connection_mint(mint_path: Path, workspace=None):
         print(f"Error connecting to DuckDB: {e}")
         yield None
     finally:
-        if con and workspace:
-            con.execute("UPDATE workspaces SET last_activity = NOW() WHERE key = ?", [workspace])
+        if con:
+            if workspace:
+                con.execute("UPDATE workspaces SET last_activity = NOW() WHERE key = ?", [workspace])
             con.close()
 
 
