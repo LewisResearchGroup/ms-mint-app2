@@ -1019,7 +1019,7 @@ def compute_chromatograms_in_batches(wdir: str,
 
         for ms_type, total_pairs_type, min_id, max_id in rows:
             print(f"\n--- Processing {ms_type} ---")
-            print(f"Pending pairs: {total_pairs_type:,} (pair_id {min_id}–{max_id})")
+            print(f"Pending pairs: {total_pairs_type:,} (pair_id {min_id}-{max_id})")
 
             if total_pairs_type == 0 or min_id is None or max_id is None:
                 global_stats[ms_type] = {
@@ -1091,12 +1091,10 @@ def compute_chromatograms_in_batches(wdir: str,
 
                         print(f"✓ {batch_elapsed:>5.2f}s | "
                               f"Progress {processed:>6,}/{total_pairs_type:,}")
-                        log_line = (f"{ms_type.upper()} batch {batch_num}/{total_batches} | "
-                                    f"IDs {start_id}-{end_id} | "
-                                    f"{batch_count} pairs | "
-                                    f"{batch_elapsed:0.2f}s | "
-                                    f"Progress {processed:,}/{total_pairs_type:,}")
-                        _write_progress_log(progress_log, log_line)
+                        log_line = (f"Batch {batch_num}/{total_batches} | "
+                                    f"Progress {processed:,}/{total_pairs_type:,} | "
+                                    f"Time per batch {batch_elapsed:0.2f}s")
+                        _write_progress_log(progress_log, _center_lines(log_line))
 
                         if checkpoint_every and batches_since_checkpoint >= checkpoint_every:
                             conn.execute("COMMIT")
@@ -1111,11 +1109,11 @@ def compute_chromatograms_in_batches(wdir: str,
                         failed += batch_count
 
                         print(f"✗ {batch_elapsed:>5.2f}s | Error: {str(e)[:80]}")
-                        error_line = (f"{ms_type.upper()} batch {batch_num}/{total_batches} | "
+                        error_line = (f"Batch {batch_num}/{total_batches} | "
                                       f"IDs {start_id}-{end_id} | "
                                       f"{batch_count} pairs | "
                                       f"Error: {str(e)}")
-                        _write_progress_log(progress_log, error_line)
+                        _write_progress_log(progress_log, _center_lines(error_line))
 
                         with open(f'failed_batches_{ms_type}.log', 'a') as f:
                             f.write(f"\n{'=' * 60}\n")

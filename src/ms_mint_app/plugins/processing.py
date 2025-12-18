@@ -416,13 +416,17 @@ _layout = html.Div(
                         fac.AntdText(
                             id='processing-progress-detail',
                             type='secondary',
-                            style={'marginTop': '0.5rem'},
+                            style={
+                                'marginTop': '0.5rem',
+                                'marginBottom': '0.75rem',
+                            },
                         ),
                         fac.AntdButton(
                             'Cancel',
                             id='cancel-processing',
                             style={
                                 'alignText': 'center',
+                                'marginTop': '0.25rem',
                             },
                         ),
                     ],

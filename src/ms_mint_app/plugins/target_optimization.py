@@ -523,15 +523,28 @@ _layout = fac.AntdLayout(
                 html.Div(
                     [
                         html.H4("Generating Chromatograms..."),
+                        fac.AntdText(
+                            id='chromatogram-processing-stage',
+                            style={'marginBottom': '0.5rem'},
+                        ),
                         fac.AntdProgress(
                             id='chromatogram-processing-progress',
                             percent=0,
+                        ),
+                        fac.AntdText(
+                            id='chromatogram-processing-detail',
+                            type='secondary',
+                            style={
+                                'marginTop': '0.5rem',
+                                'marginBottom': '0.75rem',
+                            },
                         ),
                         fac.AntdButton(
                             'Cancel',
                             id='cancel-chromatogram-processing',
                             style={
                                 'alignText': 'center',
+                                'marginTop': '0.25rem',
                             },
                         ),
                     ],
@@ -2066,6 +2079,8 @@ def callbacks(app, fsc, cache, cpu=None):
         Output("chromatogram-compute-ram", "max"),
         Output("chromatogram-compute-ram-item", "help"),
         Output("chromatogram-processing-progress", "percent", allow_duplicate=True),
+        Output("chromatogram-processing-stage", "children", allow_duplicate=True),
+        Output("chromatogram-processing-detail", "children", allow_duplicate=True),
 
         Input("compute-chromatograms-btn", "nClicks"),
         State('chromatogram-compute-ram', 'value'),
@@ -2134,6 +2149,8 @@ def callbacks(app, fsc, cache, cpu=None):
             ram_max,
             help,
             0,
+            "",
+            "",
         )
 
     @app.callback(
@@ -2167,7 +2184,9 @@ def callbacks(app, fsc, cache, cpu=None):
             (Output('compute-chromatogram-modal', 'confirmLoading'), True, False),
         ],
         progress=[
-            Output("chromatogram-processing-progress", "percent"),
+            Output("chromatogram-processing-progress", "percent", allow_duplicate=True),
+            Output("chromatogram-processing-stage", "children", allow_duplicate=True),
+            Output("chromatogram-processing-detail", "children", allow_duplicate=True),
         ],
         cancel=[
             Input('cancel-chromatogram-processing', 'nClicks')
@@ -2179,12 +2198,17 @@ def callbacks(app, fsc, cache, cpu=None):
         if not okCounts:
             raise PreventUpdate
 
+        def progress_adapter(percent, stage="", detail=""):
+            if set_progress:
+                set_progress((percent, stage or "", detail or ""))
+
         with duckdb_connection(wdir, n_cpus=n_cpus, ram=ram) as con:
             if con is None:
                 return "Could not connect to database."
             start = time.perf_counter()
+            progress_adapter(0, "Chromatograms", "Preparing batches...")
             compute_chromatograms_in_batches(wdir, use_for_optimization=True, batch_size=batch_size,
-                                             set_progress=set_progress, recompute_ms1=recompute_ms1,
+                                             set_progress=progress_adapter, recompute_ms1=recompute_ms1,
                                              recompute_ms2=recompute_ms2, n_cpus=n_cpus, ram=ram)
             print(f"Chromatograms computed in {time.perf_counter() - start:.2f} seconds")
         return True, False
@@ -2196,13 +2220,15 @@ def callbacks(app, fsc, cache, cpu=None):
         Output('chromatogram-compute-options-container', 'style', allow_duplicate=True),
         Output('compute-chromatogram-modal', 'visible', allow_duplicate=True),
         Output('chromatogram-processing-progress', 'percent', allow_duplicate=True),
+        Output('chromatogram-processing-stage', 'children', allow_duplicate=True),
+        Output('chromatogram-processing-detail', 'children', allow_duplicate=True),
         Input('cancel-chromatogram-processing', 'nClicks'),
         prevent_initial_call=True
     )
     def cancel_compute_chromatograms(cancel_clicks):
         if not cancel_clicks:
             raise PreventUpdate
-        return {'display': 'none'}, {'display': 'flex'}, False, 0
+        return {'display': 'none'}, {'display': 'flex'}, False, 0, "", ""
 
     @app.callback(
         # Output('chromatogram-view-modal', 'visible', allow_duplicate=True),
