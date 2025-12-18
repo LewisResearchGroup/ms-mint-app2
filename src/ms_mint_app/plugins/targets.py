@@ -558,17 +558,21 @@ def callbacks(app, fsc=None, cache=None):
             current = max(current if number_records > (current - 1) * page_size else current - 1, 1)
 
             with (duckdb_connection(wdir) as conn):
-                st_custom_items = filterOptions['category'].get('filterCustomItems')
-                category_filters = conn.execute("SELECT DISTINCT category "
-                                                "FROM targets "
-                                                "ORDER BY category ASC").df()['category'].to_list()
-                if st_custom_items != category_filters:
-                    output_filterOptions = filterOptions.copy()
-                    output_filterOptions['category']['filterCustomItems'] = (category_filters
-                                                                             if category_filters != [None] else
-                                                                             [])
-                else:
+                category_filters = conn.execute(
+                    "SELECT DISTINCT category FROM targets ORDER BY category ASC"
+                ).df()['category'].to_list()
+
+                if not isinstance(filterOptions, dict) or 'category' not in filterOptions:
                     output_filterOptions = dash.no_update
+                else:
+                    st_custom_items = filterOptions['category'].get('filterCustomItems')
+                    if st_custom_items != category_filters:
+                        output_filterOptions = filterOptions.copy()
+                        output_filterOptions['category']['filterCustomItems'] = (
+                            category_filters if category_filters != [None] else []
+                        )
+                    else:
+                        output_filterOptions = dash.no_update
 
             return [
                 data.to_dicts(),
