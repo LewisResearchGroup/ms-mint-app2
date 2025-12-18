@@ -353,9 +353,10 @@ def main():
 
     from ms_mint_app.app import create_app, register_callbacks
 
-    app, cache, fsc = create_app()
-    register_callbacks(app, cache, fsc, args)
+    logging.info('Creating app...')
     app, cache, fsc, plugins, file_explorer = create_app()
+    logging.info('Registering callbacks...')
+    register_callbacks(app, cache, fsc, args, plugins=plugins, file_explorer=file_explorer)
 
     app.css.config.serve_locally = True
     app.scripts.config.serve_locally = True

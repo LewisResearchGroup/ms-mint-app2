@@ -199,21 +199,18 @@ def callbacks(app, fsc, cache):
 
     @app.callback(
         Output('workspace-tour-hint-store', 'data'),
-        Input('workspace-tour-hint', 'closeCounts'),
+
         Input('workspace-tour-icon', 'nClicks'),
         State('workspace-tour-hint-store', 'data'),
         prevent_initial_call=True,
     )
-    def workspace_hide_hint(close_counts, n_clicks, store_data):
+    def workspace_hide_hint(n_clicks, store_data):
         ctx = dash.callback_context
         if not ctx.triggered:
             raise PreventUpdate
 
         trigger = ctx.triggered[0]['prop_id'].split('.')[0]
         if trigger == 'workspace-tour-icon':
-            return {'open': False}
-
-        if close_counts:
             return {'open': False}
 
         return store_data or {'open': True}
