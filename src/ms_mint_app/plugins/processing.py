@@ -1116,6 +1116,7 @@ def callbacks(app, fsc, cache):
 
     @app.callback(
         Output("download-csv", "data"),
+        Output("notifications-container", "children", allow_duplicate=True),
 
         Input("download-all-results-btn", "nClicks"),
         Input("download-densematrix-results-btn", "nClicks"),
@@ -1129,10 +1130,23 @@ def callbacks(app, fsc, cache):
     def download_results(d_all_clicks, d_dm_clicks, d_options_value, d_dm_rows, d_dm_cols, d_dm_value, wdir):
 
         ctx = dash.callback_context
+        if not ctx.triggered:
+            raise PreventUpdate
         prop_id = ctx.triggered[0]['prop_id'].split('.')[0]
+        if prop_id == 'download-all-results-btn' and not d_all_clicks:
+            raise PreventUpdate
+        if prop_id == 'download-densematrix-results-btn' and not d_dm_clicks:
+            raise PreventUpdate
 
         if not wdir:
-            raise PreventUpdate
+            return dash.no_update, fac.AntdNotification(
+                message="Download Results",
+                description="Workspace is not available. Please select or create a workspace.",
+                type="error",
+                duration=4,
+                placement="bottom",
+                showProgress=True,
+            )
 
         ws_key = Path(wdir).stem
         with duckdb_connection_mint(Path(wdir).parent.parent) as mint_conn:
@@ -1156,13 +1170,34 @@ def callbacks(app, fsc, cache):
                 'total_intensity',
             }
             if not d_options_value or not isinstance(d_options_value, list):
-                raise PreventUpdate
+                return dash.no_update, fac.AntdNotification(
+                    message="Download Results",
+                    description="Select at least one result column to download.",
+                    type="warning",
+                    duration=4,
+                    placement="bottom",
+                    showProgress=True,
+                )
             safe_cols = [c for c in d_options_value if c in allowed_cols]
             if not safe_cols:
-                raise PreventUpdate
+                return dash.no_update, fac.AntdNotification(
+                    message="Download Results",
+                    description="No valid result columns selected.",
+                    type="warning",
+                    duration=4,
+                    placement="bottom",
+                    showProgress=True,
+                )
             with duckdb_connection(wdir) as conn:
                 if conn is None:
-                    raise PreventUpdate
+                    return dash.no_update, fac.AntdNotification(
+                        message="Download Results",
+                        description="Could not open the results database.",
+                        type="error",
+                        duration=4,
+                        placement="bottom",
+                        showProgress=True,
+                    )
                 cols = ', '.join(safe_cols)
                 df = conn.execute(f"""
                     SELECT 
@@ -1179,7 +1214,14 @@ def callbacks(app, fsc, cache):
         else:
             with duckdb_connection(wdir) as conn:
                 if conn is None:
-                    raise PreventUpdate
+                    return dash.no_update, fac.AntdNotification(
+                        message="Download Results",
+                        description="Could not open the results database.",
+                        type="error",
+                        duration=4,
+                        placement="bottom",
+                        showProgress=True,
+                    )
                 allowed_rows_cols = {'ms_file_label', 'peak_label', 'ms_type'}
                 allowed_values = {
                     'peak_area',
@@ -1193,17 +1235,38 @@ def callbacks(app, fsc, cache):
                     'total_intensity',
                 }
                 if not d_dm_rows or not d_dm_cols or not d_dm_value:
-                    raise PreventUpdate
+                    return dash.no_update, fac.AntdNotification(
+                        message="Download Results",
+                        description="Select row, column, and value fields for the dense matrix.",
+                        type="warning",
+                        duration=4,
+                        placement="bottom",
+                        showProgress=True,
+                    )
                 row_col = d_dm_rows[0]
                 col_col = d_dm_cols[0]
                 val_col = d_dm_value[0]
                 if row_col not in allowed_rows_cols or col_col not in allowed_rows_cols:
-                    raise PreventUpdate
+                    return dash.no_update, fac.AntdNotification(
+                        message="Download Results",
+                        description="Invalid row/column selection for dense matrix.",
+                        type="warning",
+                        duration=4,
+                        placement="bottom",
+                        showProgress=True,
+                    )
                 if val_col not in allowed_values:
-                    raise PreventUpdate
+                    return dash.no_update, fac.AntdNotification(
+                        message="Download Results",
+                        description="Invalid value selection for dense matrix.",
+                        type="warning",
+                        duration=4,
+                        placement="bottom",
+                        showProgress=True,
+                    )
                 df = create_pivot(conn, d_dm_rows[0], d_dm_cols[0], d_dm_value[0], table='results')
                 filename = f"{T.today()}-MINT__{ws_name}-{d_dm_value[0]}_results.csv"
-        return dcc.send_data_frame(df.to_csv, filename, index=False)
+        return dcc.send_data_frame(df.to_csv, filename, index=False), dash.no_update
 
     @app.callback(
         Output('processing-tour', 'current'),
