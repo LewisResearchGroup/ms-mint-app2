@@ -1,3 +1,4 @@
+import math
 from os import cpu_count
 from pathlib import Path
 
@@ -11,8 +12,15 @@ from dash.dependencies import Input, Output, State
 from dash.exceptions import PreventUpdate
 
 from .. import tools as T
-from ..duckdb_manager import duckdb_connection, build_paginated_query_by_peak, create_pivot, \
-    duckdb_connection_mint, compute_chromatograms_in_batches, compute_results_in_batches
+from ..duckdb_manager import (
+    build_order_by,
+    build_where_and_params,
+    compute_chromatograms_in_batches,
+    compute_results_in_batches,
+    create_pivot,
+    duckdb_connection,
+    duckdb_connection_mint,
+)
 from ..plugin_interface import PluginInterface
 
 _label = "Processing"
@@ -97,6 +105,28 @@ _layout = html.Div(
         ),
         html.Div(
             [
+                fac.AntdFlex(
+                    [
+                        fac.AntdText('Targets to display', strong=True),
+                        fac.AntdSelect(
+                            id='processing-peak-select',
+                            mode='multiple',
+                            allowClear=True,
+                            placeholder='Select one or more targets',
+                            maxTagCount=4,
+                            style={'minWidth': '320px', 'maxWidth': '540px'},
+                            optionFilterProp='label',
+                        ),
+                        fac.AntdText(
+                            'Use the dropdown to limit the table to specific compounds.',
+                            type='secondary',
+                        ),
+                    ],
+                    align='center',
+                    gap='small',
+                    wrap=True,
+                    style={'paddingBottom': '0.75rem'},
+                ),
                 fac.AntdSpin(
                     fac.AntdTable(
                         id='results-table',
@@ -266,21 +296,19 @@ _layout = html.Div(
                                                          'peak_rt_of_max', 'total_intensity']},
                         pagination={
                             'position': 'bottomCenter',
-                            'pageSize': 1,
+                            'pageSize': 25,
                             'current': 1,
                             'showSizeChanger': True,
-                            'pageSizeOptions': [1, 5, 10, 25, 50, 100],
+                            'pageSizeOptions': [10, 25, 50, 100],
                             'showQuickJumper': True,
                         },
                         tableLayout='fixed',
                         maxWidth="calc(100vw - 250px - 4rem)",
-                        maxHeight="calc(100vh - 140px - 2rem)",
+                        maxHeight="75vh",
                         locale='en-us',
                         showSorterTooltip=False,
                         rowSelectionType='checkbox',
                         size='small',
-                        defaultExpandedRowKeys=['row-0'],
-                        expandRowByClick=True,
                         mode='server-side',
                     ),
                     text='Loading data...',
@@ -610,6 +638,7 @@ def callbacks(app, fsc, cache):
 
         Input('section-context', 'data'),
         Input("results-action-store", "data"),
+        Input('processing-peak-select', 'value'),
         Input('results-table', 'pagination'),
         Input('results-table', 'filter'),
         Input('results-table', 'sorter'),
@@ -617,81 +646,208 @@ def callbacks(app, fsc, cache):
         State("wdir", "data"),
         prevent_initial_call=True,
     )
-    def results_table(section_context, results_actions, pagination, filter_, sorter, filterOptions, wdir):
+    def results_table(section_context, results_actions, selected_peaks, pagination, filter_, sorter, filterOptions, wdir):
         if section_context and section_context['page'] != 'Processing':
+            raise PreventUpdate
+
+        if not wdir:
             raise PreventUpdate
 
         # Autosave results table on tab load/refresh for durability
         try:
-            if wdir:
-                results_dir = Path(wdir) / "results"
-                results_dir.mkdir(parents=True, exist_ok=True)
-                with duckdb_connection(wdir) as conn:
-                    conn.execute("COPY (SELECT * FROM results) TO ? (HEADER, DELIMITER ',')",
-                                 (str(results_dir / "results_backup.csv"),))
+            results_dir = Path(wdir) / "results"
+            results_dir.mkdir(parents=True, exist_ok=True)
+            with duckdb_connection(wdir) as conn:
+                if conn is None:
+                    raise PreventUpdate
+                conn.execute(
+                    "COPY (SELECT * FROM results) TO ? (HEADER, DELIMITER ',')",
+                    (str(results_dir / "results_backup.csv"),),
+                )
+        except PreventUpdate:
+            raise
         except Exception:
             pass
 
-        start_time = time.perf_counter()
+        pagination = pagination or {
+            'position': 'bottomCenter',
+            'pageSize': 25,
+            'current': 1,
+            'showSizeChanger': True,
+            'pageSizeOptions': [10, 25, 50, 100],
+            'showQuickJumper': True,
+        }
+        base_page_size_options = [10, 25, 50, 100]
+        page_size_options = base_page_size_options.copy()
+        try:
+            page_size = int(pagination.get('pageSize') or 25)
+        except (TypeError, ValueError):
+            page_size = 25
+        if page_size <= 0:
+            page_size = 25
+        current = pagination.get('current') or 1
 
-        f = ['processing-delete-all', 'processing-delete-selected']
-        if pagination:
-            page_size = pagination['pageSize']
-            current = pagination['current']
+        filterOptions = filterOptions or {}
+        selected_peaks = selected_peaks or []
+        if not isinstance(selected_peaks, list):
+            selected_peaks = [selected_peaks]
 
-            with duckdb_connection(wdir) as conn:
-
-                offset = (current - 1) * page_size
-
-                sql, params = build_paginated_query_by_peak(
-                    conn=conn,
-                    filter_=filter_,
-                    filterOptions=filterOptions,
-                    sorter=sorter,
-                    limit=page_size,
-                    offset=offset
-                )
-                df = conn.execute(sql, params).df()
-
-                # total rows:
-                number_records = conn.execute("SELECT COUNT(*) FROM (SELECT DISTINCT peak_label FROM "
-                                              "results)").fetchone()[0]
-
-            # fix page if it underflowed:
-            current = max(current if number_records > (current - 1) * page_size else current - 1, 1)
-
-            data = []
-            for r, (peak_label, group_df) in enumerate(df.groupby('peak_label')):
-                target = dict(
-                    key=f'row-{r}',
-                    peak_label=peak_label,
-                    children=[],
-                )
-                for ri, row in enumerate(group_df.itertuples(index=False)):
-                    target['children'].append({
-                        'key': f'row-{r}{ri}',
-                        'ms_file_label': row.ms_file_label,
-                        'peak_area': row.peak_area,
-                        'peak_area_top3': row.peak_area_top3,
-                        'peak_mean': row.peak_mean,
-                        'peak_median': row.peak_median,
-                        'peak_n_datapoints': row.peak_n_datapoints,
-                        'peak_min': row.peak_min,
-                        'peak_max': row.peak_max,
-                        'peak_rt_of_max': row.peak_rt_of_max,
-                        'total_intensity': row.total_intensity,
-                        'intensity': row.intensity,
-                    })
-                data.append(target)
-
-            end_time = time.perf_counter()
-            time.sleep(max(0.0, min(len(data), 0.5 - (end_time - start_time))))
-
-            return [
-                data,
+        if not selected_peaks:
+            return (
                 [],
-                {**pagination, 'total': number_records, 'current': current},
-            ]
+                [],
+                {
+                    **pagination,
+                    'total': 0,
+                    'current': 1,
+                    'pageSize': page_size,
+                    'pageSizeOptions': page_size_options,
+                },
+            )
+
+        with duckdb_connection(wdir) as conn:
+            if conn is None:
+                raise PreventUpdate
+            results_schema = conn.execute("DESCRIBE results").fetchall()
+            samples_schema = conn.execute("DESCRIBE samples").fetchall()
+            column_types = {row[0]: row[1] for row in results_schema}
+            column_types.update({row[0]: row[1] for row in samples_schema})
+
+            where_sql, params = build_where_and_params(filter_, filterOptions)
+            where_sql = f"{where_sql} {'AND' if where_sql else 'WHERE'} r.peak_label IN ?"
+            params.append(selected_peaks)
+
+            order_params: list = []
+            order_values = ""
+            if selected_peaks:
+                order_values = ", ".join(["(?, ?)"] * len(selected_peaks))
+                for idx, peak in enumerate(selected_peaks):
+                    order_params.extend([idx, peak])
+
+            order_by_sql = (
+                "ORDER BY __peak_order__, ms_file_label"
+                if selected_peaks
+                else build_order_by(
+                    sorter,
+                    column_types,
+                    tie=('peak_label', 'ASC'),
+                    nocase_text=True
+                )
+            )
+
+            filtered_sql = f"""
+            WITH
+            {f"target_order AS (SELECT * FROM (VALUES {order_values}) AS t(ord, target_peak_label))," if order_values else ""}
+            filtered AS (
+              SELECT r.*, s.ms_type, s.sample_type
+              {", COALESCE(tord.ord, 1e9) AS __peak_order__" if order_values else ""}
+              FROM results r
+              LEFT JOIN samples s USING (ms_file_label)
+              {f"LEFT JOIN target_order tord ON tord.target_peak_label = r.peak_label" if order_values else ""}
+              {where_sql}
+            )
+            """
+
+            count_sql = filtered_sql + "SELECT COUNT(*) AS __total__ FROM filtered;"
+            number_records = conn.execute(count_sql, order_params + params).fetchone()[0] or 0
+
+            page_size_options = sorted(
+                set(base_page_size_options + ([number_records] if number_records else []))
+            )
+            if page_size not in page_size_options:
+                page_size = min(25, number_records) if number_records else 25
+            if number_records and page_size > number_records:
+                page_size = number_records
+            effective_page_size = page_size if page_size > 0 else (number_records or 1)
+            max_page = max(math.ceil(number_records / effective_page_size), 1) if number_records else 1
+            current = min(max(current, 1), max_page)
+            offset = (current - 1) * effective_page_size if number_records else 0
+
+            sql = filtered_sql + f"""
+            , paged AS (
+              SELECT *
+              FROM filtered
+              {(' ' + order_by_sql) if order_by_sql else ''}
+              LIMIT ? OFFSET ?
+            )
+            SELECT * FROM paged;
+            """
+
+            params_paged = order_params + params + [effective_page_size, offset]
+            df = conn.execute(sql, params_paged).df()
+
+        if number_records and params_paged[-1] != (current - 1) * effective_page_size:
+            with duckdb_connection(wdir) as conn:
+                if conn is None:
+                    raise PreventUpdate
+                params_paged = order_params + params + [effective_page_size, (current - 1) * effective_page_size]
+                df = conn.execute(sql, params_paged).df()
+
+        data = [
+            {
+                'key': f'{row.peak_label}-{row.ms_file_label}',
+                'peak_label': row.peak_label,
+                'ms_file_label': row.ms_file_label,
+                'ms_type': getattr(row, 'ms_type', None),
+                'peak_area': row.peak_area,
+                'peak_area_top3': row.peak_area_top3,
+                'peak_mean': row.peak_mean,
+                'peak_median': row.peak_median,
+                'peak_n_datapoints': row.peak_n_datapoints,
+                'peak_min': row.peak_min,
+                'peak_max': row.peak_max,
+                'peak_rt_of_max': row.peak_rt_of_max,
+                'total_intensity': row.total_intensity,
+                'intensity': row.intensity,
+                'sample_type': getattr(row, 'sample_type', None),
+            }
+            for row in df.itertuples(index=False)
+        ]
+
+        return [
+            data,
+            [],
+            {
+                **pagination,
+                'total': number_records,
+                'current': current,
+                'pageSize': page_size,
+                'pageSizeOptions': page_size_options,
+            },
+        ]
+
+    @app.callback(
+        Output('processing-peak-select', 'options'),
+        Output('processing-peak-select', 'value', allow_duplicate=True),
+        Input('section-context', 'data'),
+        Input('wdir', 'data'),
+        Input('results-action-store', 'data'),
+        State('processing-peak-select', 'value'),
+        prevent_initial_call=True,
+    )
+    def load_available_peaks(section_context, wdir, results_actions, current_value):
+        if section_context and section_context['page'] != 'Processing':
+            raise PreventUpdate
+        if not wdir:
+            raise PreventUpdate
+
+        with duckdb_connection(wdir) as conn:
+            if conn is None:
+                raise PreventUpdate
+            peaks = conn.execute(
+                "SELECT DISTINCT peak_label FROM results ORDER BY peak_label"
+            ).fetchall()
+
+        options = [
+            {'label': peak[0], 'value': peak[0]}
+            for peak in peaks
+            if peak and peak[0] is not None
+        ]
+
+        if options and not current_value:
+            return options, [options[0]['value']]
+
+        return options, dash.no_update
 
     @app.callback(
         Output("processing-delete-confirmation-modal", "visible"),
@@ -753,7 +909,7 @@ def callbacks(app, fsc, cache):
             results_action_store = {'action': 'delete', 'status': 'failed'}
             total_removed = [0, 0]
         elif clickedKey == "processing-delete-selected":
-            remove_results = [row["peak_label"] for row in selectedRows]
+            remove_results = list({row["peak_label"] for row in selectedRows})
 
             with duckdb_connection(wdir) as conn:
                 if conn is None:
