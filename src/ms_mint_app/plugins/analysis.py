@@ -15,7 +15,6 @@ from sklearn.decomposition import PCA
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 from plotly import colors as plotly_colors
-from .analysis_tools import pca
 from ..duckdb_manager import duckdb_connection, create_pivot
 from ..plugin_interface import PluginInterface
 import plotly.express as px
