@@ -943,42 +943,77 @@ def callbacks(app, fsc, cache):
 
         if okCounts is None:
             raise PreventUpdate
+        if not wdir:
+            raise PreventUpdate
         if clickedKey == "processing-delete-selected" and not selectedRows:
             results_action_store = {'action': 'delete', 'status': 'failed'}
             total_removed = [0, 0]
         elif clickedKey == "processing-delete-selected":
-            remove_results = list({row["peak_label"] for row in selectedRows})
+            remove_pairs = list({
+                (row["peak_label"], row["ms_file_label"]) for row in selectedRows
+                if row.get("peak_label") and row.get("ms_file_label")
+            })
+            unique_peaks = len({p for p, _ in remove_pairs})
+            unique_files = len({m for _, m in remove_pairs})
 
             with duckdb_connection(wdir) as conn:
                 if conn is None:
                     raise PreventUpdate
 
-                total_removed_q = conn.execute("""
-                                               SELECT COUNT(DISTINCT peak_label)    as unique_peaks,
-                                                      COUNT(DISTINCT ms_file_label) as unique_files
-                                               FROM results
-                                               WHERE peak_label IN ?
-                                               """, (remove_results,)).fetchone()
-                total_removed = [0, 0]
-                if total_removed_q:
-                    total_removed = list(total_removed_q)
-                    conn.execute("DELETE FROM results WHERE peak_label IN ?", (remove_results,))
-                    results_action_store = {'action': 'delete', 'status': 'success'}
+                try:
+                    conn.execute("BEGIN")
+                    total_removed = [unique_peaks, unique_files]
+                    if remove_pairs:
+                        placeholders = ", ".join(["(?, ?)"] * len(remove_pairs))
+                        params = [v for pair in remove_pairs for v in pair]
+                        conn.execute(
+                            f"DELETE FROM results WHERE (peak_label, ms_file_label) IN ({placeholders})",
+                            params
+                        )
+                        results_action_store = {'action': 'delete', 'status': 'success'}
+                    conn.execute("COMMIT")
+                except Exception:
+                    conn.execute("ROLLBACK")
+                    return (fac.AntdNotification(
+                                message="Delete Results failed",
+                                description="Could not delete the selected results; no changes were applied.",
+                                type="error",
+                                duration=4,
+                                placement='bottom',
+                                showProgress=True,
+                                stack=True
+                            ),
+                            {'action': 'delete', 'status': 'failed'})
         else:
             with duckdb_connection(wdir) as conn:
                 if conn is None:
                     raise PreventUpdate
-                total_removed_q = conn.execute("""
-                                               SELECT COUNT(DISTINCT peak_label)    as unique_peaks,
-                                                      COUNT(DISTINCT ms_file_label) as unique_files
-                                               FROM results
-                                               """).fetchone()
-                results_action_store = {'action': 'delete', 'status': 'failed'}
-                total_removed = [0, 0]
-                if total_removed_q:
-                    total_removed = list(total_removed_q)
-                    conn.execute("DELETE FROM results")
-                    results_action_store = {'action': 'delete', 'status': 'success'}
+                try:
+                    conn.execute("BEGIN")
+                    total_removed_q = conn.execute("""
+                                                   SELECT COUNT(DISTINCT peak_label)    as unique_peaks,
+                                                          COUNT(DISTINCT ms_file_label) as unique_files
+                                                   FROM results
+                                                   """).fetchone()
+                    results_action_store = {'action': 'delete', 'status': 'failed'}
+                    total_removed = [0, 0]
+                    if total_removed_q:
+                        total_removed = list(total_removed_q)
+                        conn.execute("DELETE FROM results")
+                        results_action_store = {'action': 'delete', 'status': 'success'}
+                    conn.execute("COMMIT")
+                except Exception:
+                    conn.execute("ROLLBACK")
+                    return (fac.AntdNotification(
+                                message="Delete Results failed",
+                                description="Could not delete all results; no changes were applied.",
+                                type="error",
+                                duration=4,
+                                placement='bottom',
+                                showProgress=True,
+                                stack=True
+                            ),
+                            {'action': 'delete', 'status': 'failed'})
         return (fac.AntdNotification(message="Delete Results",
                                      description=f"Deleted {total_removed[0]} targets with {total_removed[1]} samples "
                                                  "from results",
