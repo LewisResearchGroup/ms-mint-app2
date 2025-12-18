@@ -484,6 +484,7 @@ def generate_colors(wdir, regenerate=False):
 
             colors_pd = ms_colors[["ms_file_label"]].copy()
             colors_pd["color"] = ms_colors["sample_key"].map(colors_map)
+            conn.register("colors_pd", colors_pd)
             conn.execute(
                 """
                 UPDATE samples
