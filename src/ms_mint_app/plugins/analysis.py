@@ -4,6 +4,7 @@ from io import BytesIO, StringIO
 from pathlib import Path
 import feffery_antd_components as fac
 import feffery_utils_components as fuc
+from itertools import cycle
 import numpy as np
 import pandas as pd
 from dash import html, dcc
@@ -12,11 +13,13 @@ from dash.exceptions import PreventUpdate
 from sklearn.decomposition import PCA
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
+from plotly import colors as plotly_colors
 from .analysis_tools import pca
 from ..duckdb_manager import duckdb_connection, create_pivot
 from ..plugin_interface import PluginInterface
 import plotly.express as px
 from scipy.stats import ttest_ind, f_oneway
+from ..sample_metadata import GROUP_COLUMNS, GROUP_LABELS
 from .scalir import (
     intersect_peaks,
     fit_estimator,
@@ -42,6 +45,11 @@ TAB_DEFAULT_NORM = {
     'pca': 'durbin',
     'raincloud': 'durbin',
 }
+GROUPING_FIELDS = ['sample_type'] + GROUP_COLUMNS
+GROUP_SELECT_OPTIONS = [
+    {'label': GROUP_LABELS.get(field, field.replace('_', ' ').title()), 'value': field}
+    for field in GROUPING_FIELDS
+]
 
 
 class AnalysisPlugin(PluginInterface):
@@ -434,6 +442,20 @@ _layout = html.Div(
                         align='center',
                         size='small',
                     ),
+                    fac.AntdSpace(
+                        [
+                            fac.AntdText("Group by:", style={'fontWeight': 500}),
+                            fac.AntdSelect(
+                                id='analysis-grouping-select',
+                                options=GROUP_SELECT_OPTIONS,
+                                value='sample_type',
+                                allowClear=False,
+                                style={'width': 180},
+                            ),
+                        ],
+                        align='center',
+                        size='small',
+                    ),
                 ],
                 size='small',
                 id='analysis-metric-container',
@@ -647,10 +669,12 @@ def callbacks(app, fsc, cache):
         Input('violin-comp-checks', 'value'),
         Input('analysis-metric-select', 'value'),
         Input('analysis-normalization-select', 'value'),
+        Input('analysis-grouping-select', 'value'),
         State("wdir", "data"),
         prevent_initial_call=True,
     )
-    def show_tab_content(section_context, tab_key, x_comp, y_comp, violin_comp_checks, metric_value, norm_value, wdir):
+    def show_tab_content(section_context, tab_key, x_comp, y_comp, violin_comp_checks, metric_value, norm_value,
+                        group_by, wdir):
 
         if section_context['page'] != 'Analysis':
             raise PreventUpdate
@@ -663,11 +687,37 @@ def callbacks(app, fsc, cache):
         empty_fig.update_layout(
             title="No results available",
             template="plotly_white",
+            paper_bgcolor='white',
+            plot_bgcolor='white',
         )
 
         from dash import callback_context
         ctx = callback_context
         triggered_prop = ctx.triggered[0]["prop_id"].split(".")[0] if ctx.triggered else ""
+
+        grouping_fields = GROUPING_FIELDS
+        selected_group = group_by if group_by in grouping_fields else GROUPING_FIELDS[0]
+
+        def _build_color_map(color_df: pd.DataFrame, group_col: str) -> dict:
+            if not group_col or group_col not in color_df.columns or color_df.empty:
+                return {}
+            working = color_df[[group_col, 'color']].copy()
+            working = working[working[group_col].notna()]
+            working['color'] = working['color'].apply(
+                lambda c: c if isinstance(c, str) and c.strip() and c.strip() != '#bbbbbb' else None
+            )
+            color_map = (
+                working.dropna(subset=['color'])
+                .drop_duplicates(subset=[group_col])
+                .set_index(group_col)['color']
+                .to_dict()
+            )
+            missing = [val for val in working[group_col].dropna().unique() if val not in color_map]
+            if missing:
+                palette = plotly_colors.qualitative.Plotly
+                for val, color in zip(missing, cycle(palette)):
+                    color_map[val] = color
+            return color_map
 
         with duckdb_connection(wdir) as conn:
             if conn is None:
@@ -680,30 +730,40 @@ def callbacks(app, fsc, cache):
             metric = metric_value or 'peak_area'
             df = create_pivot(conn, value=metric)
             df.set_index('ms_file_label', inplace=True)
-            ndf_sample_type = df['sample_type']
+            group_field = selected_group if selected_group in df.columns else (
+                'sample_type' if 'sample_type' in df.columns else None
+            )
+            group_label = GROUP_LABELS.get(group_field, 'Group')
+            missing_group_label = f"{group_label} (unset)"
+            metadata_cols = [col for col in ['ms_type'] + grouping_fields if col in df.columns]
             order_df = conn.execute(
-                "SELECT ms_file_label FROM samples ORDER BY run_order NULLS LAST, ms_file_label"
+                "SELECT ms_file_label FROM samples ORDER BY ms_file_label"
             ).df()["ms_file_label"].tolist()
             ordered_labels = [lbl for lbl in order_df if lbl in df.index]
             leftover_labels = [lbl for lbl in df.index if lbl not in ordered_labels]
             df = df.loc[ordered_labels + leftover_labels]
+            group_series = df[group_field] if group_field else pd.Series(df.index, index=df.index, name='group')
+            if isinstance(group_series, pd.Series):
+                group_series = group_series.replace("", pd.NA)
+            group_series.name = group_field or 'group'
+            group_series = group_series.fillna(missing_group_label)
             colors_df = conn.execute(
-                "SELECT ms_file_label, sample_type, color FROM samples"
+                f"SELECT ms_file_label, color, sample_type, {', '.join(GROUP_COLUMNS)} FROM samples"
             ).df()
-            colors_df["color_key"] = colors_df["sample_type"].fillna(colors_df["ms_file_label"])
-            color_map = (
-                colors_df.dropna(subset=["color"])
-                .drop_duplicates(subset="color_key")
-                .set_index("color_key")["color"]
-                .to_dict()
-            )
+            color_map = _build_color_map(colors_df, group_field)
+            if not color_map and group_field != 'sample_type':
+                color_map = _build_color_map(colors_df, 'sample_type')
+            if missing_group_label in group_series.values:
+                if color_map is None:
+                    color_map = {}
+                color_map.setdefault(missing_group_label, '#bbbbbb')
             raw_df = df.copy()
-            df = df.drop(columns=['ms_type', 'sample_type'], axis=1)
+            df = df.drop(columns=[c for c in metadata_cols if c in df.columns], axis=1)
             compound_options = sorted(
                 [
                     {'label': c, 'value': c}
                     for c in raw_df.columns
-                    if c not in ('ms_type', 'sample_type')
+                    if c not in metadata_cols
                 ],
                 key=lambda o: o['label'].lower(),
             )
@@ -717,9 +777,10 @@ def callbacks(app, fsc, cache):
                 return cleaned
 
             df = _clean_numeric(df)
-            raw_numeric_cols = [c for c in raw_df.columns if c not in ('ms_type', 'sample_type')]
+            raw_numeric_cols = [c for c in raw_df.columns if c not in metadata_cols]
             raw_numeric = _clean_numeric(raw_df[raw_numeric_cols])
             raw_df[raw_numeric_cols] = raw_numeric
+            color_labels = group_series.reindex(df.index).fillna(missing_group_label)
 
             if df.empty or raw_numeric.empty:
                 return None, empty_fig, [], [], []
@@ -763,12 +824,10 @@ def callbacks(app, fsc, cache):
             import matplotlib.patches as mpatches
 
             matplotlib.use('Agg')
-            sns.set_theme(font_scale=0.25)
+            sns.set_theme(style='white', font_scale=0.25)
 
             sample_colors = None
             if color_map:
-                reordered_samples = ndf_sample_type.reindex(df.index)
-                color_labels = reordered_samples.fillna(pd.Series(df.index, index=df.index))
                 sample_colors = [color_map.get(lbl, '#bbbbbb') for lbl in color_labels]
             
             norm_label = next((o['label'] for o in NORM_OPTIONS if o['value'] == norm_value), norm_value)
@@ -788,14 +847,19 @@ def callbacks(app, fsc, cache):
                                  cbar_pos=(0.01, 0.95, 0.075, 0.01),
                                  col_colors=sample_colors,
                                  row_colors=['#ffffff'] * len(zdf.T.index),
-                                 colors_ratio=(0.0015, 0.015)
+                                colors_ratio=(0.0015, 0.015)
                                 )
+            # Ensure white backgrounds across panels
+            fig.fig.patch.set_facecolor('white')
+            fig.ax_heatmap.set_facecolor('white')
+            fig.ax_col_dendrogram.set_facecolor('white')
+            fig.ax_row_dendrogram.set_facecolor('white')
 
             fig.ax_heatmap.tick_params(which='both', axis='both', length=0)
             fig.ax_heatmap .set_xlabel('Samples', fontsize=6, labelpad=4)
             fig.ax_cbar.tick_params(which='both', axis='both', width=0.3, length=2, labelsize=4)
             fig.ax_cbar.set_title(norm_label, fontsize=6, pad=4)
-            # Legend for sample type colors (top right)
+            # Legend for grouping colors (top right)
             if color_map:
                 used_types = [lbl for lbl in color_labels if lbl in color_map]
                 handles = [
@@ -806,7 +870,7 @@ def callbacks(app, fsc, cache):
                 if handles:
                     fig.ax_heatmap.legend(
                         handles=handles,
-                        title="Sample Type",
+                        title=group_label,
                         bbox_to_anchor=(1.00, 1.075),
                         ncol=len(handles),
                         frameon=False,
@@ -844,9 +908,6 @@ def callbacks(app, fsc, cache):
         elif tab_key == 'pca':
             # n_components should be <= min(n_samples, n_features)
             results = run_pca_samples_in_cols(ndf, n_components=min(ndf.shape[0], ndf.shape[1], 5))
-            color_labels = ndf_sample_type.fillna(
-                pd.Series(ndf_sample_type.index, index=ndf_sample_type.index)
-            )
             results['scores']['color_group'] = color_labels
             results['scores']['sample_label'] = results['scores'].index
             x_axis = x_comp or 'PC1'
@@ -940,20 +1001,23 @@ def callbacks(app, fsc, cache):
             fig.update_layout(
                 height=700,
                 margin=dict(l=160, r=200, t=70, b=60),
-                legend_title_text="Sample Type",
+                legend_title_text=group_label,
                 legend=dict(
                     x=-0.05,
                     y=1.04,
                     xanchor="right",
                     yanchor="top",
                     orientation="v",
-                    title=dict(text="Sample Type<br>", font=dict(size=14)),
+                    title=dict(text=f"{group_label}<br>", font=dict(size=14)),
                     font=dict(size=12),
                 ),
                 xaxis_title_font=dict(size=16),
                 yaxis_title_font=dict(size=16),
                 xaxis_tickfont=dict(size=12),
                 yaxis_tickfont=dict(size=12),
+                template='plotly_white',
+                paper_bgcolor='white',
+                plot_bgcolor='white',
             )
 
             return dash.no_update, fig, dash.no_update, compound_options, dash.no_update
@@ -997,9 +1061,9 @@ def callbacks(app, fsc, cache):
             for selected in selected_list:
                 if selected not in violin_matrix.columns:
                     continue
-                melt_df = violin_matrix[[selected]].join(ndf_sample_type).reset_index().rename(columns={
+                melt_df = violin_matrix[[selected]].join(group_series).reset_index().rename(columns={
                     'ms_file_label': 'Sample',
-                    'sample_type': 'Sample Type',
+                    group_series.name: group_label,
                     selected: 'Intensity',
                 })
                 if norm_value == 'none':
@@ -1010,13 +1074,13 @@ def callbacks(app, fsc, cache):
                     y_label = 'Intensity'
                 fig = px.violin(
                     melt_df,
-                    x='Sample Type',
+                    x=group_label,
                     y='PlotValue',
-                    color='Sample Type',
+                    color=group_label,
                     color_discrete_map=color_map if color_map else None,
                     box=False,
                     points='all',
-                    hover_data=['Sample', 'Sample Type', 'Intensity', 'PlotValue'],
+                    hover_data=['Sample', group_label, 'Intensity', 'PlotValue'],
                 )
                 fig.update_traces(jitter=0.25, meanline_visible=False, pointpos=-0.5, selector=dict(type='violin'))
                 # Clamp KDE tails with spanmode='hard', similar to seaborn cut; use 1st-99th percentiles
@@ -1027,7 +1091,7 @@ def callbacks(app, fsc, cache):
                 fig.update_traces(spanmode='hard', span=[low, high], side='positive', scalemode='width',
                                   selector=dict(type='violin'))
                 # Simple significance test: t-test for 2 groups, ANOVA for >2
-                groups = [g['PlotValue'].to_numpy() for _, g in melt_df.groupby('Sample Type')]
+                groups = [g['PlotValue'].to_numpy() for _, g in melt_df.groupby(group_label)]
                 method = None
                 p_val = None
                 if len(groups) == 2:
@@ -1054,17 +1118,20 @@ def callbacks(app, fsc, cache):
                     title=f"{selected}",
                     title_font=dict(size=16),
                     yaxis_title=y_label,
-                    xaxis_title='Sample Type',
+                    xaxis_title=group_label,
                     yaxis=dict(range=[0, None] if norm_value == 'none' else [None, None], fixedrange=False),
                     margin=dict(l=60, r=20, t=50, b=60),
                     legend=dict(
-                            title=dict(text="Sample Type<br>", font=dict(size=14)),
+                            title=dict(text=f"{group_label}<br>", font=dict(size=14)),
                             font=dict(size=12),
                         ),
                     xaxis_title_font=dict(size=16),
                     yaxis_title_font=dict(size=16),
                     xaxis_tickfont=dict(size=12),
                     yaxis_tickfont=dict(size=12),
+                    template='plotly_white',
+                    paper_bgcolor='white',
+                    plot_bgcolor='white',
                 )
                 graphs.append(dcc.Graph(figure=fig, style={'marginBottom': 20, 'width': '100%'}))
 

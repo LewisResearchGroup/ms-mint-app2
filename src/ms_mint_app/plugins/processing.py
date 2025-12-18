@@ -209,22 +209,6 @@ _layout = html.Div(
                                 'title': 'File Type',
                                 'content': 'Raw file format (e.g., mzML, mzXML).',
                             },
-                            'run_order': {
-                                'title': 'Run Order',
-                                'content': 'Injection order for the MS file.',
-                            },
-                            'plate': {
-                                'title': 'Plate',
-                                'content': 'Plate identifier if provided.',
-                            },
-                            'plate_row': {
-                                'title': 'Plate Row',
-                                'content': 'Plate row (e.g., A, B, C).',
-                            },
-                            'plate_column': {
-                                'title': 'Plate Column',
-                                'content': 'Plate column number.',
-                            },
                             'peak_label': {
                                 'title': 'Target',
                                 'content': 'Target name from the Targets table.',

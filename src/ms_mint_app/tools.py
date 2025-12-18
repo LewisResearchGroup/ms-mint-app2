@@ -19,6 +19,7 @@ from lxml.etree import XMLSyntaxError
 from scipy.ndimage import binary_opening
 
 from .duckdb_manager import duckdb_connection
+from .sample_metadata import GROUP_COLUMNS
 
 _RT_SECONDS = re.compile(
     r"^P(?:T(?:(?P<h>\d+(?:\.\d+)?)H)?(?:(?P<m>\d+(?:\.\d+)?)M)?(?:(?P<s>\d+(?:\.\d+)?)S)?)$",
@@ -305,24 +306,27 @@ def convert_mzxml_to_parquet_fast_batches(
 def get_metadata(files_path):
     ref_cols = {
         "ms_file_label": 'string',
+        "label": 'string',
         "color": 'string',
         "use_for_optimization": 'boolean',
+        "use_for_processing": 'boolean',
         "use_for_analysis": 'boolean',
-        "label": 'string',
         "sample_type": 'string',
-        "run_order": 'Int32',
-        "plate": 'string',
-        "plate_row": 'string',
-        "plate_column": 'Int32'
     }
+    ref_cols.update({col: 'string' for col in GROUP_COLUMNS})
     required = {"ms_file_label"}
 
     failed_files = {}
     dfs = []
     for file_path in files_path:
         try:
-            df = pd.read_csv(file_path, dtype=ref_cols)
-            df['use_for_optimization'] = df['use_for_optimization'].fillna(True)
+            preview = pd.read_csv(file_path, nrows=0)
+            dtype_map = {col: ref_cols[col] for col in preview.columns if col in ref_cols}
+            df = pd.read_csv(file_path, dtype=dtype_map)
+            if 'use_for_optimization' in df.columns:
+                df['use_for_optimization'] = df['use_for_optimization'].fillna(True)
+            if 'use_for_processing' in df.columns:
+                df['use_for_processing'] = df['use_for_processing'].fillna(True)
 
             if missing_required := required - set(df.columns):
                 raise ValueError(f"Missing required columns: {missing_required}")
@@ -676,9 +680,15 @@ def process_metadata(wdir, set_progress, selected_files):
     with duckdb_connection(wdir) as conn:
         if conn is None:
             raise PreventUpdate
-        columns_to_update = {"use_for_optimization": "BOOLEAN", "use_for_analysis": "BOOLEAN", "color": "VARCHAR",
-                             "label": "VARCHAR", "sample_type": "VARCHAR", "run_order": "INTEGER",
-                             "plate": "VARCHAR", "plate_row": "VARCHAR", "plate_column": "INTEGER"}
+        columns_to_update = {
+            "use_for_optimization": "BOOLEAN",
+            "use_for_processing": "BOOLEAN",
+            "use_for_analysis": "BOOLEAN",
+            "color": "VARCHAR",
+            "label": "VARCHAR",
+            "sample_type": "VARCHAR",
+            **{col: "VARCHAR" for col in GROUP_COLUMNS},
+        }
         set_clauses = []
         for col, cast in columns_to_update.items():
             set_clauses.append(f"""

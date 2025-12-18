@@ -20,6 +20,7 @@ from .. import tools as T
 from ..colors import make_palette_hsv
 from ..duckdb_manager import duckdb_connection, build_where_and_params, build_order_by
 from ..plugin_interface import PluginInterface
+from ..sample_metadata import GROUP_COLUMNS, GROUP_DESCRIPTIONS, GROUP_LABELS
 
 _label = "MS-Files"
 MS_METADATA_TEMPLATE_COLUMNS = [
@@ -30,12 +31,9 @@ MS_METADATA_TEMPLATE_COLUMNS = [
     'use_for_processing',
     'use_for_analysis',
     'sample_type',
+    *GROUP_COLUMNS,
     'polarity',
     'ms_type',
-    'run_order',
-    'plate',
-    'plate_row',
-    'plate_column',
 ]
 MS_METADATA_TEMPLATE_DESCRIPTIONS = [
     'Unique file name; must match the MS file on disk',
@@ -45,12 +43,9 @@ MS_METADATA_TEMPLATE_DESCRIPTIONS = [
     'True to include in processing (RUN MINT)',
     'True to include in analysis outputs',
     'Sample category (e.g.; Sample; QC; Blank; Standard)',
+    *[GROUP_DESCRIPTIONS[col] for col in GROUP_COLUMNS],
     'Polarity (Positive or Negative)',
     'Acquisition type (ms1 or ms2)',
-    'Numeric injection/run order',
-    'Plate identifier (if applicable)',
-    'Plate row (e.g.; A; B; C)',
-    'Plate column number',
 ]
 MS_METADATA_TEMPLATE_CSV = (
     ",".join(MS_METADATA_TEMPLATE_COLUMNS)
@@ -247,6 +242,15 @@ _layout = html.Div(
                                 'width': '150px',
                                 'editable': True,
                             },
+                            *[
+                                {
+                                    'title': GROUP_LABELS[col],
+                                    'dataIndex': col,
+                                    'width': '130px',
+                                    'editable': True,
+                                }
+                                for col in GROUP_COLUMNS
+                            ],
                             {
                                 'title': 'Polarity',
                                 'dataIndex': 'polarity',
@@ -256,30 +260,6 @@ _layout = html.Div(
                                 'title': 'MS Type',
                                 'dataIndex': 'ms_type',
                                 'width': '120px',
-                            },
-                            {
-                                'title': 'Run Order',
-                                'dataIndex': 'run_order',
-                                'width': '120px',
-                                'editable': True,
-                            },
-                            {
-                                'title': 'Plate',
-                                'dataIndex': 'plate',
-                                'width': '100px',
-                                'editable': True,
-                            },
-                            {
-                                'title': 'Plate Row',
-                                'dataIndex': 'plate_row',
-                                'width': '110px',
-                                'editable': True,
-                            },
-                            {
-                                'title': 'Plate Col.',
-                                'dataIndex': 'plate_column',
-                                'width': '110px',
-                                'editable': True,
                             },
                         ],
                         titlePopoverInfo={
@@ -311,6 +291,12 @@ _layout = html.Div(
                                 'title': 'sample_type',
                                 'content': MS_METADATA_DESCRIPTION_MAP['sample_type'],
                             },
+                            **{
+                                col: {
+                                    'title': GROUP_LABELS[col],
+                                    'content': MS_METADATA_DESCRIPTION_MAP[col],
+                                } for col in GROUP_COLUMNS
+                            },
                             'polarity': {
                                 'title': 'polarity',
                                 'content': MS_METADATA_DESCRIPTION_MAP['polarity'],
@@ -322,22 +308,6 @@ _layout = html.Div(
                             'file_type': {
                                 'title': 'file_type',
                                 'content': 'Raw file format (e.g., mzML, mzXML)',
-                            },
-                            'run_order': {
-                                'title': 'run_order',
-                                'content': MS_METADATA_DESCRIPTION_MAP['run_order'],
-                            },
-                            'plate': {
-                                'title': 'plate',
-                                'content': MS_METADATA_DESCRIPTION_MAP['plate'],
-                            },
-                            'plate_row': {
-                                'title': 'plate_row',
-                                'content': MS_METADATA_DESCRIPTION_MAP['plate_row'],
-                            },
-                            'plate_column': {
-                                'title': 'plate_column',
-                                'content': MS_METADATA_DESCRIPTION_MAP['plate_column'],
                             },
                         },
                         filterOptions={
@@ -351,12 +321,13 @@ _layout = html.Div(
                             'use_for_analysis': {'filterMode': 'checkbox',
                                                   'filterCustomItems': ['True', 'False']},
                             'sample_type': {'filterMode': 'checkbox'},
+                            **{col: {'filterMode': 'keyword'} for col in GROUP_COLUMNS},
                             'polarity': {'filterMode': 'checkbox',
                                          'filterCustomItems': ['Positive', 'Negative']},
                             'ms_type': {'filterMode': 'checkbox',
                                         'filterCustomItems': ['ms1', 'ms2']},
                         },
-                        sortOptions={'sortDataIndexes': ['run_order']},
+                        sortOptions={'sortDataIndexes': []},
                         pagination={
                             'position': 'bottomCenter',
                             'pageSize': 10,

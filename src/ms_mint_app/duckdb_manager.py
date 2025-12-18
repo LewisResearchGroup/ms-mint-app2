@@ -5,6 +5,8 @@ from threading import Thread
 import duckdb
 import time
 
+from .sample_metadata import GROUP_COLUMNS
+
 
 @contextmanager
 def duckdb_connection(workspace_path: Path | str, register_activity=True, n_cpus=None, ram=None):
@@ -93,15 +95,18 @@ def _create_tables(conn: duckdb.DuckDBPyConnection):
                      color                VARCHAR DEFAULT '#bbbbbb',
                      label                VARCHAR,
                      sample_type          VARCHAR DEFAULT 'Unset',
-                     run_order            INTEGER,
-                     plate                VARCHAR,
-                     plate_row            VARCHAR,
-                     plate_column         TINYINT
+                     group_1              VARCHAR,
+                     group_2              VARCHAR,
+                     group_3              VARCHAR,
+                     group_4              VARCHAR,
+                     group_5              VARCHAR
                  );
                  """)
 
     # Backfill new processing flag for existing DBs
     conn.execute("ALTER TABLE samples ADD COLUMN IF NOT EXISTS use_for_processing BOOLEAN DEFAULT true;")
+    for col in GROUP_COLUMNS:
+        conn.execute(f"ALTER TABLE samples ADD COLUMN IF NOT EXISTS {col} VARCHAR;")
     conn.execute("""
                  UPDATE samples
                  SET use_for_processing = COALESCE(use_for_processing, use_for_analysis, TRUE)
@@ -1504,11 +1509,14 @@ def create_pivot(conn, rows=None, cols=None, value='peak_area', table='results')
                                        JOIN targets t ON r.peak_label = t.peak_label
                               ORDER BY t.ms_type""").df()
 
+    group_cols_sql = ",\n                ".join([f"s.{col}" for col in GROUP_COLUMNS])
+
     query = f"""
         PIVOT (
             SELECT
                 s.ms_type,
                 s.sample_type,
+                {group_cols_sql},
                 r.ms_file_label,
                 r.peak_label,
                 r.{value}
@@ -1523,7 +1531,9 @@ def create_pivot(conn, rows=None, cols=None, value='peak_area', table='results')
         ORDER BY ms_type
     """
     df = conn.execute(query).df()
-    return df[['ms_type', 'sample_type', 'ms_file_label'] + ordered_pl['peak_label'].to_list()]
+    meta_cols = ['ms_type', 'sample_type', *GROUP_COLUMNS, 'ms_file_label']
+    keep_cols = [col for col in meta_cols if col in df.columns] + ordered_pl['peak_label'].to_list()
+    return df[keep_cols]
 
 
 def compute_and_insert_chromatograms_iteratively(con: duckdb.DuckDBPyConnection, set_progress=None):
