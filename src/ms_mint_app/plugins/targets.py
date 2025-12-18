@@ -789,7 +789,7 @@ def callbacks(app, fsc=None, cache=None):
                     conn.execute(query, ['Unset', row_edited['peak_label']])
                 else:
                     conn.execute(query, [row_edited[column_edited], row_edited['peak_label']])
-                targets_action_store = {'action': 'delete', 'status': 'success'}
+                targets_action_store = {'action': 'edit', 'status': 'success'}
             return fac.AntdNotification(message="Successfully edition saved",
                                         type="success",
                                         duration=3,
@@ -799,7 +799,7 @@ def callbacks(app, fsc=None, cache=None):
                                         ), targets_action_store
         except Exception as e:
             logging.error(f"Error updating metadata: {e}")
-            targets_action_store = {'action': 'delete', 'status': 'failed'}
+            targets_action_store = {'action': 'edit', 'status': 'failed'}
             return fac.AntdNotification(message="Failed to save edition",
                                         description=f"Failing to save edition with: {str(e)}",
                                         type="error",
