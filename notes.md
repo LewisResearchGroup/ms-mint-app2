@@ -120,6 +120,7 @@
 - [x] arreglar el cancel de la generacion de cromatogramas porque no termina (asumo se por el while)
 - [x] establecer limites en y para el valor min > 1
 - [x] remover target desde la modal
+- [x] cambiar el Run order y demas columnas a group 1 - 5
 ### Open
 - [ ] extraer sample type desde el nombre del archivo. por ejemplo, si tiene MHPool, el sample type es "MHPool" (elementos blank, mhpool, std)
 - [ ] cambiar el boton Ok/cancel del modal de confirmacion de cierre sin guardar por save/cancel
@@ -132,4 +133,4 @@
 - [ ] anotar nuevo target duplicando el cromatograma. se añade un nuevo target con otro rt-span usando el chromatograma precomputado 
 - [ ] poner indicador de ocupado para los botones de descarga
 - [ ] (*) hacer que cuando se levante la app mate cualquier instancia que exista de esta o procesos huerfanos
-- [ ] cambiar el Run order y demas columnas a group 1 - 5
+
