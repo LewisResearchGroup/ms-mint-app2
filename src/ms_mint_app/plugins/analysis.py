@@ -1125,7 +1125,11 @@ def callbacks(app, fsc, cache):
                 fig.update_traces(spanmode='hard', span=[low, high], side='positive', scalemode='width',
                                   selector=dict(type='violin'))
                 # Simple significance test: t-test for 2 groups, ANOVA for >2
-                groups = [g['PlotValue'].to_numpy() for _, g in melt_df.groupby(group_label)]
+                groups = [
+                    g['PlotValue'].dropna().to_numpy()
+                    for _, g in melt_df.groupby(group_label)
+                ]
+                groups = [g for g in groups if len(g) >= 2]
                 method = None
                 p_val = None
                 if len(groups) == 2:
@@ -1135,7 +1139,7 @@ def callbacks(app, fsc, cache):
                     method = "ANOVA"
                     _, p_val = f_oneway(*groups)
 
-                if method and p_val is not None:
+                if method and p_val is not None and np.isfinite(p_val):
                     display_p = f"{p_val:.3e}"
                     fig.add_annotation(
                         xref="paper",
