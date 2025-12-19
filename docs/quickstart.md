@@ -52,7 +52,7 @@ Now you have created your first workspace, but it is empty. You will need some i
 
 Some demo files are available for download on the `ms-mint` Google Drive. Download the files from [Google Drive](https://drive.google.com/drive/folders/1U4xMy5lfETk93sSVXPI79cCWyIMcAjeZ?usp=drive_link) and extract the archive.
 
-You will find two `csv` files and 12 `mzXML` files.
+You will find two `csv` files and 8 `mzXML` files.
 
 ```
 .
@@ -74,7 +74,7 @@ You will find two `csv` files and 12 `mzXML` files.
 4 directories, 15 files
 ```
 
-- A folder with 12 mass-spectrometry (MS) files from microbial samples. We have four files for each _Staphylococcus aureus_ (SA), _Escherichia coli_ (EC), and _Candida albicans_ (CA).
+- A folder with 8 mass-spectrometry (MS) files from microbial samples. We have four files for each  _Escherichia coli_ (EC), and _Candida albicans_ (CA).
 Each file belongs to one of four batches (B1-B4).
 - `metadata.csv` contains this information in tabular format. Submitting metadata is optional, but highly recommended and makes downstream analysis smoother.
 - `targets.csv` contains the extraction lists. The identification of the metabolites has been done before, so we know where the metabolites appear in the MS data.
@@ -179,38 +179,28 @@ Now, you can download the results in long format or dense `peak_max` values by c
 
 ## 9. Analyze the results
 
-Once the results are generated, the `Heatmap` tab shows an interactive heatmap.
-You can change the size of the heatmap by resizing your browser window and clicking `UPDATE`.
-The heatmap shows the `peak_max` values. The dropdown menu provides some options.
+Once the results are generated, there are several analyses you can perform. In the analysis section you can see four tabs, each corresponding to a different analysis.
 
-## 10. Switch to `Analysis/Plotting`
-
-The plotting tool is powerful, but it requires some practice. It is a wrapper around the seaborn API.
-Let's create a few simple visualizations.
-
-![](quickstart/01-demo-plot.png)
+![](quickstart/analysis-1.png)
 
 
-Click `Update`. A simple bar graph is shown, and you can gradually make it more complex.
-This simple bar graph shows the average `peak_max` value across the whole dataset for all targets. 
+=== "Clustermap"
+    Clustered heatmap showing relationships between samples and targets. In this tab you can select from different metrics (_i.e._, peak_area, peak_top3, etc.), transformations (_i.e._, z-score, log2, etc.) and groupings (_i.e._, Sample type, Group 1, 2, etc.)
 
-### a) Select `peak_label` for the `X` axis.
-### b) Set aspect ratio to `5`.
-### c) Select `Logarithmic y-scale` in the dropdown options.
-### d) Click `UPDATE`.
+    ![](quickstart/analysis-2.png)
 
-![](quickstart/02-demo-plot.png)
+=== "PCA"
+    Principal component analysis plot for sample-level patterns. Includes an score plot (PC1 to PC5) on the left side, cummulative variance (top right), and absolute loading values for a selected PC (bottom rigth).
 
-### e) Set figure height to `1.5` and aspect ratio to `2`.
-### f) Set `Column` to `Label`.
-### g) Set `Row` to `Batch`.
+    ![](quickstart/analysis-3.png)
 
-![](quickstart/03-demo-plot.png)
 
-This way you can look at the whole dataset at once, sliced by `Batch` and `Label`.
+=== "Violin"
+    Distribution plots by group (_i.e._, Sample type, Group 1, 2, etc.) to compare target values. Includes a hypothesis test result (t-test for two samples, ANOVA for more than 2 samples) on the top rigth corner.
 
-## Exercise: Try to create the following plot:
+    ![](quickstart/analysis-4.png)
 
-![](quickstart/05-demo-plot.png)
+=== "Scalir"
+    Summary view for calculating concentrations.
 
-[Read more](gui.md)
+    ![](quickstart/analysis-5.png)
