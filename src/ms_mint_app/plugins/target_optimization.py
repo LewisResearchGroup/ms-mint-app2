@@ -834,6 +834,16 @@ _layout = fac.AntdLayout(
                     'description': 'Follow this tutorial to compute chromatograms and tune targets.',
                 },
                 {
+                    'title': 'Compute chromatograms',
+                    'description': 'Extract chromatograms for the selected targets/files.',
+                    'targetSelector': '#compute-chromatograms-btn'
+                },
+                {
+                    'title': 'Review cards',
+                    'description': 'Scroll the cards below to inspect chromatograms and edit target bounds directly.',
+                    'targetSelector': '#chromatogram-preview-container'
+                },
+                {
                     'title': 'Select samples',
                     'description': 'Choose which samples are plotted in the cards for quick comparison.',
                     'targetSelector': '#sample-selection'
@@ -847,16 +857,6 @@ _layout = fac.AntdLayout(
                     'title': 'Tune options',
                     'description': 'Adjust MS type, target ordering, log scale, and plot sizing to aid review.',
                     'targetSelector': '#sidebar-options'
-                },
-                {
-                    'title': 'Review cards',
-                    'description': 'Scroll the cards below to inspect chromatograms and edit target bounds directly.',
-                    'targetSelector': '#chromatogram-preview-container'
-                },
-                {
-                    'title': 'Compute chromatograms',
-                    'description': 'Extract chromatograms for the selected targets/files.',
-                    'targetSelector': '#compute-chromatograms-btn'
                 },
             ],
             id='optimization-tour',
