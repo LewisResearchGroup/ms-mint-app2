@@ -1,38 +1,11 @@
 
-# Quickstart Guide for ms-mint-app
-Welcome to the ms-mint-app quickstart guide! This guide helps you get up and running with the application so you can start analyzing mass spectrometry data efficiently. Follow the steps below to install the app, create a workspace, and begin processing your data.
+# Quickstart Guide for MINT
+Welcome to the MINT quickstart guide! This guide helps you get up and running with the application so you can start analyzing mass spectrometry data efficiently. Follow the steps below to install the app, create a workspace, and begin processing your data.
 
-## 1. Open `ms-mint-app`
+## 1. Open `MINT`
 
 Download an executable compatible with your OS and open MINT (see other installation options [here](install.md)).
 Once the app starts, you should see the `Workspaces` tab.
-
-<!-- To install MINT, run:
-
-```
-pip install ms-mint-app
-```
-
-or follow the instructions [here](install.md).
-
-Then start the application with
-
-```
-Mint
-```
-
-or, if you have a preferred directory for data you can specify it with `--data-dir` e.g.:
-
-```
-Mint --data-dir /data
-```
-
-The application will take a while until it starts up. In the meantime the browser window will show
-
-> This site can’t be reached
-
-Just wait a bit until the terminal shows `INFO:waitress:Serving on http://127.0.0.1:9999` and refresh the page.
-The application is now served on port `9999` of your local machine. -->
 
 ## 2. Create a workspace
 If you have never started the application before, you will not have any workspaces yet. A workspace provides easy access to all data files and results for a given project.

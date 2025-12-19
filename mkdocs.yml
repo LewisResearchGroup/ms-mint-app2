@@ -27,4 +27,6 @@ extra_css:
 markdown_extensions:
   - pymdownx.tabbed:
       alternate_style: true
-      
+  - attr_list
+plugins:
+  - glightbox
