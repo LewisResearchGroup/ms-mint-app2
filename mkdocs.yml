@@ -22,4 +22,6 @@ extra:
       make our documentation better.
 theme:
   name: material
+extra_css:
+  - stylesheets/extra.css
       
