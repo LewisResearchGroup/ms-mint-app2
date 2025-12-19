@@ -1,15 +1,15 @@
 # MINT - Metabolomics Integrator
 
-MINT is a sophisticated post-processing tool designed for _liquid chromatography-mass spectrometry_ (LCMS) based _metabolomics_. Metabolomics, the comprehensive study of small molecule metabolites within biological samples, plays a pivotal role in biomedical research. These metabolites serve as crucial biomarkers for disease diagnostics, therapeutic interventions, and pathogen identification, including methicillin-resistant _Staphylococcus aureus_ (MRSA).
+MINT is a sophisticated post-processing tool designed for _liquid chromatography-mass spectrometry_ (LCMS) based _metabolomics_. [Metabolomics](https://en.wikipedia.org/wiki/Metabolomics), the comprehensive study of small molecule metabolites within biological samples, plays a pivotal role in biomedical research. These metabolites serve as crucial biomarkers for disease diagnostics, therapeutic interventions, and pathogen identification.
 
 
 ![Screenshot](quickstart/peak-preview.png)
 _**Figure 1:**_ Screenshot of the MINT browser interface.
 
-## Links
+<!-- ## Links
 - [GitHub repository of ms-mint-app (the browser based application)](https://github.com/LewisResearchGroup/ms-mint-app)
 - [GitHub repository of ms-mint (the Python package)](https://github.com/LewisResearchGroup/ms-mint)
-- [GitHub repository of ms-mint-app plugin template](https://github.com/sorenwacker/ms-mint-plugin-template)
+- [GitHub repository of ms-mint-app plugin template](https://github.com/sorenwacker/ms-mint-plugin-template) -->
 
 ## Quickstart
 Check out the [Quickstart](quickstart.md) to jump right into it.
@@ -39,7 +39,7 @@ Instead of analyzing the raw LCMS data, it is common practice to deconvolute the
 The binning transforms the semi-structured data into a structured format where each column stands for one particular metabolite. Often the data is normalized for each metabolite to reflect the relative intensities across multiple samples. The structured data can then be subjected to common data analyses such as dimensionality reduction or clustering analysis.
 
 ![](image/hierarchical_clustering.png)<br/>
-_**Figure 4:**_ Clustering analysis for a small set of metabolites across 12 different samples including 3 different pathogens (EC: _E. coli_, SA: _S. aureus_, CA: _C. albicans_).
+_**Figure 4:**_ Clustering analysis for a set of metabolites across 100 different samples including 4 different pathogens (EC: _E. coli_, GGS: _S. dysgalactiae_, PA: _P. aeruginosa_, SA: _S. aureus_).
 
 ## Future Directions
 MINT is continually evolving to incorporate new features and improvements. Future developments include enhanced data visualization tools, integration with other omics data, and improved user interface design to cater to a broader range of users. Community support is vital for the ongoing development of MINT, and we encourage users to contribute their feedback and engage with the development team.

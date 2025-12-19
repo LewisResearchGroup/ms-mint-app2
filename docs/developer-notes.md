@@ -38,7 +38,7 @@ cd specfiles && pyinstaller --noconfirm Mint.spec ..\scripts\Mint.py
 
 To build and deploy the documentation using `mkdocs`, follow these steps:
 
-1. Ensure you have `mkdocs` installed (`pip install mkdocs` if not).
+1. Ensure you have `mkdocs` and the Material theme installed (`pip install mkdocs mkdocs-material` if not), or use `pip install -r requirements-dev.txt`.
 2. Run the following commands to build the documentation and deploy it to GitHub Pages:
 
 ```bash
