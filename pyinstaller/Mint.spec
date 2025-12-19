@@ -28,6 +28,7 @@ all_hidden_imports = (
     + _safe_collect_submodules('dash_extensions')
     + _safe_collect_submodules('feffery_antd_components')
     + _safe_collect_submodules('feffery_utils_components')
+    + _safe_collect_submodules('numpy')
     + _safe_collect_submodules('webview')
 )
 

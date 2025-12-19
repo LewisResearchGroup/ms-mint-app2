@@ -318,6 +318,7 @@ _layout = html.Div(
             id='results-table-container',
             style={'paddingTop': '1rem'},
         ),
+        html.Div(id="processing-notifications-container"),
         fac.AntdModal(
             [
                 fac.AntdFlex(
@@ -650,6 +651,25 @@ def layout():
 
 def callbacks(app, fsc, cache):
     @app.callback(
+        Output("processing-notifications-container", "children"),
+        Input('section-context', 'data'),
+        Input("wdir", "data"),
+    )
+    def warn_missing_workspace(section_context, wdir):
+        if not section_context or section_context.get('page') != 'Processing':
+            return dash.no_update
+        if wdir:
+            return []
+        return fac.AntdNotification(
+            message="Activate a workspace",
+            description="Select or create a workspace before using Processing.",
+            type="warning",
+            duration=4,
+            placement='bottom',
+            showProgress=True,
+            stack=True,
+        )
+    @app.callback(
         Output("results-table", "data"),
         Output("results-table", "selectedRowKeys"),
         Output("results-table", "pagination"),
@@ -671,17 +691,23 @@ def callbacks(app, fsc, cache):
         if not wdir:
             raise PreventUpdate
 
-        # Autosave results table on tab load/refresh for durability
+        # Autosave results table on tab load/refresh for durability (throttled to limit I/O).
         try:
             results_dir = Path(wdir) / "results"
             results_dir.mkdir(parents=True, exist_ok=True)
-            with duckdb_connection(wdir) as conn:
-                if conn is None:
-                    raise PreventUpdate
-                conn.execute(
-                    "COPY (SELECT * FROM results) TO ? (HEADER, DELIMITER ',')",
-                    (str(results_dir / "results_backup.csv"),),
-                )
+            backup_path = results_dir / "results_backup.csv"
+            should_write = True
+            if backup_path.exists():
+                last_write = backup_path.stat().st_mtime
+                should_write = (time.time() - last_write) > 30
+            if should_write:
+                with duckdb_connection(wdir) as conn:
+                    if conn is None:
+                        raise PreventUpdate
+                    conn.execute(
+                        "COPY (SELECT * FROM results) TO ? (HEADER, DELIMITER ',')",
+                        (str(backup_path),),
+                    )
         except PreventUpdate:
             raise
         except Exception:
@@ -923,42 +949,77 @@ def callbacks(app, fsc, cache):
 
         if okCounts is None:
             raise PreventUpdate
+        if not wdir:
+            raise PreventUpdate
         if clickedKey == "processing-delete-selected" and not selectedRows:
             results_action_store = {'action': 'delete', 'status': 'failed'}
             total_removed = [0, 0]
         elif clickedKey == "processing-delete-selected":
-            remove_results = list({row["peak_label"] for row in selectedRows})
+            remove_pairs = list({
+                (row["peak_label"], row["ms_file_label"]) for row in selectedRows
+                if row.get("peak_label") and row.get("ms_file_label")
+            })
+            unique_peaks = len({p for p, _ in remove_pairs})
+            unique_files = len({m for _, m in remove_pairs})
 
             with duckdb_connection(wdir) as conn:
                 if conn is None:
                     raise PreventUpdate
 
-                total_removed_q = conn.execute("""
-                                               SELECT COUNT(DISTINCT peak_label)    as unique_peaks,
-                                                      COUNT(DISTINCT ms_file_label) as unique_files
-                                               FROM results
-                                               WHERE peak_label IN ?
-                                               """, (remove_results,)).fetchone()
-                total_removed = [0, 0]
-                if total_removed_q:
-                    total_removed = list(total_removed_q)
-                    conn.execute("DELETE FROM results WHERE peak_label IN ?", (remove_results,))
-                    results_action_store = {'action': 'delete', 'status': 'success'}
+                try:
+                    conn.execute("BEGIN")
+                    total_removed = [unique_peaks, unique_files]
+                    if remove_pairs:
+                        placeholders = ", ".join(["(?, ?)"] * len(remove_pairs))
+                        params = [v for pair in remove_pairs for v in pair]
+                        conn.execute(
+                            f"DELETE FROM results WHERE (peak_label, ms_file_label) IN ({placeholders})",
+                            params
+                        )
+                        results_action_store = {'action': 'delete', 'status': 'success'}
+                    conn.execute("COMMIT")
+                except Exception:
+                    conn.execute("ROLLBACK")
+                    return (fac.AntdNotification(
+                                message="Delete Results failed",
+                                description="Could not delete the selected results; no changes were applied.",
+                                type="error",
+                                duration=4,
+                                placement='bottom',
+                                showProgress=True,
+                                stack=True
+                            ),
+                            {'action': 'delete', 'status': 'failed'})
         else:
             with duckdb_connection(wdir) as conn:
                 if conn is None:
                     raise PreventUpdate
-                total_removed_q = conn.execute("""
-                                               SELECT COUNT(DISTINCT peak_label)    as unique_peaks,
-                                                      COUNT(DISTINCT ms_file_label) as unique_files
-                                               FROM results
-                                               """).fetchone()
-                results_action_store = {'action': 'delete', 'status': 'failed'}
-                total_removed = [0, 0]
-                if total_removed_q:
-                    total_removed = list(total_removed_q)
-                    conn.execute("DELETE FROM results")
-                    results_action_store = {'action': 'delete', 'status': 'success'}
+                try:
+                    conn.execute("BEGIN")
+                    total_removed_q = conn.execute("""
+                                                   SELECT COUNT(DISTINCT peak_label)    as unique_peaks,
+                                                          COUNT(DISTINCT ms_file_label) as unique_files
+                                                   FROM results
+                                                   """).fetchone()
+                    results_action_store = {'action': 'delete', 'status': 'failed'}
+                    total_removed = [0, 0]
+                    if total_removed_q:
+                        total_removed = list(total_removed_q)
+                        conn.execute("DELETE FROM results")
+                        results_action_store = {'action': 'delete', 'status': 'success'}
+                    conn.execute("COMMIT")
+                except Exception:
+                    conn.execute("ROLLBACK")
+                    return (fac.AntdNotification(
+                                message="Delete Results failed",
+                                description="Could not delete all results; no changes were applied.",
+                                type="error",
+                                duration=4,
+                                placement='bottom',
+                                showProgress=True,
+                                stack=True
+                            ),
+                            {'action': 'delete', 'status': 'failed'})
         return (fac.AntdNotification(message="Delete Results",
                                      description=f"Deleted {total_removed[0]} targets with {total_removed[1]} samples "
                                                  "from results",
@@ -1055,6 +1116,7 @@ def callbacks(app, fsc, cache):
 
     @app.callback(
         Output("download-csv", "data"),
+        Output("notifications-container", "children", allow_duplicate=True),
 
         Input("download-all-results-btn", "nClicks"),
         Input("download-densematrix-results-btn", "nClicks"),
@@ -1068,10 +1130,23 @@ def callbacks(app, fsc, cache):
     def download_results(d_all_clicks, d_dm_clicks, d_options_value, d_dm_rows, d_dm_cols, d_dm_value, wdir):
 
         ctx = dash.callback_context
+        if not ctx.triggered:
+            raise PreventUpdate
         prop_id = ctx.triggered[0]['prop_id'].split('.')[0]
+        if prop_id == 'download-all-results-btn' and not d_all_clicks:
+            raise PreventUpdate
+        if prop_id == 'download-densematrix-results-btn' and not d_dm_clicks:
+            raise PreventUpdate
 
         if not wdir:
-            raise PreventUpdate
+            return dash.no_update, fac.AntdNotification(
+                message="Download Results",
+                description="Workspace is not available. Please select or create a workspace.",
+                type="error",
+                duration=4,
+                placement="bottom",
+                showProgress=True,
+            )
 
         ws_key = Path(wdir).stem
         with duckdb_connection_mint(Path(wdir).parent.parent) as mint_conn:
@@ -1083,10 +1158,47 @@ def callbacks(app, fsc, cache):
             ws_name = ws_row[0]
 
         if prop_id == 'download-all-results-btn':
+            allowed_cols = {
+                'peak_area',
+                'peak_area_top3',
+                'peak_mean',
+                'peak_median',
+                'peak_n_datapoints',
+                'peak_min',
+                'peak_max',
+                'peak_rt_of_max',
+                'total_intensity',
+            }
+            if not d_options_value or not isinstance(d_options_value, list):
+                return dash.no_update, fac.AntdNotification(
+                    message="Download Results",
+                    description="Select at least one result column to download.",
+                    type="warning",
+                    duration=4,
+                    placement="bottom",
+                    showProgress=True,
+                )
+            safe_cols = [c for c in d_options_value if c in allowed_cols]
+            if not safe_cols:
+                return dash.no_update, fac.AntdNotification(
+                    message="Download Results",
+                    description="No valid result columns selected.",
+                    type="warning",
+                    duration=4,
+                    placement="bottom",
+                    showProgress=True,
+                )
             with duckdb_connection(wdir) as conn:
                 if conn is None:
-                    raise PreventUpdate
-                cols = ', '.join(d_options_value)
+                    return dash.no_update, fac.AntdNotification(
+                        message="Download Results",
+                        description="Could not open the results database.",
+                        type="error",
+                        duration=4,
+                        placement="bottom",
+                        showProgress=True,
+                    )
+                cols = ', '.join(safe_cols)
                 df = conn.execute(f"""
                     SELECT 
                         r.peak_label, 
@@ -1101,9 +1213,60 @@ def callbacks(app, fsc, cache):
 
         else:
             with duckdb_connection(wdir) as conn:
+                if conn is None:
+                    return dash.no_update, fac.AntdNotification(
+                        message="Download Results",
+                        description="Could not open the results database.",
+                        type="error",
+                        duration=4,
+                        placement="bottom",
+                        showProgress=True,
+                    )
+                allowed_rows_cols = {'ms_file_label', 'peak_label', 'ms_type'}
+                allowed_values = {
+                    'peak_area',
+                    'peak_area_top3',
+                    'peak_mean',
+                    'peak_median',
+                    'peak_n_datapoints',
+                    'peak_min',
+                    'peak_max',
+                    'peak_rt_of_max',
+                    'total_intensity',
+                }
+                if not d_dm_rows or not d_dm_cols or not d_dm_value:
+                    return dash.no_update, fac.AntdNotification(
+                        message="Download Results",
+                        description="Select row, column, and value fields for the dense matrix.",
+                        type="warning",
+                        duration=4,
+                        placement="bottom",
+                        showProgress=True,
+                    )
+                row_col = d_dm_rows[0]
+                col_col = d_dm_cols[0]
+                val_col = d_dm_value[0]
+                if row_col not in allowed_rows_cols or col_col not in allowed_rows_cols:
+                    return dash.no_update, fac.AntdNotification(
+                        message="Download Results",
+                        description="Invalid row/column selection for dense matrix.",
+                        type="warning",
+                        duration=4,
+                        placement="bottom",
+                        showProgress=True,
+                    )
+                if val_col not in allowed_values:
+                    return dash.no_update, fac.AntdNotification(
+                        message="Download Results",
+                        description="Invalid value selection for dense matrix.",
+                        type="warning",
+                        duration=4,
+                        placement="bottom",
+                        showProgress=True,
+                    )
                 df = create_pivot(conn, d_dm_rows[0], d_dm_cols[0], d_dm_value[0], table='results')
                 filename = f"{T.today()}-MINT__{ws_name}-{d_dm_value[0]}_results.csv"
-        return dcc.send_data_frame(df.to_csv, filename, index=False)
+        return dcc.send_data_frame(df.to_csv, filename, index=False), dash.no_update
 
     @app.callback(
         Output('processing-tour', 'current'),

@@ -2,6 +2,7 @@ import dash
 import base64
 from io import BytesIO, StringIO
 from pathlib import Path
+import time
 import feffery_antd_components as fac
 import feffery_utils_components as fuc
 from itertools import cycle
@@ -14,7 +15,6 @@ from sklearn.decomposition import PCA
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 from plotly import colors as plotly_colors
-from .analysis_tools import pca
 from ..duckdb_manager import duckdb_connection, create_pivot
 from ..plugin_interface import PluginInterface
 import plotly.express as px
@@ -461,6 +461,7 @@ _layout = html.Div(
                 id='analysis-metric-container',
             ),
         )
+        , html.Div(id="analysis-notifications-container")
     ]
 )
 
@@ -472,10 +473,40 @@ def layout():
 
 
 def callbacks(app, fsc, cache):
+    allowed_metrics = {
+        'peak_area',
+        'peak_area_top3',
+        'peak_max',
+        'peak_mean',
+        'peak_median',
+    }
+    @app.callback(
+        Output("analysis-notifications-container", "children"),
+        Input('section-context', 'data'),
+        Input("wdir", "data"),
+    )
+    def warn_missing_workspace(section_context, wdir):
+        if not section_context or section_context.get('page') != 'Analysis':
+            return dash.no_update
+        if wdir:
+            return []
+        return fac.AntdNotification(
+            message="Activate a workspace",
+            description="Select or create a workspace before using Analysis.",
+            type="warning",
+            duration=4,
+            placement='bottom',
+            showProgress=True,
+            stack=True,
+        )
     def _parse_uploaded_standards(contents, filename):
         if not contents or not filename:
             raise ValueError("No standards file provided.")
+        if len(contents) > 15_000_000:
+            raise ValueError("Standards file is too large (limit: 15MB).")
         content_type, content_string = contents.split(",", 1)
+        if content_type and "csv" not in content_type and "excel" not in content_type:
+            raise ValueError("Unsupported file type. Use CSV or Excel.")
         decoded = base64.b64decode(content_string)
         if filename.lower().endswith((".xls", ".xlsx")):
             return pd.read_excel(BytesIO(decoded))
@@ -676,7 +707,7 @@ def callbacks(app, fsc, cache):
     def show_tab_content(section_context, tab_key, x_comp, y_comp, violin_comp_checks, metric_value, norm_value,
                         group_by, wdir):
 
-        if section_context['page'] != 'Analysis':
+        if not section_context or section_context.get('page') != 'Analysis':
             raise PreventUpdate
 
         if not wdir:
@@ -727,7 +758,7 @@ def callbacks(app, fsc, cache):
             if results_count == 0:
                 return None, empty_fig, [], [], []
 
-            metric = metric_value or 'peak_area'
+            metric = metric_value if metric_value in allowed_metrics else 'peak_area'
             df = create_pivot(conn, value=metric)
             df.set_index('ms_file_label', inplace=True)
             group_field = selected_group if selected_group in df.columns else (
@@ -892,7 +923,13 @@ def callbacks(app, fsc, cache):
                     cm_dir.mkdir(parents=True, exist_ok=True)
                     safe_metric = slugify_label(metric)
                     file_name = f"{safe_metric}_{norm_value}_clustermap.png"
-                    fig.savefig(cm_dir / file_name, format="png", dpi=600)
+                    save_path = cm_dir / file_name
+                    should_save = True
+                    if save_path.exists():
+                        last_write = save_path.stat().st_mtime
+                        should_save = (time.time() - last_write) > 30
+                    if should_save:
+                        fig.savefig(save_path, format="png", dpi=600)
             except Exception:
                 pass
 
@@ -1091,7 +1128,11 @@ def callbacks(app, fsc, cache):
                 fig.update_traces(spanmode='hard', span=[low, high], side='positive', scalemode='width',
                                   selector=dict(type='violin'))
                 # Simple significance test: t-test for 2 groups, ANOVA for >2
-                groups = [g['PlotValue'].to_numpy() for _, g in melt_df.groupby(group_label)]
+                groups = [
+                    g['PlotValue'].dropna().to_numpy()
+                    for _, g in melt_df.groupby(group_label)
+                ]
+                groups = [g for g in groups if len(g) >= 2]
                 method = None
                 p_val = None
                 if len(groups) == 2:
@@ -1101,7 +1142,7 @@ def callbacks(app, fsc, cache):
                     method = "ANOVA"
                     _, p_val = f_oneway(*groups)
 
-                if method and p_val is not None:
+                if method and p_val is not None and np.isfinite(p_val):
                     display_p = f"{p_val:.3e}"
                     fig.add_annotation(
                         xref="paper",
@@ -1185,7 +1226,7 @@ def callbacks(app, fsc, cache):
         with duckdb_connection(wdir) as conn:
             if conn is None:
                 raise PreventUpdate
-            if not intensity:
+            if intensity not in allowed_metrics:
                 intensity = 'peak_area'
             try:
                 mint_df = conn.execute(f"""
