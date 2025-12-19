@@ -2,15 +2,17 @@
 # Quickstart Guide for ms-mint-app
 Welcome to the ms-mint-app quickstart guide! This guide will help you get up and running with the application, allowing you to start analyzing mass spectrometry data efficiently. Follow the steps below to install the app, create a workspace, and begin processing your data.
 
-## 1. Install `ms-mint-app`
+## 1. Open `ms-mint-app`
 
-If you know how to use `pip` run:
+Download an executable compatible with your OS and open MINT (explore other options to install MINT [here](install.md)).
+
+<!-- To install MINT, run:
 
 ```
 pip install ms-mint-app
 ```
 
-or follow the instruction [here](https://lewisresearchgroup.github.io/ms-mint-app/install/).
+or follow the instructions [here](install.md).
 
 Then start the application with
 
@@ -29,28 +31,28 @@ The application will take a while until it starts up. In the mean time the brows
 > This site can’t be reached
 
 Just wait a bit until the terminal shows `INFO:waitress:Serving on http://127.0.0.1:9999` and refresh the page.
-The application is now served on port `9999` of your local machine.
+The application is now served on port `9999` of your local machine. -->
+
+## 2. Create a workspace
+If you have never started the application before, you will not have any workspaces yet. A workspace is meant for easy access to all data files and results for a given project. 
 
 ![](quickstart/first-start.png)
 
-If you have never started the application before, you will not have any workspaces yet.
-
-## 2. Create a workspace
-
-In the `Workspaces` tab click on the blue button with the label `CREATE WORKSPACE`. A dialogue opens asking you for the name of the future workspace. Type `DEMO` into the text field and click on `CREATE`.
+In the `Workspaces` tab, click on  `+ Create Workspace` button. A dialogue will open asking for the name of the workspace and (optional) a brief description. Type `DEMO` into the text field, add a brief description `This is a DEMO` and click on `Create`.
 
 ![Create workspace](quickstart/create-workspace.png)
 
-Now you have created your first workspace, but it is empty. We will need some input files to populate it.
-You can see which workspace is activated in the light-blue info box:
+You can see which workspace is activated by looking at the blue toggle left side of the workspace name. By clicking in the `plus` sign, you can see in which folder is the workspace located as well as some stats pertaining how many samples were analyzed, how many compounds were included in the analysis, etc.
 
 ![Worspace active](quickstart/workspace-activated.png)
+
+Now you have created your first workspace, but it is empty. We will need some input files to populate it.
 
 ## 3. Download the demo files
 
 Some demo files are available for download on the `ms-mint` Google-Drive. Go on and download the files from [Google Drive](https://drive.google.com/drive/folders/1U4xMy5lfETk93sSVXPI79cCWyIMcAjeZ?usp=drive_link) and extract the archive.
 
-You will find two `csv` files and 12 `mzXML` and/or `mzML` files. 
+You will find two `csv` files and 12 `mzXML` files.
 
 ```
 .
@@ -77,76 +79,107 @@ You will find two `csv` files and 12 `mzXML` and/or `mzML` files.
 ```
 
 - A folder with 12 mass-spectrometry (MS) files from microbial samples. We have four files for each _Staphylococcus aureus_ (SA), _Escherichia coli_ (EC), and _Candida albicans_ (CA).
-Each file belongs to one of four batches (B1-B4). 
-- `metadata.csv` contains this information in tabular format. Setting up the metadata for your project is essential. 
+Each file belongs to one of four batches (B1-B4).
+- `metadata.csv` contains this information in tabular format. Submit the metadata is optional, but highly recomended as will allow to make teh analysis more streamlined.
 - `targets.csv` contains the extraction lists. The identification of the metabolites has been done before, so we know where the metabolites appear in the MS data.
 
 ## 4. Upload LCMS files 
 
-Switch to `MS-Files` tab and upload the 12 MS files, by either using the Explorer/Finder to the Upload field, or by clicking on the upload field and selecting the files in the dialogue box that opens. Wait until all files are uploaded:
+Switch to `MS-Files` tab and upload the 12 MS files. Click `LOAD MS-FILES` on the top left, navigate to the folder where the files are located, select either the files individually or the folder, and click `Process Files`.
 
-![](quickstart/ms-files-uploaded.png)
+![](quickstart/ms-files-uploaded-1.png)
 
-To speed up future processing you can now convert these files to the `.feather` format, by selecting all files and clicking on "CONVERT SELECTED FILES TO FEATHER".
+![](quickstart/ms-files-uploaded-2.png)
 
-## 5. Add metadata
+At this point you can proceed with the rest of steps without providing any metadata, however we strongly recomend using metadata to streamline downstream analyses.
 
-Switch to `Metadata` and upload `metadata.csv`. This will populate the table with important information.
+## 4.1. Add metadata (Optional, but highly recommended)
+
+In the same way as before, Click `LOAD METADATA` on the top left, navigate to the folder where the metadata file is located, select the file, and click `Process Files`. If colors are not provided, automatic ones will be assigned according to sample type.
 
 ![](quickstart/metadata-added.png)
 
-This file contains critical information about your samples, and setting up the metadata accurately and meticulously is essential. 
-The metadata table is a cornerstone for downstream processes in `ms-mint` and should not be omitted. 
-Properly configured metadata enhances the quality and precision of your results, making it a vital component of your workflow.
+This file contains important information about your samples.
 
-| Column Name           | Description                                                                                                                                   |
-|-----------------------|-----------------------------------------------------------------------------------------------------------------------------------------------|
-| `ms_file_label`       | The label of the mass spectrometry file.                                                                                                      |
-| `color`               | Color coding for visual identification.                                                                                                       |
-| `use_for_optimization`| Boolean value indicating if the file is used in peak optimization.                                                                             |
-| `in_analysis`         | Indicates if the sample is included in the analysis.                                                                                          |
-| `label`               | Group of the sample (e.g., treatment group vs. control group).                                                                                |
-| `sample_type`         | Type of the sample, default is `Biological Sample`, other labels could be `Standard Sample` or `Quality Control`.                             |
-| `run_order`           | Order in which the samples were processed (1-N).                                                                                              |
-| `plate`               | Batch ID, for example, the plate if samples come from multiple plates.                                                                        |
-| `plate_row`           | Row location of the sample on the plate (e.g., 1-12 for a 96-well plate).                                                                     |
-| `plate_column`        | Column location of the sample on the plate (e.g., A-H for a 96-well plate).                                                                   |
-| `ms_column`           | Mass spectrometry column information.                                                                                                         |
-| `ionization_mode`     | Mode of ionization used in the mass spectrometry.                                                                                             |
+| Column Name             | Description                                                       |
+|-------------------------|-------------------------------------------------------------------|
+|`ms_file_label`          | Unique file name; must match the MS file on disk                  |
+|`label`                  | Friendly label to display in plots and reports                    |
+|`color`                  | Hex color for visualizations (auto-generated if blank)            |
+|`use_for_optimization`   | True to include in optimization steps (COMPUTE CHROMATOGRAMS)     |
+|`use_for_processing`     | True to include in processing (RUN MINT)                          |
+|`use_for_analysis`       | True to include in analysis outputs                               |
+|`sample_type`            | Sample category (e.g.; Sample; QC; Blank; Standard)               |
+|`group_1`                | User-defined grouping field 1 for analysis/grouping (free text)   |
+|`group_2`                | User-defined grouping field 2 for analysis/grouping (free text)   |
+|`group_3`                | User-defined grouping field 3 for analysis/grouping (free text)   |
+|`group_4`                | User-defined grouping field 4 for analysis/grouping (free text)   |
+|`group_5`                | User-defined grouping field 5 for analysis/grouping (free text)   |
+|`polarity`               | Polarity (Positive or Negative)                                   |
+|`ms_type`                | Acquisition type (ms1 or ms2)                                     |
 
 
 ## 5. Add targets (metabolites)
 Switch to `Targets` and upload `MINT-targets.csv`.
+
 ![](quickstart/targets-table.png)
 
-This is the data extraction protocol. This determines what data is extracted from the files. The same protocol is applied to all files. No fitting or peak optimization is done. 
-MINT therefore requires a very stable chromatographic column and stable retention times for all files in a workspace. 
+This is the data extraction protocol. This determines what data is extracted from the files. The same protocol is applied to all files. No fitting or peak optimization is done.
 
-## 6. Optimize retention times
-Switch to `Peak Optimization` tab and select `Use all files` in the `File selection` menu. Normally, especially for large datasets, you should select a small representative set of samples including standards (with known concentrations of the target metabolites). The peak optimization takes longer the more files are used for it and the more targets are defined. 'Click on `UPDATE PEAK PREVIEWS`. 
+This file contains important information about the targets.
 
-![](quickstart/peak-preview.png)
+| Column Name             | Description                                                          |
+|-------------------------|----------------------------------------------------------------------|
+|`peak_label`             | Unique metabolite/feature name                                       |
+|`peak_selection`         | True if selected for analysis                                        |
+|`bookmark`               | True if bookmarked                                                   |
+|`mz_mean`                | Mean m/z (centroid)                                                  |
+|`mz_width`               | m/z window or tolerance                                              |
+|`mz`                     | Precursor m/z (MS2)                                                  |
+|`rt`                     | Retention time (default: in seconds)                                 |
+|`rt_min`                 | Lower RT bound (default: in seconds)                                 |
+|`rt_max`                 | Upper RT bound (default: in seconds)                                 |
+|`rt_unit`                | RT unit (e.g. s or min; default: in seconds)                         |
+|`intensity_threshold`    | Intensity cutoff (anything lower than this value is considered zero) |
+|`polarity`               | Polarity (Positive or Negative)                                      |
+|`filterLine`             | Filter ID for MS2 scans                                              |
+|`ms_type`                | ms1 or ms2                                                           |
+|`category`               | Category                                                             |
+|`score`                  | Score                                                                |
+|`notes`                  | Free-form notes                                                      |
+|`source`                 | Data source or file                                                  |
+
+
+## 6. Optimize retention times (Optional, but highly recommended)
+Switch to the `Optimization` tab. Traditionally, and especially for large datasets, you select a representative set of samples including standards (with known concentrations of the target metabolites) to perform the optimization. However in MINT, you can perform the optimization with all the samples in most cases (see the files selected for optimization in the tree on the left side).
+
+![](quickstart/peak-optimization-1.png)
+
+The peak optimization takes longer the more files are used for it and the more targets are defined. Click on `COMPUTE CHROMATOGRAMS`. Here you can select how much resources you want to allocate to process the files, including CPU, RAM and batch size. In small datasets the defult values should suffice, as the number of files used for optimization grow, tweaking these parameters will guarantee better performance. Click `Generate` to compute the chromatograms.
+
+![](quickstart/peak-optimization-2.png)
+![](quickstart/peak-optimization-3.png)
 
 This will show you the shapes of the data in the selected regions as an overview. This is a great way to validate that your target parameters are correct. 
-However, you have to make sure that the metabolite you are looking for is present in the files. That is why you should always add some standard samples.
-The colors in the plots correspond to the colors in the metadata table.
+However, you have to make sure that the metabolite you are looking for is present in the files. That is why you should always add some standard samples (samples with the metabolite of interest at different concentrations). The colors in the plots correspond to the sample type colors in the metadata table.
 
-You can use the interactive tool below to optimize the retention time for each target manually. You can do that by zooming in towards the area that you want to select as peak and then click on `SET RT TO CURRENT VIEW`. The green area is what is currently selected as retention time (RT) range. The black bar is the expected retention time of the peak maximum that you usually know from former experiments. This way you can compare the peak with older experiments. To set the expected RT to the middle of the current window press `CONFIRM RETENTION TIME`. If the target is not present in any of the files, you can and should remove it from the target list by clicking on `REMOVE TARGET`. 
+You can click on a card to use the interactive tool below and optimize the region of interest (ROI) or retention time span for each target manually. You can do that by moving the borders of the box towards the area that you want to select as peak and then click on `Save`. The green area is what is currently selected as retention time (RT) range. If the target is not present in any of the files, you can remove the target from the target list by clicking on `Delete target`.
 
-![](quickstart/peak-optimization.png)
+![](quickstart/peak-optimization-4.png)
 
-- if you are happy with the peak shapes you can proceed to `Processing`.
+Once the optimization is done, you can proceed to `Processing`.
 
 ## 7. Process the data
 
-Switch to `Processing` and start the data extraction with `Run MINT`
+Switch to `Processing` and start the data extraction with `RUN MINT`. In the same way that was done before for Optimization, here you can select how much resources you want to allocate to process the files, including CPU, RAM and batch size. In small datasets the defult values should suffice, as the number of files used for optimization grow, tweaking these parameters will guarantee better performance. Click `Run` to compute the results.
 
-![](quickstart/run-mint.png)
+![](quickstart/run-mint-1.png)
+![](quickstart/run-mint-2.png)
 
-The extraction process is done when you get a green notification `Finished running MINT`.
-Now, you can download the results in long-format or the dense peak_max values. 
-The tidy format contains all results, while the `DENSE PEAK_MAX` only contians the `peak_max` values as a matrix. 
 
+Now, you can download the results in long-format or the dense peak_max values by clicking on `DOWNLOAD RESULTS`. The tidy format contains all results, while the dense format only contains the a selected metric (`peak_max` as default) as a matrix values.
+
+![](quickstart/run-mint-3.png)
 
 ## 8. Analyze the results.
 
