@@ -1,16 +1,10 @@
    
 # Installation notes
-## Windows Installer
-For Windows 10/11 a build is provided [here](https://github.com/soerendip/ms-mint/releases/latest). 
-The installer generates an icon in the windows start menu. There will be a terminal be shown, 
-with potentially some errors due to missing files which can be ignored. Give it some time until
-the server is running and then navigate to [http://localhost:9999](http://localhost:9999) 
-in the browser.
+## Executables
+Builds are provided with all dependencies integrated for Windows 10/11 and Ubuntu [here](https://github.com/soerendip/ms-mint/releases/latest). After double-click the executable, a terminal will be open, followed by the app on the web browser. If the brwoser does not open automatically, please navigate to [http://localhost:9999](http://localhost:9999).
 
 ## Installation with `pip`
-The latest release of the program can easily be installed 
-in a standard Python 3 (>= 3.7) environment using the widely used
-package manager `pip`:
+The latest release of the program can easily be installed in a standard Python 3 (>= 3.12) environment using `pip`:
 
     pip install ms-mint-app
 
@@ -21,7 +15,7 @@ Start the app via:
 Mint
 ```
 
-## Docker
+<!-- ## Docker
 MINT is now available on DockerHub in containerized format. A container is a standard unit of software that packages up code and all its dependencies, so the application runs quickly and reliably from one computing environment to another. In contrast to a virtual machine (VM), a Docker container image is a lightweight, standalone, executable package of software that includes everything needed to run an application: code, runtime, system tools, system libraries and settings. This allows to run MINT on any computer that can run Docker.
 
 The following command can be used to pull the latest image from docker hub.
@@ -33,7 +27,7 @@ The image can be started with:
     docker run -p 9999:9999 -v /data/:/data/  msmint/msmint:latest Mint --data-dir /data --no-browser --host 0.0.0.0
 
 
-Then the tool is available in the browser at http://localhost:9999.
+Then the tool is available in the browser at http://localhost:9999. -->
 
 ## Installation from source
 We recommend using [conda](https://docs.anaconda.com/free/miniconda/) or [mamba](https://conda-forge.org/miniforge/) to create a virtual environment before installing `ms-mint-app`.
@@ -73,4 +67,4 @@ optional arguments:
   --serve-path          serve app at a different path e.g. '/mint/' to serve the app at 'localhost:9999/mint/'
 ```
 
-If the browser does not open automatically open it manually and navigate to `http://localhost:9999`. The app's frontend is build using [Plotly-Dash](https://plot.ly/dash/) and runs locally in a browser. Thought, the Python functions provided can be imported and used in any Python project independently. The GUI is under active development and may be optimized in the future.
+If the browser does not open automatically open it manually and navigate to `http://localhost:9999`. The app's frontend is build using [Plotly-Dash](https://plot.ly/dash/) and runs locally in a browser. The GUI is under active development and may be optimized in the future.
