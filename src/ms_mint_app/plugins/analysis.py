@@ -461,7 +461,14 @@ _layout = html.Div(
                 id='analysis-metric-container',
             ),
         )
-        , html.Div(id="analysis-notifications-container")
+        , fac.AntdTour(
+            locale='en-us',
+            steps=[],
+            id='analysis-tour',
+            open=False,
+            current=0,
+        ),
+        html.Div(id="analysis-notifications-container")
     ]
 )
 
@@ -685,6 +692,87 @@ def callbacks(app, fsc, cache):
             None,
             "No standards file selected.",
         )
+
+    def _analysis_tour_steps(active_tab: str):
+        if active_tab == 'scalir':
+            return [
+                {
+                    'title': 'SCALiR overview',
+                    'description': 'Calibrate concentrations from standards and workspace results.',
+                },
+                {
+                    'title': 'Tabs',
+                    'description': 'Switch between Clustermap, PCA, Violin, and SCALiR views.',
+                    'targetSelector': '#analysis-tabs',
+                },
+                {
+                    'title': 'Params',
+                    'description': 'Choose the intensity metric and slope strategy.',
+                    'targetSelector': '#scalir-intensity',
+                },
+                {
+                    'title': 'Standards file',
+                    'description': 'Upload your standards table (CSV).',
+                    'targetSelector': '#scalir-standards-upload',
+                },
+                {
+                    'title': 'Run',
+                    'description': 'Run SCALiR to fit calibration curves.',
+                    'targetSelector': '#scalir-run-btn',
+                },
+                {
+                    'title': 'Inspect results',
+                    'description': 'Select metabolites to view calibration plots.',
+                    'targetSelector': '#scalir-metabolite-select',
+                },
+            ]
+        return [
+            {
+                'title': 'Analysis overview',
+                'description': 'Use the controls above to choose a metric, transformation, and grouping.',
+            },
+            {
+                'title': 'Metric',
+                'description': 'Pick the quantitative metric to visualize.',
+                'targetSelector': '#analysis-metric-select',
+            },
+            {
+                'title': 'Transformations',
+                'description': 'Normalize or transform the values before plotting.',
+                'targetSelector': '#analysis-normalization-select',
+            },
+            {
+                'title': 'Group by',
+                'description': 'Group samples for coloring and summaries.',
+                'targetSelector': '#analysis-grouping-select',
+            },
+            {
+                'title': 'Tabs',
+                'description': 'Switch between Clustermap, PCA, Violin, and SCALiR views.',
+                'targetSelector': '#analysis-tabs',
+            },
+        ]
+
+    @app.callback(
+        Output('analysis-tour', 'current'),
+        Output('analysis-tour', 'open'),
+        Output('analysis-tour', 'steps'),
+        Input('analysis-tabs', 'activeKey'),
+        Input('analysis-tour-icon', 'nClicks'),
+        State('analysis-tour', 'open'),
+        prevent_initial_call=False,
+    )
+    def analysis_tour_open(active_tab, n_clicks, is_open):
+        ctx = dash.callback_context
+        steps = _analysis_tour_steps(active_tab)
+        if not ctx.triggered:
+            return 0, False, steps
+        trigger = ctx.triggered[0]['prop_id'].split('.')[0]
+        if trigger == 'analysis-tour-icon':
+            return 0, True, steps
+        if trigger == 'analysis-tabs' and is_open:
+            return 0, True, steps
+        return dash.no_update, dash.no_update, steps
 
     @app.callback(
         Output('bar-graph-matplotlib', 'src'),
