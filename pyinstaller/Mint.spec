@@ -28,6 +28,7 @@ all_hidden_imports = (
     + _safe_collect_submodules('dash_extensions')
     + _safe_collect_submodules('feffery_antd_components')
     + _safe_collect_submodules('feffery_utils_components')
+    + _safe_collect_submodules('webview')
 )
 
 
@@ -36,6 +37,9 @@ a = Analysis(
     pathex=[src_dir, package_root],
     hookspath=[hooks_dir],
     hiddenimports=all_hidden_imports,
+    module_collection_mode={
+        'ms_mint_app': 'pyz+py',
+    },
     datas=[
         (os.path.join(package_root, 'ms_mint_app', 'assets'), os.path.join('ms_mint_app', 'assets')),
         (os.path.join(package_root, 'ms_mint_app', 'static'), os.path.join('ms_mint_app', 'static')),
