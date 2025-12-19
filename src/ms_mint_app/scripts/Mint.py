@@ -261,7 +261,6 @@ def main():
     def wait_and_open_browser():
         import socket
         import time
-        import webbrowser
 
         def wait_for_server(host, port, timeout=30):
             start_time = time.time()
@@ -379,6 +378,7 @@ def main():
     if args.debug:
         app.run(
             debug=args.debug,
+            # debug=False,
             port=args.port,
             host=args.host,
             dev_tools_hot_reload=False,

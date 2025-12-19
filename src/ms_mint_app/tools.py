@@ -585,8 +585,7 @@ def process_ms_files(wdir, set_progress, selected_files, n_cpus):
     failed_files = []
     total_processed = 0
     import concurrent.futures
-    from ms_mint.io import convert_mzxml_to_parquet_fast_batches
-    import multiprocessing
+    import time
 
     # set progress to 1 to the user feedback
     set_progress(1)
