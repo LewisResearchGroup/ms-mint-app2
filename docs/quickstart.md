@@ -20,13 +20,13 @@ Then start the application with
 Mint
 ```
 
-or, if you have a prefered directory for data you can specify it with `--data-dir` e.g.:
+or, if you have a preferred directory for data you can specify it with `--data-dir` e.g.:
 
 ```
 Mint --data-dir /data
 ```
 
-The application will take a while until it starts up. In the mean time the browser window will show
+The application will take a while until it starts up. In the meantime the browser window will show
 
 > This site can’t be reached
 
@@ -74,14 +74,14 @@ You will find two `csv` files and 8 `mzXML` files.
 4 directories, 15 files
 ```
 
-- A folder with 8 mass-spectrometry (MS) files from microbial samples. We have four files for each  _Escherichia coli_ (EC), and _Candida albicans_ (CA).
+- A folder with 8 mass spectrometry (MS) files from microbial samples. We have four files for each _Escherichia coli_ (EC) and _Candida albicans_ (CA).
 Each file belongs to one of four batches (B1-B4).
 - `metadata.csv` contains this information in tabular format. Submitting metadata is optional, but highly recommended and makes downstream analysis smoother.
 - `targets.csv` contains the extraction lists. The identification of the metabolites has been done before, so we know where the metabolites appear in the MS data.
 
-## 4. Upload LCMS files
+## 4. Upload LC-MS files
 
-Switch to the `MS-Files` tab and upload the 12 MS files. Click `LOAD MS-FILES` on the top left, navigate to the folder where the files are located, select either the files individually or the folder, and click `Process Files`.
+Switch to the `MS-Files` tab and upload the 8 MS files. Click `LOAD MS-FILES` on the top left, navigate to the folder where the files are located, select either the files individually or the folder, and click `Process Files`.
 
 ![](quickstart/ms-files-uploaded-1.png)
 
@@ -120,7 +120,7 @@ Switch to the `Targets` tab and upload `MINT-targets.csv`.
 
 ![](quickstart/targets-table.png)
 
-This is the data extraction protocol. This determines what data is extracted from the files. The same protocol is applied to all files. No fitting or peak optimization is done.
+This is the data extraction protocol. It determines what data is extracted from the files. The same protocol is applied to all files. No fitting or peak optimization is done.
 
 This file contains important information about the targets.
 
@@ -147,17 +147,16 @@ This file contains important information about the targets.
 
 
 ## 7. Optimize retention times (Optional, but highly recommended)
-Switch to the `Optimization` tab. Traditionally, and especially for large datasets, you select a representative set of samples including standards (with known concentrations of the target metabolites) to perform the optimization. However in MINT, you can perform the optimization with all the samples in most cases (see the files selected for optimization in the tree on the left side).
+Switch to the `Optimization` tab. Traditionally, and especially for large datasets, you select a representative set of samples including standards (with known concentrations of the target metabolites) to perform the optimization. However, in MINT, you can perform the optimization with all samples in most cases (see the files selected for optimization in the tree on the left side).
 
 ![](quickstart/peak-optimization-1.png)
 
-The peak optimization takes longer the more files are used for it and the more targets are defined. Click on `COMPUTE CHROMATOGRAMS`. Here you can select how much resources you want to allocate to process the files, including CPU, RAM and batch size. In small datasets the defult values should suffice, as the number of files used for optimization grow, tweaking these parameters will guarantee better performance. Click `Generate` to compute the chromatograms.
+Peak optimization takes longer as you use more files and define more targets. Click `COMPUTE CHROMATOGRAMS`. Here you can choose how many resources to allocate to process the files, including CPU, RAM, and batch size. In small datasets the default values should suffice; as the number of files used for optimization grows, tweaking these parameters improves performance. Click `Generate` to compute the chromatograms.
 
 ![](quickstart/peak-optimization-2.png)
 ![](quickstart/peak-optimization-3.png)
 
-This shows the shapes of the data in the selected regions as an overview. This is a great way to validate that your target parameters are correct.
-However, you have to make sure that the metabolite you are looking for is present in the files. That is why you should always add some standard samples (samples with the metabolite of interest at different concentrations). The colors in the plots correspond to the sample type colors in the metadata table.
+This shows the shapes of the data in the selected regions as an overview. It is a great way to validate that your target parameters are correct. However, you have to make sure the metabolite you are looking for is present in the files. That is why you should always include some standard samples (samples with the metabolite of interest at different concentrations). The colors in the plots correspond to the sample type colors in the metadata table.
 
 You can click on a card to use the interactive tool below and manually optimize the region of interest (ROI) or retention time span for each target. Move the borders of the box to select the peak, then click `Save`. The green area shows the currently selected retention time (RT) range. If the target is not present in any of the files, you can remove it from the target list by clicking `Delete target`.
 
@@ -167,7 +166,7 @@ Once the optimization is done, you can proceed to `Processing`.
 
 ## 8. Process the data
 
-Switch to `Processing` and start data extraction with `RUN MINT`. As in Optimization, you can choose how many resources to allocate to process the files, including CPU, RAM, and batch size. In small datasets the default values should suffice; as the number of files used for optimization grows, tweaking these parameters will improve performance. Click `Run` to compute the results.
+Switch to `Processing` and start data extraction with `RUN MINT`. As in Optimization, you can choose how many resources to allocate to process the files, including CPU, RAM, and batch size. In small datasets the default values should suffice; as the number of files grows, tweaking these parameters improves performance. Click `Run` to compute the results.
 
 ![](quickstart/run-mint-1.png)
 ![](quickstart/run-mint-2.png)
@@ -185,18 +184,18 @@ Once the results are generated, there are several analyses you can perform. In t
 
 
 === "Clustermap"
-    Clustered heatmap showing relationships between samples and targets. In this tab you can select from different metrics (_i.e._, peak_area, peak_top3, etc.), transformations (_i.e._, z-score, log2, etc.) and groupings (_i.e._, Sample type, Group 1, 2, etc.)
+    Clustered heatmap showing relationships between samples and targets. In this tab you can select different metrics (for example, peak_area, peak_top3), transformations (for example, z-score, log2), and groupings (for example, sample type, Group 1, Group 2).
 
     ![](quickstart/analysis-2.png)
 
 === "PCA"
-    Principal component analysis plot for sample-level patterns. Includes an score plot (PC1 to PC5) on the left side, cummulative variance (top right), and absolute loading values for a selected PC (bottom rigth).
+    Principal component analysis plot for sample-level patterns. Includes a score plot (PC1 to PC5) on the left side, cumulative variance (top right), and absolute loading values for a selected PC (bottom right).
 
     ![](quickstart/analysis-3.png)
 
 
 === "Violin"
-    Distribution plots by group (_i.e._, Sample type, Group 1, 2, etc.) to compare target values. Includes a hypothesis test result (t-test for two samples, ANOVA for more than 2 samples) on the top rigth corner.
+    Distribution plots by group (for example, sample type, Group 1, Group 2) to compare target values. Includes a hypothesis test result (t-test for two samples, ANOVA for more than two samples) on the top right corner.
 
     ![](quickstart/analysis-4.png)
 
