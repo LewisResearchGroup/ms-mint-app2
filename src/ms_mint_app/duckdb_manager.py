@@ -51,6 +51,24 @@ def _center_lines(text: str, width: int = 100) -> str:
     """
     return "\n".join(line.center(width) for line in text.splitlines())
 
+def _update_workspace_activity(mint_root: Path, workspace_id: str, retries: int = 3, delay_s: float = 0.05):
+    for attempt in range(retries):
+        try:
+            with duckdb_connection_mint(mint_root) as mint_conn:
+                if mint_conn:
+                    mint_conn.execute(
+                        "UPDATE workspaces SET last_activity = NOW() WHERE key = ?",
+                        [workspace_id],
+                    )
+            return
+        except Exception as e:
+            message = str(e)
+            if "TransactionContext Error: Conflict on update!" in message:
+                time.sleep(delay_s * (attempt + 1))
+                continue
+            print(f"Error updating workspace activity: {e}")
+            return
+
 
 @contextmanager
 def duckdb_connection(workspace_path: Path | str, register_activity=True, n_cpus=None, ram=None):
@@ -80,20 +98,19 @@ def duckdb_connection(workspace_path: Path | str, register_activity=True, n_cpus
         if ram:
             con.execute(f"SET memory_limit = '{ram}GB'")
         _create_tables(con)
-        yield con
     except Exception as e:
         print(f"Error connecting to DuckDB: {e}")
         yield None
+        return
+    try:
+        yield con
     finally:
         if con:
             if register_activity:
                 try:
                     workspace_id = Path(workspace_path).name
                     mint_root = workspace_path.parent.parent
-                    with duckdb_connection_mint(mint_root) as mint_conn:
-                        if mint_conn:
-                            mint_conn.execute("UPDATE workspaces SET last_activity = NOW() WHERE key = ?",
-                                              [workspace_id])
+                    _update_workspace_activity(mint_root, workspace_id)
                 except Exception as e:
                     print(f"Error updating workspace activity: {e}")
             if n_cpus:
@@ -114,14 +131,19 @@ def duckdb_connection_mint(mint_path: Path, workspace=None):
     try:
         con = duckdb.connect(database=db_file, read_only=False)
         _create_workspace_tables(con)
-        yield con
     except Exception as e:
         print(f"Error connecting to DuckDB: {e}")
         yield None
+        return
+    try:
+        yield con
     finally:
         if con:
             if workspace:
-                con.execute("UPDATE workspaces SET last_activity = NOW() WHERE key = ?", [workspace])
+                try:
+                    con.execute("UPDATE workspaces SET last_activity = NOW() WHERE key = ?", [workspace])
+                except Exception:
+                    pass
             con.close()
 
 
@@ -155,10 +177,14 @@ def _create_tables(conn: duckdb.DuckDBPyConnection):
     conn.execute("ALTER TABLE samples ADD COLUMN IF NOT EXISTS use_for_processing BOOLEAN DEFAULT true;")
     for col in GROUP_COLUMNS:
         conn.execute(f"ALTER TABLE samples ADD COLUMN IF NOT EXISTS {col} VARCHAR;")
-    conn.execute("""
-                 UPDATE samples
-                 SET use_for_processing = COALESCE(use_for_processing, use_for_analysis, TRUE)
-                 """)
+    try:
+        conn.execute("""
+                     UPDATE samples
+                     SET use_for_processing = COALESCE(use_for_processing, use_for_analysis, TRUE)
+                     """)
+    except Exception:
+        # Avoid failing during initialization if another write is in flight.
+        pass
 
     conn.execute("""
                  CREATE TABLE IF NOT EXISTS ms1_data
