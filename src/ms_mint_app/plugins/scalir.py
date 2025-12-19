@@ -18,7 +18,7 @@ import numpy as np
 import pandas as pd
 
 sys.path.append(str(Path(__file__).resolve().parent))
-from scalir_utils import (  # noqa: E402
+from .scalir_utils import (  # noqa: E402
     ConcentrationEstimator,
     info_from_Mint,
     setting_from_stdinfo,
