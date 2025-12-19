@@ -152,7 +152,7 @@ _layout = html.Div(
             locale='en-us',
             steps=[
                 {
-                    'title': 'Need help?',
+                    'title': 'Click here for help',
                     # 'description': 'Click the info icon to open a quick tour of Workspaces.',
                     'targetSelector': '#workspace-tour-icon',
                 },
