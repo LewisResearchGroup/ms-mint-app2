@@ -5,6 +5,7 @@ Welcome to the ms-mint-app quickstart guide! This guide helps you get up and run
 ## 1. Open `ms-mint-app`
 
 Download an executable compatible with your OS and open MINT (see other installation options [here](install.md)).
+Once the app starts, you should see the `Workspaces` tab.
 
 <!-- To install MINT, run:
 
@@ -39,6 +40,7 @@ If you have never started the application before, you will not have any workspac
 ![](quickstart/first-start.png)
 
 In the `Workspaces` tab, click the `+ Create Workspace` button. A dialog opens asking for the name of the workspace and an optional description. Type `DEMO` into the text field, add a brief description like `This is a DEMO`, and click `Create`.
+Expected result: the `DEMO` workspace appears with a blue toggle indicating it is active.
 
 ![Create workspace](quickstart/create-workspace.png)
 
@@ -52,7 +54,7 @@ Now you have created your first workspace, but it is empty. You will need some i
 
 Some demo files are available for download on the `ms-mint` Google Drive. Download the files from [Google Drive](https://drive.google.com/drive/folders/1U4xMy5lfETk93sSVXPI79cCWyIMcAjeZ?usp=drive_link) and extract the archive.
 
-You will find two `csv` files and 8 `mzXML` files.
+You will find two `csv` files and 8 `mzXML` files (4 EC + 4 CA).
 
 ```
 .
@@ -81,7 +83,8 @@ Each file belongs to one of four batches (B1-B4).
 
 ## 4. Upload LC-MS files
 
-Switch to the `MS-Files` tab and upload the 8 MS files. Click `LOAD MS-FILES` on the top left, navigate to the folder where the files are located, select either the files individually or the folder, and click `Process Files`.
+Switch to the `MS-Files` tab and upload the 8 MS files. Click `LOAD MS-FILES`, navigate to the folder where the files are located, select either the files individually or the folder, and click `Process Files`.
+Expected result: the 8 files appear in the MS-Files table.
 
 ![](quickstart/ms-files-uploaded-1.png)
 
@@ -95,7 +98,7 @@ In the same way as before, click `LOAD METADATA` on the top left, navigate to th
 
 ![](quickstart/metadata-added.png)
 
-This file contains important information about your samples.
+This file contains important information about your samples. Only `ms_file_label` and `sample_type`are essential; the remaining columns are optional but useful for grouping and plotting. If any of teh columns `use_for_optimization`, `use_for_processing`, `use_for_analysis` are left blank they will be assumed to be `TRUE`.
 
 | Column Name             | Description                                                       |
 |-------------------------|-------------------------------------------------------------------|
@@ -116,7 +119,8 @@ This file contains important information about your samples.
 
 
 ## 6. Add targets (metabolites)
-Switch to the `Targets` tab and upload `MINT-targets.csv`.
+Switch to the `Targets` tab and upload `targets.csv`.
+This file is located in the `targets` folder within the demo archive.
 
 ![](quickstart/targets-table.png)
 
@@ -167,6 +171,7 @@ Once the optimization is done, you can proceed to `Processing`.
 ## 8. Process the data
 
 Switch to `Processing` and start data extraction with `RUN MINT`. As in Optimization, you can choose how many resources to allocate to process the files, including CPU, RAM, and batch size. In small datasets the default values should suffice; as the number of files grows, tweaking these parameters improves performance. Click `Run` to compute the results.
+For the demo data, this should take a few seconds-minutes depending on your machine.
 
 ![](quickstart/run-mint-1.png)
 ![](quickstart/run-mint-2.png)
@@ -178,13 +183,13 @@ Now, you can download the results in long format or dense `peak_max` values by c
 
 ## 9. Analyze the results
 
-Once the results are generated, there are several analyses you can perform. In the analysis section you can see four tabs, each corresponding to a different analysis.
+Once the results are generated, there are several analyses you can perform. In the analysis section you can see four tabs, each corresponding to a different analysis. If you are new, start with the Clustermap to quickly spot outliers or batch effects.
 
 ![](quickstart/analysis-1.png)
 
 
 === "Clustermap"
-    Clustered heatmap showing relationships between samples and targets. In this tab you can select different metrics (for example, peak_area, peak_top3), transformations (for example, z-score, log2), and groupings (for example, sample type, Group 1, Group 2).
+    Clustered heatmap showing relationships between samples and targets. In this tab you can select different metrics (for example, peak_area, peak_top3), transformations (for example, z-score, log2), and groupings (for example, Sample type, Group 1, Group 2).
 
     ![](quickstart/analysis-2.png)
 
@@ -195,7 +200,7 @@ Once the results are generated, there are several analyses you can perform. In t
 
 
 === "Violin"
-    Distribution plots by group (for example, sample type, Group 1, Group 2) to compare target values. Includes a hypothesis test result (t-test for two samples, ANOVA for more than two samples) on the top right corner.
+    Distribution plots by group (for example, Sample type, Group 1, Group 2) to compare target values. Includes a hypothesis test result (t-test for two samples, ANOVA for more than two samples) on the top right corner.
 
     ![](quickstart/analysis-4.png)
 
@@ -203,3 +208,6 @@ Once the results are generated, there are several analyses you can perform. In t
     Summary view for calculating concentrations.
 
     ![](quickstart/analysis-5.png)
+
+## Next steps
+For a deeper tour of the interface, see the [GUI guide](gui.md). For details on target list formatting, see [Target lists](targets.md).
