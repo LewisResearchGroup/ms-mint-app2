@@ -427,6 +427,17 @@ class FileExplorer:
                     {'display': 'block'})
 
         @app.callback(
+            Output('sm-processing-progress', 'percent', allow_duplicate=True),
+            Output('ms-files-progress-detail', 'children', allow_duplicate=True),
+            Input('selection-modal', 'visible'),
+            prevent_initial_call=True,
+        )
+        def reset_processing_progress(modal_visible):
+            if not modal_visible:
+                raise PreventUpdate
+            return 0, ""
+
+        @app.callback(
             Output("current-path-modal", "items", allow_duplicate=True),
             Output("file-table", "data", allow_duplicate=True),
             Output('current-path-store', 'data', allow_duplicate=True),
