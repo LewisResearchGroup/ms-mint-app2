@@ -84,7 +84,7 @@ def duckdb_connection(workspace_path: Path | str, register_activity=True, n_cpus
         return
     workspace_path = Path(workspace_path)
     db_file = Path(workspace_path, 'workspace_mint.db')
-    print(f"Connecting to DuckDB at: {db_file}")
+    # print(f"Connecting to DuckDB at: {db_file}")
     con = None
     try:
         con = duckdb.connect(database=str(db_file), read_only=False)
