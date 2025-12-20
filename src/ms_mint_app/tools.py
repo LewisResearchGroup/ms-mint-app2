@@ -580,6 +580,17 @@ def _insert_ms_data(wdir, ms_type, batch_ms, batch_ms_data):
 
 # IMPORTANT: We've defined these functions here temporarily, but it should be moved to the backend.
 def process_ms_files(wdir, set_progress, selected_files, n_cpus):
+    def _send_progress(percent, detail=""):
+        if not set_progress:
+            return
+        try:
+            set_progress(percent, detail)
+        except TypeError:
+            try:
+                set_progress(percent)
+            except Exception:
+                pass
+
     file_list = sorted([file for folder in selected_files.values() for file in folder])
     n_total = len(file_list)
     failed_files = []
@@ -587,8 +598,10 @@ def process_ms_files(wdir, set_progress, selected_files, n_cpus):
     import concurrent.futures
     import time
 
+    print(f"Starting MS file processing for {n_total} file(s).")
+
     # set progress to 1 to the user feedback
-    set_progress(1)
+    _send_progress(1)
 
     # get the ms_file_label data as df to avoid multiple queries
     with duckdb_connection(wdir) as conn:
@@ -601,11 +614,13 @@ def process_ms_files(wdir, set_progress, selected_files, n_cpus):
     mask = data["ms_file_label"].isin(files_name)  # dict como conjunto de claves
     duplicates = data.loc[mask, "ms_file_label"]  # Serie con solo las etiquetas duplicadas
     if not duplicates.empty:
-        set_progress(round(duplicates.shape[0] / n_total * 100, 1))
+        _send_progress(round(duplicates.shape[0] / n_total * 100, 1))
         failed_files.append({files_name[label]: "duplicate" for label in duplicates})
         logging.info("Found %d duplicates: %s", duplicates.shape[0], duplicates.tolist())
+        print(f"Skipped {duplicates.shape[0]} duplicate file(s): {', '.join(duplicates.tolist())}")
 
     if len(files_name) - len(duplicates) > 0:
+        total_to_process = len(files_name) - len(duplicates)
         with tempfile.TemporaryDirectory() as tmpdir:
             futures_name = {}
             # ctx = multiprocessing.get_context('fork')
@@ -622,6 +637,8 @@ def process_ms_files(wdir, set_progress, selected_files, n_cpus):
                 batch_ms = {'ms1': [], 'ms2': []}
                 batch_ms_data = {'ms1': [], 'ms2': []}
                 batch_size = n_cpus
+                total_batches = (total_to_process + batch_size - 1) // batch_size
+                batch_num = 0
 
                 for future in concurrent.futures.as_completed(futures_name.keys()):
                     try:
@@ -629,50 +646,89 @@ def process_ms_files(wdir, set_progress, selected_files, n_cpus):
                     except Exception as e:
                         failed_files.append({futures_name[future]: str(e)})
                         total_processed += 1
-                        set_progress(round((total_processed + len(failed_files)) / n_total * 100, 1))
+                        _send_progress(round((total_processed + len(failed_files)) / n_total * 100, 1))
+                        print(f"Failed: {Path(futures_name[future]).name} ({e})")
                         continue
 
                     _file_path, _ms_file_label, _ms_level, _polarity, _parquet_df = result
                     batch_ms[f'ms{_ms_level}'].append((_ms_file_label, _ms_file_label, f'ms{_ms_level}', _polarity))
                     batch_ms_data[f'ms{_ms_level}'].append(_parquet_df)
+                    # print(f"Parsed: {Path(_file_path).name} (ms{_ms_level})")
 
                     if len(batch_ms['ms1']) == batch_size:
+                        batch_start = time.time()
                         b_processed, b_failed = _insert_ms_data(wdir, 'ms1', batch_ms, batch_ms_data)
+                        batch_elapsed = time.time() - batch_start
                         total_processed += b_processed
                         failed_files.extend(b_failed)
 
-                        set_progress(round((total_processed + len(failed_files)) / n_total * 100, 1))
+                        batch_num += 1
+                        detail = (
+                            f"Batch {batch_num}/{total_batches} | "
+                            f"Progress {total_processed:,}/{total_to_process:,} | "
+                            f"Time per batch {batch_elapsed:0.2f}s"
+                        )
+                        _send_progress(round((total_processed + len(failed_files)) / n_total * 100, 1), detail)
+                        print(detail)
                         batch_ms['ms1'] = []
                         batch_ms_data['ms1'] = []
 
                     elif len(batch_ms['ms2']) == batch_size:
+                        batch_start = time.time()
                         b_processed, b_failed = _insert_ms_data(wdir, 'ms2', batch_ms, batch_ms_data)
+                        batch_elapsed = time.time() - batch_start
                         total_processed += b_processed
                         failed_files.extend(b_failed)
 
-                        set_progress(round((total_processed + len(failed_files)) / n_total * 100, 1))
+                        batch_num += 1
+                        detail = (
+                            f"Batch {batch_num}/{total_batches} | "
+                            f"Progress {total_processed:,}/{total_to_process:,} | "
+                            f"Time per batch {batch_elapsed:0.2f}s"
+                        )
+                        _send_progress(round((total_processed + len(failed_files)) / n_total * 100, 1), detail)
+                        print(detail)
                         batch_ms['ms2'] = []
                         batch_ms_data['ms2'] = []
 
                 if len(batch_ms['ms1']):
+                    batch_start = time.time()
                     b_processed, b_failed = _insert_ms_data(wdir, 'ms1', batch_ms, batch_ms_data)
+                    batch_elapsed = time.time() - batch_start
                     total_processed += b_processed
                     failed_files.extend(b_failed)
 
-                    set_progress(round((total_processed + len(failed_files)) / n_total * 100, 1))
+                    batch_num += 1
+                    detail = (
+                        f"Batch {batch_num}/{total_batches} | "
+                        f"Progress {total_processed:,}/{total_to_process:,} | "
+                        f"Time per batch {batch_elapsed:0.2f}s"
+                    )
+                    _send_progress(round((total_processed + len(failed_files)) / n_total * 100, 1), detail)
+                    print(detail)
                     batch_ms['ms1'] = []
                     batch_ms_data['ms1'] = []
 
                 elif len(batch_ms['ms2']):
+                    batch_start = time.time()
                     b_processed, b_failed = _insert_ms_data(wdir, 'ms2', batch_ms, batch_ms_data)
+                    batch_elapsed = time.time() - batch_start
                     total_processed += b_processed
                     failed_files.extend(b_failed)
 
-                    set_progress(round((total_processed + len(failed_files)) / n_total * 100, 1))
+                    batch_num += 1
+                    detail = (
+                        f"Batch {batch_num}/{total_batches} | "
+                        f"Progress {total_processed:,}/{total_to_process:,} | "
+                        f"Time per batch {batch_elapsed:0.2f}s"
+                    )
+                    _send_progress(round((total_processed + len(failed_files)) / n_total * 100, 1), detail)
+                    print(detail)
                     batch_ms['ms2'] = []
                     batch_ms_data['ms2'] = []
 
-    set_progress(round(100, 1))
+    _send_progress(round(100, 1))
+    print(f"Completed MS file processing. Success: {total_processed}, Failed: {len(failed_files)}.")
     return total_processed, failed_files
 
 

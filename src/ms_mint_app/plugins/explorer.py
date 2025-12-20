@@ -241,6 +241,11 @@ class FileExplorer:
                                     id='sm-processing-progress',
                                     percent=0,
                                 ),
+                                fac.AntdText(
+                                    id='ms-files-progress-detail',
+                                    type='secondary',
+                                    style={'marginTop': '0.5rem', 'marginBottom': '0.75rem'},
+                                ),
                                 fac.AntdButton(
                                     'Cancel',
                                     id='cancel-ms-processing',
@@ -630,7 +635,10 @@ class FileExplorer:
                  {'disabled': False}),
                 (Output('selection-modal', 'confirmLoading'), True, False),
             ],
-            progress=[Output("sm-processing-progress", "percent")],
+            progress=[
+                Output("sm-processing-progress", "percent"),
+                Output("ms-files-progress-detail", "children"),
+            ],
             cancel=[
                 Input('cancel-ms-processing', 'nClicks')
             ],
@@ -653,14 +661,18 @@ class FileExplorer:
             failed_targets = []
             stats = {}
 
+            def progress_adapter(percent, detail=""):
+                if set_progress:
+                    set_progress((percent, detail or ""))
+
             if processing_type['type'] == "ms-files":
-                total_processed, failed_files = process_ms_files(wdir, set_progress, selected_files, cpu_input)
+                total_processed, failed_files = process_ms_files(wdir, progress_adapter, selected_files, cpu_input)
                 message = "MS Files processed"
             elif processing_type['type'] == "metadata":
-                total_processed, failed_files = process_metadata(wdir, set_progress, selected_files)
+                total_processed, failed_files = process_metadata(wdir, progress_adapter, selected_files)
                 message = "Metadata processed"
             else:
-                total_processed, failed_files, failed_targets, stats = process_targets(wdir, set_progress, selected_files)
+                total_processed, failed_files, failed_targets, stats = process_targets(wdir, progress_adapter, selected_files)
                 message = "Targets processed"
 
             duplicate_targets = stats.get("duplicate_peak_labels", 0) if processing_type['type'] == "targets" else 0
