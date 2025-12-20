@@ -660,13 +660,16 @@ class FileExplorer:
             # defaults for branches
             failed_targets = []
             stats = {}
+            duplicates_count = 0
 
             def progress_adapter(percent, detail=""):
                 if set_progress:
                     set_progress((percent, detail or ""))
 
             if processing_type['type'] == "ms-files":
-                total_processed, failed_files = process_ms_files(wdir, progress_adapter, selected_files, cpu_input)
+                total_processed, failed_files, duplicates_count = process_ms_files(
+                    wdir, progress_adapter, selected_files, cpu_input
+                )
                 message = "MS Files processed"
             elif processing_type['type'] == "metadata":
                 total_processed, failed_files = process_metadata(wdir, progress_adapter, selected_files)
@@ -682,20 +685,33 @@ class FileExplorer:
                 details = []
                 if failed_files:
                     details.append(f"{len(failed_files)} file(s) failed")
+                if duplicates_count:
+                    details.append(f"{duplicates_count} duplicate file(s) skipped")
                 if failed_targets_count:
                     details.append(f"{failed_targets_count} target row(s) failed")
                 if duplicate_targets:
                     details.append(f"{duplicate_targets} duplicate target label(s) deduplicated")
 
                 if details:
-                    description = f"Processed {total_processed} files; " + "; ".join(details) + ". See logs for details."
-                    mss_type = "warning" if not failed_files else "warning"
+                    description = f"Processed {total_processed} files; " + "; ".join(details) + "."
+                    if failed_files or failed_targets_count:
+                        mss_type = "warning"
+                    elif duplicates_count or duplicate_targets:
+                        mss_type = "info"
+                    else:
+                        mss_type = "success"
                 else:
-                    description = f"Successfully processed {total_processed} files"
+                    description = f"Successfully processed {total_processed} files."
                     mss_type = "success"
-            else:
-                description = f"Failed processing {len(failed_files)} files. See logs for details."
+            elif duplicates_count:
+                description = f"No new files processed; {duplicates_count} duplicate file(s) skipped."
+                mss_type = "info"
+            elif failed_files or failed_targets_count:
+                description = f"Failed processing {len(failed_files)} files."
                 mss_type = "error"
+            else:
+                description = "No files were processed."
+                mss_type = "info"
             notification = fac.AntdNotification(message=message,
                                                 description=description,
                                                 type=mss_type,

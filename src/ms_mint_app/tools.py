@@ -594,6 +594,7 @@ def process_ms_files(wdir, set_progress, selected_files, n_cpus):
     file_list = sorted([file for folder in selected_files.values() for file in folder])
     n_total = len(file_list)
     failed_files = []
+    duplicates_count = 0
     total_processed = 0
     import concurrent.futures
     import time
@@ -614,8 +615,8 @@ def process_ms_files(wdir, set_progress, selected_files, n_cpus):
     mask = data["ms_file_label"].isin(files_name)  # dict como conjunto de claves
     duplicates = data.loc[mask, "ms_file_label"]  # Serie con solo las etiquetas duplicadas
     if not duplicates.empty:
+        duplicates_count = int(duplicates.shape[0])
         _send_progress(round(duplicates.shape[0] / n_total * 100, 1))
-        failed_files.append({files_name[label]: "duplicate" for label in duplicates})
         logging.info("Found %d duplicates: %s", duplicates.shape[0], duplicates.tolist())
         print(f"Skipped {duplicates.shape[0]} duplicate file(s): {', '.join(duplicates.tolist())}")
 
@@ -646,7 +647,8 @@ def process_ms_files(wdir, set_progress, selected_files, n_cpus):
                     except Exception as e:
                         failed_files.append({futures_name[future]: str(e)})
                         total_processed += 1
-                        _send_progress(round((total_processed + len(failed_files)) / n_total * 100, 1))
+                        done_count = total_processed + len(failed_files) + duplicates_count
+                        _send_progress(round(done_count / n_total * 100, 1))
                         print(f"Failed: {Path(futures_name[future]).name} ({e})")
                         continue
 
@@ -668,7 +670,8 @@ def process_ms_files(wdir, set_progress, selected_files, n_cpus):
                             f"Progress {total_processed:,}/{total_to_process:,} | "
                             f"Time per batch {batch_elapsed:0.2f}s"
                         )
-                        _send_progress(round((total_processed + len(failed_files)) / n_total * 100, 1), detail)
+                        done_count = total_processed + len(failed_files) + duplicates_count
+                        _send_progress(round(done_count / n_total * 100, 1), detail)
                         print(detail)
                         batch_ms['ms1'] = []
                         batch_ms_data['ms1'] = []
@@ -686,7 +689,8 @@ def process_ms_files(wdir, set_progress, selected_files, n_cpus):
                             f"Progress {total_processed:,}/{total_to_process:,} | "
                             f"Time per batch {batch_elapsed:0.2f}s"
                         )
-                        _send_progress(round((total_processed + len(failed_files)) / n_total * 100, 1), detail)
+                        done_count = total_processed + len(failed_files) + duplicates_count
+                        _send_progress(round(done_count / n_total * 100, 1), detail)
                         print(detail)
                         batch_ms['ms2'] = []
                         batch_ms_data['ms2'] = []
@@ -704,7 +708,8 @@ def process_ms_files(wdir, set_progress, selected_files, n_cpus):
                         f"Progress {total_processed:,}/{total_to_process:,} | "
                         f"Time per batch {batch_elapsed:0.2f}s"
                     )
-                    _send_progress(round((total_processed + len(failed_files)) / n_total * 100, 1), detail)
+                    done_count = total_processed + len(failed_files) + duplicates_count
+                    _send_progress(round(done_count / n_total * 100, 1), detail)
                     print(detail)
                     batch_ms['ms1'] = []
                     batch_ms_data['ms1'] = []
@@ -722,14 +727,15 @@ def process_ms_files(wdir, set_progress, selected_files, n_cpus):
                         f"Progress {total_processed:,}/{total_to_process:,} | "
                         f"Time per batch {batch_elapsed:0.2f}s"
                     )
-                    _send_progress(round((total_processed + len(failed_files)) / n_total * 100, 1), detail)
+                    done_count = total_processed + len(failed_files) + duplicates_count
+                    _send_progress(round(done_count / n_total * 100, 1), detail)
                     print(detail)
                     batch_ms['ms2'] = []
                     batch_ms_data['ms2'] = []
 
     _send_progress(round(100, 1))
     print(f"Completed MS file processing. Success: {total_processed}, Failed: {len(failed_files)}.")
-    return total_processed, failed_files
+    return total_processed, failed_files, duplicates_count
 
 
 def process_metadata(wdir, set_progress, selected_files):
