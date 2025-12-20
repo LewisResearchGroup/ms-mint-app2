@@ -825,6 +825,7 @@ _layout = fac.AntdLayout(
         dcc.Store(id='drop-chromatogram'),
         dcc.Store(id="delete-target-clicked"),
         dcc.Store(id='chromatogram-view-plot-max'),
+        dcc.Store(id='chromatogram-view-plot-points'),
         dcc.Store(id='update-chromatograms', data=False),
         fac.AntdTour(
             locale='en-us',
@@ -1525,9 +1526,10 @@ def callbacks(app, fsc, cache, cpu=None):
         Input('chromatogram-view-log-y', 'checked'),
         State('chromatogram-view-plot', 'figure'),
         State('chromatogram-view-plot-max', 'data'),
+        State('chromatogram-view-plot-points', 'data'),
         prevent_initial_call=True
     )
-    def chromatogram_view_y_scale(log_scale, figure, max_y):
+    def chromatogram_view_y_scale(log_scale, figure, max_y, total_points):
 
         y_min, y_max = max_y
         fig = Patch()
@@ -1609,6 +1611,7 @@ def callbacks(app, fsc, cache, cpu=None):
         Output('slider-reference-data', 'data'),
         Output('slider-data', 'data', allow_duplicate=True),  # make sure this is reset
         Output('chromatogram-view-plot-max', 'data'),
+        Output('chromatogram-view-plot-points', 'data'),
         Output('chromatogram-view-log-y', 'checked', allow_duplicate=True),
         Output('chromatogram-view-groupclick', 'checked', allow_duplicate=True),
         Output('target-note', 'value', allow_duplicate=True),
@@ -1709,6 +1712,7 @@ def callbacks(app, fsc, cache, cpu=None):
 
         legend_groups = set()
         traces = []
+        total_points = 0
         # TODO: check if chrom_df is empty and Implement an empty widget to show when no data
 
         MAX_TRACES = 200
@@ -1722,6 +1726,7 @@ def callbacks(app, fsc, cache, cpu=None):
                 scan_time_sparse, intensity_sparse = sparsify_chrom(
                     row['scan_time_sliced'], row['intensity_sliced'], w=1, baseline=1.0, eps=0.0
                 )
+                total_points += len(scan_time_sparse)
 
                 trace = {
                     'type': 'scattergl',
@@ -1762,6 +1767,7 @@ def callbacks(app, fsc, cache, cpu=None):
                     scan_time_sparse, intensity_sparse = sparsify_chrom(
                         row['scan_time_sliced'], row['intensity_sliced'], w=1, baseline=1.0, eps=0.0
                     )
+                    total_points += len(scan_time_sparse)
 
                     # Concat y dejar None para separar cromatogramas
                     xs.extend(scan_time_sparse)
@@ -1791,6 +1797,12 @@ def callbacks(app, fsc, cache, cpu=None):
                 }
 
                 traces.append(trace)
+
+            # Disable hover when traces are merged for performance consistency.
+            for trace in traces:
+                trace['hoverinfo'] = 'skip'
+                trace['hovertemplate'] = None
+            fig['layout']['hovermode'] = False
 
         fig['data'] = traces
         fig['layout']['legend']['groupclick'] = 'toggleitem'
@@ -1914,7 +1926,7 @@ def callbacks(app, fsc, cache, cpu=None):
         }
 
         print(f"{time.perf_counter() - t1 = }")
-        return fig, target_clicked, False, s_data, None, [y_min, y_max], log_scale, False, note
+        return fig, target_clicked, False, s_data, None, [y_min, y_max], total_points, log_scale, False, note
 
     @app.callback(
         Output('chromatogram-view-plot', 'figure', allow_duplicate=True),
@@ -1925,10 +1937,11 @@ def callbacks(app, fsc, cache, cpu=None):
         Input('slider-reference-data', 'data'),
         State('slider-data', 'data'),
         State('chromatogram-view-plot', 'figure'),
+        State('chromatogram-view-plot-points', 'data'),
         State('chromatogram-view-lock-range', 'checked'),
         prevent_initial_call=True
     )
-    def update_rt_range_from_shape(relayout, slider_reference_data, slider_data, figure_state, lock_range):
+    def update_rt_range_from_shape(relayout, slider_reference_data, slider_data, figure_state, total_points, lock_range):
         if not slider_reference_data:
             raise PreventUpdate
 
