@@ -722,3 +722,13 @@ class FileExplorer:
             processed_action_store = {'action': 'processing', 'status': 'success'}
 
             return notification, processed_action_store, False
+
+        @app.callback(
+            Output('selection-modal', 'visible', allow_duplicate=True),
+            Input('cancel-ms-processing', 'nClicks'),
+            prevent_initial_call=True,
+        )
+        def close_modal_on_cancel(cancel_clicks):
+            if not cancel_clicks:
+                raise PreventUpdate
+            return False
