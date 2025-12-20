@@ -387,7 +387,7 @@ class FileExplorer:
 
             if prop_data['type'] == "ms-files":
                 title = "Load MS Files"
-                file_extensions = [".mzXML"]
+                file_extensions = [".mzXML", ".mzML"]
                 style = {'display': 'block'}
             elif prop_data['type'] == "metadata":
                 title = "Load Metadata"

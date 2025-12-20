@@ -48,6 +48,7 @@ dependencies = [
   "polars==1.33.1",
   "pyarrow>=22.0.0",
   "pyinstaller==6.17.0",
+  "pyteomics",
   "scikit-learn>=1.8.0",
   "scipy>=1.16.3",
   "seaborn",

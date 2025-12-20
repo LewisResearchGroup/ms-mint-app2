@@ -309,6 +309,184 @@ def convert_mzxml_to_parquet_fast_batches(
     return file_path, file_stem, ms_level, polarity, tmp_fn.as_posix()
 
 
+def _scan_id_from_mzml(spectrum: Dict[str, Any]) -> int:
+    scan_id = spectrum.get("id", "")
+    if isinstance(scan_id, str) and "scan=" in scan_id:
+        try:
+            return int(scan_id.split("scan=")[-1])
+        except ValueError:
+            pass
+    return int(spectrum.get("index", 0))
+
+
+def iter_mzml_pyteomics(path: str | Path) -> Iterator[Dict[str, Any]]:
+    from pyteomics import mzml
+
+    with mzml.read(str(path)) as reader:
+        for spectrum in reader:
+            mz = spectrum.get("m/z array")
+            intensity = spectrum.get("intensity array")
+            if mz is None or intensity is None or len(mz) == 0:
+                continue
+
+            scan = spectrum.get("scanList", {}).get("scan", [{}])[0]
+            rt = scan.get("scan start time")
+            scan_time = float(rt) if rt is not None else 0.0
+            unit = getattr(rt, "unit_info", None)
+            if unit == "minute":
+                scan_time *= 60.0
+
+            polarity = None
+            if "positive scan" in spectrum:
+                polarity = "Positive"
+            elif "negative scan" in spectrum:
+                polarity = "Negative"
+
+            ms_level = spectrum.get("ms level")
+
+            precursor_mz = None
+            if ms_level == 2:
+                precursors = spectrum.get("precursorList", {}).get("precursor", [])
+                if precursors:
+                    sel_ions = precursors[0].get("selectedIonList", {}).get("selectedIon", [])
+                    if sel_ions:
+                        precursor_mz = sel_ions[0].get("selected ion m/z")
+
+            yield {
+                "num": _scan_id_from_mzml(spectrum),
+                "msLevel": int(ms_level or 0),
+                "retentionTime": scan_time,
+                "polarity": polarity,
+                "filterLine": spectrum.get("filter string"),
+                "precursorMz": precursor_mz,
+                "m/z array": np.asarray(mz, dtype=np.float64),
+                "intensity array": np.asarray(intensity, dtype=np.float64),
+            }
+
+
+def convert_mzml_to_parquet_fast_batches(
+        file_path: str,
+        time_unit: str = "s",
+        remove_original: bool = False,
+        tmp_dir: Optional[str] = None,
+):
+    file_path = Path(file_path)
+    time_factor = 60.0 if time_unit == "min" else 1.0
+    file_stem = file_path.stem
+
+    table_batches = []
+    current_lists = _init_lists()
+
+    ms_level = None
+    polarity = None
+    first_scan = True
+    total_points = 0
+
+    try:
+        for data in iter_mzml_pyteomics(file_path.as_posix()):
+            mz_arr = data.get("m/z array")
+            if mz_arr is None or len(mz_arr) == 0:
+                continue
+
+            inten_arr = data.get("intensity array")
+            n_points = len(mz_arr)
+            total_points += n_points
+
+            if first_scan:
+                ms_level = int(data.get("msLevel", 0))
+                polarity = data.get("polarity")
+                first_scan = False
+
+            scan_id = int(data.get("num", 0))
+            scan_time = float(data.get("retentionTime", 0.0)) * time_factor
+
+            current_lists['labels'].extend([file_stem] * n_points)
+            current_lists['scan_ids'].extend([scan_id] * n_points)
+            current_lists['scan_times'].extend([scan_time] * n_points)
+            current_lists['mzs'].extend(mz_arr)
+            current_lists['intensities'].extend(inten_arr)
+
+            if data.get("msLevel") == 2:
+                mz_prec = data.get("precursorMz")
+                fline = data.get("filterLine")
+                fline_elm = None
+                if mz_prec is not None and n_points > 0:
+                    fline_elm = f"{polarity} {float(mz_prec):.3f} [{mz_arr[0]:.3f}]"
+                current_lists['mz_precursors'].extend([mz_prec] * n_points)
+                current_lists['filterLines'].extend([fline] * n_points)
+                current_lists['filterLines_ELMAVEN'].extend([fline_elm] * n_points)
+            else:
+                current_lists['mz_precursors'].extend([None] * n_points)
+                current_lists['filterLines'].extend([None] * n_points)
+                current_lists['filterLines_ELMAVEN'].extend([None] * n_points)
+
+            if total_points > BATCH_SIZE_POINTS:
+                table_batches.append(_build_table_from_lists(current_lists, data.get("msLevel", 1)))
+                current_lists = _init_lists()
+                total_points = 0
+
+        if total_points > 0:
+            table_batches.append(_build_table_from_lists(current_lists, ms_level or 1))
+
+    except Exception as e:
+        raise ValueError(f"Invalid mzML in {file_path}: {e}") from e
+
+    if not table_batches:
+        print(f"Advertencia: No se encontraron datos válidos en {file_path}")
+        return 0, file_path, file_stem, 1, "Unknown", None
+
+    table = pa.concat_tables(table_batches)
+
+    if ms_level is None:
+        ms_level = 1
+    if polarity is None:
+        polarity = "Unknown"
+
+    if not tmp_dir:
+        tmp_dir = tempfile.mkdtemp()
+    tmp_fn = Path(tmp_dir, f"{file_stem}.parquet")
+
+    try:
+        pq.write_table(
+            table,
+            tmp_fn,
+        )
+    except Exception as e:
+        raise ValueError(f"Failed to write {tmp_fn}: {e}") from e
+
+    if remove_original:
+        try:
+            os.remove(file_path)
+        except OSError:
+            pass
+
+    return file_path, file_stem, ms_level, polarity, tmp_fn.as_posix()
+
+
+def convert_ms_file_to_parquet_fast_batches(
+        file_path: str,
+        time_unit: str = "s",
+        remove_original: bool = False,
+        tmp_dir: Optional[str] = None,
+):
+    suffix = Path(file_path).suffix.lower()
+    if suffix == ".mzxml":
+        return convert_mzxml_to_parquet_fast_batches(
+            file_path=file_path,
+            time_unit=time_unit,
+            remove_original=remove_original,
+            tmp_dir=tmp_dir,
+        )
+    if suffix == ".mzml":
+        return convert_mzml_to_parquet_fast_batches(
+            file_path=file_path,
+            time_unit=time_unit,
+            remove_original=remove_original,
+            tmp_dir=tmp_dir,
+        )
+    raise ValueError(f"Unsupported MS file type: {suffix}")
+
+
 def get_metadata(files_path):
     ref_cols = {
         "ms_file_label": 'string',
@@ -629,7 +807,7 @@ def process_ms_files(wdir, set_progress, selected_files, n_cpus):
                 futures_name.update(
                     {
                         executor.submit(
-                            convert_mzxml_to_parquet_fast_batches, file_path, tmp_dir=tmpdir
+                            convert_ms_file_to_parquet_fast_batches, file_path, tmp_dir=tmpdir
                         ): file_path
                         for file_name, file_path in files_name.items()
                         if file_name not in duplicates.tolist()
