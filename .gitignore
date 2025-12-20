@@ -26,4 +26,4 @@ docs/_*
 .venv
 !src/ms_mint_app/_version.py
 analysis/DuckDB_profiling/*
-
+analysis/Parsing_profiling/*
