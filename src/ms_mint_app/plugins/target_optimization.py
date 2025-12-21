@@ -2015,6 +2015,33 @@ def callbacks(app, fsc, cache, cpu=None):
             y_min_local = 0 if y_min_local > 0 else y_min_local
             return [y_min_local, y_max_local * 1.05]
 
+        def _maybe_pad_x_range(current_range, rt_min_val, rt_max_val, pad_seconds):
+            if rt_min_val is None or rt_max_val is None:
+                return None
+
+            desired_min = rt_min_val - pad_seconds
+            desired_max = rt_max_val + pad_seconds
+
+            if not current_range or len(current_range) != 2:
+                return [desired_min, desired_max]
+
+            cur_min, cur_max = current_range
+            if cur_min is None or cur_max is None:
+                return [desired_min, desired_max]
+            if cur_min > cur_max:
+                cur_min, cur_max = cur_max, cur_min
+
+            new_min = cur_min
+            new_max = cur_max
+
+            # Only expand if the current padding is smaller than the minimum requested.
+            if rt_min_val < cur_min or (rt_min_val - cur_min) < pad_seconds:
+                new_min = desired_min
+            if rt_max_val > cur_max or (cur_max - rt_max_val) < pad_seconds:
+                new_max = desired_max
+
+            return [new_min, new_max]
+
         ctx = dash.callback_context
         prop_id = ctx.triggered[0]['prop_id'].split('.')[0]
 
@@ -2027,6 +2054,7 @@ def callbacks(app, fsc, cache, cpu=None):
             rt_max_ref = slider_data['value']['rt_max']
             is_log = figure_state and figure_state.get('layout', {}).get('yaxis', {}).get('type') == 'log'
             pad = 2.5  # seconds of padding on each side of the RT span
+            current_x_range = figure_state.get('layout', {}).get('xaxis', {}).get('range') if figure_state else None
 
             fig = Patch()
             fig['layout']['shapes'][0]['x0'] = rt_min_ref
@@ -2036,8 +2064,10 @@ def callbacks(app, fsc, cache, cpu=None):
             fig['layout']['shapes'][0]['yref'] = 'y domain'
             fig['layout']['shapes'][0]['fillcolor'] = 'red' if lock_range else 'green'
             fig['layout']['shapes'][0]['opacity'] = 0.1
-            fig['layout']['xaxis']['range'] = [rt_min_ref - pad, rt_max_ref + pad]
-            fig['layout']['xaxis']['autorange'] = False
+            x_range = _maybe_pad_x_range(current_x_range, rt_min_ref, rt_max_ref, pad)
+            if x_range:
+                fig['layout']['xaxis']['range'] = x_range
+                fig['layout']['xaxis']['autorange'] = False
 
             if figure_state:
                 y_calc = _calc_y_range(figure_state.get('data', []), rt_min_ref, rt_max_ref, is_log)
@@ -2128,8 +2158,11 @@ def callbacks(app, fsc, cache, cpu=None):
                 fig['layout']['yaxis']['range'] = y_range_zoom
                 fig['layout']['yaxis']['autorange'] = False
             pad = 2.5  # seconds of padding on each side
-            fig['layout']['xaxis']['range'] = [rt_min_new - pad, rt_max_new + pad]
-            fig['layout']['xaxis']['autorange'] = False
+            current_x_range = figure_state.get('layout', {}).get('xaxis', {}).get('range')
+            x_range = _maybe_pad_x_range(current_x_range, rt_min_new, rt_max_new, pad)
+            if x_range:
+                fig['layout']['xaxis']['range'] = x_range
+                fig['layout']['xaxis']['autorange'] = False
 
         fig['layout']['annotations'][0]['x'] = rt_min_new
         fig['layout']['annotations'][0]['text'] = f"RT-min: {rt_min_new:.2f}s"
