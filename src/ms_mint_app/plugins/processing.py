@@ -311,8 +311,10 @@ _layout = html.Div(
                         size='small',
                         mode='server-side',
                     ),
-                    text='Loading data...',
+                    id='results-table-spin',
+                    text='Updating table...',
                     size='small',
+                    spinning=False,
                 )
             ],
             id='results-table-container',
@@ -943,6 +945,11 @@ def callbacks(app, fsc, cache):
         State('results-table', 'selectedRows'),
         State("processing-options", "clickedKey"),
         State("wdir", "data"),
+        background=True,
+        running=[
+            (Output("results-table-spin", "spinning"), True, False),
+            (Output("processing-delete-confirmation-modal", "confirmLoading"), True, False),
+        ],
         prevent_initial_call=True,
     )
     def confirm_and_delete(okCounts, selectedRows, clickedKey, wdir):
