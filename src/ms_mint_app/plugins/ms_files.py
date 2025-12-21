@@ -353,8 +353,10 @@ _layout = html.Div(
                         size='small',
                         mode='server-side',
                     ),
-                    text='Loading data...',
+                    id='ms-files-table-spin',
+                    text='Updating table...',
                     size='small',
+                    spinning=False,
                 )
             ],
             id='ms-files-table-container',
@@ -573,6 +575,10 @@ def callbacks(cls, app, fsc, cache, args_namespace):
         Input("ms-options", "nClicks"),
         State("ms-options", "clickedKey"),
         State('wdir', 'data'),
+        background=True,
+        running=[
+            (Output("ms-files-table-spin", "spinning"), True, False),
+        ],
         prevent_initial_call=True
     )
     def genere_color_map(nClicks, clickedKey, wdir):
@@ -874,11 +880,17 @@ def callbacks(cls, app, fsc, cache, args_namespace):
     @app.callback(
         Output("notifications-container", "children", allow_duplicate=True),
         Output("ms-table-action-store", "data", allow_duplicate=True),
+        Output("ms-files-table-spin", "spinning"),
 
         Input("delete-confirmation-modal", "okCounts"),
         State('ms-files-table', 'selectedRows'),
         State("ms-options", "clickedKey"),
         State("wdir", "data"),
+        background=True,
+        running=[
+            (Output("ms-files-table-spin", "spinning"), True, False),
+            (Output("delete-confirmation-modal", "confirmLoading"), True, False),
+        ],
         prevent_initial_call=True,
     )
     def confirm_and_delete(okCounts, selectedRows, clickedKey, wdir):
@@ -891,20 +903,21 @@ def callbacks(cls, app, fsc, cache, args_namespace):
             ms_table_action_store = {'action': 'delete', 'status': 'failed'}
             total_removed = 0
         elif clickedKey == "delete-selected":
-            remove_ms1_file = [row["ms_file_label"] for row in selectedRows if row['ms_type'] == 'ms1']
-            remove_ms2_file = [row["ms_file_label"] for row in selectedRows if row['ms_type'] == 'ms2']
-            remove_ms_files = remove_ms1_file + remove_ms2_file
+            remove_ms_files = [
+                row["ms_file_label"]
+                for row in selectedRows
+                if isinstance(row, dict) and row.get("ms_file_label")
+            ]
+            remove_ms_files = sorted(set(remove_ms_files))
 
             with duckdb_connection(wdir) as conn:
                 if conn is None:
                     raise PreventUpdate
                 try:
                     conn.execute("BEGIN")
-                    if remove_ms1_file:
-                        conn.execute("DELETE FROM ms1_data WHERE ms_file_label IN ?", (remove_ms1_file,))
-                    if remove_ms2_file:
-                        conn.execute("DELETE FROM ms2_data WHERE ms_file_label IN ?", (remove_ms2_file,))
                     if remove_ms_files:
+                        conn.execute("DELETE FROM ms1_data WHERE ms_file_label IN ?", (remove_ms_files,))
+                        conn.execute("DELETE FROM ms2_data WHERE ms_file_label IN ?", (remove_ms_files,))
                         conn.execute("DELETE FROM chromatograms WHERE ms_file_label IN ?", (remove_ms_files,))
                         conn.execute("DELETE FROM results WHERE ms_file_label IN ?", (remove_ms_files,))
                         conn.execute("DELETE FROM samples WHERE ms_file_label IN ?", (remove_ms_files,))
@@ -923,7 +936,8 @@ def callbacks(cls, app, fsc, cache, args_namespace):
                                 stack=True,
                                 style=NOTIFICATION_COMPACT_STYLE
                             ),
-                            {'action': 'delete', 'status': 'failed'})
+                            {'action': 'delete', 'status': 'failed'},
+                            dash.no_update)
 
             total_removed = len(remove_ms_files)
             ms_table_action_store = {'action': 'delete', 'status': 'success'}
@@ -954,7 +968,8 @@ def callbacks(cls, app, fsc, cache, args_namespace):
                                      stack=True,
                                      style=NOTIFICATION_COMPACT_STYLE
                                      ),
-                ms_table_action_store)
+                ms_table_action_store,
+                dash.no_update)
 
     @app.callback(
         Output("notifications-container", "children", allow_duplicate=True),
