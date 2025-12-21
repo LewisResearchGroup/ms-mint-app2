@@ -859,7 +859,7 @@ def process_ms_files(wdir, set_progress, selected_files, n_cpus):
                         detail = (
                             f"Batch {batch_num}/{total_batches} | "
                             f"Progress {total_processed:,}/{total_to_process:,} | "
-                            f"Time per batch {batch_elapsed:0.2f}s"
+                            f"Time/batch {batch_elapsed:0.2f}s"
                         )
                         done_count = total_processed + len(failed_files) + duplicates_count
                         _send_progress(round(done_count / n_total * 100, 1), detail)
@@ -878,7 +878,7 @@ def process_ms_files(wdir, set_progress, selected_files, n_cpus):
                         detail = (
                             f"Batch {batch_num}/{total_batches} | "
                             f"Progress {total_processed:,}/{total_to_process:,} | "
-                            f"Time per batch {batch_elapsed:0.2f}s"
+                            f"Time/batch {batch_elapsed:0.2f}s"
                         )
                         done_count = total_processed + len(failed_files) + duplicates_count
                         _send_progress(round(done_count / n_total * 100, 1), detail)
@@ -897,7 +897,7 @@ def process_ms_files(wdir, set_progress, selected_files, n_cpus):
                     detail = (
                         f"Batch {batch_num}/{total_batches} | "
                         f"Progress {total_processed:,}/{total_to_process:,} | "
-                        f"Time per batch {batch_elapsed:0.2f}s"
+                        f"Time/batch {batch_elapsed:0.2f}s"
                     )
                     done_count = total_processed + len(failed_files) + duplicates_count
                     _send_progress(round(done_count / n_total * 100, 1), detail)
@@ -916,7 +916,7 @@ def process_ms_files(wdir, set_progress, selected_files, n_cpus):
                     detail = (
                         f"Batch {batch_num}/{total_batches} | "
                         f"Progress {total_processed:,}/{total_to_process:,} | "
-                        f"Time per batch {batch_elapsed:0.2f}s"
+                        f"Time/batch {batch_elapsed:0.2f}s"
                     )
                     done_count = total_processed + len(failed_files) + duplicates_count
                     _send_progress(round(done_count / n_total * 100, 1), detail)

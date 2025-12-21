@@ -1126,7 +1126,7 @@ def compute_chromatograms_in_batches(wdir: str,
                               f"Progress {processed:>6,}/{total_pairs_type:,}")
                         log_line = (f"Batch {batch_num}/{total_batches} | "
                                     f"Progress {processed:,}/{total_pairs_type:,} | "
-                                    f"Time per batch {batch_elapsed:0.2f}s")
+                                    f"Time/batch {batch_elapsed:0.2f}s")
                         _write_progress_log(progress_log, _center_lines(log_line))
 
                         if checkpoint_every and batches_since_checkpoint >= checkpoint_every:
@@ -1446,7 +1446,7 @@ def compute_results_in_batches(wdir: str,
                       f"Progress {processed:>6,}/{total_count:,}")
                 log_line = (f"Batch {batch_num}/{total_batches} | "
                             f"Progress {processed:,}/{total_count:,} | "
-                            f"Time per batch {batch_elapsed:0.2f}s"
+                            f"Time/batch {batch_elapsed:0.2f}s"
                             # f"Processing ({pairs_per_sec:0.1f} pairs/s)"
                             )
                 _write_progress_log(progress_log, _center_lines(log_line))
