@@ -289,7 +289,7 @@ _layout = html.Div(
                             'ms_file_label': {'filterMode': 'keyword'},
                             'sample_type': {'filterMode': 'checkbox'},
                             'ms_type': {'filterMode': 'checkbox',
-                                        'filterCustomItems': ['ms1', 'ms2']},
+                                        'filterCustomItems': ['MS1', 'MS2']},
                         },
                         sortOptions={'sortDataIndexes': ['peak_label', 'peak_area', 'peak_area_top3', 'peak_mean',
                                                          'peak_median', 'peak_n_datapoints', 'peak_min', 'peak_max',
@@ -686,7 +686,8 @@ def callbacks(app, fsc, cache):
         State("wdir", "data"),
         prevent_initial_call=True,
     )
-    def results_table(section_context, results_actions, selected_peaks, pagination, filter_, sorter, filterOptions, wdir):
+    def results_table(section_context, results_actions, selected_peaks,
+                      pagination, filter_, sorter, filterOptions, wdir):
         if section_context and section_context['page'] != 'Processing':
             raise PreventUpdate
 
@@ -785,7 +786,7 @@ def callbacks(app, fsc, cache):
             WITH
             {f"target_order AS (SELECT * FROM (VALUES {order_values}) AS t(ord, target_peak_label))," if order_values else ""}
             filtered AS (
-              SELECT r.*, s.ms_type, s.sample_type
+              SELECT r.*, UPPER(s.ms_type) AS ms_type, s.sample_type
               {", COALESCE(tord.ord, 1e9) AS __peak_order__" if order_values else ""}
               FROM results r
               LEFT JOIN samples s USING (ms_file_label)
@@ -890,10 +891,13 @@ def callbacks(app, fsc, cache):
             if peak and peak[0] is not None
         ]
 
-        if options and not current_value:
+        if not options:
+            return [], []
+        if not current_value:
             return options, [options[0]['value']]
-
-        return options, dash.no_update
+        valid_values = {opt['value'] for opt in options}
+        filtered_value = [v for v in current_value if v in valid_values]
+        return options, filtered_value
 
     @app.callback(
         Output("processing-delete-confirmation-modal", "visible"),
