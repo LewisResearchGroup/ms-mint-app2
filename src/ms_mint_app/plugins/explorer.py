@@ -237,6 +237,10 @@ class FileExplorer:
                         html.Div(
                             [
                                 html.H4("Processing files..."),
+                                fac.AntdText(
+                                    id='ms-files-progress-stage',
+                                    style={'marginBottom': '0.5rem'},
+                                ),
                                 fac.AntdProgress(
                                     id='sm-processing-progress',
                                     percent=0,
@@ -428,6 +432,7 @@ class FileExplorer:
 
         @app.callback(
             Output('sm-processing-progress', 'percent', allow_duplicate=True),
+            Output('ms-files-progress-stage', 'children', allow_duplicate=True),
             Output('ms-files-progress-detail', 'children', allow_duplicate=True),
             Input('selection-modal', 'visible'),
             prevent_initial_call=True,
@@ -435,7 +440,23 @@ class FileExplorer:
         def reset_processing_progress(modal_visible):
             if not modal_visible:
                 raise PreventUpdate
-            return 0, ""
+            return 0, "", ""
+
+        @app.callback(
+            Output('processing-progress-container', 'style', allow_duplicate=True),
+            Output('selection-container', 'style', allow_duplicate=True),
+            Output('selection-modal', 'confirmLoading', allow_duplicate=True),
+            Output('selection-modal', 'confirmAutoSpin', allow_duplicate=True),
+            Output('selection-modal', 'cancelButtonProps', allow_duplicate=True),
+            Input('selection-modal', 'visible'),
+            prevent_initial_call=True,
+        )
+        def reset_modal_state(modal_visible):
+            if not modal_visible:
+                raise PreventUpdate
+            progress_style = {'display': 'none', 'textAlign': 'center', 'padding': '20px'}
+            selection_style = {'display': 'block'}
+            return progress_style, selection_style, False, False, {'disabled': False}
 
         @app.callback(
             Output("current-path-modal", "items", allow_duplicate=True),
@@ -648,6 +669,7 @@ class FileExplorer:
             ],
             progress=[
                 Output("sm-processing-progress", "percent"),
+                Output("ms-files-progress-stage", "children"),
                 Output("ms-files-progress-detail", "children"),
             ],
             cancel=[
@@ -672,20 +694,24 @@ class FileExplorer:
             failed_targets = []
             stats = {}
             duplicates_count = 0
+            stage_label = "Processing"
 
             def progress_adapter(percent, detail=""):
                 if set_progress:
-                    set_progress((percent, detail or ""))
+                    set_progress((percent, stage_label, detail or ""))
 
             if processing_type['type'] == "ms-files":
+                stage_label = "MS Files"
                 total_processed, failed_files, duplicates_count = process_ms_files(
                     wdir, progress_adapter, selected_files, cpu_input
                 )
                 message = "MS Files processed"
             elif processing_type['type'] == "metadata":
+                stage_label = "Metadata"
                 total_processed, failed_files = process_metadata(wdir, progress_adapter, selected_files)
                 message = "Metadata processed"
             else:
+                stage_label = "Targets"
                 total_processed, failed_files, failed_targets, stats = process_targets(wdir, progress_adapter, selected_files)
                 message = "Targets processed"
 
@@ -743,3 +769,18 @@ class FileExplorer:
             if not cancel_clicks:
                 raise PreventUpdate
             return False
+
+        @app.callback(
+            Output('processing-progress-container', 'style', allow_duplicate=True),
+            Output('selection-container', 'style', allow_duplicate=True),
+            Output('selection-modal', 'confirmLoading', allow_duplicate=True),
+            Output('selection-modal', 'confirmAutoSpin', allow_duplicate=True),
+            Output('selection-modal', 'cancelButtonProps', allow_duplicate=True),
+            Input('clear-selection-btn', 'nClicks'),
+            Input('remove-marked-btn', 'nClicks'),
+            prevent_initial_call=True,
+        )
+        def restore_modal_body(clear_clicks, remove_clicks):
+            progress_style = {'display': 'none', 'textAlign': 'center', 'padding': '20px'}
+            selection_style = {'display': 'block'}
+            return progress_style, selection_style, False, False, {'disabled': False}

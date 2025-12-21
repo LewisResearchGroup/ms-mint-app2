@@ -788,6 +788,10 @@ def callbacks(cls, app, fsc, cache, args_namespace):
                     lambda value: {'checked': value},
                     return_dtype=pl.Object
                 ).alias('use_for_analysis'),
+                pl.col('ms_type').map_elements(
+                    lambda value: value.upper() if isinstance(value, str) else value,
+                    return_dtype=pl.String,
+                ).alias('ms_type'),
             )
             end_time = time.perf_counter()
             time.sleep(max(0.0, min(len(data), 0.5 - (end_time - start_time))))
