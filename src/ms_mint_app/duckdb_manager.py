@@ -785,7 +785,8 @@ def compute_chromatograms_in_batches(wdir: str,
                                      ram=None,
                                      use_bookmarked: bool = False,
                                      ):
-    progress_log = Path(wdir) / "processing_progress.log" if wdir else None
+    # progress_log = Path(wdir) / "processing_progress.log" if wdir else None
+    progress_log = None
     QUERY_CREATE_SCAN_LOOKUP = """
                                CREATE TABLE IF NOT EXISTS ms_file_scans AS
                                SELECT DISTINCT ms_file_label,

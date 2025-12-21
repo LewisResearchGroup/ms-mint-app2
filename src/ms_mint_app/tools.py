@@ -780,6 +780,7 @@ def process_ms_files(wdir, set_progress, selected_files, n_cpus):
     import concurrent.futures
     import time
 
+    start_time = time.perf_counter()
     print(f"Starting MS file processing for {n_total} file(s).")
 
     # set progress to 1 to the user feedback
@@ -924,7 +925,11 @@ def process_ms_files(wdir, set_progress, selected_files, n_cpus):
                     batch_ms_data['ms2'] = []
 
     _send_progress(round(100, 1))
-    print(f"Completed MS file processing. Success: {total_processed}, Failed: {len(failed_files)}.")
+    elapsed = time.perf_counter() - start_time
+    print(
+        f"Completed MS file processing. Success: {total_processed}, "
+        f"Failed: {len(failed_files)}. Total time: {elapsed:0.2f}s."
+    )
     return total_processed, failed_files, duplicates_count
 
 
