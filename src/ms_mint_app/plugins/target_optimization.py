@@ -1113,11 +1113,13 @@ def callbacks(app, fsc, cache, cpu=None):
         Input('chromatogram-preview-order', 'value'),
         Input('drop-chromatogram', 'data'),
         Input('targets-select', 'value'),
+        State('chromatograms-dummy-output', 'children'),
         State('wdir', 'data'),
         prevent_initial_call=True
     )
     def chromatograms_preview(chromatograms, current_page, page_size, checkedkeys, log_scale, selection_bookmark,
-                              selection_ms_type, targets_order, dropped_target, selected_targets, wdir):
+                              selection_ms_type, targets_order, dropped_target, selected_targets,
+                              preview_y_range, wdir):
 
         ctx = dash.callback_context
         if 'targets-select' in ctx.triggered[0]['prop_id'] and selected_targets:
@@ -1125,6 +1127,7 @@ def callbacks(app, fsc, cache, cpu=None):
         if not wdir:
             raise PreventUpdate
 
+        page_size = page_size or 1
         start_idx = (current_page - 1) * page_size
         t1 = time.perf_counter()
 
@@ -1306,6 +1309,9 @@ def callbacks(app, fsc, cache, cpu=None):
         titles = []
         figures = []
         bookmarks = []
+        if not isinstance(preview_y_range, dict):
+            preview_y_range = {}
+        updated_preview_y_range = dict(preview_y_range)
 
         for peak_label_data, peak_data in df.group_by(
                 ['peak_label', 'ms_type', 'bookmark', 'rt_min', 'rt_max', 'rt', 'mz_mean', 'filterLine'],
@@ -1317,10 +1323,20 @@ def callbacks(app, fsc, cache, cpu=None):
 
             fig = Patch()
             traces = []
+            y_max = 0.0
+            y_min_pos = None
             for i, row in enumerate(peak_data.iter_rows(named=True)):
                 scan_time_sparse, intensity_sparse = sparsify_chrom(
                     row['scan_time_sliced'], row['intensity_sliced']
                 )
+                if len(intensity_sparse):
+                    local_max = max(intensity_sparse)
+                    if local_max > y_max:
+                        y_max = local_max
+                    local_min_pos = min((v for v in intensity_sparse if v > 0), default=None)
+                    if local_min_pos is not None:
+                        if y_min_pos is None or local_min_pos < y_min_pos:
+                            y_min_pos = local_min_pos
                 traces.append({
                     'type': 'scatter',
                     'mode': 'lines',
@@ -1366,13 +1382,41 @@ def callbacks(app, fsc, cache, cpu=None):
             fig['layout']['yaxis']['automargin'] = True
             fig['layout']['yaxis']['tickformat'] = "~s"
 
+            y_key = f"{peak_label}|{ms_type}"
+            prev_range = preview_y_range.get(y_key, {})
+            prev_y_max = prev_range.get("y_max")
+            prev_y_min = prev_range.get("y_min_pos")
+            use_prev = False
+            if prev_y_max and y_max:
+                diff_ratio = abs(y_max - prev_y_max) / max(prev_y_max, 1.0)
+                use_prev = diff_ratio < 0.05
+            if use_prev:
+                y_max_use = prev_y_max
+                y_min_use = prev_y_min if prev_y_min else y_min_pos
+            else:
+                y_max_use = y_max
+                y_min_use = y_min_pos
+
             if log_scale:
                 fig['layout']['yaxis']['type'] = 'log'
                 fig['layout']['yaxis']['dtick'] = 1  # Only show powers of 10 to avoid cramped labels
                 fig['layout']['yaxis']['tickfont'] = {'size': 9}
+                if y_max_use and y_max_use > 0:
+                    y_min_use = y_min_use if y_min_use and y_min_use > 0 else max(y_max_use * 1e-6, 1e-6)
+                    fig['layout']['yaxis']['range'] = [math.log10(y_min_use), math.log10(y_max_use)]
+                    fig['layout']['yaxis']['autorange'] = False
             else:
                 fig['layout']['yaxis']['type'] = 'linear'
                 fig['layout']['yaxis']['tickfont'] = {'size': 9}
+                if y_max_use and y_max_use > 0:
+                    fig['layout']['yaxis']['range'] = [0, y_max_use * 1.05]
+                    fig['layout']['yaxis']['autorange'] = False
+
+            if y_max_use:
+                updated_preview_y_range[y_key] = {
+                    "y_max": y_max_use,
+                    "y_min_pos": y_min_use,
+                }
 
             fig["layout"]["showlegend"] = False
             fig['layout']['margin'] = dict(l=45, r=5, t=55, b=30)
@@ -1391,7 +1435,7 @@ def callbacks(app, fsc, cache, cpu=None):
             ]
 
         print(f"{time.perf_counter() - t1 = }")
-        return titles, figures, bookmarks, len(all_targets), [], targets_select_options
+        return titles, figures, bookmarks, len(all_targets), "", targets_select_options
 
     @app.callback(
         Output({'type': 'target-card-preview', 'index': ALL}, 'className'),
