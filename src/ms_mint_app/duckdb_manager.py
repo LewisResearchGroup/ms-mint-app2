@@ -158,6 +158,7 @@ def _create_tables(conn: duckdb.DuckDBPyConnection):
                  (
                      ms_file_label        VARCHAR PRIMARY KEY,
                      ms_type              ms_type_enum,
+                     file_type            VARCHAR,
                      use_for_optimization BOOLEAN DEFAULT true,
                      use_for_processing   BOOLEAN DEFAULT true,
                      use_for_analysis     BOOLEAN DEFAULT true,
@@ -175,6 +176,7 @@ def _create_tables(conn: duckdb.DuckDBPyConnection):
 
     # Backfill new processing flag for existing DBs
     conn.execute("ALTER TABLE samples ADD COLUMN IF NOT EXISTS use_for_processing BOOLEAN DEFAULT true;")
+    conn.execute("ALTER TABLE samples ADD COLUMN IF NOT EXISTS file_type VARCHAR;")
     for col in GROUP_COLUMNS:
         conn.execute(f"ALTER TABLE samples ADD COLUMN IF NOT EXISTS {col} VARCHAR;")
     try:

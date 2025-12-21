@@ -729,15 +729,18 @@ def _insert_ms_data(wdir, ms_type, batch_ms, batch_ms_data):
     if not batch_ms[ms_type]:
         return 0, failed_files
 
-    pldf = pd.DataFrame(batch_ms[ms_type], columns=['ms_file_label', 'label', 'ms_type', 'polarity'])
+    pldf = pd.DataFrame(
+        batch_ms[ms_type],
+        columns=['ms_file_label', 'label', 'ms_type', 'polarity', 'file_type'],
+    )
 
     with duckdb_connection(wdir) as conn:
         if conn is None:
             raise PreventUpdate
         try:
             conn.execute(
-                "INSERT INTO samples(ms_file_label, label, ms_type, polarity) "
-                "SELECT ms_file_label, label, ms_type, polarity FROM pldf"
+                "INSERT INTO samples(ms_file_label, label, ms_type, polarity, file_type) "
+                "SELECT ms_file_label, label, ms_type, polarity, file_type FROM pldf"
             )
             ms_data_table = f'{ms_type}_data'
             extra_columns = ['mz_precursor', 'filterLine', 'filterLine_ELMAVEN']
@@ -831,7 +834,16 @@ def process_ms_files(wdir, set_progress, selected_files, n_cpus):
                         continue
 
                     _file_path, _ms_file_label, _ms_level, _polarity, _parquet_df = result
-                    batch_ms[f'ms{_ms_level}'].append((_ms_file_label, _ms_file_label, f'ms{_ms_level}', _polarity))
+                    suffix = Path(_file_path).suffix.lower()
+                    if suffix == ".mzxml":
+                        file_type = "mzXML"
+                    elif suffix == ".mzml":
+                        file_type = "mzML"
+                    else:
+                        file_type = suffix.lstrip(".")
+                    batch_ms[f'ms{_ms_level}'].append(
+                        (_ms_file_label, _ms_file_label, f'ms{_ms_level}', _polarity, file_type)
+                    )
                     batch_ms_data[f'ms{_ms_level}'].append(_parquet_df)
                     # print(f"Parsed: {Path(_file_path).name} (ms{_ms_level})")
 

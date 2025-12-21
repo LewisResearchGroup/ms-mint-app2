@@ -237,7 +237,7 @@ _layout = html.Div(
                             },
                             'file_type': {
                                 'title': 'File Type',
-                                'content': 'Raw file format (e.g., mzML, mzXML).',
+                                'content': 'File format (e.g., mzML, mzXML).',
                             },
                             'peak_label': {
                                 'title': 'Target',

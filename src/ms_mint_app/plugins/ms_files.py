@@ -34,6 +34,7 @@ MS_METADATA_TEMPLATE_COLUMNS = [
     *GROUP_COLUMNS,
     'polarity',
     'ms_type',
+    'file_type',
 ]
 MS_METADATA_TEMPLATE_DESCRIPTIONS = [
     'Unique file name; must match the MS file on disk',
@@ -46,6 +47,7 @@ MS_METADATA_TEMPLATE_DESCRIPTIONS = [
     *[GROUP_DESCRIPTIONS[col] for col in GROUP_COLUMNS],
     'Polarity (Positive or Negative)',
     'Acquisition type (ms1 or ms2)',
+    'File format (e.g., mzML, mzXML)',
 ]
 MS_METADATA_TEMPLATE_CSV = (
     ",".join(MS_METADATA_TEMPLATE_COLUMNS)
@@ -261,6 +263,11 @@ _layout = html.Div(
                                 'dataIndex': 'ms_type',
                                 'width': '120px',
                             },
+                            {
+                                'title': 'File Type',
+                                'dataIndex': 'file_type',
+                                'width': '120px',
+                            },
                         ],
                         titlePopoverInfo={
                             'ms_file_label': {
@@ -307,7 +314,7 @@ _layout = html.Div(
                             },
                             'file_type': {
                                 'title': 'file_type',
-                                'content': 'Raw file format (e.g., mzML, mzXML)',
+                                'content': MS_METADATA_DESCRIPTION_MAP['file_type'],
                             },
                         },
                         filterOptions={
@@ -326,6 +333,8 @@ _layout = html.Div(
                                          'filterCustomItems': ['Positive', 'Negative']},
                             'ms_type': {'filterMode': 'checkbox',
                                         'filterCustomItems': ['ms1', 'ms2']},
+                            'file_type': {'filterMode': 'checkbox',
+                                          'filterCustomItems': ['mzXML', 'mzML']},
                         },
                         sortOptions={'sortDataIndexes': []},
                         pagination={
