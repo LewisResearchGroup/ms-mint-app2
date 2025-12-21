@@ -273,7 +273,7 @@ class FileExplorer:
                     okClickClose=False,
                     closable=False,
                     maskClosable=False,
-                    destroyOnClose=True,
+                    destroyOnClose=False,
                     okText="Process Files",
                     centered=True,
                     styles={'body': {'height': "70vh"}},
