@@ -433,8 +433,19 @@ def callbacks(app, fsc, cache):
                 # Avoid bumping last_activity just for rendering the preview table
                 with duckdb_connection(_path, register_activity=False) as conn:
                     summary = conn.execute("""
-                                           SELECT table_name, estimated_size as rows
-                                           FROM duckdb_tables()
+                                           SELECT * FROM (
+                                               SELECT 'samples' AS table_name, COUNT(*) AS rows FROM samples
+                                               UNION ALL
+                                               SELECT 'ms1_data' AS table_name, COUNT(*) AS rows FROM ms1_data
+                                               UNION ALL
+                                               SELECT 'ms2_data' AS table_name, COUNT(*) AS rows FROM ms2_data
+                                               UNION ALL
+                                               SELECT 'targets' AS table_name, COUNT(*) AS rows FROM targets
+                                               UNION ALL
+                                               SELECT 'chromatograms' AS table_name, COUNT(*) AS rows FROM chromatograms
+                                               UNION ALL
+                                               SELECT 'results' AS table_name, COUNT(*) AS rows FROM results
+                                           ) t
                                            ORDER BY CASE table_name
                                                         WHEN 'samples' THEN 1
                                                         WHEN 'ms1_data' THEN 2
