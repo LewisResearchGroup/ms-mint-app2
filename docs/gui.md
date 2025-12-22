@@ -59,18 +59,23 @@ Note that _mzXML_ and _mzML_ files will be deleted after convertion.
 Metadata for the individual files can be edited in the `Metadata` tab. This data can be used to group results e.g. by batch or by label as well as types.
 You want to edit metadata table to:
 
-## Targetlists
+## Targets
 
-- Import peaklist from CSV file or add new peaks manually
-- Rename peaks definitions or change parameters
-- Delete peak definitions
+Target lists are collections of peak definitions used to extract MS intensities for specific metabolites. You can manage them in the **Targets** tab.
 
-![Targetlists](image/targets.png "Peaklist")
+> **Tip**: Click the help icon (small "i" symbol) next to the "Targets" title to take a guided tour of this section.
 
-Targetlists are collection of peak definitions for the extraction of MS intensities beloning to individual metabolites. 
-Targetlists can be provided as Excel or CSV files. Targetlists are explained in more detail [here](targets.md).
-Files can be uploaded via the drag and drop area or the selection tool. The targetlists can be edited in place or
-with the optimization tools.
+![Targets](image/targets_v1.1.1.png "Targets")
+
+### Managing Targets
+
+-   **Load Targets**: Import your target list from a CSV file.
+-   **Template**: Download a CSV template with the required columns and examples.
+-   **Review and Edit**: Inspect the loaded targets, filter/sort columns, and use multi-select to perform bulk actions (like deleting specific rows).
+-   **Export**: Download the currently filtered target table for review or sharing.
+-   **Clear**: Remove all targets to start fresh.
+
+Target lists can be provided as Excel or CSV files. For more details on the file format, see [Target Lists](targets.md).
 
 ## Add Metabolites
 
