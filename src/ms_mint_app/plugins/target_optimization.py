@@ -16,6 +16,7 @@ from dash.exceptions import PreventUpdate
 from ..duckdb_manager import duckdb_connection, compute_chromatograms_in_batches
 from ..plugin_interface import PluginInterface
 from ..tools import sparsify_chrom, proportional_min1_selection
+from ..plugins.analysis_tools.trace_helper import generate_chromatogram_traces
 
 _label = "Optimization"
 
@@ -612,6 +613,33 @@ _layout = fac.AntdLayout(
                                 ),
                                 fac.AntdSpace(
                                     [
+                                        html.Div(
+                                            [
+                                                html.Span(
+                                                    'Megatrace:',
+                                                    style={
+                                                        'display': 'inline-block',
+                                                        'width': '170px',
+                                                        'textAlign': 'left',
+                                                        'paddingRight': '8px'
+                                                    }
+                                                ),
+                                                html.Div(
+                                                    fac.AntdSwitch(
+                                                        id='chromatogram-view-megatrace',
+                                                        checked=True,
+                                                        checkedChildren='On',
+                                                        unCheckedChildren='Off'
+                                                    ),
+                                                    style={
+                                                        'width': '110px',
+                                                        'display': 'flex',
+                                                        'justifyContent': 'flex-start'
+                                                    }
+                                                ),
+                                            ],
+                                            style={'display': 'flex', 'alignItems': 'center'}
+                                        ),
                                         html.Div(
                                             [
                                                 html.Span(
@@ -1650,12 +1678,109 @@ def callbacks(app, fsc, cache, cpu=None):
 
     @app.callback(
         Output('chromatogram-view-plot', 'figure', allow_duplicate=True),
+        Input('chromatogram-view-megatrace', 'checked'),
+        State('chromatogram-view-plot', 'figure'),
+        State('target-preview-clicked', 'data'),
+        State('wdir', 'data'),
+        prevent_initial_call=True
+    )
+    def update_megatrace_mode(use_megatrace, figure, target_clicked, wdir):
+        if not wdir or not target_clicked:
+            raise PreventUpdate
+        
+        with duckdb_connection(wdir) as conn:
+            query = """
+                    WITH picked_samples AS (SELECT ms_file_label, color, label, sample_type
+                                            FROM samples
+                                            WHERE use_for_optimization = TRUE
+                    ),
+                         picked_target AS (SELECT peak_label,
+                                                  intensity_threshold
+                                           FROM targets
+                                           WHERE peak_label = ?),
+                         base AS (SELECT c.*,
+                                         s.color,
+                                         s.label,
+                                         s.sample_type,
+                                         t.intensity_threshold
+                                  FROM chromatograms c
+                                           JOIN picked_samples s USING (ms_file_label)
+                                           JOIN picked_target t USING (peak_label)),
+                         zipped AS (SELECT ms_file_label,
+                                           color,
+                                           label,
+                                           sample_type,
+                                           intensity_threshold,
+                                           list_transform(
+                                                   range(1, len(scan_time) + 1),
+                                                   i -> struct_pack(
+                                                           t := list_extract(scan_time, i),
+                                                           i := list_extract(intensity,  i)
+                                                        )
+                                           ) AS pairs
+                                    FROM base),
+
+                         sliced AS (SELECT ms_file_label,
+                                           color,
+                                           label,
+                                           sample_type,
+                                           pairs,
+                                           list_filter(pairs, p -> p.i >= COALESCE(intensity_threshold, 0)) AS pairs_in
+                                    FROM zipped),
+                         final AS (SELECT ms_file_label,
+                                          color,
+                                          label,
+                                          sample_type,
+                                          list_transform(pairs_in, p -> p.t)                            AS scan_time_sliced,
+                                          list_transform(pairs_in, p -> p.i)                            AS intensity_sliced,
+                                          CASE
+                                              WHEN len(pairs) = 0 THEN NULL
+                                              ELSE list_max(list_transform(pairs, p -> p.i)) * 1.10 END AS
+                                                                                                           intensity_max_in_range,
+                                          CASE
+                                              WHEN len(pairs) = 0 THEN NULL
+                                              ELSE list_min(list_transform(pairs, p -> p.i)) END        AS intensity_min_in_range,
+                                          CASE
+                                              WHEN len(pairs) = 0 THEN NULL
+                                              ELSE list_max(list_transform(pairs, p -> p.t)) END        AS scan_time_max_in_range,
+                                          CASE
+                                              WHEN len(pairs) = 0 THEN NULL
+                                              ELSE list_min(list_transform(pairs, p -> p.t)) END        AS scan_time_min_in_range
+
+                                   FROM sliced)
+                    SELECT *
+                    FROM final
+                    ORDER BY ms_file_label;
+                    """
+
+            chrom_df = conn.execute(query, [target_clicked]).pl()
+            
+        traces, x_min, x_max, y_min, y_max = generate_chromatogram_traces(chrom_df, use_megatrace=use_megatrace)
+        
+        fig = Patch()
+        fig['data'] = traces
+        # We don't necessarily update ranges here to preserve user zoom/pan if desired, 
+        # but to be consistent with main load, we might want to. 
+        # For now let's update data only, or update everything if user expects a "reset" view.
+        # Given this is a toggle, replacing data is key.
+        if use_megatrace:
+             fig['layout']['hovermode'] = False
+        else:
+             fig['layout']['hovermode'] = 'closest'
+        return fig
+
+
+
+
+    @app.callback(
+        Output('chromatogram-view-plot', 'figure', allow_duplicate=True),
         Output('chromatogram-view-modal', 'title'),
         Output('chromatogram-view-modal', 'loading'),
         Output('slider-reference-data', 'data'),
         Output('slider-data', 'data', allow_duplicate=True),  # make sure this is reset
         Output('chromatogram-view-plot-max', 'data'),
         Output('chromatogram-view-plot-points', 'data'),
+        Output('chromatogram-view-megatrace', 'checked', allow_duplicate=True),
         Output('chromatogram-view-log-y', 'checked', allow_duplicate=True),
         Output('chromatogram-view-groupclick', 'checked', allow_duplicate=True),
         Output('target-note', 'value', allow_duplicate=True),
@@ -1762,94 +1887,29 @@ def callbacks(app, fsc, cache, cpu=None):
         MAX_TRACES = 200
 
         if len(chrom_df) <= MAX_TRACES:
-            # ------------------------------------
-            # MODO NORMAL: una trace por cromatograma
-            # ------------------------------------
-            for i, row in enumerate(chrom_df.iter_rows(named=True)):
-
-                scan_time_sparse, intensity_sparse = sparsify_chrom(
-                    row['scan_time_sliced'], row['intensity_sliced'], w=1, baseline=1.0, eps=0.0
-                )
-                total_points += len(scan_time_sparse)
-
-                trace = {
-                    'type': 'scattergl',
-                    'mode': 'lines',
-                    'x': scan_time_sparse,
-                    'y': intensity_sparse,
-                    'line': {'color': row['color']},
-                    'name': row['label'] or row['ms_file_label'],
-                    'legendgroup': row['sample_type'],
-                    'hoverlabel': dict(namelength=-1)
-                }
-
-                if row['sample_type'] not in legend_groups:
-                    trace['legendgrouptitle'] = {'text': row['sample_type']}
-                    legend_groups.add(row['sample_type'])
-
-                traces.append(trace)
-
-                x_min = min(x_min, row['scan_time_min_in_range'])
-                x_max = max(x_max, row['scan_time_max_in_range'])
-                y_min = min(y_min, row['intensity_min_in_range'])
-                y_max = max(y_max, row['intensity_max_in_range'])
-
+            use_megatrace = False
         else:
-            # ------------------------------------
-            # MODO REDUCIDO: una trace por sample_type
-            # ------------------------------------
-            grouped = chrom_df.group_by('sample_type')
+            use_megatrace = True
 
-            for g, group_df in grouped:
-                xs = []
-                ys = []
-                sample_color = None
-                group_name = str(g[0])
+        traces, x_min, x_max, y_min, y_max = generate_chromatogram_traces(chrom_df, use_megatrace=use_megatrace)
 
-                for row in group_df.iter_rows(named=True):
+        if traces:
+            total_points = sum(len(t['x']) for t in traces)
 
-                    scan_time_sparse, intensity_sparse = sparsify_chrom(
-                        row['scan_time_sliced'], row['intensity_sliced'], w=1, baseline=1.0, eps=0.0
-                    )
-                    total_points += len(scan_time_sparse)
-
-                    # Concat y dejar None para separar cromatogramas
-                    xs.extend(scan_time_sparse)
-                    ys.extend(intensity_sparse)
-                    xs.append(None)
-                    ys.append(None)
-
-                    if sample_color is None:
-                        sample_color = row['color']
-
-                    # expandir rangos globales
-                    x_min = min(x_min, row['scan_time_min_in_range'])
-                    x_max = max(x_max, row['scan_time_max_in_range'])
-                    y_min = min(y_min, row['intensity_min_in_range'])
-                    y_max = max(y_max, row['intensity_max_in_range'])
-
-                # Crear una sola trace por sample_type
-                trace = {
-                    'type': 'scattergl',
-                    'mode': 'lines',
-                    'x': xs,
-                    'y': ys,
-                    'line': {'color': sample_color}, 'name': f"{group_name} (merged)",
-                    'legendgroup': group_name,
-                    'hoverlabel': dict(namelength=-1),
-                    'legendgrouptitle': {'text': group_name}
-                }
-
-                traces.append(trace)
-
-            # Disable hover when traces are merged for performance consistency.
-            for trace in traces:
-                trace['hoverinfo'] = 'skip'
-                trace['hovertemplate'] = None
-            fig['layout']['hovermode'] = False
-
+        # ------------------------------------
+        # Assemble Figure
+        # ------------------------------------
+        fig['layout']['xaxis']['range'] = [x_min, x_max]
+        fig['layout']['yaxis']['range'] = [y_min, y_max * 1.05]
+        fig['layout']['xaxis']['autorange'] = False
+        fig['layout']['yaxis']['autorange'] = False
         fig['data'] = traces
-        fig['layout']['legend']['groupclick'] = 'toggleitem'
+        # fig['layout']['title'] = {'text': f"{target_clicked} (rt={rt})"}
+        fig['layout']['shapes'] = []
+        if use_megatrace:
+            fig['layout']['hovermode'] = False
+        else:
+            fig['layout']['hovermode'] = 'closest'
 
         fig['layout']['annotations'] = [
             {
@@ -1968,9 +2028,12 @@ def callbacks(app, fsc, cache, cpu=None):
             'value': {'rt_min': rt_min, 'rt': rt, 'rt_max': rt_max},
             'v_comp': {'rt_min': True, 'rt': True, 'rt_max': True}
         }
+        slider_reference = s_data
+        slider_dict = slider_reference.copy()
 
         print(f"{time.perf_counter() - t1 = }")
-        return fig, target_clicked, False, s_data, None, [y_min, y_max], total_points, log_scale, False, note
+        return (fig, f"{target_clicked} (rt={rt})", False, slider_reference,
+                slider_dict, {"min_y": y_min, "max_y": y_max}, total_points, use_megatrace, log_scale, None, note)
 
     @app.callback(
         Output('chromatogram-view-plot', 'figure', allow_duplicate=True),
