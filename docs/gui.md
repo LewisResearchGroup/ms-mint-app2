@@ -6,6 +6,8 @@ The MINT Graphical User Interface (GUI) serves as the central hub for your metab
 
 Workspaces allow you to organize and separate different projects. Each workspace is a self-contained environment for your project files.
 
+> **Tip**: Click the help icon (small "i" symbol) next to the "Workspaces" title to take a guided tour of this section.
+
 ![Workspaces](image/workspaces_v1.1.1.png)
 
 ### Storage Location
@@ -28,36 +30,35 @@ You can manage your workspaces using the controls in the Workspaces tab:
 Click the **+** icon next to a workspace name to expand the row. This shows the absolute path to the workspace and a summary of the data it contains (_e.g._, number of MS-files, targets, and results). 
 
 
-## MS-files
+## MS-Files
 
-  - Import mass spectrometry files (MS-file) in mzXML or mzML format
-  - Convert file to feather format (other formats will be removed)
-  - Remove MS-files from workspace
+The **MS-Files** tab is the entry point for your analysis. Here you organize the raw mass spectrometry data that constitutes your workspace. MINT currently supports **.mzXML** and **.mzML** file formats.
 
-![MS-files](image/ms-files.png "MS-files")
+![MS-files](image/ms_files_v1.1.1.png "MS-files")
 
-Mass-Spec files (in _mzML_ or _mzXML_ format) can be added under the `MS-files` tab by drag and drop or by using the selection form. 
-Due to limitations of the Plotly-Dash framework only up to 10 files can be uploaded at a time. For larger projects, the files can simply 
-be copied manually into the ms-files subdirectory. This will be improved in future versions of MINT. 
+> **Tip**: Click the help icon (small "i" symbol) next to the "MS-Files" title to take a guided tour of this section.
 
-To remove certain files the files have to be selected in the table and the `DELETE SELECTED FILES` has to be clicked.
+### Loading Files
+To add data to your workspace, click the **Load MS-Files** button. This opens a dedicated file browser modal where you can:
 
-The files are converted to `feather` format which is based on Apache Arrow. It is a representation that allows faster read into memory.
-If files were added manually by copying into the ms-files subdirectory the files can be converted to feather format with the `CONVERT TO FEATHER` button.
-Note that _mzXML_ and _mzML_ files will be deleted after convertion. 
+1.  **Browse Server Files**: Use the left pane to navigate the directory structure of the computer running MINT.
+2.  **Select Files**: Check the boxes next to the files you wish to import. You can filter by file extension (e.g., `.mzXML`, `.mzML`) using the tags below the file list.
+3.  **Review Selection**: The right pane shows your currently selected files. You can remove specific files or clear the entire selection before processing.
+4.  **Process**: Click **Process Files** to import them into your workspace. MINT will automatically extract the information to a DuckDB database.
+    *   **CPUs**: You can specify the number of CPU cores to use for parallel processing to speed up the import of large datasets.
 
+### The Main Table
+The main table displays an overview of all imported files with several interactive columns:
 
-## Metadata
-- Select samples used for peak optimization by setting values in the column `PeakOpt` to `True`.
-- Add batch labels to analyse for possible batch effects.
-- Add labels to analyse for differences of different groups (e.g. treatment and control)
-- Add types for different files e.g. biological sample, quality control sample, standards etc in order to include ore exclude certain types during analysis.
-- Add other types of metadata. 
+*   **Checkbox**: Select multiple files for batch actions (like deletion).
+*   **Color**: Click the colored dot to assign a specific color to a file or group of files. This color will be used in plots to identify these samples.
+*   **For Optimization / Processing / Analysis**: Toggle switches to include or exclude specific files from different stages of the workflow.
+*   **Metadata Columns**: Columns like  `Label`, `Sample Type`, and `Groups` allow you to organize your data. These are typically populated by importing a metadata file using the **Load Metadata** button.
 
-![Metadata](image/metadata.png "Metadata")
+**Options Menu**: The **Options** dropdown (top right) provides quick actions such as:
 
-Metadata for the individual files can be edited in the `Metadata` tab. This data can be used to group results e.g. by batch or by label as well as types.
-You want to edit metadata table to:
+*   **Delete selected files**: Removes currently checked files from the workspace.
+*   **Reset filters/columns**: Restores the default table view.
 
 ## Targets
 
