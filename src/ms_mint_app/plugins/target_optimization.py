@@ -615,12 +615,21 @@ _layout = fac.AntdLayout(
                                     [
                                         html.Div(
                                             [
-                                                html.Span(
-                                                    'Megatrace:',
+                                                html.Div(
+                                                    [
+                                                        html.Span('Megatrace:'),
+                                                        fac.AntdTooltip(
+                                                            fac.AntdIcon(
+                                                                icon='antd-question-circle',
+                                                                style={'marginLeft': '5px', 'color': 'gray'}
+                                                            ),
+                                                            title='Merge traces to improve performance'
+                                                        )
+                                                    ],
                                                     style={
-                                                        'display': 'inline-block',
+                                                        'display': 'flex',
+                                                        'alignItems': 'center',
                                                         'width': '170px',
-                                                        'textAlign': 'left',
                                                         'paddingRight': '8px'
                                                     }
                                                 ),
@@ -642,12 +651,21 @@ _layout = fac.AntdLayout(
                                         ),
                                         html.Div(
                                             [
-                                                html.Span(
-                                                    'Intensity Scale:',
+                                                html.Div(
+                                                    [
+                                                        html.Span('Intensity Scale:'),
+                                                        fac.AntdTooltip(
+                                                            fac.AntdIcon(
+                                                                icon='antd-question-circle',
+                                                                style={'marginLeft': '5px', 'color': 'gray'}
+                                                            ),
+                                                            title='Linear vs Logarithmic scale'
+                                                        )
+                                                    ],
                                                     style={
-                                                        'display': 'inline-block',
+                                                        'display': 'flex',
+                                                        'alignItems': 'center',
                                                         'width': '170px',
-                                                        'textAlign': 'left',
                                                         'paddingRight': '8px'
                                                     }
                                                 ),
@@ -669,12 +687,21 @@ _layout = fac.AntdLayout(
                                         ),
                                         html.Div(
                                             [
-                                                html.Span(
-                                                    'Legend Behavior:',
+                                                html.Div(
+                                                    [
+                                                        html.Span('Legend Behavior:'),
+                                                        fac.AntdTooltip(
+                                                            fac.AntdIcon(
+                                                                icon='antd-question-circle',
+                                                                style={'marginLeft': '5px', 'color': 'gray'}
+                                                            ),
+                                                            title='Single vs Group toggle'
+                                                        )
+                                                    ],
                                                     style={
-                                                        'display': 'inline-block',
+                                                        'display': 'flex',
+                                                        'alignItems': 'center',
                                                         'width': '170px',
-                                                        'textAlign': 'left',
                                                         'paddingRight': '8px'
                                                     }
                                                 ),
@@ -696,12 +723,21 @@ _layout = fac.AntdLayout(
                                         ),
                                         html.Div(
                                             [
-                                                html.Span(
-                                                    'Edit RT-span:',
+                                                html.Div(
+                                                    [
+                                                        html.Span('Edit RT-span:'),
+                                                        fac.AntdTooltip(
+                                                            fac.AntdIcon(
+                                                                icon='antd-question-circle',
+                                                                style={'marginLeft': '5px', 'color': 'gray'}
+                                                            ),
+                                                            title='Unlock to edit RT range'
+                                                        )
+                                                    ],
                                                     style={
-                                                        'display': 'inline-block',
+                                                        'display': 'flex',
+                                                        'alignItems': 'center',
                                                         'width': '170px',
-                                                        'textAlign': 'left',
                                                         'paddingRight': '8px'
                                                     }
                                                 ),
@@ -723,12 +759,21 @@ _layout = fac.AntdLayout(
                                         ),
                                         html.Div(
                                             [
-                                                html.Span(
-                                                    'Notes:',
+                                                html.Div(
+                                                    [
+                                                        html.Span('Notes:'),
+                                                        fac.AntdTooltip(
+                                                            fac.AntdIcon(
+                                                                icon='antd-question-circle',
+                                                                style={'marginLeft': '5px', 'color': 'gray'}
+                                                            ),
+                                                            title='User notes for target'
+                                                        )
+                                                    ],
                                                     style={
-                                                        'display': 'inline-block',
+                                                        'display': 'flex',
+                                                        'alignItems': 'center',
                                                         'width': '170px',
-                                                        'textAlign': 'left',
                                                         'paddingRight': '8px'
                                                     }
                                                 ),
