@@ -12,7 +12,6 @@ nav:
       - Targets: 'gui/targets.md'
       - Optimization: 'gui/optimization.md'
       - Processing: 'gui/processing.md'
-      - Quality Control: 'gui/quality-control.md'
       - Analysis: 'gui/analysis.md'
   - Target lists: 'targets.md'
   - Developer Notes: 'developer-notes.md'
