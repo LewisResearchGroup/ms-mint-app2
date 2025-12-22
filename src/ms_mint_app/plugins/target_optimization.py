@@ -1916,6 +1916,13 @@ def callbacks(app, fsc, cache, cpu=None):
                     """
 
             chrom_df = conn.execute(query, [target_clicked]).pl()
+            
+            try:
+                n_sample_types = chrom_df['sample_type'].n_unique()
+                group_legend = True if n_sample_types > 1 else False
+            except Exception as e:
+                print(f"Error determining sample types: {e}")
+                group_legend = False
 
         t1 = time.perf_counter()
         fig = Patch()
@@ -2078,7 +2085,7 @@ def callbacks(app, fsc, cache, cpu=None):
 
         print(f"{time.perf_counter() - t1 = }")
         return (fig, f"{target_clicked} (rt={rt})", False, slider_reference,
-                slider_dict, {"min_y": y_min, "max_y": y_max}, total_points, use_megatrace, log_scale, None, note)
+                slider_dict, {"min_y": y_min, "max_y": y_max}, total_points, use_megatrace, log_scale, group_legend, note)
 
     @app.callback(
         Output('chromatogram-view-plot', 'figure', allow_duplicate=True),
