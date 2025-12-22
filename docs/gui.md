@@ -1,20 +1,31 @@
-# MINT GUI
+# MINT GUI 
+
+The MINT Graphical User Interface (GUI) serves as the central hub for your metabolomics workflow. It guides you through every step of the process; from organizing your files in workspaces to optimizing peak integration and analyzing the final results. This section details each component of the interface and how to use it effectively. 
 
 ## Workspaces
 
-  - Add new workspaces
-  - Delete workspaces
-  - Activate workspace 
+Workspaces allow you to organize and separate different projects. Each workspace is a self-contained environment for your project files.
 
-![Workspaces](image/workspaces.png "Workspaces")
+![Workspaces](image/workspaces_v1.1.1.png)
 
-A workspace is a container for project files that is separated from other workspaces. Through workspaces it is possible to work on different projects simultaneously. 
-All files relevant for one workspace are stored in a corresponding sub-folder of `--data-dir`, which by default is the folder MINT in the users home directory. 
-The home directory is different on different platforms. Under Windows the default folder is: `C:/Users/<username>/MINT`. 
-The path to the active workspace is always displayed above the workspace tab.
+### Storage Location
+All files for a workspace are stored in a subdirectory within your MINT data folder (`--data-dir`).
 
-To activate a particular workspace the workspace has to be selected in the table and then the `ACTIVATE` button has to be clicked. 
-`DELETE` will display a popup window upon confirmation the selected workspace with all corresponding files on the harddrive in `--data-dir` will be removed. 
+- **Default Location**: `~/MINT` (Linux/macOS) or `C:/Users/<username>/MINT` (Windows)
+- **Active Workspace**: The active workspace is displayed in the sidebar under "Workspace:".
+
+### Managing Workspaces
+
+You can manage your workspaces using the controls in the Workspaces tab:
+
+-   **Create a Workspace**: Click the **Create Workspace** button (bottom left). Enter a name in the popup window and click **Create**.
+-   **Activate a Workspace**: Click on the selection circle in the list. The active workspace is indicated by a text notification and update in the sidebar.
+-   **Delete a Workspace**: Select a workspace and click the **Delete Workspace** button (bottom right). Confirm the action in the popup window.
+    
+    > **Warning**: Deleting a workspace will permanently remove the workspace folder and all its contents from your hard drive. This action cannot be undone.
+
+### Workspace Details
+Click the **+** icon next to a workspace name to expand the row. This shows the absolute path to the workspace and a summary of the data it contains (_e.g._, number of MS-files, targets, and results). 
 
 
 ## MS-files
@@ -278,7 +289,7 @@ Hierarchical clustering is a technique for cluster analysis that seeks to build 
 The output of hierarchical clustering is often visualized using a dendrogram, which is a tree-like diagram that shows the arrangement of clusters and their hierarchical relationships. Each branch of the dendrogram represents a merge or split, and the height of the branches indicates the distance or dissimilarity between clusters.
 
 ### Example: Hirarchical clustering with different metrics using z-scores (for each metabolite)
-![Hierarchical clustering](image/hierarchical-clustering.png "Hierarchical clustering")
+![Hierarchical clustering](image/hierarchical_clustering.png "Hierarchical clustering")
 
 ## Plotting
 With great power comes great responsibility. The plotting tool can generate impressive, and very complex plots, but it can be a bit overwhelming in the beginning. It uses the [Seaborn](http://seaborn.pydata.org/) library under the hood. Familiarity, with this library can help understanding what the different settings are doing. We recommend starting with a basic plot and then increase its complexity stepwisely.
