@@ -52,37 +52,21 @@ _layout = html.Div(
         ),
         
         # --- Configuration Section ---
-        fac.AntdCard(
+        fac.AntdFlex(
             [
-                fac.AntdFlex(
-                    [
-                        fac.AntdFlex(
-                            [
-                                fac.AntdText("Current Data Directory:", strong=True),
-                                fac.AntdTooltip(
-                                    title="This is the global root directory where all your workspaces and data are stored.",
-                                    children=fac.AntdIcon(icon="antd-question-circle", style={"color": "#888"})
-                                )
-                            ],
-                            gap=5,
-                            align="center"
-                        ),
-                        fac.AntdFlex(
-                            [
-                                fac.AntdText(id="ws-current-data-dir-text", code=True, style={"marginRight": "10px", "marginLeft": "10px"}),
-                                fac.AntdButton("Change Location", id="ws-change-data-dir-btn", size="small")
-                            ],
-                            gap=5,
-                            align="center"
-                        )
-                    ],
-                    justify="space-between",
-                    align="center",
-                )
+                fac.AntdText("Current Data Directory:", strong=True),
+                fac.AntdTooltip(
+                    title="This is the global root directory where all your workspaces and data are stored.",
+                    children=fac.AntdIcon(icon="antd-question-circle", style={"color": "#888", "marginRight": "2.5px"})
+                ),
+                fac.AntdText("Loading...", id="ws-current-data-dir-text", style={"marginRight": "10px", "fontWeight": "bold"}),
+                fac.AntdButton("Change Location", id="ws-change-data-dir-btn", size="small")
             ],
-            style={"marginTop": "1rem", "marginBottom": "1rem"},
-            styles={"body": {"padding": "12px 24px"}}
+            style={"marginBottom": "1px", "marginTop": "100px"},
+            gap=10,
+            align="center"
         ),
+        # -----------------------------
         # -----------------------------
 
         html.Div([
@@ -761,6 +745,7 @@ def callbacks(app, fsc, cache):
         Input("tmpdir", "data")
     )
     def update_data_dir_display(tmpdir):
+        logging.info(f"Updating Display with tmpdir: {tmpdir}")
         if not tmpdir:
             return "Unknown"
         # Strip /Local or /User/* suffix to show the root
