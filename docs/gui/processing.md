@@ -21,7 +21,7 @@ The `Processing` tab is where the core data extraction takes place. MINT extract
 Click the `DOWNLOAD RESULTS` button to open the export options:
 
 *   **All Results**: Download the complete results table in "tidy" (long) format, suitable for advanced analysis in Python or R. You can customize which columns to include.
-*   **Dense Matrix**: Generate a pivot table (wide format) which is often easier to use with spreadsheet software or for PCA/Heatmaps {: #heatmap }.
+*   **Dense Matrix**: Generate a pivot table (wide format) which is often easier to use with spreadsheet software or for PCA/Heatmaps.
     *   **Rows/Columns**: Typically, files are rows and targets are columns (or vice versa).
     *   **Values**: Select the metric to fill the cells (default is `peak_area_top3` or `peak_area`).
     *   **Transpose**: Check this box to swap rows and columns.

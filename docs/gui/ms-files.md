@@ -15,7 +15,7 @@ To add data to your workspace, click the `Load MS-Files` button. This opens a de
 4.  **Process**: Click `Process Files` to import them into your workspace. MINT will automatically extract the information to a DuckDB database.
     *   **CPUs**: You can specify the number of CPU cores to use for parallel processing to speed up the import of large datasets.
 
-Same can be done for metadata files using the `Load Metadata` button. You can use the `DOWNLOAD TEMPLATE` button to download a template file that you can fill out and import using the `Load Metadata` button. This file contains important information about your samples. Only `ms_file_label` and `sample_type`are essential; the remaining columns are optional but useful for grouping and plotting. If any of teh columns `use_for_optimization`, `use_for_processing`, `use_for_analysis` are left blank they will be assumed to be `TRUE`.
+Same can be done for metadata files using the `Load Metadata` button. You can use the `DOWNLOAD TEMPLATE` button to download a template file that you can fill out and import using the `Load Metadata` button. This file contains important information about your samples. Only `ms_file_label` and `sample_type`are essential; the remaining columns are optional but useful for grouping and plotting. If any of the columns `use_for_optimization`, `use_for_processing`, `use_for_analysis` are left blank they will be assumed to be `TRUE`.
 
 | Column Name             | Description                                                       |
 |-------------------------|-------------------------------------------------------------------|
@@ -39,7 +39,7 @@ The main table displays an overview of all imported files with several interacti
 
 *   **Checkbox**: Select multiple files for batch actions (like deletion).
 *   **Color**: This color will be used in plots to identify these samples. You can change the color by clicking the color rectangle, by using the `Generate Color` function under the `Options` menu, or importing a metadata file.
-*   **For Optimization / Processing / Analysis**: Toggle switches to include or exclude specific files from different stages of the workflow. This is useful if you want to exclude certain files from optimization or analysis. For example, if you have a large dataset and you want to exclude certain files from optimization, you can use this feature to exclude them. Likewise, if you want to exclude certain files from analysis like blanks or standards, you can use this feature to exclude them. THis process can be done individually or by importing a metadata file.
+*   **For Optimization / Processing / Analysis**: Toggle switches to include or exclude specific files from different stages of the workflow. This is useful if you want to exclude certain files from optimization or analysis. For example, if you have a large dataset and you want to exclude certain files from optimization, you can use this feature to exclude them. Likewise, if you want to exclude certain files from analysis like blanks or standards, you can use this feature to exclude them. This process can be done individually or by importing a metadata file.
 *   **Metadata Columns**: Columns like `Label`, `Sample Type`, and `Groups` allow you to organize your data. These are typically populated by importing a metadata file using the `Load Metadata` button.
 
 ### Options Menu {: #options-menu }

@@ -13,7 +13,6 @@ nav:
       - Optimization: 'gui/optimization.md'
       - Processing: 'gui/processing.md'
       - Analysis: 'gui/analysis.md'
-  - Target lists: 'targets.md'
   - Developer Notes: 'developer-notes.md'
   - Gallery: 'gallery.md'
 extra:
