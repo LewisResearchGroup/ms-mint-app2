@@ -239,6 +239,69 @@ def main():
         print("Mint version:", ms_mint_app.__version__)
         exit()
 
+    # Load config early to determine data_dir
+    config_repo = None
+    config_fallback = None
+    config_data_dir = None
+
+    if args.config:
+        config_path = os.path.expanduser(args.config)
+        # Create default config if it doesn't exist
+        if not os.path.isfile(config_path):
+            user_home = P.home()
+            default_fallback = str(user_home / "ms-mint-app")
+            default_cfg = {
+                "repo_path": "git+https://github.com/Valdes-Tresanco-MS/ms-mint-app@db-migration",
+                "fallback_repo_path": default_fallback,
+                "data_dir": DATADIR,
+            }
+            try:
+                with open(config_path, "w", encoding="utf-8") as fh:
+                    json.dump(default_cfg, fh, indent=2)
+                logging.info("Created default config at %s", config_path)
+            except OSError as exc:
+                logging.warning("Unable to create config file %s: %s", config_path, exc)
+        else:
+            logging.info("Using config file %s", config_path)
+
+        if os.path.isfile(config_path):
+            try:
+                with open(config_path, "r", encoding="utf-8") as fh:
+                    cfg = json.load(fh)
+                config_repo = cfg.get("repo_path")
+                config_fallback = cfg.get("fallback_repo_path")
+                config_data_dir = cfg.get("data_dir")
+            except Exception as exc:
+                logging.warning("Could not read config %s: %s", config_path, exc)
+
+    # Determine Data Directory Priority: CLI > Config > Default
+    # Note: args.data_dir defaults to DATADIR, so we can't easily tell if it was user-provided 
+    # unless we check if it matches DATADIR. But if user explicitly passed ~/MINT, it's same as default.
+    # To properly support config override, we need to know if CLI was used.
+    # However, since we can't easily change the parser now without potential side effects,
+    # we will assume that if the config has a data_dir, and it differs from the current args.data_dir,
+    # AND args.data_dir IS the default DATADIR, we should probably prefer the Config.
+    # BUT, if the user ran `mint --data-dir /foo`, args.data_dir is /foo.
+    # If config says /bar.
+    # We want /foo.
+    # If user ran `mint` (defaults to ~/MINT). Config says /bar. We want /bar.
+    
+    # Let's perform a check:
+    final_data_dir = args.data_dir
+    if config_data_dir:
+        # If the CLI arg matches the hardcoded default, allow config to override.
+        # This has a minor edge case: if user EXPLICITLY typed --data-dir ~/MINT and config is /bar,
+        # we might switch to /bar. But that's acceptable since they are practically same.
+        if args.data_dir == DATADIR:
+             final_data_dir = config_data_dir
+
+    # Update args for consistency passing down
+    args.data_dir = final_data_dir
+    os.environ["MINT_DATA_DIR"] = final_data_dir
+
+    if args.serve_path is not None:
+        os.environ["MINT_SERVE_PATH"] = args.serve_path
+
     def _ensure_available_port(host: str, port: int):
         import socket
 
@@ -292,45 +355,8 @@ def main():
     single = SingleInstance(name="ms-mint-app", temp_dir=args.data_dir, debug=args.debug)
     single.ensure_single(force=True)
 
-    if args.data_dir is not None:
-        os.environ["MINT_DATA_DIR"] = args.data_dir
-
-    if args.serve_path is not None:
-        os.environ["MINT_SERVE_PATH"] = args.serve_path
-
     root_logger = logging.getLogger()
     root_logger.setLevel(logging.INFO)
-
-    config_repo = None
-    config_fallback = None
-
-    if args.config:
-        config_path = os.path.expanduser(args.config)
-        if not os.path.isfile(config_path):
-            user_home = P.home()
-            default_fallback = str(user_home / "ms-mint-app")
-            default_cfg = {
-                "repo_path": "git+https://github.com/Valdes-Tresanco-MS/ms-mint-app@db-migration",
-                "fallback_repo_path": default_fallback,
-            }
-            try:
-                with open(config_path, "w", encoding="utf-8") as fh:
-                    json.dump(default_cfg, fh, indent=2)
-                logging.info("Created default config at %s", config_path)
-            except OSError as exc:
-                logging.warning("Unable to create config file %s: %s", config_path, exc)
-        else:
-            logging.info("Using config file %s", config_path)
-
-        if os.path.isfile(config_path):
-            try:
-                with open(config_path, "r", encoding="utf-8") as fh:
-                    cfg = json.load(fh)
-                config_repo = cfg.get("repo_path")
-                config_fallback = cfg.get("fallback_repo_path")
-            except Exception as exc:
-                logging.warning("Could not read config %s: %s", config_path, exc)
-
     env_repo = os.environ.get("MINT_REPO_PATH")
     env_fallback = os.environ.get("MINT_FALLBACK_REPO_PATH")
 

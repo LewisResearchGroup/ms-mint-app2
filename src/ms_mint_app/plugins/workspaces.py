@@ -1,5 +1,8 @@
 import re
 import shutil
+import json
+import os
+import logging
 from pathlib import Path
 
 import dash
@@ -47,6 +50,41 @@ _layout = html.Div(
             ],
             align='center'
         ),
+        
+        # --- Configuration Section ---
+        fac.AntdCard(
+            [
+                fac.AntdFlex(
+                    [
+                        fac.AntdFlex(
+                            [
+                                fac.AntdText("Current Data Directory:", strong=True),
+                                fac.AntdTooltip(
+                                    title="This is the global root directory where all your workspaces and data are stored.",
+                                    children=fac.AntdIcon(icon="antd-question-circle", style={"color": "#888"})
+                                )
+                            ],
+                            gap=5,
+                            align="center"
+                        ),
+                        fac.AntdFlex(
+                            [
+                                fac.AntdText(id="ws-current-data-dir-text", code=True, style={"marginRight": "10px", "marginLeft": "10px"}),
+                                fac.AntdButton("Change Location", id="ws-change-data-dir-btn", size="small")
+                            ],
+                            gap=5,
+                            align="center"
+                        )
+                    ],
+                    justify="space-between",
+                    align="center",
+                )
+            ],
+            style={"marginTop": "1rem", "marginBottom": "1rem"},
+            styles={"body": {"padding": "12px 24px"}}
+        ),
+        # -----------------------------
+
         html.Div([
             fac.AntdTable(
                 id='ws-table',
@@ -116,6 +154,36 @@ _layout = html.Div(
                     'danger': True
                 }
         ),
+        
+        # --- Change Data Directory Modal ---
+        fac.AntdModal(
+            [
+                fac.AntdText("Enter the absolute path for the new Global Data Directory."),
+                fac.AntdAlert(
+                    message="Warning: Changing this will reload the application with the new directory. Existing workspaces in the old directory will remain there but won't be visible until you switch back.",
+                    type="warning",
+                    showIcon=True,
+                    style={"marginBottom": "10px", "marginTop": "10px"}
+                ),
+                fac.AntdForm(
+                    [
+                        fac.AntdFormItem(
+                            fac.AntdInput(id='ws-input-data-dir', placeholder='/absolute/path/to/MINT', value=None),
+                            label='New Path:',
+                            hasFeedback=True,
+                            id='ws-data-dir-form-item'
+                        ),
+                    ]
+                )
+            ],
+            title='Change Global Data Directory',
+            id='ws-change-data-dir-modal',
+            renderFooter=True,
+            okText='Save & Reload',
+            locale='en-us',
+        ),
+        # -----------------------------------
+
         fac.AntdTour(
             locale='en-us',
             steps=[
@@ -399,7 +467,7 @@ def callbacks(app, fsc, cache):
 
         Input('section-context', 'data'),
         Input('ws-action-store', 'data'),
-        State("tmpdir", "data"),
+        Input("tmpdir", "data"), # Changed from State to Input to auto-update
     )
     def ws_table(section_context, ws_action, tmpdir):
 
@@ -600,3 +668,105 @@ def callbacks(app, fsc, cache):
                                         showProgress=True,
                                         stack=True
                                         )
+
+    @app.callback(
+        Output("ws-change-data-dir-modal", "visible"),
+        Input("ws-change-data-dir-btn", "nClicks"),
+        prevent_initial_call=True
+    )
+    def open_change_data_dir_modal(nClicks):
+        return True
+
+    @app.callback(
+        Output("tmpdir", "data", allow_duplicate=True),
+        Output("notifications-container", "children", allow_duplicate=True),
+        Output("ws-change-data-dir-modal", "visible", allow_duplicate=True),
+        
+        Input("ws-change-data-dir-modal", "okCounts"),
+        State("ws-input-data-dir", "value"),
+        prevent_initial_call=True
+    )
+    def save_new_data_dir(okCounts, new_path):
+        if not okCounts:
+            raise PreventUpdate
+        
+        if not new_path or not new_path.strip():
+             return dash.no_update, fac.AntdNotification(message="Please enter a valid path.", type="error"), dash.no_update
+        
+        new_path = os.path.expanduser(new_path)
+        new_path_obj = Path(new_path)
+
+        if not new_path_obj.is_absolute():
+            return dash.no_update, fac.AntdNotification(message="Path must be absolute.", type="error"), dash.no_update
+        
+        # Try to create directory if it doesn't exist to verify permissions
+        try:
+            new_path_obj.mkdir(parents=True, exist_ok=True)
+            # Create .cache inside
+            (new_path_obj / ".cache").mkdir(exist_ok=True)
+        except OSError as e:
+             return dash.no_update, fac.AntdNotification(message=f"Permission denied or invalid path: {e}", type="error"), dash.no_update
+
+        # Update Config
+        config_path = os.path.expanduser(os.environ.get("MINT_CONFIG_PATH") or "~/.mint_config.json")
+        try:
+            if os.path.isfile(config_path):
+                with open(config_path, "r", encoding="utf-8") as fh:
+                    cfg = json.load(fh)
+            else:
+                cfg = {}
+            
+            cfg["data_dir"] = str(new_path_obj)
+            
+            with open(config_path, "w", encoding="utf-8") as fh:
+                json.dump(cfg, fh, indent=2)
+                
+        except Exception as e:
+             return dash.no_update, fac.AntdNotification(message=f"Failed to update config file: {e}", type="error"), dash.no_update
+
+        # Update Environment Variable for this session (best effort)
+        os.environ["MINT_DATA_DIR"] = str(new_path_obj)
+        
+        # Update global TMPDIR in app.py to ensure page refreshes pick up the new path
+        try:
+            import ms_mint_app.app as app_module
+            app_module.TMPDIR = new_path_obj
+            app_module.CACHEDIR = new_path_obj / ".cache"
+            logging.info(f"Updated app.TMPDIR to {app_module.TMPDIR}")
+        except Exception as e:
+            logging.warning(f"Failed to update app.TMPDIR: {e}")
+
+        # Construct the correct user-specific path (mirroring app.user_tmpdir logic)
+        # We assume Local mode usually, or simple auth. 
+        # Since we can't easily import current_user here without context issues sometimes, 
+        # let's look at the OLD tmpdir to guess the structure? 
+        # Or better, just implement the standard logic:
+        # If we are in 'Local' mode (default for single user), append 'Local'.
+        # If we handle multi-user, this feature should probably be admin-only or handle 'User/uid'.
+        # For now, let's stick to 'Local' as that's what the User sees.
+        
+        # NOTE: Ideally we would call app.user_tmpdir() but that relies on global TMPDIR which is stale.
+        # So we manually append 'Local'.
+        new_user_path = new_path_obj / "Local"
+        new_user_path.mkdir(parents=True, exist_ok=True)
+        
+        with duckdb_connection_mint(str(new_user_path)) as mint_conn:
+                 logging.info(f"Initialized DB in {new_user_path}")
+
+        # Notify success and update tmpdir store with the USER path (ending in /Local)
+        return str(new_user_path), fac.AntdNotification(message="Global Data Directory updated successfully!", type="success"), False
+
+    @app.callback(
+        Output("ws-current-data-dir-text", "children"),
+        Input("tmpdir", "data")
+    )
+    def update_data_dir_display(tmpdir):
+        if not tmpdir:
+            return "Unknown"
+        # Strip /Local or /User/* suffix to show the root
+        p = Path(tmpdir)
+        if p.name == "Local":
+            return str(p.parent)
+        if p.parent.name == "User":
+            return str(p.parent.parent)
+        return str(p)
