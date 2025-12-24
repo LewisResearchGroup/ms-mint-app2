@@ -388,7 +388,7 @@ def run_asari_workflow(wdir, params, set_progress=None):
             df['polarity'] = polarity_map.get(mode_val, 'Positive')
             
             df['filterLine'] = None
-            df['ms_type'] = 'ms1'
+            df['ms_type'] = 'MS1'
             df['category'] = None
             df['peak_selection'] = True
             df['score'] = None

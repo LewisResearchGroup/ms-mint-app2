@@ -50,7 +50,7 @@ TARGET_TEMPLATE_DESCRIPTIONS = [
     'Intensity cutoff (anything lower than this value is considered zero)',
     'Polarity (Positive or Negative)',
     'Filter ID for MS2 scans',
-    'ms1 or ms2',
+    'MS1 or MS2',
     'Category',
     'Score',
     'Free-form notes',
