@@ -74,10 +74,14 @@ _layout = fac.AntdLayout(
                         ),
                         fac.AntdFlex(
                             [
-                                fac.AntdButton(
-                                    'Compute Chromatograms',
-                                    id='compute-chromatograms-btn',
-                                    style={'textTransform': 'uppercase'},
+                                fac.AntdTooltip(
+                                    fac.AntdButton(
+                                        'Compute Chromatograms',
+                                        id='compute-chromatograms-btn',
+                                        style={'textTransform': 'uppercase'},
+                                    ),
+                                    title="Calculate chromatograms from the MS files and Targets.",
+                                    placement="bottom"
                                 ),
                                 fac.AntdSelect(
                                     id='targets-select',
@@ -282,12 +286,16 @@ _layout = fac.AntdLayout(
                                                     tooltip='Set preview plot width and height'
                                                 ),
                                                 fac.AntdFormItem(
+                                                fac.AntdTooltip(
                                                     fac.AntdButton(
                                                         # 'Apply',
                                                         id='chromatogram-graph-button',
                                                         icon=fac.AntdIcon(icon='pi-broom', style={'fontSize': 20}),
                                                         # type='primary'
                                                     ),
+                                                    title='Update graph size and clean plots',
+                                                    placement="bottom"
+                                                ),
                                                     style={"marginInlineEnd": 0}
                                                 )
                                             ],
