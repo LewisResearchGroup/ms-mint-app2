@@ -2323,6 +2323,8 @@ def callbacks(app, fsc, cache, cpu=None):
         Output("chromatogram-processing-progress", "percent", allow_duplicate=True),
         Output("chromatogram-processing-stage", "children", allow_duplicate=True),
         Output("chromatogram-processing-detail", "children", allow_duplicate=True),
+        Output("chromatograms-recompute-ms1", "checked"),
+        Output("chromatograms-recompute-ms2", "checked"),
 
         Input("compute-chromatograms-btn", "nClicks"),
         State('chromatogram-compute-ram', 'value'),
@@ -2374,6 +2376,18 @@ def callbacks(app, fsc, cache, cpu=None):
             if targets:
                 selected_targets = targets[0]
 
+            chromatograms_ms1 = conn.execute("SELECT COUNT(*) FROM chromatograms WHERE ms_type='ms1'").fetchone()
+            if chromatograms_ms1:
+                computed_chromatograms_ms1 = chromatograms_ms1[0]
+            else:
+                computed_chromatograms_ms1 = 0
+
+            chromatograms_ms2 = conn.execute("SELECT COUNT(*) FROM chromatograms WHERE ms_type='ms2'").fetchone()
+            if chromatograms_ms2:
+                computed_chromatograms_ms2 = chromatograms_ms2[0]
+            else:
+                computed_chromatograms_ms2 = 0
+
         warning_style = {'display': 'flex'} if computed_chromatograms else {'display': 'none'}
         warning_message = f"There are already computed {computed_chromatograms} chromatograms" if computed_chromatograms else ""
 
@@ -2393,6 +2407,8 @@ def callbacks(app, fsc, cache, cpu=None):
             0,
             "",
             "",
+            bool(computed_chromatograms_ms1),
+            bool(computed_chromatograms_ms2),
         )
 
     @app.callback(
