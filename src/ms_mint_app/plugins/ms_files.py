@@ -21,6 +21,7 @@ from ..colors import make_palette_hsv
 from ..duckdb_manager import duckdb_connection, build_where_and_params, build_order_by
 from ..plugin_interface import PluginInterface
 from ..sample_metadata import GROUP_COLUMNS, GROUP_DESCRIPTIONS, GROUP_LABELS
+from ..logging_setup import activate_workspace_logging
 
 _label = "MS-Files"
 MS_METADATA_TEMPLATE_COLUMNS = [
@@ -60,12 +61,14 @@ NOTIFICATION_COMPACT_STYLE = {"maxWidth": 420, "width": "420px"}
 
 home_path = Path.home()
 
+logger = logging.getLogger(__name__)
+
 
 class MsFilesPlugin(PluginInterface):
     def __init__(self):
         self._label = _label
         self._order = 2
-        print(f"Initiated {_label} plugin")
+        logger.info(f"Initiated {_label} plugin")
 
     def layout(self):
         return _layout
@@ -542,6 +545,8 @@ def callbacks(cls, app, fsc, cache, args_namespace):
                 conn.execute("UPDATE samples SET color = ? WHERE ms_file_label = ?",
                              [color, recentlyButtonClickedRow['ms_file_label']])
             ms_table_action_store = {'action': 'color-changed', 'status': 'success'}
+            
+            logger.info(f"Changed color for {recentlyButtonClickedRow['ms_file_label']} from {previous_color} to {color}")
 
             return (fac.AntdNotification(message='Color changed successfully',
                                          description=f'Color changed from {previous_color} to {color}',
@@ -589,10 +594,15 @@ def callbacks(cls, app, fsc, cache, args_namespace):
                 clickedKey != 'generate-colors'
         ):
             raise PreventUpdate
+        
+        if wdir:
+            activate_workspace_logging(wdir)
+
         # Single option: always generate colors by sample type, refreshing missing/placeholder values.
         n_colors = generate_colors(wdir, regenerate=True)
 
         if n_colors == 0:
+            logger.info("Color generation requested but no new colors were needed.")
             notification = fac.AntdNotification(message='No colors generated',
                                                 type='warning',
                                                 duration=3,
@@ -602,6 +612,7 @@ def callbacks(cls, app, fsc, cache, args_namespace):
                                                 style=NOTIFICATION_COMPACT_STYLE
                                                 )
         else:
+            logger.info(f"Generated {n_colors} new colors.")
             notification = fac.AntdNotification(message='Colors generated successfully',
                                      description=f'{n_colors} colors generated',
                                      type='success',
@@ -639,6 +650,7 @@ def callbacks(cls, app, fsc, cache, args_namespace):
                 raise PreventUpdate
             conn.execute(f"UPDATE samples SET {recentlySwitchDataIndex} = ? WHERE ms_file_label = ?",
                          (recentlySwitchStatus, recentlySwitchRow['ms_file_label']))
+            logger.info(f"Updated {recentlySwitchDataIndex} for {recentlySwitchRow['ms_file_label']}: {recentlySwitchStatus}")
 
     @app.callback(
         Output("download-ms-files-csv", "data"),
@@ -899,6 +911,9 @@ def callbacks(cls, app, fsc, cache, args_namespace):
             raise PreventUpdate
         if not wdir:
             raise PreventUpdate
+        
+        activate_workspace_logging(wdir)
+
         if clickedKey == "delete-selected" and not selectedRows:
             ms_table_action_store = {'action': 'delete', 'status': 'failed'}
             total_removed = 0
@@ -925,7 +940,7 @@ def callbacks(cls, app, fsc, cache, args_namespace):
                     conn.execute("CHECKPOINT")
                 except Exception as e:
                     conn.execute("ROLLBACK")
-                    logging.error(f"Error deleting selected MS files: {e}")
+                    logger.error(f"Error deleting selected MS files: {e}", exc_info=True)
                     return (fac.AntdNotification(
                                 message="Delete MS-files failed",
                                 description="Could not delete the selected files; no changes were applied.",
@@ -959,6 +974,10 @@ def callbacks(cls, app, fsc, cache, args_namespace):
                     conn.execute("ANALYZE")
 
                     ms_table_action_store = {'action': 'delete', 'status': 'success'}
+        
+        if total_removed > 0:
+            logger.info(f"Deleted {total_removed} MS-Files.")
+        
         return (fac.AntdNotification(message="Delete MS-files",
                                      description=f"Deleted {total_removed} MS-Files",
                                      type="success" if total_removed > 0 else "error",
@@ -1006,6 +1025,7 @@ def callbacks(cls, app, fsc, cache, args_namespace):
                 query = f"UPDATE samples SET {column_edited} = ? WHERE ms_file_label = ?"
                 conn.execute(query, [row_edited[column_edited], row_edited['ms_file_label']])
                 ms_table_action_store = {'action': 'edit', 'status': 'success'}
+                logger.info(f"Updated metadata for {row_edited['ms_file_label']}: {column_edited} = {row_edited[column_edited]}")
             return fac.AntdNotification(message="Successfully edition saved",
                                         type="success",
                                         duration=3,
@@ -1015,7 +1035,7 @@ def callbacks(cls, app, fsc, cache, args_namespace):
                                         style=NOTIFICATION_COMPACT_STYLE
                                         ), ms_table_action_store
         except Exception as e:
-            logging.error(f"Error updating metadata: {e}")
+            logger.error(f"Error updating metadata: {e}", exc_info=True)
             ms_table_action_store = {'action': 'edit', 'status': 'failed'}
             return fac.AntdNotification(message="Failed to save edition",
                                         description=f"Failing to save edition with: {str(e)}",

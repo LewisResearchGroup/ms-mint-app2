@@ -619,9 +619,9 @@ def get_targets_v2(files_path):
                             .replace('negative', 'Negative')
                         )
                     if 'filterLine' in target:
-                        target['ms_type'] = 'MS2' if target['filterLine'] else 'MS1'
+                        target['ms_type'] = 'ms2' if target['filterLine'] else 'ms1'
                     else:
-                        target['ms_type'] = 'MS1'
+                        target['ms_type'] = 'ms1'
 
                     valid_targets.append(target)
 

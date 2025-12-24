@@ -12,6 +12,7 @@ from dash.exceptions import PreventUpdate
 from .. import tools as T
 from ..duckdb_manager import duckdb_connection, build_where_and_params, build_order_by
 from ..plugin_interface import PluginInterface
+from ..logging_setup import activate_workspace_logging
 from . import targets_asari
 
 _label = "Targets"
@@ -59,12 +60,14 @@ TARGET_TEMPLATE_DESCRIPTIONS = [
 TARGET_TEMPLATE_CSV = ",".join(TARGET_TEMPLATE_COLUMNS) + "\n" + ",".join(TARGET_TEMPLATE_DESCRIPTIONS) + "\n"
 TARGET_DESCRIPTION_MAP = dict(zip(TARGET_TEMPLATE_COLUMNS, TARGET_TEMPLATE_DESCRIPTIONS))
 
+logger = logging.getLogger(__name__)
+
 
 class TargetsPlugin(PluginInterface):
     def __init__(self):
         self._label = _label
         self._order = 4
-        print(f'Initiated {_label} plugin')
+        logger.info(f'Initiated {_label} plugin')
 
     def layout(self):
         return _layout
@@ -812,6 +815,9 @@ def callbacks(app, fsc=None, cache=None):
             raise PreventUpdate
         if not wdir:
             raise PreventUpdate
+        
+        activate_workspace_logging(wdir)
+
         if clickedKey == "delete-selected" and not selectedRows:
             targets_action_store = {'action': 'delete', 'status': 'failed'}
             total_removed = 0
@@ -829,7 +835,7 @@ def callbacks(app, fsc=None, cache=None):
                     conn.execute("COMMIT")
                 except Exception as e:
                     conn.execute("ROLLBACK")
-                    logging.error(f"Error deleting selected targets: {e}")
+                    logger.error(f"Error deleting selected targets: {e}", exc_info=True)
                     return (fac.AntdNotification(
                                 message="Delete Targets failed",
                                 description="Could not delete the selected targets; no changes were applied.",
@@ -861,7 +867,7 @@ def callbacks(app, fsc=None, cache=None):
                         targets_action_store = {'action': 'delete', 'status': 'success'}
                     except Exception as e:
                         conn.execute("ROLLBACK")
-                        logging.error(f"Error deleting all targets: {e}")
+                        logger.error(f"Error deleting all targets: {e}", exc_info=True)
                         return (fac.AntdNotification(
                                     message="Delete Targets failed",
                                     description="Could not delete all targets; no changes were applied.",
@@ -872,6 +878,9 @@ def callbacks(app, fsc=None, cache=None):
                                     stack=True
                                 ),
                                 {'action': 'delete', 'status': 'failed'})
+        if total_removed > 0:
+            logger.info(f"Deleted {total_removed} targets.")
+
         return (fac.AntdNotification(message="Delete Targets",
                                      description=f"Deleted {total_removed} targets",
                                      type="success" if total_removed > 0 else "error",
@@ -926,6 +935,7 @@ def callbacks(app, fsc=None, cache=None):
                 else:
                     conn.execute(query, [row_edited[column_edited], row_edited['peak_label']])
                 targets_action_store = {'action': 'edit', 'status': 'success'}
+                logger.info(f"Updated target {row_edited['peak_label']}: {column_edited} = {row_edited[column_edited]}")
             return fac.AntdNotification(message="Successfully edition saved",
                                         type="success",
                                         duration=3,
@@ -934,7 +944,7 @@ def callbacks(app, fsc=None, cache=None):
                                         stack=True
                                         ), targets_action_store
         except Exception as e:
-            logging.error(f"Error updating metadata: {e}")
+            logger.error(f"Error updating metadata: {e}", exc_info=True)
             targets_action_store = {'action': 'edit', 'status': 'failed'}
             return fac.AntdNotification(message="Failed to save edition",
                                         description=f"Failing to save edition with: {str(e)}",
@@ -966,6 +976,7 @@ def callbacks(app, fsc=None, cache=None):
                 raise PreventUpdate
             conn.execute(f"UPDATE targets SET {recentlySwitchDataIndex} = ? WHERE peak_label = ?",
                          (recentlySwitchStatus, recentlySwitchRow['peak_label']))
+            logger.info(f"Updated {recentlySwitchDataIndex} for {recentlySwitchRow['peak_label']}: {recentlySwitchStatus}")
 
     @app.callback(
         Output("download-targets-csv", "data"),
@@ -1025,7 +1036,7 @@ def callbacks(app, fsc=None, cache=None):
         prevent_initial_call=True,
     )
     def targets_tour(n_clicks):
-        print(f"{n_clicks = }")
+        logger.debug(f"Tour clicked: {n_clicks}")
         return 0, True
 
     @app.callback(
@@ -1123,6 +1134,8 @@ def callbacks(app, fsc=None, cache=None):
              
         if not wdir:
             return dash.no_update, True, fac.AntdAlert(message="No workspace selected.", type="error"), dash.no_update
+        
+        activate_workspace_logging(wdir)
             
         # Validate inputs
         if multicores is None or multicores < 1:

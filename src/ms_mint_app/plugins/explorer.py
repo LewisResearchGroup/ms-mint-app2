@@ -9,10 +9,14 @@ import feffery_antd_components as fac
 import psutil
 from dash import Output, Input, State, ALL, html, dcc
 from dash.exceptions import PreventUpdate
+import logging
 
 from ms_mint_app.tools import process_ms_files, process_metadata, process_targets
+from ms_mint_app.logging_setup import activate_workspace_logging
 
 home_path = Path.home()
+
+logger = logging.getLogger(__name__)
 
 
 class FileExplorer:
@@ -681,6 +685,9 @@ class FileExplorer:
                                   cpu_input, wdir):
             if not okCounts or not selected_files_list:
                 raise PreventUpdate
+            
+            if wdir:
+                activate_workspace_logging(wdir)
 
             # Convert list to dictionary grouped by folder for compatibility
             selected_files = {}
@@ -702,21 +709,31 @@ class FileExplorer:
 
             if processing_type['type'] == "ms-files":
                 stage_label = "MS Files"
+                logger.info(f"Starting MS-Files processing. Selected: {len(selected_files_list)} files.")
                 total_processed, failed_files, duplicates_count = process_ms_files(
                     wdir, progress_adapter, selected_files, cpu_input
                 )
                 message = "MS Files processed"
             elif processing_type['type'] == "metadata":
                 stage_label = "Metadata"
+                logger.info("Starting Metadata processing.")
                 total_processed, failed_files = process_metadata(wdir, progress_adapter, selected_files)
                 message = "Metadata processed"
             else:
                 stage_label = "Targets"
+                logger.info("Starting Targets processing.")
                 total_processed, failed_files, failed_targets, stats = process_targets(wdir, progress_adapter, selected_files)
                 message = "Targets processed"
 
             duplicate_targets = stats.get("duplicate_peak_labels", 0) if processing_type['type'] == "targets" else 0
             failed_targets_count = len(failed_targets) if processing_type['type'] == "targets" else 0
+
+            # Log results
+            logger.info(f"Processing finished. Processed: {total_processed}, Failed: {len(failed_files)}, Duplicates: {duplicates_count}")
+            if failed_files:
+                logger.warning(f"Failed files: {failed_files}")
+            if failed_targets:
+                logger.warning(f"Failed targets: {failed_targets}")
 
             if total_processed:
                 details = []
