@@ -4,6 +4,7 @@ import base64
 import dash
 import feffery_antd_components as fac
 import polars as pl
+from multiprocessing import cpu_count
 from dash import html, dcc
 from dash.dependencies import Input, Output, State
 from dash.exceptions import PreventUpdate
@@ -413,38 +414,52 @@ _layout = html.Div(
                         [
                             html.Div([
                                 fac.AntdFormItem(
-                                    fac.AntdInputNumber(id='asari-multicores', value=4, min=1, style={'width': '100%'}),
-                                    label="Multicores"
+                                    fac.AntdInputNumber(id='asari-multicores', value=cpu_count()//2, min=1, max=cpu_count(), style={'width': '100%'}),
+                                    label="Multicores",
+                                    tooltip="Number of processor cores to use for parallel processing",
+                                    hasFeedback=True,
+                                    help=f"Available: {cpu_count()} cores",
+                                    labelCol={'span': 10}, wrapperCol={'span': 14}
                                 ),
                                 fac.AntdFormItem(
                                     fac.AntdInputNumber(id='asari-mz-tolerance', value=5, min=1, style={'width': '100%'}),
-                                    label="MZ Tolerance (ppm)"
+                                    label="MZ Tolerance (ppm)",
+                                    tooltip="Mass-to-charge ratio tolerance in parts per million",
+                                    labelCol={'span': 10}, wrapperCol={'span': 14}
                                 ),
                             ], style={'display': 'grid', 'gridTemplateColumns': '1fr 1fr', 'gap': '10px'}),
                             
                             html.Div([
                                 fac.AntdFormItem(
                                     fac.AntdSelect(id='asari-mode', options=[{'label': 'Positive', 'value': 'pos'}, {'label': 'Negative', 'value': 'neg'}], value='pos', style={'width': '100%'}),
-                                    label="Mode"
+                                    label="Mode",
+                                    tooltip="Ionization mode of the mass spectrometry data",
+                                    labelCol={'span': 10}, wrapperCol={'span': 14}
                                 ),
                                 fac.AntdFormItem(
                                     fac.AntdInputNumber(id='asari-snr', value=5, min=1, style={'width': '100%'}),
-                                    label="Signal/Noise Ratio"
+                                    label="Signal/Noise Ratio",
+                                    tooltip="Minimum signal-to-noise ratio for peak detection",
+                                    labelCol={'span': 10}, wrapperCol={'span': 14}
                                 ),
                             ], style={'display': 'grid', 'gridTemplateColumns': '1fr 1fr', 'gap': '10px'}),
 
                             html.Div([
                                 fac.AntdFormItem(
                                     fac.AntdInputNumber(id='asari-min-peak-height', value=10000, min=0, style={'width': '100%'}),
-                                    label="Min Peak Height"
+                                    label="Min Peak Height",
+                                    tooltip="Minimum intensity height for a peak to be considered",
+                                    labelCol={'span': 10}, wrapperCol={'span': 14}
                                 ),
                                 fac.AntdFormItem(
                                     fac.AntdInputNumber(id='asari-min-timepoints', value=6, min=1, style={'width': '100%'}),
-                                    label="Min Timepoints"
+                                    label="Min Timepoints",
+                                    tooltip="Minimum number of data points required to define a peak",
+                                    labelCol={'span': 10}, wrapperCol={'span': 14}
                                 ),
                             ], style={'display': 'grid', 'gridTemplateColumns': '1fr 1fr', 'gap': '10px'}),
                         ],
-                        layout='vertical'
+                        layout='horizontal'
                     ),
                     html.Div(id='asari-status-container', style={'marginTop': '10px'})
                 ], id='asari-configuration-container'),
@@ -452,8 +467,36 @@ _layout = html.Div(
                 html.Div([
                     html.H4("Processing Asari Workflow...", style={'marginBottom': '10px'}),
                     fac.AntdText(id='asari-progress-stage', style={'marginBottom': '0.5rem', 'fontWeight': 'bold'}),
-                    fac.AntdProgress(id='asari-progress', percent=0, status='active', style={'width': '80%'}),
+                    fac.AntdProgress(id='asari-progress', percent=0, status='active', style={'width': '100%', 'marginBottom': '10px'}),
                     fac.AntdText(id='asari-progress-detail', type='secondary', style={'marginTop': '0.5rem', 'marginBottom': '0.75rem', 'display': 'block'}),
+                    
+                    html.Div(
+                        id='asari-terminal-logs',
+                        style={
+                            'width': '100%',
+                            'height': '200px',
+                            'overflowY': 'auto',
+                            'backgroundColor': '#f5f5f5',
+                            'border': '1px solid #d9d9d9',
+                            'borderRadius': '4px',
+                            'padding': '10px',
+                            'fontFamily': 'monospace',
+                            'fontSize': '12px',
+                            'whiteSpace': 'pre-wrap',
+                            'marginBottom': '15px',
+                            'color': '#333'
+                        }
+                    ),
+                    
+                    fac.AntdButton(
+                        "Cancel",
+                        id="cancel-asari-btn",
+                        disabled=True,
+                        style={
+                            'alignText': 'center',
+                            'marginTop': '0.25rem',
+                        }
+                    )
                 ], id='asari-progress-container', style={'display': 'none'})
             ],
             title="Auto-Generate Targets (via Asari)",
@@ -466,6 +509,8 @@ _layout = html.Div(
             loadingOkText="Processing...",
             maskClosable=False,
             okClickClose=False,
+            width=900,
+            centered=True,
             styles={'body': {'minHeight': '400px', 'display': 'flex', 'flexDirection': 'column', 'justifyContent': 'center'}},
         ),
         fac.AntdTour(
@@ -1010,6 +1055,7 @@ def callbacks(app, fsc=None, cache=None):
         Output("notifications-container", "children", allow_duplicate=True),
         Output("asari-modal", "visible", allow_duplicate=True),
         Output("asari-status-container", "children"),
+        Output("targets-action-store", "data", allow_duplicate=True),
         
         Input("asari-modal", "okCounts"),
         State("wdir", "data"),
@@ -1021,15 +1067,16 @@ def callbacks(app, fsc=None, cache=None):
         State("asari-min-timepoints", "value"),
         
         background=True,
+        cancel=[Input("cancel-asari-btn", "nClicks")],
         running=[
             (Output("asari-configuration-container", "style"), {'display': 'none'}, {'display': 'block'}),
             (Output("asari-progress-container", "style"), {
                 "display": "flex",
                 "justifyContent": "center",
+                "justifyContent": "center",
                 "alignItems": "center",
                 "flexDirection": "column",
-                "minWidth": "200px",
-                "maxWidth": "400px",
+                "width": "80%",
                 "margin": "auto",
                 "height": "100%"
             }, {'display': 'none'}),
@@ -1037,6 +1084,7 @@ def callbacks(app, fsc=None, cache=None):
             (Output("asari-modal", "maskClosable"), False, False),
             (Output("asari-modal", "okButtonProps"), {'disabled': True}, {'disabled': False}),
             (Output("asari-modal", "cancelButtonProps"), {'disabled': True}, {'disabled': False}),
+            (Output("cancel-asari-btn", "disabled"), False, True),
             (Output("asari-modal", "confirmLoading"), True, False),
             (Output("asari-modal", "confirmAutoSpin"), True, False),
         ],
@@ -1044,6 +1092,7 @@ def callbacks(app, fsc=None, cache=None):
             Output("asari-progress", "percent"),
             Output("asari-progress-stage", "children"),
             Output("asari-progress-detail", "children"),
+            Output("asari-terminal-logs", "children"),
         ],
         prevent_initial_call=True
     )
@@ -1052,10 +1101,10 @@ def callbacks(app, fsc=None, cache=None):
              raise PreventUpdate
              
         if not wdir:
-            return dash.no_update, True, fac.AntdAlert(message="No workspace selected.", type="error")
+            return dash.no_update, True, fac.AntdAlert(message="No workspace selected.", type="error"), dash.no_update
             
         def progress_adapter(data):
-            # data is (percent, message, detail)
+            # data is (percent, message, detail, logs)
             if set_progress:
                 set_progress(data)
             
@@ -1071,6 +1120,7 @@ def callbacks(app, fsc=None, cache=None):
         result = targets_asari.run_asari_workflow(wdir, params, set_progress=progress_adapter)
         
         if result['success']:
-             return fac.AntdNotification(message="Asari Analysis", description=result['message'], type="success"), False, None
+             import time
+             return fac.AntdNotification(message="Asari Analysis", description=result['message'], type="success"), False, None, {'timestamp': time.time()}
         else:
-             return fac.AntdNotification(message="Asari Analysis Failed", description=result['message'], type="error"), True, fac.AntdAlert(message=result['message'], type="error")
+             return fac.AntdNotification(message="Asari Analysis Failed", description=result['message'], type="error"), True, fac.AntdAlert(message=result['message'], type="error"), dash.no_update

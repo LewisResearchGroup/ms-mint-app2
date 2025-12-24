@@ -79,9 +79,14 @@ def run_asari_workflow(wdir, params, set_progress=None):
     4. Process results and return.
     """
     
-    def report_progress(percent, message, detail=""):
+    
+    logs = []
+
+    def report_progress(percent, message, detail="", current_logs=None):
         if set_progress:
-            set_progress((percent, message, detail))
+            # If current_logs is provided, use it, otherwise join the accumulated logs
+            log_text = current_logs if current_logs is not None else "\n".join(logs)
+            set_progress((percent, message, detail, log_text))
             
     report_progress(0, "Initializing", "Checking requirements...")
     
@@ -107,6 +112,8 @@ def run_asari_workflow(wdir, params, set_progress=None):
     logger.info(f"==========================================")
     logger.info(f"DEBUG MODE: Asari temp directory: {temp_dir}")
     logger.info(f"==========================================")
+    
+    logs.append(f"Working directory: {temp_dir}")
 
     try:
         with duckdb_connection(wdir) as conn:
@@ -125,6 +132,7 @@ def run_asari_workflow(wdir, params, set_progress=None):
             
             total_files = len(samples)
             logger.info(f"Found {total_files} samples to process.")
+            logs.append(f"Found {total_files} samples to process.")
             
             for i, (label, polarity) in enumerate(samples):
                 report_progress(
@@ -139,6 +147,7 @@ def run_asari_workflow(wdir, params, set_progress=None):
                     export_ms1_from_db(conn, label, file_path, polarity or "Positive")
                 except Exception as ex:
                     logger.error(f"Failed to export {label}: {ex}")
+                    logs.append(f"Failed to export {label}: {ex}")
                     pass
                 
     except Exception as e:
@@ -168,6 +177,7 @@ def run_asari_workflow(wdir, params, set_progress=None):
         with open(param_file_path, 'w') as f:
             yaml.dump(asari_params, f, default_flow_style=False)
             logger.info(f"Parameters written to {param_file_path}")
+            logs.append(f"Parameters written to {param_file_path}")
     except Exception as e:
             return {"success": False, "message": f"Failed to write parameter file: {e}"}
 
@@ -178,6 +188,7 @@ def run_asari_workflow(wdir, params, set_progress=None):
     cmd = ["asari", "process", "--parameters", "asari_parameters.yaml", "--input", temp_dir]
     
     logger.info(f"Running command: {' '.join(cmd)}")
+    logs.append(f"Running command: {' '.join(cmd)}")
     logger.info(f"Working directory: {temp_dir}")
     
     try:
@@ -191,17 +202,33 @@ def run_asari_workflow(wdir, params, set_progress=None):
         )
         
         # Monitor stdout
+        current_percent = 50
+        current_message = "Running Asari"
+        current_detail = "Starting Asari process..."
+        
         for line in process.stdout:
             line = line.strip()
             if line:
                 # Log to terminal
                 print(f"[ASARI] {line}") 
+                logs.append(line)
+                
+                # Update progress based on keywords
                 if "processing" in line.lower():
-                    report_progress(60, "Running Asari", "Processing samples...")
+                    current_percent = 60
+                    current_detail = "Processing samples..."
                 elif "correspondence" in line.lower():
-                    report_progress(80, "Running Asari", " Correspondence analysis...")
+                    current_percent = 80
+                    current_detail = "Correspondence analysis..."
                 elif "annotation" in line.lower():
-                    report_progress(90, "Running Asari", "Annotating features...")
+                    current_percent = 90
+                    current_detail = "Annotating features..."
+                
+                # Report progress with new log line
+                report_progress(current_percent, current_message, current_detail)
+
+
+
 
         process.wait()
 
@@ -218,16 +245,29 @@ def run_asari_workflow(wdir, params, set_progress=None):
     # 5. Process Results
     report_progress(95, "Finalizing", "Processing results...")
     
-    results_dir = os.path.join(temp_dir, "asari_results", "export")
-    if not os.path.exists(results_dir):
-        results_dir = os.path.join(temp_dir, "asari_results")
+    # Asari appends project name and timestamp to outdir
+    # e.g., asari_results_asari_project_1223142749
+    # We need to find the actual directory.
+    possible_result_dirs = [d for d in os.listdir(temp_dir) if d.startswith("asari_results") and os.path.isdir(os.path.join(temp_dir, d))]
+    
+    if not possible_result_dirs:
+         return {"success": False, "message": "Asari completed but output directory not found."}
+         
+    # Take the most recent one if multiple (though unlikely in fresh temp dir)
+    actual_results_dir = sorted(possible_result_dirs)[-1]
+    results_dir_path = os.path.join(temp_dir, actual_results_dir)
+    export_dir = os.path.join(results_dir_path, "export")
+    
+    # Check export dir first, then main dir
+    search_dir = export_dir if os.path.exists(export_dir) else results_dir_path
         
-    feature_tables = list(Path(results_dir).rglob("*full_feature_table.tsv"))
+    # Note: Asari uses 'Feature' with capital F in filenames (full_Feature_table.tsv)
+    feature_tables = list(Path(search_dir).rglob("*full_Feature_table.tsv"))
     if not feature_tables:
-        feature_tables = list(Path(results_dir).rglob("*preferred_feature_table.tsv"))
+        feature_tables = list(Path(search_dir).rglob("*preferred_Feature_table.tsv"))
         
     if not feature_tables:
-         logger.warning(f"No feature tables found in {results_dir}")
+         logger.warning(f"No feature tables found in {search_dir}")
          # List content of temp dir for debugging
          for root, dirs, files in os.walk(temp_dir):
              for f in files:
@@ -238,14 +278,112 @@ def run_asari_workflow(wdir, params, set_progress=None):
     target_table_path = str(feature_tables[0])
     logger.info(f"Found result table: {target_table_path}")
     
-    dest_path = os.path.join(wdir, "asari_results_latest.tsv")
-    shutil.copy(target_table_path, dest_path)
-    logger.info(f"Copied result to {dest_path}")
-    
+    # NEW: Parse and Convert to MINT Targets
+    import pandas as pd
+    try:
+        report_progress(98, "Finalizing", "Converting to MINT targets...")
+        
+        df = pd.read_csv(target_table_path, sep='\t')
+        
+        # Column Mapping
+        # id_number -> peak_label
+        # mz -> mz_mean
+        # rtime -> rt
+        # rtime_left_base -> rt_min
+        # rtime_right_base -> rt_max
+        
+        rename_map = {
+            'id_number': 'peak_label',
+            'mz': 'mz_mean',
+            'rtime': 'rt',
+            'rtime_left_base': 'rt_min',
+            'rtime_right_base': 'rt_max'
+        }
+        
+        # Check if columns exist
+        missing_cols = [c for c in rename_map.keys() if c not in df.columns]
+        if missing_cols:
+             return {"success": False, "message": f"Missing expected columns in Asari output: {missing_cols}"}
+             
+        df = df.rename(columns=rename_map)
+        
+        # Add mz_width from params
+        mz_tol = float(params.get('mz_tolerance_ppm', 5))
+        df['mz_width'] = mz_tol
+        df['intensity_threshold'] = 0
+        df['target_filename'] = 'unknown' # Optional standard fields
+        
+        # Select only relevant columns
+        final_cols = ['peak_label', 'mz_mean', 'mz_width', 'rt', 'rt_min', 'rt_max', 'intensity_threshold']
+        df = df[final_cols]
+        
+        # Save to Workspace data/targets.csv
+        # Backup existing targets.csv if present
+        data_dir = os.path.join(wdir, "data")
+        if not os.path.exists(data_dir):
+            os.makedirs(data_dir, exist_ok=True)
+            
+        mint_targets_path = os.path.join(data_dir, "targets.csv")
+        
+        if os.path.exists(mint_targets_path):
+            backup_path = os.path.join(data_dir, f"targets_backup_{int(time.time())}.csv")
+            shutil.copy(mint_targets_path, backup_path)
+            logger.info(f"Backed up existing targets to {backup_path}")
+            
+        df.to_csv(mint_targets_path, index=False)
+        logger.info(f"Saved MINT targets to {mint_targets_path}")
+        
+        # INSERT INTO DATABASE
+        report_progress(99, "Finalizing", "Updating database...")
+        with duckdb_connection(wdir) as conn:
+            conn.execute("DELETE FROM targets")
+            
+            # Prepare dataframe for DB insertion
+            # Add missing columns with defaults
+            df['mz'] = None
+            df['rt_unit'] = 's'
+            
+            mode_val = params.get('mode', 'pos')
+            polarity_map = {'pos': 'Positive', 'neg': 'Negative'}
+            df['polarity'] = polarity_map.get(mode_val, 'Positive')
+            
+            df['filterLine'] = None
+            df['ms_type'] = 'ms1'
+            df['category'] = None
+            df['peak_selection'] = True
+            df['score'] = None
+            df['bookmark'] = False
+            df['source'] = 'Asari'
+            df['notes'] = f"Generated by Asari on {time.strftime('%Y-%m-%d %H:%M:%S')}"
+            
+            # Register df as table for easy insertion
+            conn.register('temp_targets_load', df)
+            
+            # Insert by name to be safe
+            insert_query = """
+                INSERT INTO targets (
+                    peak_label, mz_mean, mz_width, rt, rt_min, rt_max, intensity_threshold, 
+                    mz, rt_unit, polarity, filterLine, ms_type, category, 
+                    peak_selection, score, bookmark, source, notes
+                )
+                SELECT 
+                    peak_label, mz_mean, mz_width, rt, rt_min, rt_max, intensity_threshold, 
+                    mz, CAST(rt_unit AS unit_type_enum), CAST(polarity AS polarity_enum), filterLine, CAST(ms_type AS ms_type_enum), category, 
+                    peak_selection, score, bookmark, source, notes
+                FROM temp_targets_load
+            """
+            conn.execute(insert_query)
+            conn.unregister('temp_targets_load')
+            logger.info("Successfully populated targets table in database.")
+        
+    except Exception as e:
+        logger.error(f"Error converting targets: {e}")
+        return {"success": False, "message": f"Error converting Asari results to MINT targets: {e}"}
+
     report_progress(100, "Done", "Workflow completed.")
     
     return {
         "success": True, 
-        "message": f"Asari analysis completed successfully. Results saved to {dest_path}",
-        "result_path": dest_path
+        "message": f"Asari analysis completed successfully. Targets generated in {mint_targets_path}",
+        "result_path": mint_targets_path
     }
