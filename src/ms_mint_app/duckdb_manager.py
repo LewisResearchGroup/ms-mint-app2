@@ -1350,20 +1350,20 @@ def compute_results_in_batches(wdir: str,
                           """
 
     if recompute:
-        print("Deleting existing results for recalculation...")
+        logger.info("Deleting existing results for recalculation...")
         with duckdb_connection(wdir, n_cpus=n_cpus, ram=ram) as con:
             con.execute("DELETE FROM results")
 
     # Create helper macro
     with duckdb_connection(wdir, n_cpus=n_cpus, ram=ram) as conn:
-        print("Creating helper macro...")
+        logger.info("Creating helper macro...")
         conn.execute(QUERY_CREATE_HELPERS)
 
     # Create pending pairs table
     with duckdb_connection(wdir, n_cpus=n_cpus, ram=ram) as conn:
         conn.execute("DROP TABLE IF EXISTS pending_result_pairs")
 
-        print("Getting pending pairs...")
+        logger.info("Getting pending pairs...")
         start_time = time.time()
         conn.execute(QUERY_CREATE_PENDING_PAIRS, [use_bookmarked, recompute])
 
@@ -1377,13 +1377,13 @@ def compute_results_in_batches(wdir: str,
         elapsed = time.time() - start_time
 
         if total_pairs[0] == 0 or total_pairs[1] is None:
-            print(f"No pending pairs ({elapsed:.2f}s)")
+            logger.info(f"No pending pairs ({elapsed:.2f}s)")
             conn.execute("DROP TABLE IF EXISTS pending_result_pairs")
             return {'total_pairs': 0, 'processed': 0, 'failed': 0, 'batches': 0}
 
         total_count, min_id, max_id = total_pairs
-        print(f"✓ {total_count:,} pending pairs ({elapsed:.2f}s)")
-        print(f"Processing in batches of {batch_size}...\n")
+        logger.info(f"{total_count:,} pending pairs ({elapsed:.2f}s)")
+        logger.info(f"Processing in batches of {batch_size}...")
         total_files = 0
         if set_progress:
             total_files = conn.execute("""
@@ -1429,10 +1429,6 @@ def compute_results_in_batches(wdir: str,
                     current_id += batch_size
                     continue
 
-                print(f"Batch {batch_num:>4}/{total_batches} | "
-                      f"IDs {start_id:>6}-{end_id:>6} | "
-                      f"{batch_count:>4} pairs | ", end='', flush=True)
-
                 batch_start = time.time()
 
                 conn.execute(QUERY_PROCESS_BATCH, [start_id, end_id])
@@ -1453,7 +1449,10 @@ def compute_results_in_batches(wdir: str,
                 batches_in_txn += 1
 
                 pairs_per_sec = batch_count / batch_elapsed
-                print(f"✓ {batch_elapsed:>5.2f}s ({pairs_per_sec:>5.1f} pairs/s) | "
+                logger.info(f"Batch {batch_num:>4}/{total_batches} | "
+                      f"IDs {start_id:>6}-{end_id:>6} | "
+                      f"{batch_count:>4} pairs | "
+                      f"Batch time: {batch_elapsed:>5.2f}s | "
                       f"Progress {processed:>6,}/{total_count:,}")
                 log_line = (f"Batch {batch_num}/{total_batches} | "
                             f"Progress {processed:,}/{total_count:,} | "
@@ -1464,12 +1463,11 @@ def compute_results_in_batches(wdir: str,
 
                 # Periodic checkpoint
                 if batches_in_txn >= checkpoint_every:
-                    print(f"  [Commit + Checkpoint]...", end='', flush=True)
                     flush_start = time.time()
                     conn.execute("COMMIT")
                     conn.execute("CHECKPOINT")
                     conn.execute("BEGIN TRANSACTION")
-                    print(f" {time.time() - flush_start:.2f}s")
+                    logger.debug(f"  [Commit + Checkpoint]... {time.time() - flush_start:.2f}s")
                     batches_in_txn = 0
 
                 batch_num += 1
@@ -1478,7 +1476,10 @@ def compute_results_in_batches(wdir: str,
                 batch_elapsed = time.time() - batch_start if 'batch_start' in locals() else 0
                 failed += batch_count if 'batch_count' in locals() else 0
 
-                print(f"✗ {batch_elapsed:>5.2f}s | Error: {str(e)[:80]}")
+                batch_elapsed = time.time() - batch_start if 'batch_start' in locals() else 0
+                failed += batch_count if 'batch_count' in locals() else 0
+
+                logger.error(f"Error processing batch: {batch_elapsed:>5.2f}s | Error: {str(e)[:80]}")
                 error_line = (f"RESULTS batch {batch_num}/{total_batches} | "
                               f"IDs {start_id}-{end_id} | "
                               f"{batch_count if 'batch_count' in locals() else 0} pairs | "

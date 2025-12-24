@@ -12,6 +12,8 @@ from dash.dependencies import Input, Output, State
 from dash.exceptions import PreventUpdate
 
 from .. import tools as T
+from ..logging_setup import activate_workspace_logging
+import logging
 from ..duckdb_manager import (
     build_order_by,
     build_where_and_params,
@@ -25,12 +27,14 @@ from ..plugin_interface import PluginInterface
 
 _label = "Processing"
 
+logger = logging.getLogger(__name__)
+
 
 class ProcessingPlugin(PluginInterface):
     def __init__(self):
         self._label = _label
         self._order = 7
-        print(f'Initiated {_label} plugin')
+        logger.info(f'Initiated {_label} plugin')
 
     def layout(self):
         return _layout
@@ -1018,8 +1022,10 @@ def callbacks(app, fsc, cache):
                         total_removed = list(total_removed_q)
                         conn.execute("DELETE FROM results")
                         results_action_store = {'action': 'delete', 'status': 'success'}
+                        logger.info(f"Deleted {total_removed[0]} targets and {total_removed[1]} samples from results.")
                     conn.execute("COMMIT")
                 except Exception:
+                    logger.error("Failed to delete results.", exc_info=True)
                     conn.execute("ROLLBACK")
                     return (fac.AntdNotification(
                                 message="Delete Results failed",
@@ -1221,6 +1227,7 @@ def callbacks(app, fsc, cache):
                     ORDER BY s.ms_type, r.peak_label, r.ms_file_label
                 """).df()
                 filename = f"{T.today()}-MINT__{ws_name}-all_results.csv"
+                logger.info(f"Download request: {filename}")
 
         else:
             with duckdb_connection(wdir) as conn:
@@ -1277,6 +1284,7 @@ def callbacks(app, fsc, cache):
                     )
                 df = create_pivot(conn, d_dm_rows[0], d_dm_cols[0], d_dm_value[0], table='results')
                 filename = f"{T.today()}-MINT__{ws_name}-{d_dm_value[0]}_results.csv"
+                logger.info(f"Download request (dense matrix): {filename}")
         return dcc.send_data_frame(df.to_csv, filename, index=False), dash.no_update
 
     @app.callback(
@@ -1425,43 +1433,50 @@ def callbacks(app, fsc, cache):
     )
     def compute_results(set_progress, okCounts, recompute, n_cpus, ram, batch_size, bookmarked, wdir):
 
-        print(f"{okCounts = }")
-
         if not okCounts:
             raise PreventUpdate
 
+        activate_workspace_logging(wdir)
         start = time.perf_counter()
+        
         def progress_adapter(percent, stage="", detail=""):
             if set_progress:
                 set_progress((percent, stage or "", detail or ""))
 
-        print('Computing chromatograms...')
-        progress_adapter(0, "Chromatograms", "Preparing batches...")
-        compute_chromatograms_in_batches(wdir, use_for_optimization=False, batch_size=batch_size,
-                                         set_progress=progress_adapter, recompute_ms1=False,
-                                         recompute_ms2=False, n_cpus=n_cpus, ram=ram, use_bookmarked=bookmarked)
-        print('Computing results...')
-        progress_adapter(0, "Results", "Preparing batches...")
-        compute_results_in_batches(wdir=wdir,
-                           use_bookmarked= bookmarked,
-                           recompute = recompute,
-                           batch_size = batch_size,
-                           checkpoint_every = 10,
-                           set_progress=progress_adapter,
-                           n_cpus=n_cpus,
-                           ram=ram)
-
-        # Persist the results table to a workspace folder for resilience
         try:
-            with duckdb_connection(wdir) as conn:
-                results_df = conn.execute("SELECT * FROM results").df()
-            results_dir = Path(wdir) / "results"
-            results_dir.mkdir(parents=True, exist_ok=True)
-            results_df.to_csv(results_dir / "results_backup.csv", index=False)
-        except Exception:
-            pass
+            logger.info('Starting full processing run.')
+            logger.info('Computing chromatograms...')
+            progress_adapter(0, "Chromatograms", "Preparing batches...")
+            compute_chromatograms_in_batches(wdir, use_for_optimization=False, batch_size=batch_size,
+                                             set_progress=progress_adapter, recompute_ms1=False,
+                                             recompute_ms2=False, n_cpus=n_cpus, ram=ram, use_bookmarked=bookmarked)
+            
+            logger.info('Computing results...')
+            progress_adapter(0, "Results", "Preparing batches...")
+            compute_results_in_batches(wdir=wdir,
+                               use_bookmarked= bookmarked,
+                               recompute = recompute,
+                               batch_size = batch_size,
+                               checkpoint_every = 10,
+                               set_progress=progress_adapter,
+                               n_cpus=n_cpus,
+                               ram=ram)
 
-        print(f"Results computed in {time.perf_counter() - start:.2f} seconds")
+            # Persist the results table to a workspace folder for resilience
+            try:
+                with duckdb_connection(wdir) as conn:
+                    results_df = conn.execute("SELECT * FROM results").df()
+                results_dir = Path(wdir) / "results"
+                results_dir.mkdir(parents=True, exist_ok=True)
+                results_df.to_csv(results_dir / "results_backup.csv", index=False)
+            except Exception:
+                logger.warning("Failed to backup results to CSV.", exc_info=True)
+
+            logger.info(f"Results computed in {time.perf_counter() - start:.2f} seconds")
+        except Exception:
+             logger.error("Processing failed during computation", exc_info=True)
+             raise
+
         return True, False
 
     @app.callback(
