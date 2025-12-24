@@ -547,6 +547,11 @@ _layout = html.Div(
                     'targetSelector': "[id='{\"action\":\"file-explorer\",\"type\":\"targets\"}']"
                 },
                 {
+                    'title': 'Auto-Generate',
+                    'description': 'Automatically generate targets from your data using the Asari algorithm.',
+                    'targetSelector': '#asari-open-modal-btn'
+                },
+                {
                     'title': 'Use the template',
                     'description': 'Download the template if you need the expected columns and examples.',
                     'targetSelector': '#download-target-template-btn'

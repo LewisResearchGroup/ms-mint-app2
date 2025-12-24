@@ -1334,6 +1334,7 @@ def callbacks(app, fsc, cache):
         Output("processing-progress", "percent", allow_duplicate=True),
         Output("processing-progress-stage", "children", allow_duplicate=True),
         Output("processing-progress-detail", "children", allow_duplicate=True),
+        Output("processing-recompute", "checked"),
 
         Input("processing-btn", "nClicks"),
         State('wdir', 'data'),
@@ -1361,6 +1362,7 @@ def callbacks(app, fsc, cache):
                     0,
                     "",
                     "",
+                    False,
                 )
 
             ms_files = conn.execute("SELECT COUNT(*) FROM samples").fetchone()
@@ -1381,6 +1383,8 @@ def callbacks(app, fsc, cache):
                     0,
                     "",
                     "",
+                    "",
+                    False,
                 )
 
             results = conn.execute("SELECT COUNT(*) FROM results").fetchone()
@@ -1389,7 +1393,7 @@ def callbacks(app, fsc, cache):
 
         style = {'display': 'block'} if computed_results else {'display': 'none'}
 
-        return dash.no_update, True, style, 0, "", ""
+        return dash.no_update, True, style, 0, "", "", bool(computed_results)
 
     @app.callback(
         Output('results-action-store', 'data'),
