@@ -415,49 +415,57 @@ _layout = html.Div(
                             html.Div([
                                 fac.AntdFormItem(
                                     fac.AntdInputNumber(id='asari-multicores', value=cpu_count()//2, min=1, max=cpu_count(), style={'width': '100%'}),
-                                    label="Multicores",
-                                    tooltip="Number of processor cores to use for parallel processing",
+                                    label="CPU",
+                                    tooltip="Number of processor cores to use for parallel processing (multicores parameter in Asari)",
                                     hasFeedback=True,
-                                    help=f"Available: {cpu_count()} cores",
-                                    labelCol={'span': 10}, wrapperCol={'span': 14}
+                                    help=f"Selected {cpu_count()//2} / {cpu_count()} cpus",
+                                    labelCol={'span': 13}, wrapperCol={'span': 11}
                                 ),
-                                fac.AntdFormItem(
-                                    fac.AntdInputNumber(id='asari-mz-tolerance', value=5, min=1, style={'width': '100%'}),
-                                    label="MZ Tolerance (ppm)",
-                                    tooltip="Mass-to-charge ratio tolerance in parts per million",
-                                    labelCol={'span': 10}, wrapperCol={'span': 14}
-                                ),
-                            ], style={'display': 'grid', 'gridTemplateColumns': '1fr 1fr', 'gap': '10px'}),
-                            
-                            html.Div([
                                 fac.AntdFormItem(
                                     fac.AntdSelect(id='asari-mode', options=[{'label': 'Positive', 'value': 'pos'}, {'label': 'Negative', 'value': 'neg'}], value='pos', style={'width': '100%'}),
                                     label="Mode",
                                     tooltip="Ionization mode of the mass spectrometry data",
-                                    labelCol={'span': 10}, wrapperCol={'span': 14}
+                                    labelCol={'span': 13}, wrapperCol={'span': 11}
                                 ),
+                                fac.AntdFormItem(
+                                    fac.AntdInputNumber(id='asari-mz-tolerance', value=5, min=1, style={'width': '100%'}),
+                                    label="MZ Width (ppm)",
+                                    tooltip="Mass-to-charge ratio tolerance in parts per million (mz_tolerance_ppm parameter in Asari)",
+                                    labelCol={'span': 13}, wrapperCol={'span': 11}
+                                ),
+                            ], style={'display': 'grid', 'gridTemplateColumns': '1fr 1fr 1fr', 'gap': '10px'}),
+                            
+                            html.Div([
                                 fac.AntdFormItem(
                                     fac.AntdInputNumber(id='asari-snr', value=5, min=1, style={'width': '100%'}),
                                     label="Signal/Noise Ratio",
-                                    tooltip="Minimum signal-to-noise ratio for peak detection",
-                                    labelCol={'span': 10}, wrapperCol={'span': 14}
+                                    tooltip="Peak height at least X fold over local noise",
+                                    labelCol={'span': 13}, wrapperCol={'span': 11}
                                 ),
-                            ], style={'display': 'grid', 'gridTemplateColumns': '1fr 1fr', 'gap': '10px'}),
-
-                            html.Div([
                                 fac.AntdFormItem(
                                     fac.AntdInputNumber(id='asari-min-peak-height', value=10000, min=0, style={'width': '100%'}),
                                     label="Min Peak Height",
-                                    tooltip="Minimum intensity height for a peak to be considered",
-                                    labelCol={'span': 10}, wrapperCol={'span': 14}
+                                    tooltip="Minimal peak height",
+                                    labelCol={'span': 13}, wrapperCol={'span': 11}
                                 ),
                                 fac.AntdFormItem(
                                     fac.AntdInputNumber(id='asari-min-timepoints', value=6, min=1, style={'width': '100%'}),
                                     label="Min Timepoints",
-                                    tooltip="Minimum number of data points required to define a peak",
-                                    labelCol={'span': 10}, wrapperCol={'span': 14}
+                                    tooltip="Minimal number of data points in elution profile",
+                                    labelCol={'span': 13}, wrapperCol={'span': 11}
                                 ),
-                            ], style={'display': 'grid', 'gridTemplateColumns': '1fr 1fr', 'gap': '10px'}),
+                            ], style={'display': 'grid', 'gridTemplateColumns': '1fr 1fr 1fr', 'gap': '10px'}),
+                            
+                            html.Div([
+                                html.Div(), # Empty left column
+                                fac.AntdFormItem(
+                                    fac.AntdInputNumber(id='asari-gaussian-shape', value=0.5, min=0, max=1, step=0.1, style={'width': '100%'}),
+                                    label="Gaussian Shape",
+                                    tooltip="Min cutoff of goodness of fitting to Gauss model",
+                                    labelCol={'span': 13}, wrapperCol={'span': 11}
+                                ),
+                                html.Div(), # Empty right column
+                            ], style={'display': 'grid', 'gridTemplateColumns': '1fr 1fr 1fr', 'gap': '10px'}),
                         ],
                         layout='horizontal'
                     ),
@@ -1065,6 +1073,7 @@ def callbacks(app, fsc=None, cache=None):
         State("asari-snr", "value"),
         State("asari-min-peak-height", "value"),
         State("asari-min-timepoints", "value"),
+        State("asari-gaussian-shape", "value"),
         
         background=True,
         cancel=[Input("cancel-asari-btn", "nClicks")],
@@ -1096,13 +1105,29 @@ def callbacks(app, fsc=None, cache=None):
         ],
         prevent_initial_call=True
     )
-    def run_asari_analysis(set_progress, ok_counts, wdir, multicores, mz_tol, mode, snr, min_height, min_points):
+    def run_asari_analysis(set_progress, ok_counts, wdir, multicores, mz_tol, mode, snr, min_height, min_points, gaussian_shape):
         if not ok_counts:
              raise PreventUpdate
              
         if not wdir:
             return dash.no_update, True, fac.AntdAlert(message="No workspace selected.", type="error"), dash.no_update
             
+        # Validate inputs
+        if multicores is None or multicores < 1:
+            return dash.no_update, True, fac.AntdAlert(message="Invalid CPU cores selected.", type="error"), dash.no_update
+        if mz_tol is None or mz_tol < 1:
+            return dash.no_update, True, fac.AntdAlert(message="Invalid MZ Tolerance.", type="error"), dash.no_update
+        if snr is None or snr < 1:
+            return dash.no_update, True, fac.AntdAlert(message="Invalid Signal/Noise Ratio.", type="error"), dash.no_update
+        if min_height is None or min_height < 0:
+            return dash.no_update, True, fac.AntdAlert(message="Invalid Min Peak Height.", type="error"), dash.no_update
+        if min_points is None or min_points < 1:
+             return dash.no_update, True, fac.AntdAlert(message="Invalid Min Timepoints.", type="error"), dash.no_update
+             
+        # Gaussian Shape is optional, no strict validation needed other than maybe non-negative if provided?
+        if gaussian_shape is not None and (gaussian_shape < 0 or gaussian_shape > 1):
+             return dash.no_update, True, fac.AntdAlert(message="Invalid Gaussian Shape. Must be between 0 and 1.", type="error"), dash.no_update
+             
         def progress_adapter(data):
             # data is (percent, message, detail, logs)
             if set_progress:
@@ -1114,13 +1139,17 @@ def callbacks(app, fsc=None, cache=None):
             'mode': mode,
             'signal_noise_ratio': snr,
             'min_peak_height': min_height,
-            'min_timepoints': min_points
+            'min_timepoints': min_points,
+            'gaussian_shape': gaussian_shape
         }
         
         result = targets_asari.run_asari_workflow(wdir, params, set_progress=progress_adapter)
         
+        status_alert = None
         if result['success']:
+             status_alert = fac.AntdAlert(message=result['message'], type="success", showIcon=True, closable=True)
              import time
-             return fac.AntdNotification(message="Asari Analysis", description=result['message'], type="success"), False, None, {'timestamp': time.time()}
+             return fac.AntdNotification(message="Asari Analysis", description=result['message'], type="success"), False, status_alert, {'timestamp': time.time()}
         else:
-             return fac.AntdNotification(message="Asari Analysis Failed", description=result['message'], type="error"), True, fac.AntdAlert(message=result['message'], type="error"), dash.no_update
+             status_alert = fac.AntdAlert(message=result['message'], type="error", showIcon=True, closable=True)
+             return fac.AntdNotification(message="Asari Analysis Failed", description=result['message'], type="error"), True, status_alert, dash.no_update

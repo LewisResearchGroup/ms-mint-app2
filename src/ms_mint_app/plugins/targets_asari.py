@@ -173,6 +173,9 @@ def run_asari_workflow(wdir, params, set_progress=None):
         'rt_align_method': 'lowess'
     }
     
+    if 'gaussian_shape' in params and params['gaussian_shape'] is not None:
+         asari_params['gaussian_shape'] = float(params['gaussian_shape'])
+    
     try:
         with open(param_file_path, 'w') as f:
             yaml.dump(asari_params, f, default_flow_style=False)
@@ -262,9 +265,11 @@ def run_asari_workflow(wdir, params, set_progress=None):
     search_dir = export_dir if os.path.exists(export_dir) else results_dir_path
         
     # Note: Asari uses 'Feature' with capital F in filenames (full_Feature_table.tsv)
-    feature_tables = list(Path(search_dir).rglob("*full_Feature_table.tsv"))
+    # User requested to use preferred_Feature_table.tsv (in main dir)
+    feature_tables = list(Path(results_dir_path).rglob("*preferred_Feature_table.tsv"))
     if not feature_tables:
-        feature_tables = list(Path(search_dir).rglob("*preferred_Feature_table.tsv"))
+        # Fallback to full table in export dir or elsewhere
+        feature_tables = list(Path(search_dir).rglob("*full_Feature_table.tsv"))
         
     if not feature_tables:
          logger.warning(f"No feature tables found in {search_dir}")
