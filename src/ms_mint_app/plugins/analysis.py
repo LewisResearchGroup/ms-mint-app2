@@ -1,3 +1,4 @@
+import logging
 import dash
 import base64
 from io import BytesIO, StringIO
@@ -30,6 +31,8 @@ from .scalir import (
 )
 
 _label = "Analysis"
+
+logger = logging.getLogger(__name__)
 PCA_COMPONENT_OPTIONS = [
     {'label': f'PC{i}', 'value': f'PC{i}'}
     for i in range(1, 6)
@@ -56,7 +59,7 @@ class AnalysisPlugin(PluginInterface):
     def __init__(self):
         self._label = _label
         self._order = 9
-        print(f'Initiated {_label} plugin')
+        logger.info(f'Initiated {_label} plugin')
 
     def layout(self):
         return _layout
@@ -798,6 +801,16 @@ def callbacks(app, fsc, cache):
         if not section_context or section_context.get('page') != 'Analysis':
             raise PreventUpdate
 
+        # Prevent double-firing when switching tabs forces a normalization update.
+        # If the tab change triggered this, and the current norm isn't the tab's default,
+        # we skip this and wait for the normalization update to trigger the callback again.
+        from dash import callback_context
+        triggered_props = [t['prop_id'] for t in callback_context.triggered] if callback_context.triggered else []
+        if 'analysis-tabs.activeKey' in triggered_props:
+            default_norm = TAB_DEFAULT_NORM.get(tab_key)
+            if default_norm and norm_value != default_norm:
+                raise PreventUpdate
+
         if not wdir:
             raise PreventUpdate
 
@@ -1018,7 +1031,9 @@ def callbacks(app, fsc, cache):
                         should_save = (time.time() - last_write) > 30
                     if should_save:
                         fig.savefig(save_path, format="png", dpi=600)
+                        logger.info(f"Saved high-res Clustermap: {save_path}")
             except Exception:
+                logger.error("Failed to save Clustermap image.", exc_info=True)
                 pass
 
             fig.savefig(buf, format="png", dpi=300)
@@ -1031,6 +1046,7 @@ def callbacks(app, fsc, cache):
             return fig_bar_matplotlib, dash.no_update, dash.no_update, compound_options, dash.no_update
 
         elif tab_key == 'pca':
+            logger.info(f"Generating PCA ({x_comp} vs {y_comp})...")
             # n_components should be <= min(n_samples, n_features)
             results = run_pca_samples_in_cols(ndf, n_components=min(ndf.shape[0], ndf.shape[1], 5))
             results['scores']['color_group'] = color_labels
@@ -1144,10 +1160,10 @@ def callbacks(app, fsc, cache):
                 paper_bgcolor='white',
                 plot_bgcolor='white',
             )
-
             return dash.no_update, fig, dash.no_update, compound_options, dash.no_update
 
         elif tab_key == 'raincloud':
+            logger.info("Generating Violin/Raincloud plots...")
             # Build options list; sort by absolute PC1 loading if available so the most
             # influential metabolites surface first.
             loadings_for_sort = None
@@ -1307,8 +1323,10 @@ def callbacks(app, fsc, cache):
             return ("No active workspace.", "", "", [], [], [], hidden_style, None)
 
         try:
+            logger.info(f"SCALiR: Parsing standards file {standards_filename}...")
             standards_df = _parse_uploaded_standards(standards_contents, standards_filename)
         except Exception as exc:
+            logger.error(f"SCALiR: Failed to parse standards file: {exc}")
             return (f"Upload a standards table (CSV). Error: {exc}", "", "", [], [], [], hidden_style, None)
 
         with duckdb_connection(wdir) as conn:
@@ -1323,6 +1341,7 @@ def callbacks(app, fsc, cache):
                     WHERE {intensity} IS NOT NULL
                 """).df()
             except Exception as exc:
+                logger.error(f"SCALiR: Could not load results from database: {exc}")
                 return (f"Could not load results: {exc}", "", "", [], [], [], hidden_style, None)
 
         if mint_df.empty:
@@ -1338,6 +1357,7 @@ def callbacks(app, fsc, cache):
                 mint_df, standards_df, units_df
             )
         except Exception as exc:
+            logger.error(f"SCALiR: Alignment failed: {exc}", exc_info=True)
             return (f"Could not align standards with results: {exc}", "", "", [], [], [], hidden_style, None)
 
         if not common:
@@ -1351,10 +1371,12 @@ def callbacks(app, fsc, cache):
             estimator, std_results, x_train, y_train, params = fit_estimator(
                 mint_filtered, standards_filtered, intensity, slope_mode or "fixed", slope_interval
             )
+            logger.info(f"SCALiR: Fitting completed. Metabolites: {len(common)}")
             concentrations = build_concentration_table(
                 estimator, mint_filtered, intensity, units_filtered
             )
         except Exception as exc:
+            logger.error(f"SCALiR: Fitting failed: {exc}", exc_info=True)
             return (f"Error fitting calibration: {exc}", "", "", [], [], [], hidden_style, None)
 
         output_dir = Path(wdir) / "analysis" / "scalir"
