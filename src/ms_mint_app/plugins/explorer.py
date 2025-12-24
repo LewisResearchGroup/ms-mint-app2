@@ -263,7 +263,7 @@ class FileExplorer:
                                     },
                                 ),
                             ],
-                            id='processing-progress-container',
+                            id='explorer-processing-progress-container',
                             style={'display': 'none', 'textAlign': 'center', 'padding': '20px'},
                         ),
                     ],
@@ -447,7 +447,7 @@ class FileExplorer:
             return 0, "", ""
 
         @app.callback(
-            Output('processing-progress-container', 'style', allow_duplicate=True),
+            Output('explorer-processing-progress-container', 'style', allow_duplicate=True),
             Output('selection-container', 'style', allow_duplicate=True),
             Output('selection-modal', 'confirmLoading', allow_duplicate=True),
             Output('selection-modal', 'confirmAutoSpin', allow_duplicate=True),
@@ -653,7 +653,7 @@ class FileExplorer:
             State("wdir", "data"),
             background=True,
             running=[
-                (Output('processing-progress-container', 'style'),
+                (Output('explorer-processing-progress-container', 'style'),
                  {
                      "display": "flex",
                      "justifyContent": "center",
@@ -788,7 +788,7 @@ class FileExplorer:
             return False
 
         @app.callback(
-            Output('processing-progress-container', 'style', allow_duplicate=True),
+            Output('explorer-processing-progress-container', 'style', allow_duplicate=True),
             Output('selection-container', 'style', allow_duplicate=True),
             Output('selection-modal', 'confirmLoading', allow_duplicate=True),
             Output('selection-modal', 'confirmAutoSpin', allow_duplicate=True),
