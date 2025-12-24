@@ -62,10 +62,14 @@ _layout = html.Div(
                         ),
                         fac.AntdSpace(
                             [
-                                fac.AntdButton(
-                                    'Run MINT',
-                                    id='processing-btn',
-                                    style={'textTransform': 'uppercase'},
+                                fac.AntdTooltip(
+                                    fac.AntdButton(
+                                        'Run MINT',
+                                        id='processing-btn',
+                                        style={'textTransform': 'uppercase'},
+                                    ),
+                                    title="Calculate peak areas (integration) for all targets and MS-files.",
+                                    placement="bottom"
                                 ),
                             ],
                             addSplitLine=True,
@@ -77,12 +81,16 @@ _layout = html.Div(
                 ),
                 fac.AntdFlex(
                     [
-                        fac.AntdButton(
-                            'Download Results',
-                            id='processing-download-btn',
-                            icon=fac.AntdIcon(icon='antd-download'),
-                            iconPosition='end',
-                            style={'textTransform': 'uppercase'},
+                        fac.AntdTooltip(
+                            fac.AntdButton(
+                                'Download Results',
+                                id='processing-download-btn',
+                                icon=fac.AntdIcon(icon='antd-download'),
+                                iconPosition='end',
+                                style={'textTransform': 'uppercase'},
+                            ),
+                            title="Download the complete results table as a CSV file.",
+                            placement="bottom"
                         ),
                         fac.AntdDropdown(
                             id='processing-options',
