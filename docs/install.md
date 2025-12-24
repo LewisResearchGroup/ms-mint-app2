@@ -1,12 +1,20 @@
    
 # Installation notes
 ## Executables
-Builds are provided with all dependencies integrated for Windows 10/11 and Ubuntu [here](https://github.com/soerendip/ms-mint/releases/latest). After double-click the executable, a terminal will be open, followed by the app on the web browser. If the brwoser does not open automatically, please navigate to [http://localhost:9999](http://localhost:9999).
+Builds are provided with all dependencies integrated for Windows 10/11 and Ubuntu [here](https://github.com/soerendip/ms-mint/releases/latest). After double-clicking the executable, a terminal window will open, followed by the app in your default web browser. If the browser does not open automatically, please navigate to [http://localhost:9999](http://localhost:9999).
 
-## Installation with `pip`
-The latest release of the program can easily be installed in a standard Python 3 (>= 3.12) environment using `pip`:
+## Installation with `pip` (Recommended for Users)
+The latest stable release can be installed in a standard Python 3 (>= 3.12) conda environment using `pip`:
 
-    pip install ms-mint-app
+```bash
+# Create conda environment
+conda create -n ms-mint-app pip python==3.12
+conda activate ms-mint-app
+
+# Install the package normally
+pip install ms-mint-app
+
+```
 
 Should download and install all necessary dependencies and Mint.
 Start the app via:
@@ -29,13 +37,13 @@ The image can be started with:
 
 Then the tool is available in the browser at http://localhost:9999. -->
 
-## Installation from source
-We recommend using [conda](https://docs.anaconda.com/free/miniconda/) or [mamba](https://conda-forge.org/miniforge/) to create a virtual environment before installing `ms-mint-app`.
+## Installation from source (For Developers)
+If you want to contribute to MINT or use the latest unreleased features, install from source. We recommend using [conda](https://docs.anaconda.com/free/miniconda/) or [mamba](https://conda-forge.org/miniforge/) to create a virtual environment settings.
 
 ```bash
 # Create conda environment
-mamba create -n ms-mint pip
-mamba activate ms-mint
+conda create -n ms-mint-app python==3.12
+conda activate ms-mint-app
 
 # Get the code
 git clone https://github.com/LewisResearchGroup/ms-mint-app
