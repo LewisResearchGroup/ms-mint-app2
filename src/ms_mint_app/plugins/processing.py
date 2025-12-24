@@ -66,15 +66,15 @@ _layout = html.Div(
                                     fac.AntdButton(
                                         'Run MINT',
                                         id='processing-btn',
-                                        style={'textTransform': 'uppercase'},
+                                        style={'textTransform': 'uppercase', "margin": "0 10px"},
                                     ),
                                     title="Calculate peak areas (integration) for all targets and MS-files.",
                                     placement="bottom"
                                 ),
                             ],
-                            addSplitLine=True,
+                            addSplitLine=False,
                             size="small",
-                            style={"margin": "0 50px"},
+                            style={"margin": "0 10px"},
                         ),
                     ],
                     align='center',

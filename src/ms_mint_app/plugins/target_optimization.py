@@ -78,7 +78,7 @@ _layout = fac.AntdLayout(
                                     fac.AntdButton(
                                         'Compute Chromatograms',
                                         id='compute-chromatograms-btn',
-                                        style={'textTransform': 'uppercase'},
+                                        style={'textTransform': 'uppercase', "margin": "0 10px"},
                                     ),
                                     title="Calculate chromatograms from the MS files and Targets.",
                                     placement="bottom"
@@ -94,7 +94,7 @@ _layout = fac.AntdLayout(
                                 )
                             ],
                             justify='space-between',
-                            style={"margin": "0 40px 0 50px", 'width': '100%'},
+                            style={"margin": "0 40px 0 10px", 'width': '100%'},
                         ),
                     ],
                     align='center',
