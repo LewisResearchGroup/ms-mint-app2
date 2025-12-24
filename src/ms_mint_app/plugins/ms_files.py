@@ -100,21 +100,29 @@ _layout = html.Div(
                         ),
                         fac.AntdSpace(
                             [
-                                fac.AntdButton(
-                                    'Load MS-Files',
-                                    id={
-                                        'action': 'file-explorer',
-                                        'type': 'ms-files',
-                                    },
-                                    style={'textTransform': 'uppercase'},
+                                fac.AntdTooltip(
+                                    fac.AntdButton(
+                                        'Load MS-Files',
+                                        id={
+                                            'action': 'file-explorer',
+                                            'type': 'ms-files',
+                                        },
+                                        style={'textTransform': 'uppercase'},
+                                    ),
+                                    title="Import MS files (mzML, mzXML) or ZIP archives containing them.",
+                                    placement="bottom"
                                 ),
-                                fac.AntdButton(
-                                    'Load Metadata',
-                                    id={
-                                        'action': 'file-explorer',
-                                        'type': 'metadata',
-                                    },
-                                    style={'textTransform': 'uppercase'},
+                                fac.AntdTooltip(
+                                    fac.AntdButton(
+                                        'Load Metadata',
+                                        id={
+                                            'action': 'file-explorer',
+                                            'type': 'metadata',
+                                        },
+                                        style={'textTransform': 'uppercase'},
+                                    ),
+                                    title="Import a metadata file (CSV) to annotate your MS files.",
+                                    placement="bottom"
                                 ),
                             ],
                             addSplitLine=True,
@@ -126,19 +134,27 @@ _layout = html.Div(
                 ),
                 fac.AntdFlex(
                     [
-                        fac.AntdButton(
-                            'Download template',
-                            id='download-ms-template-btn',
-                            icon=fac.AntdIcon(icon='antd-download'),
-                            iconPosition='end',
-                            style={'textTransform': 'uppercase'},
+                        fac.AntdTooltip(
+                            fac.AntdButton(
+                                'Download template',
+                                id='download-ms-template-btn',
+                                icon=fac.AntdIcon(icon='antd-download'),
+                                iconPosition='end',
+                                style={'textTransform': 'uppercase'},
+                            ),
+                            title="Download a blank CSV template for file metadata.",
+                            placement="bottom"
                         ),
-                        fac.AntdButton(
-                            'Download MS-files',
-                            id='download-ms-files-btn',
-                            icon=fac.AntdIcon(icon='antd-download'),
-                            iconPosition='end',
-                            style={'textTransform': 'uppercase'},
+                        fac.AntdTooltip(
+                            fac.AntdButton(
+                                'Download MS-files',
+                                id='download-ms-files-btn',
+                                icon=fac.AntdIcon(icon='antd-download'),
+                                iconPosition='end',
+                                style={'textTransform': 'uppercase'},
+                            ),
+                            title="Download the currently loaded MS-files list as a CSV.",
+                            placement="bottom"
                         ),
                         html.Div(
                             fac.AntdDropdown(
