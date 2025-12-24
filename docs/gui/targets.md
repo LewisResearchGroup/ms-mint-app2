@@ -12,6 +12,24 @@ To import a target list, click the `Load Targets` button. This opens a file brow
 
 *   **Template**: For best results, use the standard format. Click the `DOWNLOAD TEMPLATE` button to download a pre-formatted CSV file with the required columns (`peak_label`, `mz_mean`, `mz_width`, `rt`, `rt_min`, `rt_max`).
 
+### Auto-Generate Targets (via Asari) {: #auto-generate-targets }
+
+If you don't have a pre-defined target list, MINT can automatically detect features in your processed files using [Asari](https://github.com/shuzhao-li/asari).
+
+1.  Click the `Auto-Generate` button to open the configuration modal.
+2.  Adjust the parameters to suit your data (ionization mode, mass tolerance, signal-to-noise ratio, etc.).
+3.  Click `Run Analysis`. MINT will process the files in the background and populate the table with detected features.
+
+![Asari Modal](../image/targets_asari_modal_v1.1.1.png "Asari Auto-Generate Configuration")
+
+#### Key Parameters:
+*   **CPU**: Number of cores to use for parallel processing.
+*   **Mode**: Ionization mode (`Positive` or `Negative`).
+*   **MZ Width (ppm)**: Mass tolerance for grouping peaks.
+*   **Signal/Noise Ratio**: Minimum signal-to-noise ratio for peak detection.
+*   **Min Peak Height**: Minimum intensity required for a peak to be considered.
+*   **Min Timepoints**: Minimum number of scans required to define a peak shape.
+
 ### The Targets Table {: #the-targets-table }
 
 Once loaded, your targets are displayed in an interactive table with the following key columns:
