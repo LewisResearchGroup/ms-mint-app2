@@ -13,8 +13,8 @@ def hex_to_rgb(hex_color):
 
 def make_palette(labels, existing_map=None):
     """
-    Genera un dict {label: "#rrggbb"} con colores distintos.
-    Respeta los colores predefinidos (no los cambia).
+    Generates a dict {label: "#rrggbb"} with distinct colors.
+    Respects predefined colors (does not change them).
     """
     predef = existing_map or {}
     missing = [l for l in labels if l not in existing_map]

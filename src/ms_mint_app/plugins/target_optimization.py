@@ -1095,7 +1095,7 @@ def callbacks(app, fsc, cache, cpu=None):
 
             if prop_id == 'mark-tree-action':
                 logger.debug(f"{df['checked_keys'].values = }")
-                checked_keys = [v for value in df['checked_keys'].values for v in value]  # Es el mismo en todas las
+                checked_keys = [v for value in df['checked_keys'].values for v in value]  # It is the same in all rows
             elif prop_id == 'section-context':
                 quotas, checked_keys = proportional_min1_selection(df, 'sample_type', 'checked_keys', 50, 12345)
             else:

@@ -16,7 +16,8 @@ def generate_chromatogram_traces(chrom_df, use_megatrace=False):
 
     if not use_megatrace:
         # ------------------------------------
-        # MODO NORMAL: una trace por cromatograma
+        # ------------------------------------
+        # NORMAL MODE: one trace per chromatogram
         # ------------------------------------
         for i, row in enumerate(chrom_df.iter_rows(named=True)):
 
@@ -53,7 +54,8 @@ def generate_chromatogram_traces(chrom_df, use_megatrace=False):
 
     else:
         # ------------------------------------
-        # MODO REDUCIDO: una trace por sample_type
+        # ------------------------------------
+        # REDUCED MODE: one trace per sample_type
         # ------------------------------------
         grouped = {}
         for row in chrom_df.iter_rows(named=True):
@@ -66,7 +68,7 @@ def generate_chromatogram_traces(chrom_df, use_megatrace=False):
                     'count': 0
                 }
 
-            # Esparcificar individualmente antes de unir (opcional, para ahorrar más)
+            # Sparsify individually before joining (optional, to save more)
             st, ints = sparsify_chrom(
                 row['scan_time_sliced'], row['intensity_sliced'], w=1, baseline=1.0, eps=0.0
             )

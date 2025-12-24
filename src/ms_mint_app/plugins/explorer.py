@@ -288,7 +288,7 @@ class FileExplorer:
                 dcc.Store(id="processed-action-store"),
                 dcc.Store(id='table-data-store', data=[]),
                 dcc.Store(id='marked-for-removal', data=[]),
-                dcc.Store(id='is-at-root', data=False),  # Para saber si estamos en el nivel de drives
+                dcc.Store(id='is-at-root', data=False),  # To check if we are at the drive level
             ]
         )
 

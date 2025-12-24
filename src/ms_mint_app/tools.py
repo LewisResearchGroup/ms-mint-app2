@@ -34,11 +34,11 @@ def today() -> str:
 
 
 def rt_to_seconds(val) -> float:
-    """Convierte retentionTime a segundos (si viene PT…); si ya es numérico, lo devuelve tal cual."""
+    """Converts retentionTime to seconds (if it comes as PT...); if it is already numeric, returns it as is."""
     if isinstance(val, (int, float)):
         return float(val)
     s = (val or "").strip()
-    # si ya viene "0.12345" lo tomamos como segundos
+    # If it is like "0.12345", treat as seconds
     try:
         return float(s)
     except ValueError:
@@ -54,59 +54,59 @@ def rt_to_seconds(val) -> float:
 
 def _decode_peaks_optimized(attrs: Dict[str, str], text: Optional[str]) -> tuple[np.ndarray, np.ndarray]:
     """
-    OPTIMIZACIÓN CLAVE: Decodifica mz e intensity en UNA SOLA operación
-    usando structured arrays (como pyteomics).
+    KEY OPTIMIZATION: Decodes mz and intensity in A SINGLE operation
+    using structured arrays (like pyteomics).
 
-    Esto es ~2-3x más rápido que decodificar por separado.
+    This is ~2-3x faster than decoding separately.
     """
     if not text:
         return np.array([], dtype=np.float32), np.array([], dtype=np.float32)
 
-    # Determinar dtype según precisión
+    # Determine dtype based on precision
     dt = np.float32 if attrs.get("precision") == "32" else np.float64
 
-    # CLAVE: Crear structured dtype para ambos arrays (mz, intensity)
+    # KEY: Create structured dtype for both arrays (mz, intensity)
     # byteorder '>' = big-endian (network byte order)
     endian = ">" if attrs.get("byteOrder") in ("network", "big") else "<"
     dtype = np.dtype([("mz", dt), ("intensity", dt)]).newbyteorder(endian)
 
-    # Decodificar base64
+    # Decode base64
     raw = base64.b64decode(text)
 
-    # Descomprimir si es necesario
+    # Decompress if necessary
     if attrs.get("compressionType") == "zlib":
         raw = zlib.decompress(raw)
 
-    # UNA SOLA conversión de bytes a arrays
+    # SINGLE conversion from bytes to arrays
     arr = np.frombuffer(raw, dtype=dtype)
 
-    # Extraer campos del structured array (sin copia, solo vistas)
+    # Extract fields from structured array (no copy, only views)
     return arr["mz"], arr["intensity"]
 
 
 def iter_mzxml_fast(path: str | Path, *, decode_binary: bool = True) -> Iterator[Dict[str, Any]]:
-    from lxml import etree  # ← IMPORTACIÓN CRÍTICA
+    from lxml import etree  # CRITICAL IMPORT
 
     path = Path(path)
 
-    # CAMBIO CLAVE: lxml.etree con remove_comments=True
+    # KEY CHANGE: lxml.etree with remove_comments=True
     context = etree.iterparse(
         path.as_posix(),
         events=("start", "end"),
-        remove_comments=True,  # Acelera el parsing
-        huge_tree=False,  # Seguridad (default)
+        remove_comments=True,  # Speeds up parsing
+        huge_tree=False,  # Security (default)
     )
 
-    # Get root para limpiar memoria
+    # Get root to clear memory
     _, root = next(context)
 
     current: Dict[str, Any] = {}
     have_peaks = False
 
     for ev, elem in context:
-        # lxml usa .tag directamente (sin namespace por defecto en mzXML)
+        # lxml uses .tag directly (without namespace by default in mzXML)
         tag = elem.tag
-        if '}' in tag:  # Solo si hay namespace
+        if '}' in tag:  # Only if there is a namespace
             tag = tag.rsplit("}", 1)[-1]
 
         if ev == "start" and tag == "scan":
@@ -133,7 +133,7 @@ def iter_mzxml_fast(path: str | Path, *, decode_binary: bool = True) -> Iterator
 
         elif ev == "end" and tag == "peaks":
             if decode_binary:
-                # OPTIMIZACIÓN CLAVE: Usa la versión optimizada
+                # KEY OPTIMIZATION: Uses the optimized version
                 mz, it = _decode_peaks_optimized(elem.attrib, (elem.text or "").strip() or None)
                 current["m/z array"] = mz
                 current["intensity array"] = it
@@ -142,7 +142,7 @@ def iter_mzxml_fast(path: str | Path, *, decode_binary: bool = True) -> Iterator
                 current["peaks"] = {"attrs": dict(elem.attrib), "text": elem.text}
 
         elif ev == "end" and tag == "scan":
-            # ELMAVEN-like extra (opcional)
+            # ELMAVEN-like extra (optional)
             if current.get("msLevel") == 2 and have_peaks:
                 pol_str = current.get("polarity") or ""
                 prec = current.get("precursorMz")
@@ -152,14 +152,14 @@ def iter_mzxml_fast(path: str | Path, *, decode_binary: bool = True) -> Iterator
                     current["filterLine_ELMAVEN"] = f"{pol_str} {prec:.3f} [{mz0:.3f}]"
 
             yield current
-            root.clear()  # libera memoria
+            root.clear()  # frees memory
 
 
 BATCH_SIZE_POINTS = 50_000_000
 
 
 def _build_table_from_lists(lists_dict: Dict[str, List], ms_level: int) -> pa.Table:
-    """Helper para convertir las listas actuales en un pa.Table."""
+    """Helper to convert the current lists into a pa.Table."""
     if ms_level == 1:
         arrays_dict = {
             'ms_file_label': pa.array(lists_dict['labels'], type=pa.string()),
@@ -183,7 +183,7 @@ def _build_table_from_lists(lists_dict: Dict[str, List], ms_level: int) -> pa.Ta
 
 
 def _init_lists() -> Dict[str, List]:
-    """Helper para inicializar/resetear las listas."""
+    """Helper to init/reset lists."""
     return {
         'labels': [], 'scan_ids': [], 'scan_times': [],
         'mzs': [], 'intensities': [],
@@ -201,16 +201,16 @@ def convert_mzxml_to_parquet_fast_batches(
     time_factor = 60.0 if time_unit == "min" else 1.0
     file_stem = file_path.stem
 
-    # --- INICIO LÓGICA DE LOTES ---
+    # --- START BATCH LOGIC ---
     table_batches = []
     current_lists = _init_lists()
-    # --- FIN LÓGICA DE LOTES ---
+    # --- END BATCH LOGIC ---
 
     ms_level = None
     polarity = None
     first_scan = True
 
-    total_points = 0  # Contador para los lotes
+    total_points = 0  # Counter for batches
     try:
         for data in iter_mzxml_fast(file_path.as_posix(), decode_binary=True):
             mz_arr = data.get("m/z array")
@@ -253,28 +253,28 @@ def convert_mzxml_to_parquet_fast_batches(
                 current_lists['filterLines'].extend([None] * n_points)
                 current_lists['filterLines_ELMAVEN'].extend([None] * n_points)
 
-            # --- INICIO LÓGICA DE LOTES ---
-            # Comprobar si el lote actual ha superado el umbral
+            # --- START BATCH LOGIC ---
+            # Check if current batch exceeded threshold
             if total_points > BATCH_SIZE_POINTS:
                 table_batches.append(_build_table_from_lists(current_lists, ms_level))
-                # Resetear listas y contador
+                # Reset lists and counter
                 current_lists = _init_lists()
                 total_points = 0
-            # --- FIN LÓGICA DE LOTES ---
+            # --- END BATCH LOGIC ---
     except XMLSyntaxError as e:
         raise ValueError(f"Invalid XML in {file_path}: {str(e)}") from e
     except Exception as e:
         raise ValueError(f"Invalid XML in {file_path}: {e}") from e
 
-    # --- INICIO LÓGICA DE LOTES ---
-    # Añadir el último lote si queda algo
+    # --- START BATCH LOGIC ---
+    # Add the last batch if there is anything left
     if total_points > 0:
         table_batches.append(_build_table_from_lists(current_lists, ms_level))
 
-    # Si no se leyó nada (archivo vacío o inválido)
+    # If nothing was read (empty or invalid file)
     if not table_batches:
-        print(f"Advertencia: No se encontraron datos válidos en {file_path}")
-        # Retornar con valores nulos o manejar como error
+        print(f"Warning: No valid data found in {file_path}")
+        # Return with null values or handle as error
         return 0, file_path, file_stem, 1, "Unknown", None
 
     table = pa.concat_tables(table_batches)
@@ -794,8 +794,8 @@ def process_ms_files(wdir, set_progress, selected_files, n_cpus):
 
     files_name = {Path(file_path).stem: Path(file_path) for file_path in file_list}
 
-    mask = data["ms_file_label"].isin(files_name)  # dict como conjunto de claves
-    duplicates = data.loc[mask, "ms_file_label"]  # Serie con solo las etiquetas duplicadas
+    mask = data["ms_file_label"].isin(files_name)  # dict as set of keys
+    duplicates = data.loc[mask, "ms_file_label"]  # Series with only the duplicate labels
     if not duplicates.empty:
         duplicates_count = int(duplicates.shape[0])
         _send_progress(round(duplicates.shape[0] / n_total * 100, 1))
@@ -1036,10 +1036,10 @@ def sparsify_chrom(
 
 def proportional_min1_selection(df, group_col, list_col, total_select, seed=None):
     """
-    Regla:
-      - Si total de elementos < total_select -> incluir todos.
-      - Si no -> cuota por grupo = max(1, floor(total_select * p_grupo)).
-    Retorna: (quotas, lista_plana_seleccionada)
+    Rule:
+      - If total elements < total_select -> include all.
+      - If not -> quota per group = max(1, floor(total_select * p_group)).
+    Returns: (quotas, flat_selected_list)
     """
     rng = random.Random(seed) if seed is not None else random
 
@@ -1056,26 +1056,26 @@ def proportional_min1_selection(df, group_col, list_col, total_select, seed=None
             except TypeError:
                 groups.append([lst])
 
-    # Conteo total
+    # Total count
     sizes = [len(lst) for lst in groups]
     total = sum(sizes)
 
-    # CASO 1: total menor que total_select → incluir TODO
+    # CASE 1: total less than total_select -> include ALL
     if total <= total_select:
-        # Simplemente concatenamos todos los elementos
+        # Simply concatenate all elements
         full_list = []
         for lst in groups:
             full_list.extend(lst)
         return {g: s for g, s in zip(df[group_col], sizes)}, full_list
 
-    # CASO 2: aplicar cuota proporcional
+    # CASE 2: apply proportional quota
     quotas = {}
     for g, n in zip(df[group_col], sizes):
         p = n / total
         q = max(1, math.floor(total_select * p))
         quotas[g] = q
 
-    # Muestreo por grupo
+    # Sampling by group
     selected = []
     for (g, lst), q in zip(zip(df[group_col], groups), quotas.values()):
         seq = list(lst)
