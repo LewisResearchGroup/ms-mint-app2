@@ -93,37 +93,53 @@ _layout = html.Div(
                             icon='pi-info',
                             style={"cursor": "pointer", 'paddingLeft': '10px'},
                         ),
-                        fac.AntdButton(
-                            'Load Targets',
-                            id={
-                                'action': 'file-explorer',
-                                'type': 'targets',
-                            },
-                            style={'textTransform': 'uppercase', "margin": "0 10px"},
+                        fac.AntdTooltip(
+                            fac.AntdButton(
+                                'Load Targets',
+                                id={
+                                    'action': 'file-explorer',
+                                    'type': 'targets',
+                                },
+                                style={'textTransform': 'uppercase', "margin": "0 10px"},
+                            ),
+                            title="Import a targets file (CSV) from your computer",
+                            placement="bottom"
                         ),
-                        fac.AntdButton(
-                            'Auto-Generate',
-                            id='asari-open-modal-btn',
-                            style={'textTransform': 'uppercase', "margin": "0 50px"},
+                        fac.AntdTooltip(
+                            fac.AntdButton(
+                                'Auto-Generate',
+                                id='asari-open-modal-btn',
+                                style={'textTransform': 'uppercase', "marginLeft": "20px"},
+                            ),
+                            title="Automatically detect targets from processed files (using Asari)",
+                            placement="bottom"
                         ),
                     ],
                     align='center',
                 ),
                 fac.AntdFlex(
                     [
-                        fac.AntdButton(
-                            'Download template',
-                            id='download-target-template-btn',
-                            icon=fac.AntdIcon(icon='antd-download'),
-                            iconPosition='end',
-                            style={'textTransform': 'uppercase'},
+                        fac.AntdTooltip(
+                            fac.AntdButton(
+                                'Download template',
+                                id='download-target-template-btn',
+                                icon=fac.AntdIcon(icon='antd-download'),
+                                iconPosition='end',
+                                style={'textTransform': 'uppercase'},
+                            ),
+                            title="Download a blank CSV template for targets",
+                            placement="bottom"
                         ),
-                        fac.AntdButton(
-                            'Download targets',
-                            id='download-target-list-btn',
-                            icon=fac.AntdIcon(icon='antd-download'),
-                            iconPosition='end',
-                            style={'textTransform': 'uppercase'},
+                        fac.AntdTooltip(
+                            fac.AntdButton(
+                                'Download targets',
+                                id='download-target-list-btn',
+                                icon=fac.AntdIcon(icon='antd-download'),
+                                iconPosition='end',
+                                style={'textTransform': 'uppercase'},
+                            ),
+                            title="Download the current target list as a CSV file",
+                            placement="bottom"
                         ),
                         html.Div(
                             fac.AntdDropdown(
