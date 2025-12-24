@@ -290,6 +290,41 @@ def run_asari_workflow(wdir, params, set_progress=None):
         
         df = pd.read_csv(target_table_path, sep='\t')
         
+        # --- Post-Processing Filters ---
+        # User requested filtering based on cSelectivity and detection_counts
+        initial_count = len(df)
+        
+        # cSelectivity Filter (if column exists and parameter provided)
+        cselectivity_threshold = params.get('cselectivity')
+        if cselectivity_threshold is not None:
+            if 'cSelectivity' in df.columns:
+                 df = df[df['cSelectivity'] >= float(cselectivity_threshold)]
+                 logger.info(f"Filtered by cSelectivity >= {cselectivity_threshold}. Count: {initial_count} -> {len(df)}")
+            else:
+                 logger.warning("cSelectivity parameter provided but column not found in Asari output.")
+
+        # Detection Rate Filter (if column exists and parameter provided)
+        # Note: Column name might be 'detection_counts' or 'detection counts', checking both
+        detection_rate_pct = params.get('detection_rate')
+        if detection_rate_pct is not None:
+             det_col = None
+             if 'detection_counts' in df.columns:
+                 det_col = 'detection_counts'
+             elif 'detection counts' in df.columns:
+                 det_col = 'detection counts'
+             
+             if det_col:
+                 # Calculate required count based on percentage of total files
+                 # total_files is available from outer scope
+                 min_detections = int(np.ceil((float(detection_rate_pct) / 100.0) * total_files))
+                 
+                 df = df[df[det_col] >= min_detections]
+                 logger.info(f"Filtered by {det_col} >= {min_detections} ({detection_rate_pct}% of {total_files} samples). Count: {initial_count} -> {len(df)}")
+             else:
+                 logger.warning("detection_rate parameter provided but detection count column not found in Asari output.")
+        # -------------------------------
+
+        
         # Column Mapping
         # id_number -> peak_label
         # mz -> mz_mean
@@ -386,6 +421,18 @@ def run_asari_workflow(wdir, params, set_progress=None):
         return {"success": False, "message": f"Error converting Asari results to MINT targets: {e}"}
 
     report_progress(100, "Done", "Workflow completed.")
+    
+    # Cleanup mzML files in temp_dir as requested
+    # Keep the rest (results folder)
+    try:
+        if os.path.exists(temp_dir):
+            mzml_files = [f for f in os.listdir(temp_dir) if f.lower().endswith(".mzml")]
+            for f in mzml_files:
+                os.remove(os.path.join(temp_dir, f))
+            if mzml_files:
+                    logger.info(f"Cleaned up {len(mzml_files)} intermediate .mzML files.")
+    except Exception as cleanup_ex:
+        logger.warning(f"Failed to cleanup intermediate files: {cleanup_ex}")
     
     return {
         "success": True, 

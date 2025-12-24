@@ -457,14 +457,24 @@ _layout = html.Div(
                             ], style={'display': 'grid', 'gridTemplateColumns': '1fr 1fr 1fr', 'gap': '10px'}),
                             
                             html.Div([
-                                html.Div(), # Empty left column
+                                fac.AntdFormItem(
+                                    fac.AntdInputNumber(id='asari-cselectivity', value=1, min=0, max=1, step=0.01, style={'width': '100%'}),
+                                    label="cSelectivity",
+                                    tooltip="How distinct chromatographic elution peaks are",
+                                    labelCol={'span': 13}, wrapperCol={'span': 11}
+                                ),
                                 fac.AntdFormItem(
                                     fac.AntdInputNumber(id='asari-gaussian-shape', value=0.5, min=0, max=1, step=0.1, style={'width': '100%'}),
                                     label="Gaussian Shape",
                                     tooltip="Min cutoff of goodness of fitting to Gauss model",
                                     labelCol={'span': 13}, wrapperCol={'span': 11}
                                 ),
-                                html.Div(), # Empty right column
+                                fac.AntdFormItem(
+                                    fac.AntdInputNumber(id='asari-detection-rate', value=50, min=0, max=100, step=1, style={'width': '100%'}),
+                                    label="Detection Rate (%)",
+                                    tooltip="Filter features detected in at least X% of samples",
+                                    labelCol={'span': 13}, wrapperCol={'span': 11}
+                                ),
                             ], style={'display': 'grid', 'gridTemplateColumns': '1fr 1fr 1fr', 'gap': '10px'}),
                         ],
                         layout='horizontal'
@@ -1074,6 +1084,8 @@ def callbacks(app, fsc=None, cache=None):
         State("asari-min-peak-height", "value"),
         State("asari-min-timepoints", "value"),
         State("asari-gaussian-shape", "value"),
+        State("asari-cselectivity", "value"),
+        State("asari-detection-rate", "value"),
         
         background=True,
         cancel=[Input("cancel-asari-btn", "nClicks")],
@@ -1105,7 +1117,7 @@ def callbacks(app, fsc=None, cache=None):
         ],
         prevent_initial_call=True
     )
-    def run_asari_analysis(set_progress, ok_counts, wdir, multicores, mz_tol, mode, snr, min_height, min_points, gaussian_shape):
+    def run_asari_analysis(set_progress, ok_counts, wdir, multicores, mz_tol, mode, snr, min_height, min_points, gaussian_shape, cselectivity, detection_rate):
         if not ok_counts:
              raise PreventUpdate
              
@@ -1124,10 +1136,18 @@ def callbacks(app, fsc=None, cache=None):
         if min_points is None or min_points < 1:
              return dash.no_update, True, fac.AntdAlert(message="Invalid Min Timepoints.", type="error"), dash.no_update
              
-        # Gaussian Shape is optional, no strict validation needed other than maybe non-negative if provided?
+        # Gaussian Shape is optional
         if gaussian_shape is not None and (gaussian_shape < 0 or gaussian_shape > 1):
              return dash.no_update, True, fac.AntdAlert(message="Invalid Gaussian Shape. Must be between 0 and 1.", type="error"), dash.no_update
-             
+
+        # cSelectivity is optional
+        if cselectivity is not None and (cselectivity < 0 or cselectivity > 1):
+             return dash.no_update, True, fac.AntdAlert(message="Invalid cSelectivity. Must be between 0 and 1.", type="error"), dash.no_update
+
+        # Detection Rate is optional
+        if detection_rate is not None and (detection_rate < 0 or detection_rate > 100):
+             return dash.no_update, True, fac.AntdAlert(message="Invalid Detection Rate. Must be between 0% and 100%.", type="error"), dash.no_update
+            
         def progress_adapter(data):
             # data is (percent, message, detail, logs)
             if set_progress:
@@ -1140,7 +1160,9 @@ def callbacks(app, fsc=None, cache=None):
             'signal_noise_ratio': snr,
             'min_peak_height': min_height,
             'min_timepoints': min_points,
-            'gaussian_shape': gaussian_shape
+            'gaussian_shape': gaussian_shape,
+            'cselectivity': cselectivity,
+            'detection_rate': detection_rate
         }
         
         result = targets_asari.run_asari_workflow(wdir, params, set_progress=progress_adapter)
