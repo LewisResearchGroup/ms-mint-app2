@@ -36,3 +36,11 @@ You can manage your workspaces using the controls in the Workspaces tab:
 
 ### Workspace Details {: #workspace-details }
 Click the `+` icon next to a workspace name to expand the row. This shows the absolute path to the workspace and a summary of the data it contains (_e.g._, number of MS-files, targets, and results).
+
+### Logging and Troubleshooting {: #logging-and-troubleshooting }
+MINT automatically tracks actions and errors to help with debugging.
+
+-   **Log File**: A file named `ws.log` is created inside each workspace folder. It contains a detailed history of operations performed within that workspace.
+-   **Terminal Output**: If you run MINT from the command line, logs are also printed to the terminal in real-time.
+
+If you encounter an issue, please check the `ws.log` file in your workspace directory for error messages before reporting a bug.
