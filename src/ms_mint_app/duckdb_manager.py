@@ -4,6 +4,9 @@ from threading import Thread
 
 import duckdb
 import time
+import logging
+
+logger = logging.getLogger(__name__)
 
 from .sample_metadata import GROUP_COLUMNS
 
@@ -773,6 +776,8 @@ def compute_and_insert_chromatograms_from_ms_data(con: duckdb.DuckDBPyConnection
     print("Chromatograms computed and inserted into DuckDB.")
 
 
+
+
 def compute_chromatograms_in_batches(wdir: str,
                                      # conn: duckdb.DuckDBPyConnection,
                                      use_for_optimization: bool,
@@ -787,6 +792,7 @@ def compute_chromatograms_in_batches(wdir: str,
                                      ):
     # progress_log = Path(wdir) / "processing_progress.log" if wdir else None
     progress_log = None
+    logger.info(f"Computing chromatograms in batches. wDir: {wdir}")
     QUERY_CREATE_SCAN_LOOKUP = """
                                CREATE TABLE IF NOT EXISTS ms_file_scans AS
                                SELECT DISTINCT ms_file_label,
@@ -969,11 +975,11 @@ def compute_chromatograms_in_batches(wdir: str,
                               """
 
     if recompute_ms1:
-        print("Deleting existing MS1 chromatograms for recalculation...")
+        logger.info("Deleting existing MS1 chromatograms for recalculation...")
         with duckdb_connection(wdir, n_cpus=n_cpus, ram=ram) as con:
             con.execute("DELETE FROM chromatograms WHERE ms_type = 'ms1'")
     if recompute_ms2:
-        print("Deleting existing MS2 chromatograms for recalculation...")
+        logger.info("Deleting existing MS2 chromatograms for recalculation...")
         with duckdb_connection(wdir, n_cpus=n_cpus, ram=ram) as con:
             con.execute("DELETE FROM chromatograms WHERE ms_type = 'ms2'")
 
@@ -981,9 +987,9 @@ def compute_chromatograms_in_batches(wdir: str,
         conn.execute("DROP TABLE IF EXISTS pending_pairs")
         try:
             count = conn.execute("SELECT COUNT(*) FROM ms_file_scans").fetchone()[0]
-            print(f"Lookup table exists ({count:,} entries)")
+            logger.info(f"Lookup table exists ({count:,} entries)")
         except:
-            print("⚠️  Lookup table does not exist. Creating...")
+            logger.warning("Lookup table does not exist. Creating...")
 
             start = time.perf_counter()
             conn.execute(QUERY_CREATE_SCAN_LOOKUP)
@@ -997,13 +1003,13 @@ def compute_chromatograms_in_batches(wdir: str,
                                         FROM ms_file_scans
                                         GROUP BY ms_file_label)
                                   """).fetchone()
-            print(f"  Total entries: {result[0]:,}")
-            print(f"  Total MS files: {result[1]:,}")
-            print(f"  Average scans per file: {result[2]:.0f}")
-            print(f"  Time elapsed: {elapsed:.2f}s")
+            logger.info(f"  Total entries: {result[0]:,}")
+            logger.info(f"  Total MS files: {result[1]:,}")
+            logger.info(f"  Average scans per file: {result[2]:.0f}")
+            logger.info(f"  Time elapsed: {elapsed:.2f}s")
 
     with duckdb_connection(wdir, n_cpus=n_cpus, ram=ram) as conn:
-        print("Getting pending pairs...")
+        logger.info("Getting pending pairs...")
         start_time = time.time()
         conn.execute(QUERY_CREATE_PENDING_PAIRS, [use_bookmarked, use_for_optimization])
         rows = conn.execute("""
@@ -1018,7 +1024,7 @@ def compute_chromatograms_in_batches(wdir: str,
         elapsed = time.time() - start_time
 
         if not rows:
-            print(f"No pending pairs ({elapsed:.2f}s)")
+            logger.info(f"No pending pairs ({elapsed:.2f}s)")
             conn.execute("DROP TABLE IF EXISTS pending_pairs")
             return {
                 'total_pairs': 0,
@@ -1044,15 +1050,17 @@ def compute_chromatograms_in_batches(wdir: str,
             detail=f"Pending pairs: {global_total_pairs:,}",
         )
 
-        print(f"✓ {global_total_pairs:,} pending pairs ({elapsed:.2f}s)")
-        print(f"Processing in batches of {batch_size}...\n")
+
+
+        logger.info(f"{global_total_pairs:,} pending pairs ({elapsed:.2f}s)")
+        logger.info(f"Processing in batches of {batch_size}...")
 
         global_processed = 0  # accumulated counter
         global_stats: dict[str, dict] = {}
 
         for ms_type, total_pairs_type, min_id, max_id in rows:
-            print(f"\n--- Processing {ms_type} ---")
-            print(f"Pending pairs: {total_pairs_type:,} (pair_id {min_id}-{max_id})")
+            logger.info(f"--- Processing {ms_type} ---")
+            logger.info(f"Pending pairs: {total_pairs_type:,} (pair_id {min_id}-{max_id})")
 
             if total_pairs_type == 0 or min_id is None or max_id is None:
                 global_stats[ms_type] = {
@@ -1095,9 +1103,7 @@ def compute_chromatograms_in_batches(wdir: str,
                             current_id += batch_size
                             continue
 
-                        print(f"Batch {batch_num:>4}/{total_batches} | "
-                              f"IDs {start_id:>6}-{end_id:>6} | "
-                              f"{batch_count:>3} pairs | ", end='', flush=True)
+
 
                         batch_start = time.time()
 
@@ -1122,8 +1128,11 @@ def compute_chromatograms_in_batches(wdir: str,
                         batches += 1
                         batches_since_checkpoint += 1
 
-                        print(f"✓ {batch_elapsed:>5.2f}s | "
-                              f"Progress {processed:>6,}/{total_pairs_type:,}")
+                        logger.info(f"Batch {batch_num:>4}/{total_batches} | "
+                                    f"IDs {start_id:>6}-{end_id:>6} | "
+                                    f"{batch_count:>3} pairs | "
+                                    f"Batch time: {batch_elapsed:>5.2f}s | "
+                                    f"Progress {processed:>6,}/{total_pairs_type:,}")
                         log_line = (f"Batch {batch_num}/{total_batches} | "
                                     f"Progress {processed:,}/{total_pairs_type:,} | "
                                     f"Time/batch {batch_elapsed:0.2f}s")
@@ -1141,7 +1150,9 @@ def compute_chromatograms_in_batches(wdir: str,
                         batch_elapsed = time.time() - batch_start if 'batch_start' in locals() else 0
                         failed += batch_count
 
-                        print(f"✗ {batch_elapsed:>5.2f}s | Error: {str(e)[:80]}")
+                        failed += batch_count
+
+                        logger.error(f"Error processing batch: {batch_elapsed:>5.2f}s | Error: {str(e)[:80]}")
                         error_line = (f"Batch {batch_num}/{total_batches} | "
                                       f"IDs {start_id}-{end_id} | "
                                       f"{batch_count} pairs | "

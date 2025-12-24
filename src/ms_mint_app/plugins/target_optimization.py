@@ -1,4 +1,5 @@
 import json
+import logging
 from os import cpu_count
 
 import dash
@@ -17,15 +18,18 @@ from ..duckdb_manager import duckdb_connection, compute_chromatograms_in_batches
 from ..plugin_interface import PluginInterface
 from ..tools import sparsify_chrom, proportional_min1_selection
 from ..plugins.analysis_tools.trace_helper import generate_chromatogram_traces
+from .workspaces import activate_workspace_logging
 
 _label = "Optimization"
+
+logger = logging.getLogger(__name__)
 
 
 class TargetOptimizationPlugin(PluginInterface):
     def __init__(self):
         self._label = _label
         self._order = 6
-        print(f'Initiated {_label} plugin')
+        logger.info(f'Initiated {_label} plugin')
 
     def layout(self):
         return _layout
@@ -1090,7 +1094,7 @@ def callbacks(app, fsc, cache, cpu=None):
                 return [], [], [], {'display': 'none'}, {'display': 'block'}
 
             if prop_id == 'mark-tree-action':
-                print(f"{df['checked_keys'].values = }")
+                logger.debug(f"{df['checked_keys'].values = }")
                 checked_keys = [v for value in df['checked_keys'].values for v in value]  # Es el mismo en todas las
             elif prop_id == 'section-context':
                 quotas, checked_keys = proportional_min1_selection(df, 'sample_type', 'checked_keys', 50, 12345)
@@ -1506,8 +1510,8 @@ def callbacks(app, fsc, cache, cpu=None):
             targets_select_options = [
                 {"label": target, "value": target} for target in all_targets
             ]
-
-        print(f"{time.perf_counter() - t1 = }")
+        
+        logger.debug(f"Preview refreshed in {time.perf_counter() - t1:.4f}s")
         return titles, figures, bookmarks, len(all_targets), "", targets_select_options
 
     @app.callback(
@@ -1921,7 +1925,7 @@ def callbacks(app, fsc, cache, cpu=None):
                 n_sample_types = chrom_df['sample_type'].n_unique()
                 group_legend = True if n_sample_types > 1 else False
             except Exception as e:
-                print(f"Error determining sample types: {e}")
+                logger.warning(f"Error determining sample types: {e}")
                 group_legend = False
 
         t1 = time.perf_counter()
@@ -2083,7 +2087,7 @@ def callbacks(app, fsc, cache, cpu=None):
         slider_reference = s_data
         slider_dict = slider_reference.copy()
 
-        print(f"{time.perf_counter() - t1 = }")
+        logger.debug(f"Modal view prepared in {time.perf_counter() - t1:.4f}s")
         return (fig, f"{target_clicked} (rt={rt})", False, slider_reference,
                 slider_dict, {"min_y": y_min, "max_y": y_max}, total_points, use_megatrace, log_scale, group_legend, note)
 
@@ -2440,15 +2444,19 @@ def callbacks(app, fsc, cache, cpu=None):
             if set_progress:
                 set_progress((percent, stage or "", detail or ""))
 
+        activate_workspace_logging(wdir)
+
         with duckdb_connection(wdir, n_cpus=n_cpus, ram=ram) as con:
             if con is None:
+                logger.error("Could not connect to database for chromatogram computation.")
                 return "Could not connect to database."
             start = time.perf_counter()
+            logger.info("Starting chromatogram computation.")
             progress_adapter(0, "Chromatograms", "Preparing batches...")
             compute_chromatograms_in_batches(wdir, use_for_optimization=True, batch_size=batch_size,
                                              set_progress=progress_adapter, recompute_ms1=recompute_ms1,
                                              recompute_ms2=recompute_ms2, n_cpus=n_cpus, ram=ram)
-            print(f"Chromatograms computed in {time.perf_counter() - start:.2f} seconds")
+            logger.info(f"Chromatograms computed in {time.perf_counter() - start:.2f} seconds")
         return True, False
 
     ############# COMPUTE CHROMATOGRAM END #######################################
@@ -2501,6 +2509,9 @@ def callbacks(app, fsc, cache, cpu=None):
                 return dash.no_update
             conn.execute("UPDATE targets SET rt_min = ?, rt = ?, rt_max = ? "
                          "WHERE peak_label = ?", (rt_min, rt_, rt_max, target_clicked))
+        
+        logger.info(f"Updated RT for target '{target_clicked}': rt_min={rt_min}, rt={rt_}, rt_max={rt_max}")
+
         buttons_style = {
             'visibility': 'hidden',
             'opacity': '0',
@@ -2594,8 +2605,10 @@ def callbacks(app, fsc, cache, cpu=None):
                 conn.execute("DELETE FROM targets WHERE peak_label = ?", [target])
                 conn.execute("DELETE FROM results WHERE peak_label = ?", [target])
                 conn.execute("COMMIT")
+                logger.info(f"Deleted target '{target}' and associated chromatograms/results.")
             except Exception:
                 conn.execute("ROLLBACK")
+                logger.error(f"Failed to delete target '{target}'", exc_info=True)
                 return (fac.AntdNotification(
                             message="Delete target failed",
                             description="Could not delete target data; no changes were applied.",
@@ -2644,6 +2657,10 @@ def callbacks(app, fsc, cache, cpu=None):
                 return dash.no_update
             conn.execute("UPDATE targets SET bookmark = ? WHERE peak_label = ?", [bool(bookmarks[trigger_id]),
                                                                                   targets[trigger_id]])
+        
+        status = "bookmarked" if bookmarks[trigger_id] else "unbookmarked"
+        logger.info(f"Target '{targets[trigger_id]}' was {status}.")
+
         return fac.AntdNotification(message=f"Target {targets[trigger_id]} has been "
                                             f"{'' if bookmarks[trigger_id] else 'un'}bookmarked",
                                     duration=3,
