@@ -63,7 +63,11 @@ _layout = html.Div(
                     children=fac.AntdIcon(icon="antd-question-circle", style={"color": "#888", "marginRight": "2.5px"})
                 ),
                 fac.AntdText("Loading...", id="ws-current-data-dir-text", style={"marginRight": "10px", "fontWeight": "bold"}),
-                fac.AntdButton("Change Location", id="ws-change-data-dir-btn", size="small")
+                fac.AntdTooltip(
+                    fac.AntdButton("Change Location", id="ws-change-data-dir-btn", size="small"),
+                    title="Select a different folder on your computer to store your MINT workspaces and data.",
+                    placement="bottom"
+                )
             ],
             style={"marginBottom": "1px", "marginTop": "100px"},
             gap=10,
@@ -88,9 +92,16 @@ _layout = html.Div(
                 sortOptions={'sortDataIndexes': ['name', 'last_activity', 'created_at']},
                 footer=[
                     fac.AntdFlex([
-                        fac.AntdButton('Create Workspace', id='ws-create', icon=fac.AntdIcon(icon='antd-plus')),
-                        fac.AntdButton('Delete Workspace', id='ws-delete', danger=True, icon=fac.AntdIcon(
-                            icon='antd-minus'))],
+                        fac.AntdTooltip(
+                            fac.AntdButton('Create Workspace', id='ws-create', icon=fac.AntdIcon(icon='antd-plus')),
+                            title="Create a new, empty workspace.",
+                            placement="top"
+                        ),
+                        fac.AntdTooltip(
+                            fac.AntdButton('Delete Workspace', id='ws-delete', danger=True, icon=fac.AntdIcon(icon='antd-minus')),
+                            title="Permanently delete the selected workspace and all its data.",
+                            placement="top"
+                        )],
                         justify='space-between'
                     )
                 ],
