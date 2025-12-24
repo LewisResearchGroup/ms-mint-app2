@@ -1,5 +1,6 @@
 mkdocs
 mkdocs-material
+mkdocs-glightbox
 flake8
 pytest
-
+pyinstaller
