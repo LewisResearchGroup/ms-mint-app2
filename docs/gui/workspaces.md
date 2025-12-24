@@ -7,10 +7,22 @@ Workspaces allow you to organize and separate different projects. Each workspace
 ![Workspaces](../image/workspaces_v1.1.1.png)
 
 ### Storage Location {: #storage-location }
+
 All files for a workspace are stored in a subdirectory within your MINT data folder (`--data-dir`).
 
 -   **Default Location**: `~/MINT` (Linux/macOS) or `C:/Users/<username>/MINT` (Windows)
 -   **Active Workspace**: The active workspace is displayed in the sidebar under "Workspace:".
+
+#### Changing the Data Directory {: #changing-data-directory }
+You can change the location where MINT stores all workspaces.
+
+1.  Click the `Change Location` button next to the "Current Data Directory" display.
+2.  Enter the **absolute path** for the new folder.
+3.  Click `Save & Reload`.
+
+![Data Directory Modal](../image/workspaces_data_dir_v1.1.1.png "Changing Global Data Directory")
+
+> **Note**: Changing this path will reload the application. Workspaces from the old directory are not moved; you will start with an empty list in the new location until you create new workspaces or move your valid workspace folders manually.
 
 ### Managing Workspaces {: #managing-workspaces }
 
