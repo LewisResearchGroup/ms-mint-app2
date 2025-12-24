@@ -412,6 +412,7 @@ _layout = html.Div(
         fac.AntdModal(
             [
                 html.Div([
+                    html.Div(id='asari-auto-mode-alert'),
                     fac.AntdDivider('Configuration'),
                     fac.AntdForm(
                         [
@@ -1077,13 +1078,54 @@ def callbacks(app, fsc=None, cache=None):
 
     @app.callback(
         Output("asari-modal", "visible", allow_duplicate=True),
+        Output("asari-mode", "value"),
+        Output("asari-auto-mode-alert", "children"),
         Input("asari-open-modal-btn", "nClicks"),
+        State("wdir", "data"),
         prevent_initial_call=True
     )
-    def open_asari_modal(n_clicks):
-        if n_clicks:
-            return True
-        return dash.no_update
+    def open_asari_modal(n_clicks, wdir):
+        if not n_clicks:
+             raise PreventUpdate
+        
+        mode_val = 'pos'
+        alert = None
+        
+        if wdir:
+            try:
+                with duckdb_connection(wdir) as conn:
+                    # Check polarity of active samples
+                    query = """
+                        SELECT DISTINCT polarity 
+                        FROM samples 
+                        WHERE use_for_processing = TRUE OR use_for_optimization = TRUE
+                    """
+                    results = conn.execute(query).fetchall()
+                    
+                    found_pols = set()
+                    for r in results:
+                        if r and r[0]:
+                            found_pols.add(r[0])
+                            
+                    if len(found_pols) == 1:
+                        pol = list(found_pols)[0]
+                        if 'Positive' in pol or 'positive' in pol:
+                            mode_val = 'pos'
+                            alert = fac.AntdAlert(message="Auto-detected Ionization Mode: Positive", type="success", showIcon=True)
+                        elif 'Negative' in pol or 'negative' in pol:
+                            mode_val = 'neg'
+                            alert = fac.AntdAlert(message="Auto-detected Ionization Mode: Negative", type="success", showIcon=True)
+                    elif len(found_pols) > 1:
+                         mode_val = 'pos' # Default fallback
+                         alert = fac.AntdAlert(message="Multiple polarities detected. Please verify Mode.", type="warning", showIcon=True)
+                    else:
+                        # No active samples or no polarity info
+                        alert = fac.AntdAlert(message="No active samples found to detect polarity.", type="info", showIcon=True)
+                        
+            except Exception as e:
+                logging.warning(f"Failed to auto-detect polarity: {e}")
+                
+        return True, mode_val, alert
 
     @app.callback(
         Output("notifications-container", "children", allow_duplicate=True),

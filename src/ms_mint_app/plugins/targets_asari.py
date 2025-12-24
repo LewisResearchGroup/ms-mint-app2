@@ -217,15 +217,21 @@ def run_asari_workflow(wdir, params, set_progress=None):
                 logs.append(line)
                 
                 # Update progress based on keywords
-                if "processing" in line.lower():
-                    current_percent = 60
-                    current_detail = "Processing samples..."
-                elif "correspondence" in line.lower():
+                if "The reference sample is:" in line:
+                    current_percent = 55
+                    current_detail = "Identified reference sample..."
+                elif "mapped pairs" in line:
+                    current_percent = 65
+                    current_detail = "Mapping pairs..."
+                elif "Peak detection on" in line:
+                    current_percent = 70
+                    current_detail = "Detecting peaks..."
+                elif "Khipu search grid:" in line:
                     current_percent = 80
-                    current_detail = "Correspondence analysis..."
-                elif "annotation" in line.lower():
-                    current_percent = 90
-                    current_detail = "Annotating features..."
+                    current_detail = "Searching Khipu grid..."
+                elif "Unique compound table" in line:
+                    current_percent = 95
+                    current_detail = "Finalizing results..."
                 
                 # Report progress with new log line
                 report_progress(current_percent, current_message, current_detail)
