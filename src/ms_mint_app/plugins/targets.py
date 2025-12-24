@@ -441,13 +441,13 @@ _layout = html.Div(
                             
                             html.Div([
                                 fac.AntdFormItem(
-                                    fac.AntdInputNumber(id='asari-snr', value=5, min=1, style={'width': '100%'}),
+                                    fac.AntdInputNumber(id='asari-snr', value=20, min=1, style={'width': '100%'}),
                                     label="Signal/Noise Ratio",
                                     tooltip="Peak height at least X fold over local noise",
                                     labelCol={'span': 13}, wrapperCol={'span': 11}
                                 ),
                                 fac.AntdFormItem(
-                                    fac.AntdInputNumber(id='asari-min-peak-height', value=10000, min=0, style={'width': '100%'}),
+                                    fac.AntdInputNumber(id='asari-min-peak-height', value=100000, min=0, style={'width': '100%'}),
                                     label="Min Peak Height",
                                     tooltip="Minimal peak height",
                                     labelCol={'span': 13}, wrapperCol={'span': 11}
@@ -468,13 +468,13 @@ _layout = html.Div(
                                     labelCol={'span': 13}, wrapperCol={'span': 11}
                                 ),
                                 fac.AntdFormItem(
-                                    fac.AntdInputNumber(id='asari-gaussian-shape', value=0.5, min=0, max=1, step=0.1, style={'width': '100%'}),
+                                    fac.AntdInputNumber(id='asari-gaussian-shape', value=0.9, min=0, max=1, step=0.1, style={'width': '100%'}),
                                     label="Gaussian Shape",
                                     tooltip="Min cutoff of goodness of fitting to Gauss model",
                                     labelCol={'span': 13}, wrapperCol={'span': 11}
                                 ),
                                 fac.AntdFormItem(
-                                    fac.AntdInputNumber(id='asari-detection-rate', value=50, min=0, max=100, step=1, style={'width': '100%'}),
+                                    fac.AntdInputNumber(id='asari-detection-rate', value=90, min=0, max=100, step=1, style={'width': '100%'}),
                                     label="Detection Rate (%)",
                                     tooltip="Filter features detected in at least X% of samples",
                                     labelCol={'span': 13}, wrapperCol={'span': 11}
