@@ -31,7 +31,8 @@ def init_global_logging(level: int = logging.INFO) -> None:
 
 def activate_workspace_logging(workspace_dir: str | Path,
                                filename: str = "ws.log",
-                               level: int | None = None) -> Path:
+                               level: int | None = None,
+                               workspace_name: str | None = None) -> Path:
     """
     Enable file logging for a workspace:
     - Create the workspace folder if it does not exist
@@ -42,17 +43,28 @@ def activate_workspace_logging(workspace_dir: str | Path,
     global _WORKSPACE_HANDLER
 
     root = logging.getLogger()
+    workspace_dir = Path(workspace_dir)
+    workspace_dir.mkdir(parents=True, exist_ok=True)
+    log_path = workspace_dir / filename
 
-    # Remove previous handler, if present
+    # Check if we are already logging to this file
     if _WORKSPACE_HANDLER is not None:
+        try:
+             # baseFilename is usually absolute string path
+            if Path(_WORKSPACE_HANDLER.baseFilename).resolve() == log_path.resolve():
+                return log_path
+        except Exception:
+             pass
+
         root.removeHandler(_WORKSPACE_HANDLER)
         _WORKSPACE_HANDLER.close()
         _WORKSPACE_HANDLER = None
 
-    workspace_dir = Path(workspace_dir)
-    workspace_dir.mkdir(parents=True, exist_ok=True)
-
-    log_path = workspace_dir / filename
+    try:
+        with open(log_path, "a", encoding="utf-8") as f:
+            f.write(f"\n{'-'*80}\n")
+    except Exception:
+        pass
 
     file_handler = logging.FileHandler(log_path, encoding="utf-8")
     formatter = logging.Formatter(LOG_FORMAT, DATE_FORMAT)
@@ -64,7 +76,10 @@ def activate_workspace_logging(workspace_dir: str | Path,
     root.addHandler(file_handler)
     _WORKSPACE_HANDLER = file_handler
 
-    root.info("Workspace logging activated: %s", log_path)
+    msg = f"Workspace logging activated: {log_path}"
+    if workspace_name:
+        msg += f" (Workspace: {workspace_name})"
+    root.info(msg)
     return log_path
 
 

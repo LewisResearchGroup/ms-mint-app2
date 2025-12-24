@@ -20,11 +20,14 @@ _label = "Workspaces"
 pattern = re.compile(r"^[A-Za-z0-9_]+$")
 
 
+
+logger = logging.getLogger(__name__)
+
 class WorkspacesPlugin(PluginInterface):
     def __init__(self):
         self._label = _label
         self._order = 0
-        print(f'Initiated {_label} plugin')
+        logger.info(f'Initiated {_label} plugin')
 
     def layout(self):
         return _layout
@@ -340,6 +343,7 @@ def callbacks(app, fsc, cache):
             if key:
                 ws_path = Path(tmpdir, 'workspaces', str(key[0]))
                 ws_path.mkdir(parents=True, exist_ok=True)
+                logger.info(f"Created workspace: {ws_name} at {ws_path}")
 
         return 'create', None, None, None
 
@@ -423,13 +427,15 @@ def callbacks(app, fsc, cache):
                 mint_conn.execute("COMMIT")
 
                 ws_name = ws_row[0]
+                logger.info(f"Deleted workspace: {ws_name} (key: {ws_key})")
                 return fac.AntdNotification(message=f"Workspace {ws_name} deleted.",
                                             type="success",
                                             duration=3,
                                             placement='bottom',
                                             showProgress=True,
                                             stack=True), {'type': 'delete', 'status': 'success'}
-            except Exception:
+            except Exception as e:
+                logger.error(f"Error deleting workspace {ws_key}: {e}", exc_info=True)
                 mint_conn.execute("ROLLBACK")
                 raise
 
@@ -460,7 +466,7 @@ def callbacks(app, fsc, cache):
 
         with duckdb_connection_mint(tmpdir) as mint_conn:
             data = mint_conn.execute("SELECT * FROM workspaces ORDER BY last_activity DESC").df()
-            print(f"{data = }")
+            logger.debug(f"Loaded workspace table data: {len(data)} rows")
 
             if not data.empty:
                 data["key"] = data["key"].astype(str)
@@ -562,29 +568,47 @@ def callbacks(app, fsc, cache):
         if not selectedRowKeys:
             return dash.no_update, '', '', None
 
+        ws_key = selectedRowKeys[0]
+
         with duckdb_connection_mint(tmpdir) as mint_conn:
-            mint_conn.execute("UPDATE workspaces SET active = false WHERE key != ?", (selectedRowKeys[0],))
-            name = mint_conn.execute(
-                "UPDATE workspaces SET active = true, last_activity = NOW() WHERE key = ? RETURNING name",
-                (selectedRowKeys[0],)
-            ).fetchone()
+            # Check if this workspace is already active
+            is_active = mint_conn.execute("SELECT active FROM workspaces WHERE key = ?", (ws_key,)).fetchone()
+            already_active = is_active and is_active[0]
+
+            if already_active:
+                 # Just update activity time
+                mint_conn.execute("UPDATE workspaces SET last_activity = NOW() WHERE key = ?", (ws_key,))
+                name = mint_conn.execute("SELECT name FROM workspaces WHERE key = ?", (ws_key,)).fetchone()
+                notification = dash.no_update
+            else:
+                # Full activation switch
+                mint_conn.execute("UPDATE workspaces SET active = false WHERE key != ?", (ws_key,))
+                name = mint_conn.execute(
+                    "UPDATE workspaces SET active = true, last_activity = NOW() WHERE key = ? RETURNING name",
+                    (ws_key,)
+                ).fetchone()
+                
+                if name:
+                    ws_name = name[0]
+                    # Only log the explicit activation switch here
+                    logger.info(f"Activated workspace: {ws_name} (key: {ws_key})")
+                    notification = fac.AntdNotification(message=f"Workspace {ws_name} activated.",
+                                                        type="success",
+                                                        duration=3,
+                                                        placement='bottom',
+                                                        showProgress=True,
+                                                        stack=True)
+                else:
+                     notification = dash.no_update
+
             if name:
                 ws_name = name[0]
-                wdir = Path(tmpdir, 'workspaces', selectedRowKeys[0])
+                wdir = Path(tmpdir, 'workspaces', ws_key)
             else:
                 return dash.no_update, '', '', None
 
-            if ws_action:
-                notification = dash.no_update
-            else:
-                notification = fac.AntdNotification(message=f"Workspace {ws_name} activated.",
-                                                    type="success",
-                                                    duration=3,
-                                                    placement='bottom',
-                                                    showProgress=True,
-                                                    stack=True)
-
-        activate_workspace_logging(wdir)
+        # This will now be silent if the handler is already attached (idempotent)
+        activate_workspace_logging(wdir, workspace_name=ws_name)
 
         return notification, ws_name, wdir.as_posix(), wdir.as_posix()
 
@@ -627,8 +651,7 @@ def callbacks(app, fsc, cache):
         if not ws_key:
             raise PreventUpdate
 
-        print(f"{row_edited = }")
-        print(f"{column_edited = }")
+        logger.info(f"Updating workspace {ws_key}: {column_edited} = {row_edited[column_edited]}")
 
         try:
             with duckdb_connection_mint(tmpdir, workspace=ws_key) as mint_conn:
@@ -644,6 +667,7 @@ def callbacks(app, fsc, cache):
                                         stack=True
                                         )
         except Exception as e:
+            logger.error(f"Failed to save edit for workspace {ws_key}: {e}", exc_info=True)
             return fac.AntdNotification(message="Failed to save edition",
                                         description=f"Failing to save edition with: {str(e)}",
                                         type="error",
@@ -716,9 +740,9 @@ def callbacks(app, fsc, cache):
             import ms_mint_app.app as app_module
             app_module.TMPDIR = new_path_obj
             app_module.CACHEDIR = new_path_obj / ".cache"
-            logging.info(f"Updated app.TMPDIR to {app_module.TMPDIR}")
+            logger.info(f"Updated app.TMPDIR to {app_module.TMPDIR}")
         except Exception as e:
-            logging.warning(f"Failed to update app.TMPDIR: {e}")
+            logger.warning(f"Failed to update app.TMPDIR: {e}")
 
         # Construct the correct user-specific path (mirroring app.user_tmpdir logic)
         # We assume Local mode usually, or simple auth. 
@@ -735,7 +759,7 @@ def callbacks(app, fsc, cache):
         new_user_path.mkdir(parents=True, exist_ok=True)
         
         with duckdb_connection_mint(str(new_user_path)) as mint_conn:
-                 logging.info(f"Initialized DB in {new_user_path}")
+            logger.info(f"Initialized DB in {new_user_path}")
 
         # Notify success and update tmpdir store with the USER path (ending in /Local)
         return str(new_user_path), fac.AntdNotification(message="Global Data Directory updated successfully!", type="success"), False
@@ -745,7 +769,7 @@ def callbacks(app, fsc, cache):
         Input("tmpdir", "data")
     )
     def update_data_dir_display(tmpdir):
-        logging.info(f"Updating Display with tmpdir: {tmpdir}")
+        logger.debug(f"Updating Display with tmpdir: {tmpdir}")
         if not tmpdir:
             return "Unknown"
         # Strip /Local or /User/* suffix to show the root
