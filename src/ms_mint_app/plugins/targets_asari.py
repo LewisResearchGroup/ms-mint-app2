@@ -5,6 +5,8 @@ import yaml
 import shutil
 import numpy as np
 import time
+import sys
+import platform
 from pathlib import Path
 
 # Try importing pyopenms
@@ -19,6 +21,39 @@ from ..duckdb_manager import duckdb_connection
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+
+def get_asari_command():
+    """
+    Returns the command to run Asari.
+    
+    In a frozen PyInstaller app, uses the bundled Python environment.
+    Otherwise, uses the system 'asari' command.
+    
+    Returns:
+        tuple: (command_list, is_bundled) where command_list is the base command
+               to run asari and is_bundled indicates if using bundled env.
+    """
+    if getattr(sys, 'frozen', False):
+        # Running in PyInstaller frozen app
+        # The bundled env is at: <_MEIPASS>/asari_env/ (inside _internal)
+        meipass = getattr(sys, '_MEIPASS', os.path.dirname(sys.executable))
+        
+        if sys.platform == 'win32':
+            asari_path = os.path.join(meipass, 'asari_env', 'Scripts', 'asari.exe')
+        else:
+            asari_path = os.path.join(meipass, 'asari_env', 'bin', 'asari')
+        
+        if os.path.exists(asari_path):
+            logger.info(f"Using bundled Asari at: {asari_path}")
+            return ([asari_path], True)
+        else:
+            logger.warning(f"Bundled Asari not found at: {asari_path}")
+            # Fall back to system asari
+            return (["asari"], False)
+    else:
+        # Running in development mode - use system asari
+        return (["asari"], False)
 
 
 def export_ms1_from_db(conn, ms_file_label, output_path, polarity_str):
@@ -91,10 +126,18 @@ def run_asari_workflow(wdir, params, set_progress=None):
     report_progress(0, "Initializing", "Checking requirements...")
     
     # 1. Check Asari availability
+    asari_base_cmd, is_bundled = get_asari_command()
     try:
-        subprocess.run(["asari", "--help"], check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        subprocess.run(asari_base_cmd + ["--help"], check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        if is_bundled:
+            logger.info("Using bundled Asari environment")
+        else:
+            logger.info("Using system Asari")
     except FileNotFoundError:
-        return {"success": False, "message": "Asari executable not found. Please install it using 'pip install asari'."}
+        if is_bundled:
+            return {"success": False, "message": "Bundled Asari environment not found. Please reinstall the application."}
+        else:
+            return {"success": False, "message": "Asari executable not found. Please install it using 'pip install asari'."}
     except Exception as e:
          return {"success": False, "message": f"Error checking asari: {e}"}
 
@@ -187,8 +230,8 @@ def run_asari_workflow(wdir, params, set_progress=None):
     # 4. Run Asari
     report_progress(50, "Running Asari", "Starting Asari process...")
     
-    # FIXED: Added --input argument pointing to the directory containing mzML files
-    cmd = ["asari", "process", "--parameters", "asari_parameters.yaml", "--input", temp_dir]
+    # Build command using the detected Asari (bundled or system)
+    cmd = asari_base_cmd + ["process", "--parameters", "asari_parameters.yaml", "--input", temp_dir]
     
     logger.info(f"Running command: {' '.join(cmd)}")
     logs.append(f"Running command: {' '.join(cmd)}")

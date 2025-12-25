@@ -695,17 +695,7 @@ def callbacks(app, fsc=None, cache=None):
                     .alias('peak_selection_resolved'),
                     pl.col('bookmark').fill_null(False).cast(pl.Boolean).alias('bookmark_resolved'),
                 )
-                .with_columns(
-                    pl.col('peak_selection_resolved').map_elements(
-                        lambda value: {'checked': bool(value)},
-                        return_dtype=pl.Object
-                    ).alias('peak_selection'),
-                    pl.col('bookmark_resolved').map_elements(
-                        lambda value: {'checked': bool(value)},
-                        return_dtype=pl.Object
-                    ).alias('bookmark'),
-                )
-                .drop(['peak_selection_resolved', 'bookmark_resolved'])
+                .drop(['peak_selection', 'bookmark'])
             )
 
             # total rows:
@@ -731,8 +721,15 @@ def callbacks(app, fsc=None, cache=None):
                     else:
                         output_filterOptions = dash.no_update
 
+            # Convert to dicts and add the checkbox structure AFTER Polars processing
+            # This avoids using pl.Object dtype which causes panic in frozen apps
+            data_dicts = data.to_dicts()
+            for row in data_dicts:
+                row['peak_selection'] = {'checked': bool(row.pop('peak_selection_resolved', False))}
+                row['bookmark'] = {'checked': bool(row.pop('bookmark_resolved', False))}
+
             return [
-                data.to_dicts(),
+                data_dicts,
                 [],
                 {**pagination, 'total': number_records, 'current': current, 'pageSizeOptions': sorted([5, 10, 15, 25, 50,
                 100, number_records])},

@@ -29,3 +29,5 @@ analysis/DuckDB_profiling/*
 analysis/Parsing_profiling/*
 analysis/*
 analyze_dependencies.py
+pyinstaller/asari_env/*
+!pyinstaller/asari_env/.gitkeep
