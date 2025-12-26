@@ -183,4 +183,4 @@ Once the results are generated, there are several analyses you can perform. In t
     ![](quickstart/analysis-5.png)
 
 ## Next steps
-For a deeper tour of the interface, see the [GUI guide](gui.md). For details on target list formatting, see [Target lists](targets.md).
+For a deeper tour of the interface, see the [GUI guide](gui/index.md). For details on target list formatting, see [Targets](gui/targets.md).

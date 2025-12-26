@@ -47,4 +47,4 @@ The **Options** dropdown (top right) provides bulk actions for list management:
 *   **Delete selected**: Remove currently checked rows from the workspace.
 *   **Clear table**: Remove all targets.
 
-Target lists can be provided as CSV files. For more details on the file format, see [Target Lists](../targets.md).
+Target lists can be provided as CSV files. For more details on the file format, see the [Quickstart guide](../quickstart.md#6-add-targets-metabolites).

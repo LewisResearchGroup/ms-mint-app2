@@ -8,7 +8,7 @@ The latest stable release can be installed in a standard Python 3 (>= 3.12) cond
 
 ```bash
 # Create conda environment
-conda create -n ms-mint-app pip python==3.12
+conda create -n ms-mint-app python==3.12
 conda activate ms-mint-app
 
 # Install the package normally
