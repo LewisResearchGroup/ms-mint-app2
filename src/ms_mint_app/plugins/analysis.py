@@ -110,30 +110,65 @@ def run_pca_samples_in_cols(df: pd.DataFrame, n_components=None, random_state=0)
     }
 
 
-clustermap_tab = html.Div(
-    fuc.FefferyResizable(
-        fac.AntdSpin(
-            fac.AntdCenter(
-                html.Img(id='bar-graph-matplotlib', style={
-                    'width': '100%',
-                    'height': '100%',
-                    'object-fit': 'cover',
-                    'border': '0px solid #dee2e6'
-                }),
-                style={
-                    'height': '100%',
-                },
-            ),
-            id='clustermap-spinner',
-            spinning=True,
-            text='Loading clustermap...',
-            style={'minHeight': '20vh', 'width': '100%'},
+clustermap_tab = html.Div([
+    fac.AntdSpace([
+        html.Span("X-axis Font:", style={'fontWeight': 500, 'fontSize': 12}),
+        fac.AntdSlider(
+            id='clustermap-fontsize-x-slider',
+            min=0,
+            max=20,
+            step=1,
+            value=5,
+            marks={0: '0', 10: '10', 20: '20'},
+            style={'width': 200, 'fontSize': 10},
         ),
-        minWidth=100,
-        minHeight=100,
-    ),
-    style={'overflow': 'auto', 'height': 'calc(100vh - 156px)'}
-)
+        html.Span("Y-axis Font:", style={'fontWeight': 500, 'fontSize': 12, 'marginLeft': '24px'}),
+        fac.AntdSlider(
+            id='clustermap-fontsize-y-slider',
+            min=0,
+            max=20,
+            step=1,
+            value=5,
+            marks={0: '0', 10: '10', 20: '20'},
+            style={'width': 200, 'fontSize': 10},
+        ),
+        fac.AntdTooltip(
+            fac.AntdButton(
+                "Regenerate",
+                id='clustermap-regenerate-btn',
+                type='default',
+                size='small',
+                style={'marginLeft': '24px'},
+            ),
+            title="Click to regenerate heatmap with new font sizes",
+            placement='right',
+        ),
+    ], size=8, style={'padding': '8px 20px'}),
+    html.Div(
+        fuc.FefferyResizable(
+            fac.AntdSpin(
+                fac.AntdCenter(
+                    html.Img(id='bar-graph-matplotlib', style={
+                        'width': '100%',
+                        'height': '100%',
+                        'object-fit': 'cover',
+                        'border': '0px solid #dee2e6'
+                    }),
+                    style={
+                        'height': '100%',
+                    },
+                ),
+                id='clustermap-spinner',
+                spinning=True,
+                text='Loading clustermap...',
+                style={'minHeight': '20vh', 'width': '100%'},
+            ),
+            minWidth=100,
+            minHeight=100,
+        ),
+        style={'overflow': 'auto', 'height': 'calc(100vh - 200px)'}
+    )
+], style={'height': 'calc(100vh - 156px)'})
 pca_tab = html.Div(
     [
         fac.AntdSpace(
@@ -792,11 +827,14 @@ def callbacks(app, fsc, cache):
         Input('analysis-metric-select', 'value'),
         Input('analysis-normalization-select', 'value'),
         Input('analysis-grouping-select', 'value'),
+        Input('clustermap-regenerate-btn', 'nClicks'),
+        State('clustermap-fontsize-x-slider', 'value'),
+        State('clustermap-fontsize-y-slider', 'value'),
         State("wdir", "data"),
         prevent_initial_call=True,
     )
     def show_tab_content(section_context, tab_key, x_comp, y_comp, violin_comp_checks, metric_value, norm_value,
-                        group_by, wdir):
+                        group_by, regen_clicks, fontsize_x, fontsize_y, wdir):
 
         if not section_context or section_context.get('page') != 'Analysis':
             raise PreventUpdate
@@ -956,7 +994,8 @@ def callbacks(app, fsc, cache):
             import matplotlib.patches as mpatches
 
             matplotlib.use('Agg')
-            sns.set_theme(style='white', font_scale=0.25)
+            # Use base font_scale for other elements, apply specific sizes to tick labels
+            sns.set_theme(style='white', font_scale=0.5)
 
             sample_colors = None
             if color_map:
@@ -987,8 +1026,13 @@ def callbacks(app, fsc, cache):
             fig.ax_col_dendrogram.set_facecolor('white')
             fig.ax_row_dendrogram.set_facecolor('white')
 
-            fig.ax_heatmap.tick_params(which='both', axis='both', length=0)
-            fig.ax_heatmap .set_xlabel('Samples', fontsize=6, labelpad=4)
+            # Apply custom font sizes to x and y tick labels
+            x_fontsize = fontsize_x if fontsize_x else 5
+            y_fontsize = fontsize_y if fontsize_y else 5
+            fig.ax_heatmap.tick_params(axis='x', labelsize=x_fontsize, length=0, rotation=90)
+            fig.ax_heatmap.tick_params(axis='y', labelsize=y_fontsize, length=0)
+            
+            fig.ax_heatmap.set_xlabel('Samples', fontsize=7, labelpad=8)
             fig.ax_cbar.tick_params(which='both', axis='both', width=0.3, length=2, labelsize=4)
             fig.ax_cbar.set_title(norm_label, fontsize=6, pad=4)
             # Legend for grouping colors (top right)
