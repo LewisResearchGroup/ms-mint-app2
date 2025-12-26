@@ -1071,7 +1071,6 @@ def callbacks(app, fsc, cache, cpu=None):
         prevent_initial_call=True
     )
     def update_sample_type_tree(section_context, mark_action, expand_action, collapse_action, selection_ms_type, wdir):
-
         ctx = dash.callback_context
         prop_id = ctx.triggered[0]['prop_id'].split('.')[0]
 
@@ -1083,6 +1082,7 @@ def callbacks(app, fsc, cache, cpu=None):
         with duckdb_connection(wdir) as conn:
             if conn is None:
                 return [], [], [], {'display': 'none'}, {'display': 'block'}
+            
             df = conn.execute("""
                               SELECT sample_type,
                                      list({'title': label, 'key': label}) as children,
@@ -1103,7 +1103,7 @@ def callbacks(app, fsc, cache, cpu=None):
 
             if prop_id == 'mark-tree-action':
                 logger.debug(f"{df['checked_keys'].values = }")
-                checked_keys = [v for value in df['checked_keys'].values for v in value]  # It is the same in all rows
+                checked_keys = [v for value in df['checked_keys'].values for v in value]
             elif prop_id == 'section-context':
                 quotas, checked_keys = proportional_min1_selection(df, 'sample_type', 'checked_keys', 50, 12345)
             else:
@@ -1116,7 +1116,7 @@ def callbacks(app, fsc, cache, cpu=None):
                         'key': row['sample_type'],
                         'children': row['children']
                     }
-                    for _, row in df.iterrows()
+                    for row in df.to_dict('records')
                 ]
             else:
                 tree_data = dash.no_update
