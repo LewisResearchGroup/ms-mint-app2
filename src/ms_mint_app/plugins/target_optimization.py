@@ -1185,6 +1185,7 @@ def callbacks(app, fsc, cache, cpu=None):
         Output({'type': 'graph', 'index': ALL}, 'figure'),
         Output({'type': 'bookmark-target-card', 'index': ALL}, 'value'),
         Output('chromatogram-preview-pagination', 'total'),
+        Output('chromatogram-preview-pagination', 'current', allow_duplicate=True),
         Output('chromatograms-dummy-output', 'children'),
         Output('targets-select', 'options'),
 
@@ -1252,6 +1253,13 @@ def callbacks(app, fsc, cache, cpu=None):
                                              selected_targets, selected_targets]).fetchall()
 
             all_targets = [row[0] for row in all_targets]
+            
+            # Adjust current_page if it's beyond the available pages (e.g., after deleting all targets on current page)
+            total_targets = len(all_targets)
+            max_page = max(1, math.ceil(total_targets / page_size)) if total_targets else 1
+            if current_page > max_page:
+                current_page = max_page
+                start_idx = (current_page - 1) * page_size
 
             # Autosave the current targets table to the workspace data folder, but throttle I/O.
             try:
@@ -1520,7 +1528,7 @@ def callbacks(app, fsc, cache, cpu=None):
             ]
         
         logger.debug(f"Preview refreshed in {time.perf_counter() - t1:.4f}s")
-        return titles, figures, bookmarks, len(all_targets), "", targets_select_options
+        return titles, figures, bookmarks, len(all_targets), current_page, "", targets_select_options
 
     @app.callback(
         Output({'type': 'target-card-preview', 'index': ALL}, 'className'),
