@@ -1,5 +1,6 @@
 import logging
 import base64
+import math
 
 import dash
 import feffery_antd_components as fac
@@ -705,9 +706,42 @@ def callbacks(app, fsc=None, cache=None):
 
             # total rows:
             number_records = int(data["__total__"][0]) if len(data) else 0
+            
+            # If result is empty but there are records, we may be on a page beyond the last
+            if len(data) == 0 and number_records == 0:
+                # Check if there are actually any records matching the filter
+                with duckdb_connection(wdir) as conn:
+                    count_sql = f"SELECT COUNT(*) FROM targets {where_sql}"
+                    total_count = conn.execute(count_sql, params).fetchone()[0]
+                    if total_count > 0:
+                        number_records = total_count
+            
+            # Calculate max page and adjust current if beyond it
+            max_page = max(math.ceil(number_records / page_size), 1) if number_records else 1
+            current = min(max(current, 1), max_page)
 
-            # fix page if it underflowed:
-            current = max(current if number_records > (current - 1) * page_size else current - 1, 1)
+            # If we just removed the page we were on, re-query for the new page index
+            if params_paged[-1] != (current - 1) * page_size:
+                params_paged = params + [page_size, (current - 1) * page_size]
+                with duckdb_connection(wdir) as conn:
+                    dfpl = conn.execute(sql, params_paged).pl()
+                
+                data = (
+                    dfpl
+                    .with_columns(
+                        pl.when(pl.col('peak_selection').is_null())
+                        .then(pl.col('bookmark').fill_null(False))
+                        .otherwise(pl.col('peak_selection'))
+                        .cast(pl.Boolean)
+                        .alias('peak_selection_resolved'),
+                        pl.col('bookmark').fill_null(False).cast(pl.Boolean).alias('bookmark_resolved'),
+                        pl.col('rt_min').round(1).alias('rt_min'),
+                        pl.col('rt_max').round(1).alias('rt_max'),
+                        pl.col('ms_type').cast(pl.String).str.to_uppercase().alias('ms_type'),
+                    )
+                    .drop(['peak_selection', 'bookmark'])
+                )
+                number_records = int(data["__total__"][0]) if len(data) else 0
 
             with (duckdb_connection(wdir) as conn):
                 category_filters = conn.execute(
