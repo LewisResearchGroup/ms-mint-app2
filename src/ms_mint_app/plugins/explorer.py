@@ -540,11 +540,12 @@ class FileExplorer:
             Output('selected-files-tree', 'checkedKeys', allow_duplicate=True),
 
             Input('file-table', 'selectedRowKeys'),
-            Input('file-table', 'recentlyCellClickRecord'),
+            Input('file-table', 'nClicksCell'),
             Input('clear-selection-btn', 'nClicks'),
             Input('remove-marked-btn', 'nClicks'),
             Input('selected-files-tree', 'checkedKeys'),
 
+            State('file-table', 'recentlyCellClickRecord'),
             State('selected-files-store', 'data'),
             State('processing-type-store', 'data'),
             State('table-data-store', 'data'),
@@ -552,8 +553,8 @@ class FileExplorer:
 
             prevent_initial_call=True
         )
-        def update_selection(selectedRowKeys, recentlyCellClickRecord, clear_clicks, remove_clicks, tree_checked_keys,
-                             current_selection, processing_type, table_data, marked_for_removal):
+        def update_selection(selectedRowKeys, nClicksCell, clear_clicks, remove_clicks, tree_checked_keys,
+                             recentlyCellClickRecord, current_selection, processing_type, table_data, marked_for_removal):
             ctx = dash.callback_context
             if not ctx.triggered:
                 raise PreventUpdate
@@ -574,8 +575,9 @@ class FileExplorer:
             elif trigger_id == 'file-table':
                 # Update selection based on selected rows
                 extensions = processing_type.get('extensions', [])
-                if trigger_action == 'recentlyCellClickRecord':
-                    if not recentlyCellClickRecord.get('is_dir'):
+                if trigger_action == 'nClicksCell':
+                    # Cell was clicked - add the file if it's not a directory
+                    if recentlyCellClickRecord and not recentlyCellClickRecord.get('is_dir'):
                         selected_files.add(recentlyCellClickRecord['key'])
                 else:
                     if selectedRowKeys:
