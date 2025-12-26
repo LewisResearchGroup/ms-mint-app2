@@ -1044,7 +1044,7 @@ def callbacks(app, fsc=None, cache=None):
             with duckdb_connection(wdir) as conn:
                 if conn is None:
                     raise PreventUpdate
-                df = conn.execute("SELECT * FROM targets").df()
+                df = conn.execute("SELECT * FROM targets ORDER BY mz_mean ASC").df()
                 # Reorder columns to match the template/export expectation
                 cols = TARGET_TEMPLATE_COLUMNS
                 df = df[[c for c in cols if c in df.columns]]
