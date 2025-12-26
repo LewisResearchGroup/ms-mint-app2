@@ -358,10 +358,10 @@ _layout = html.Div(
                         sortOptions={'sortDataIndexes': []},
                         pagination={
                             'position': 'bottomCenter',
-                            'pageSize': 10,
+                            'pageSize': 15,
                             'current': 1,
                             'showSizeChanger': True,
-                            'pageSizeOptions': [5, 10, 25, 50, 100],
+                            'pageSizeOptions': [5, 10, 15, 25, 50, 100],
                             'showQuickJumper': True,
                         },
                         tableLayout='fixed',
@@ -836,7 +836,7 @@ def callbacks(cls, app, fsc, cache, args_namespace):
                 {**pagination,
                  'total': number_records,
                  'current': current,
-                 'pageSizeOptions': sorted(set([5, 10, 25, 50, 100] + ([number_records] if number_records else [])))},
+                 'pageSizeOptions': sorted(set([5, 10, 15, 25, 50, 100] + ([number_records] if number_records else [])))},
                 output_filterOptions
             ]
         return dash.no_update
