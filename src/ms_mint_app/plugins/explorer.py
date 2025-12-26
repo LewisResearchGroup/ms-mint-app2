@@ -729,6 +729,7 @@ class FileExplorer:
 
             duplicate_targets = stats.get("duplicate_peak_labels", 0) if processing_type['type'] == "targets" else 0
             failed_targets_count = len(failed_targets) if processing_type['type'] == "targets" else 0
+            rt_adjusted_count = stats.get("rt_adjusted_count", 0) if processing_type['type'] == "targets" else 0
 
             # Log results
             logger.info(f"Processing finished. Processed: {total_processed}, Failed: {len(failed_files)}, Duplicates: {duplicates_count}")
@@ -747,6 +748,8 @@ class FileExplorer:
                     details.append(f"{failed_targets_count} target row(s) failed")
                 if duplicate_targets:
                     details.append(f"{duplicate_targets} duplicate target label(s) deduplicated")
+                if rt_adjusted_count:
+                    details.append(f"{rt_adjusted_count} RT value(s) adjusted (outside span)")
 
                 if details:
                     description = f"Processed {total_processed} files; " + "; ".join(details) + "."

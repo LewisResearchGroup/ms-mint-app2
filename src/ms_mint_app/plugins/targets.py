@@ -695,7 +695,8 @@ def callbacks(app, fsc=None, cache=None):
                     .cast(pl.Boolean)
                     .alias('peak_selection_resolved'),
                     pl.col('bookmark').fill_null(False).cast(pl.Boolean).alias('bookmark_resolved'),
-                    # Round rt_min and rt_max to 1 decimal place like rt
+                    # Round rt, rt_min and rt_max to 1 decimal place for display
+                    pl.col('rt').round(1).alias('rt'),
                     pl.col('rt_min').round(1).alias('rt_min'),
                     pl.col('rt_max').round(1).alias('rt_max'),
                     # Uppercase ms_type for display consistency (cast from cat to string first)
@@ -735,6 +736,7 @@ def callbacks(app, fsc=None, cache=None):
                         .cast(pl.Boolean)
                         .alias('peak_selection_resolved'),
                         pl.col('bookmark').fill_null(False).cast(pl.Boolean).alias('bookmark_resolved'),
+                        pl.col('rt').round(1).alias('rt'),
                         pl.col('rt_min').round(1).alias('rt_min'),
                         pl.col('rt_max').round(1).alias('rt_max'),
                         pl.col('ms_type').cast(pl.String).str.to_uppercase().alias('ms_type'),

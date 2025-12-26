@@ -235,9 +235,12 @@ def _create_tables(conn: duckdb.DuckDBPyConnection):
                      score               DOUBLE,              -- Score of the target
                      bookmark            BOOLEAN,             -- Bookmark the target
                      source              VARCHAR,             -- Filename of the target list
-                     notes               VARCHAR              -- Additional notes for the target
+                     notes               VARCHAR,             -- Additional notes for the target
+                     rt_auto_adjusted    BOOLEAN DEFAULT FALSE -- RT was auto-adjusted (outside span)
                  );
                  """)
+    # Backfill rt_auto_adjusted for existing DBs
+    conn.execute("ALTER TABLE targets ADD COLUMN IF NOT EXISTS rt_auto_adjusted BOOLEAN DEFAULT FALSE;")
 
     conn.execute("""
                  CREATE TABLE IF NOT EXISTS chromatograms

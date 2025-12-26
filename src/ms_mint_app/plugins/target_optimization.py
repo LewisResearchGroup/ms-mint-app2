@@ -2263,9 +2263,22 @@ def callbacks(app, fsc, cache, cpu=None):
         rt_min_new = min(x0, x1)
         rt_max_new = max(x0, x1)
 
+        # Find RT at max intensity within the new span
+        rt_at_max = (rt_min_new + rt_max_new) / 2  # fallback to midpoint
+        max_intensity = -1
+        for trace in (figure_state.get('data', []) if figure_state else []):
+            xs = trace.get('x', [])
+            ys = trace.get('y', [])
+            for xv, yv in zip(xs, ys):
+                if xv is None or yv is None:
+                    continue
+                if rt_min_new <= xv <= rt_max_new and yv > max_intensity:
+                    max_intensity = yv
+                    rt_at_max = xv
+
         slider_data['value'] = {
             'rt_min': rt_min_new,
-            'rt': slider_data['value'].get('rt'),
+            'rt': rt_at_max,
             'rt_max': rt_max_new,
         }
 
@@ -2489,6 +2502,51 @@ def callbacks(app, fsc, cache, cpu=None):
                                              set_progress=progress_adapter, recompute_ms1=recompute_ms1,
                                              recompute_ms2=recompute_ms2, n_cpus=n_cpus, ram=ram)
             logger.info(f"Chromatograms computed in {time.perf_counter() - start:.2f} seconds")
+            
+            # Update RT values to max intensity time only for targets that had RT auto-adjusted
+            progress_adapter(95, "Chromatograms", "Updating RT to peak apex...")
+            try:
+                # Chromatograms stores scan_time and intensity as arrays, so we need to unnest them
+                # Only update targets where rt_auto_adjusted = TRUE
+                update_sql = """
+                    UPDATE targets
+                    SET rt = subq.rt_at_max,
+                        rt_auto_adjusted = FALSE
+                    FROM (
+                        WITH adjusted_targets AS (
+                            SELECT peak_label, rt_min, rt_max
+                            FROM targets
+                            WHERE rt_auto_adjusted = TRUE
+                        ),
+                        unnested AS (
+                            SELECT c.peak_label, 
+                                   UNNEST(c.scan_time) AS scan_time,
+                                   UNNEST(c.intensity) AS intensity
+                            FROM chromatograms c
+                            WHERE c.peak_label IN (SELECT peak_label FROM adjusted_targets)
+                        ),
+                        filtered AS (
+                            SELECT u.peak_label, u.scan_time, u.intensity
+                            FROM unnested u
+                            JOIN adjusted_targets t ON u.peak_label = t.peak_label
+                            WHERE u.scan_time BETWEEN t.rt_min AND t.rt_max
+                        ),
+                        max_per_target AS (
+                            SELECT peak_label, MAX(intensity) AS max_intensity
+                            FROM filtered
+                            GROUP BY peak_label
+                        )
+                        SELECT f.peak_label, f.scan_time AS rt_at_max
+                        FROM filtered f
+                        JOIN max_per_target m ON f.peak_label = m.peak_label AND f.intensity = m.max_intensity
+                    ) AS subq
+                    WHERE targets.peak_label = subq.peak_label
+                """
+                con.execute(update_sql)
+                logger.info("Updated RT to max intensity for auto-adjusted targets")
+            except Exception as e:
+                logger.warning(f"Could not update RT to max intensity: {e}")
+            
         return True, False
 
     ############# COMPUTE CHROMATOGRAM END #######################################

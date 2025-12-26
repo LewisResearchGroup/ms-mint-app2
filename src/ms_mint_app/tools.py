@@ -547,6 +547,7 @@ def get_targets_v2(files_path):
         "bookmark": 'boolean',
         "source": 'string',
         "notes": 'string',
+        "rt_auto_adjusted": 'boolean',
     }
     required_cols = {"peak_label", "rt_min", "rt_max"}
 
@@ -559,6 +560,7 @@ def get_targets_v2(files_path):
     files_failed = 0
     targets_processed = 0
     targets_failed = 0
+    rt_adjusted_labels = []  # Track targets with RT outside span that were adjusted
 
     for file_path in files_path:
         file_name = Path(file_path).name
@@ -604,6 +606,21 @@ def get_targets_v2(files_path):
                             raise ValueError(f"Invalid RT-unit: {target['rt_unit']}")
 
                     target['rt_unit'] = 's'
+                    
+                    # Validate RT is within [rt_min, rt_max] span, otherwise set to midpoint
+                    rt_val = target.get('rt')
+                    rt_min_val = target.get('rt_min')
+                    rt_max_val = target.get('rt_max')
+                    if rt_val is not None and rt_min_val is not None and rt_max_val is not None:
+                        if rt_val < rt_min_val or rt_val > rt_max_val:
+                            old_rt = rt_val
+                            target['rt'] = (rt_min_val + rt_max_val) / 2
+                            target['rt_auto_adjusted'] = True  # Mark for later update to max intensity
+                            rt_adjusted_labels.append(target['peak_label'])
+                            logging.warning(
+                                f"Target '{target['peak_label']}': RT {old_rt:.1f}s was outside span "
+                                f"[{rt_min_val:.1f}, {rt_max_val:.1f}], adjusted to midpoint {target['rt']:.1f}s"
+                            )
 
 
                     pol = target.get('polarity')
@@ -699,7 +716,6 @@ def get_targets_v2(files_path):
     targets_df['peak_selection'] = targets_df['peak_selection'].fillna(True).astype(bool)
     targets_df['bookmark'] = targets_df['bookmark'].fillna(False).astype(bool)
 
-    # Summary log
     logging.info("Processing summary:")
     logging.info(f"  Total files: {total_files}")
     logging.info(f"  Files processed: {files_processed}")
@@ -707,6 +723,8 @@ def get_targets_v2(files_path):
     logging.info(f"  Targets processed: {targets_processed}")
     logging.info(f"  Targets failed: {targets_failed}")
     logging.info(f"  Unique valid targets: {len(targets_df)}")
+    if rt_adjusted_labels:
+        logging.info(f"  RT values adjusted (outside span): {len(rt_adjusted_labels)}")
 
     # Prepare stats dictionary
     stats = {
@@ -718,6 +736,8 @@ def get_targets_v2(files_path):
         'unique_valid_targets': len(targets_df),
         'duplicate_peak_labels': len(duplicate_labels),
         'duplicate_peak_labels_list': duplicate_labels,
+        'rt_adjusted_count': len(rt_adjusted_labels),
+        'rt_adjusted_labels': rt_adjusted_labels,
     }
 
     return targets_df[ref_names], failed_files, failed_targets, stats
@@ -993,9 +1013,9 @@ def process_targets(wdir, set_progress, selected_files):
             raise PreventUpdate
         conn.execute(
             "INSERT OR REPLACE INTO targets(peak_label, mz_mean, mz_width, mz, rt, rt_min, rt_max, rt_unit, "
-            "intensity_threshold, polarity, filterLine, ms_type, category, score, peak_selection, bookmark, source, notes) "
+            "intensity_threshold, polarity, filterLine, ms_type, category, score, peak_selection, bookmark, source, notes, rt_auto_adjusted) "
             "SELECT peak_label, mz_mean, mz_width, mz, rt, rt_min, rt_max, rt_unit, intensity_threshold, polarity, "
-            "filterLine, ms_type, category, score, peak_selection, bookmark, source, notes "
+            "filterLine, ms_type, category, score, peak_selection, bookmark, source, notes, rt_auto_adjusted "
             "FROM targets_df ORDER BY mz_mean, peak_label"
         )
 
