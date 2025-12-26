@@ -2035,6 +2035,18 @@ def callbacks(app, fsc, cache, cpu=None):
                 'y0': 0,
                 'y1': 1,
                 'yref': 'y domain'
+            },
+            # RT vertical line (dashdot) - same style as cards, not editable
+            {
+                'line': {'color': 'black', 'width': 1.5, 'dash': 'dashdot'},
+                'type': 'line',
+                'x0': rt,
+                'x1': rt,
+                'xref': 'x',
+                'y0': 0,
+                'y1': 1,
+                'yref': 'y domain',
+                'editable': False  # Prevent dragging - use click to set position
             }
         ]
         fig['layout']['template'] = 'plotly_white'
@@ -2252,6 +2264,61 @@ def callbacks(app, fsc, cache, cpu=None):
         if lock_range and has_shape_update:
             raise PreventUpdate
 
+        # Handle RT line drag (shapes[1]) - constrain to within span
+        rt_line_x0 = relayout.get('shapes[1].x0')
+        if rt_line_x0 is not None:
+            rt_min_current = slider_data['value'].get('rt_min') if slider_data else None
+            rt_max_current = slider_data['value'].get('rt_max') if slider_data else None
+            
+            if rt_min_current is not None and rt_max_current is not None:
+                # Check if dragged RT is within span
+                if rt_min_current <= rt_line_x0 <= rt_max_current:
+                    # Valid position - update RT
+                    slider_data['value']['rt'] = rt_line_x0
+                    has_changes = slider_data['value'] != slider_reference_data['value']
+                    buttons_style = {
+                        'visibility': 'visible' if has_changes else 'hidden',
+                        'opacity': '1' if has_changes else '0',
+                        'transition': 'opacity 0.3s ease-in-out'
+                    }
+                    fig = Patch()
+                    fig['layout']['shapes'][1]['x0'] = rt_line_x0
+                    fig['layout']['shapes'][1]['x1'] = rt_line_x0
+                    # Reset y coordinates to ensure full height
+                    fig['layout']['shapes'][1]['y0'] = 0
+                    fig['layout']['shapes'][1]['y1'] = 1
+                    fig['layout']['shapes'][1]['yref'] = 'y domain'
+                    return fig, slider_data, buttons_style
+                else:
+                    # Outside span - snap back to max intensity
+                    rt_at_max = (rt_min_current + rt_max_current) / 2  # fallback to midpoint
+                    max_intensity = -1
+                    for trace in (figure_state.get('data', []) if figure_state else []):
+                        xs = trace.get('x', [])
+                        ys = trace.get('y', [])
+                        for xv, yv in zip(xs, ys):
+                            if xv is None or yv is None:
+                                continue
+                            if rt_min_current <= xv <= rt_max_current and yv > max_intensity:
+                                max_intensity = yv
+                                rt_at_max = xv
+                    
+                    slider_data['value']['rt'] = rt_at_max
+                    has_changes = slider_data['value'] != slider_reference_data['value']
+                    buttons_style = {
+                        'visibility': 'visible' if has_changes else 'hidden',
+                        'opacity': '1' if has_changes else '0',
+                        'transition': 'opacity 0.3s ease-in-out'
+                    }
+                    fig = Patch()
+                    fig['layout']['shapes'][1]['x0'] = rt_at_max
+                    fig['layout']['shapes'][1]['x1'] = rt_at_max
+                    # Reset y coordinates to ensure full height
+                    fig['layout']['shapes'][1]['y0'] = 0
+                    fig['layout']['shapes'][1]['y1'] = 1
+                    fig['layout']['shapes'][1]['yref'] = 'y domain'
+                    return fig, slider_data, buttons_style
+
         x0 = relayout.get('shapes[0].x0')
         x1 = relayout.get('shapes[0].x1')
         if x0 is None or x1 is None:
@@ -2263,22 +2330,30 @@ def callbacks(app, fsc, cache, cpu=None):
         rt_min_new = min(x0, x1)
         rt_max_new = max(x0, x1)
 
-        # Find RT at max intensity within the new span
-        rt_at_max = (rt_min_new + rt_max_new) / 2  # fallback to midpoint
-        max_intensity = -1
-        for trace in (figure_state.get('data', []) if figure_state else []):
-            xs = trace.get('x', [])
-            ys = trace.get('y', [])
-            for xv, yv in zip(xs, ys):
-                if xv is None or yv is None:
-                    continue
-                if rt_min_new <= xv <= rt_max_new and yv > max_intensity:
-                    max_intensity = yv
-                    rt_at_max = xv
+        # Get current RT value
+        current_rt = slider_data['value'].get('rt')
+        
+        # Only recalculate RT to max intensity if current RT is outside the new span
+        if current_rt is not None and rt_min_new <= current_rt <= rt_max_new:
+            # Current RT is still within span, keep it
+            rt_new = current_rt
+        else:
+            # Current RT is outside span, find max intensity position
+            rt_new = (rt_min_new + rt_max_new) / 2  # fallback to midpoint
+            max_intensity = -1
+            for trace in (figure_state.get('data', []) if figure_state else []):
+                xs = trace.get('x', [])
+                ys = trace.get('y', [])
+                for xv, yv in zip(xs, ys):
+                    if xv is None or yv is None:
+                        continue
+                    if rt_min_new <= xv <= rt_max_new and yv > max_intensity:
+                        max_intensity = yv
+                        rt_new = xv
 
         slider_data['value'] = {
             'rt_min': rt_min_new,
-            'rt': rt_at_max,
+            'rt': rt_new,
             'rt_max': rt_max_new,
         }
 
@@ -2297,6 +2372,10 @@ def callbacks(app, fsc, cache, cpu=None):
         fig['layout']['shapes'][0]['yref'] = 'y domain'
         fig['layout']['shapes'][0]['fillcolor'] = 'green'
         fig['layout']['shapes'][0]['opacity'] = 0.1
+        
+        # Update RT line position (shapes[1]) to new RT value
+        fig['layout']['shapes'][1]['x0'] = rt_new
+        fig['layout']['shapes'][1]['x1'] = rt_new
 
         # adjust axes to the current RT span box for better scaling
         is_log = figure_state and figure_state.get('layout', {}).get('yaxis', {}).get('type') == 'log'
@@ -2337,6 +2416,51 @@ def callbacks(app, fsc, cache, cpu=None):
         fig['layout']['shapes'][0]['yref'] = 'y domain'
 
         return config_patch, fig
+
+    @app.callback(
+        Output('chromatogram-view-plot', 'figure', allow_duplicate=True),
+        Output('slider-data', 'data', allow_duplicate=True),
+        Output('action-buttons-container', 'style', allow_duplicate=True),
+        Input('chromatogram-view-plot', 'clickData'),
+        State('slider-data', 'data'),
+        State('slider-reference-data', 'data'),
+        prevent_initial_call=True
+    )
+    def set_rt_on_click(click_data, slider_data, slider_reference):
+        """Set RT position when user clicks on the chromatogram."""
+        if not click_data or not slider_data or not slider_reference:
+            raise PreventUpdate
+        
+        # Get clicked x position (retention time)
+        point = click_data.get('points', [{}])[0]
+        clicked_rt = point.get('x')
+        if clicked_rt is None:
+            raise PreventUpdate
+        
+        # Ensure clicked RT is within the RT span
+        rt_min = slider_data['value'].get('rt_min')
+        rt_max = slider_data['value'].get('rt_max')
+        if rt_min is not None and rt_max is not None:
+            if clicked_rt < rt_min or clicked_rt > rt_max:
+                raise PreventUpdate  # Don't allow setting RT outside the span
+        
+        # Update slider_data with new RT
+        slider_data['value']['rt'] = clicked_rt
+        
+        # Check if there are changes compared to reference
+        has_changes = slider_data['value'] != slider_reference['value']
+        buttons_style = {
+            'visibility': 'visible' if has_changes else 'hidden',
+            'opacity': '1' if has_changes else '0',
+            'transition': 'opacity 0.3s ease-in-out'
+        }
+        
+        # Update RT line position in the figure
+        fig = Patch()
+        fig['layout']['shapes'][1]['x0'] = clicked_rt
+        fig['layout']['shapes'][1]['x1'] = clicked_rt
+        
+        return fig, slider_data, buttons_style
 
     ############# VIEW END #######################################
 
