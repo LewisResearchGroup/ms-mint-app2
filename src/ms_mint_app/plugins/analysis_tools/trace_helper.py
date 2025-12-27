@@ -1,8 +1,65 @@
 
 from ms_mint_app.tools import sparsify_chrom
 import itertools
+import numpy as np
 
-def generate_chromatogram_traces(chrom_df, use_megatrace=False):
+def calculate_rt_alignment(chrom_df, rt_min, rt_max):
+    """
+    Calculate RT shifts based on peak apex within the RT span.
+    
+    Args:
+        chrom_df: DuckDB LazyFrame with chromatogram data
+        rt_min: Minimum RT of the span
+        rt_max: Maximum RT of the span
+    
+    Returns:
+        dict: {ms_file_label: shift_value}
+    """
+    shifts = {}
+    apex_rts = []
+    ms_file_labels = []
+    
+    for row in chrom_df.iter_rows(named=True):
+        scan_time = np.array(row['scan_time_sliced'])
+        intensity = np.array(row['intensity_sliced'])
+        
+        # Find apex within RT span
+        mask = (scan_time >= rt_min) & (scan_time <= rt_max)
+        if mask.any():
+            rt_in_range = scan_time[mask]
+            int_in_range = intensity[mask]
+            apex_idx = int_in_range.argmax()
+            apex_rt = rt_in_range[apex_idx]
+            apex_rts.append(apex_rt)
+        else:
+            apex_rts.append(None)
+        
+        ms_file_labels.append(row['ms_file_label'])
+    
+    # Calculate reference (median of valid apex RTs)
+    valid_apex_rts = [rt for rt in apex_rts if rt is not None]
+    if valid_apex_rts:
+        reference_rt = np.median(valid_apex_rts)
+        
+        # Debug: log apex positions
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.info(f"RT Alignment: RT span = [{rt_min:.2f}, {rt_max:.2f}]")
+        logger.info(f"RT Alignment: Found {len(valid_apex_rts)} peaks with apexes: {[f'{rt:.2f}' for rt in valid_apex_rts[:5]]}")
+        logger.info(f"RT Alignment: Reference RT (median) = {reference_rt:.2f}")
+        
+        # Calculate shifts
+        for i, ms_file_label in enumerate(ms_file_labels):
+            if apex_rts[i] is not None:
+                shift = reference_rt - apex_rts[i]
+                shifts[ms_file_label] = shift
+            else:
+                shifts[ms_file_label] = 0.0
+    
+    return shifts
+
+
+def generate_chromatogram_traces(chrom_df, use_megatrace=False, rt_alignment_shifts=None):
     x_min = float('inf')
     x_max = float('-inf')
     y_min = float('inf')
@@ -24,6 +81,11 @@ def generate_chromatogram_traces(chrom_df, use_megatrace=False):
             scan_time_sparse, intensity_sparse = sparsify_chrom(
                 row['scan_time_sliced'], row['intensity_sliced'], w=1, baseline=1.0, eps=0.0
             )
+            
+            # Apply RT alignment shift if provided
+            if rt_alignment_shifts and row['ms_file_label'] in rt_alignment_shifts:
+                shift = rt_alignment_shifts[row['ms_file_label']]
+                scan_time_sparse = [t + shift for t in scan_time_sparse]
             
             trace = {
                 'type': 'scattergl',
@@ -72,6 +134,11 @@ def generate_chromatogram_traces(chrom_df, use_megatrace=False):
             st, ints = sparsify_chrom(
                 row['scan_time_sliced'], row['intensity_sliced'], w=1, baseline=1.0, eps=0.0
             )
+
+            # Apply RT alignment shift if provided
+            if rt_alignment_shifts and row['ms_file_label'] in rt_alignment_shifts:
+                shift = rt_alignment_shifts[row['ms_file_label']]
+                st = [t + shift for t in st]
 
             grouped[stype]['x'].append(st)
             grouped[stype]['x'].append([None])

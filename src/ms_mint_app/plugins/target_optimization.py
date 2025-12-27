@@ -17,7 +17,7 @@ from dash.exceptions import PreventUpdate
 from ..duckdb_manager import duckdb_connection, compute_chromatograms_in_batches
 from ..plugin_interface import PluginInterface
 from ..tools import sparsify_chrom, proportional_min1_selection
-from ..plugins.analysis_tools.trace_helper import generate_chromatogram_traces
+from ..plugins.analysis_tools.trace_helper import generate_chromatogram_traces, calculate_rt_alignment
 from .workspaces import activate_workspace_logging
 
 _label = "Optimization"
@@ -759,6 +759,42 @@ _layout = fac.AntdLayout(
                                                         checked=False,
                                                         checkedChildren='Lock',
                                                         unCheckedChildren='Edit'
+                                                    ),
+                                                    style={
+                                                        'width': '110px',
+                                                        'display': 'flex',
+                                                        'justifyContent': 'flex-start'
+                                                    }
+                                                ),
+                                            ],
+                                            style={'display': 'flex', 'alignItems': 'center'}
+                                        ),
+                                        html.Div(
+                                            [
+                                                html.Div(
+                                                    [
+                                                        html.Span('RT Alignment:'),
+                                                        fac.AntdTooltip(
+                                                            fac.AntdIcon(
+                                                                icon='antd-question-circle',
+                                                                style={'marginLeft': '5px', 'color': 'gray'}
+                                                            ),
+                                                            title='Align chromatograms by peak apex'
+                                                        )
+                                                    ],
+                                                    style={
+                                                        'display': 'flex',
+                                                        'alignItems': 'center',
+                                                        'width': '170px',
+                                                        'paddingRight': '8px'
+                                                    }
+                                                ),
+                                                html.Div(
+                                                    fac.AntdSwitch(
+                                                        id='chromatogram-view-rt-align',
+                                                        checked=False,
+                                                        checkedChildren='On',
+                                                        unCheckedChildren='Off'
                                                     ),
                                                     style={
                                                         'width': '110px',
@@ -1834,6 +1870,127 @@ def callbacks(app, fsc, cache, cpu=None):
              fig['layout']['hovermode'] = 'closest'
         return fig
 
+    @app.callback(
+        Output('chromatogram-view-plot', 'figure', allow_duplicate=True),
+        Input('chromatogram-view-rt-align', 'checked'),
+        State('chromatogram-view-plot', 'figure'),
+        State('chromatogram-view-megatrace', 'checked'),
+        State('slider-data', 'data'),  # Use current slider values, not reference
+        State('target-preview-clicked', 'data'),
+        State('wdir', 'data'),
+        prevent_initial_call=True
+    )
+    def apply_rt_alignment(use_alignment, figure, use_megatrace, slider_current, target_clicked, wdir):
+        logger.info(f"RT Alignment callback triggered: use_alignment={use_alignment}")
+        
+        if not wdir or not target_clicked or not slider_current:
+            logger.warning("RT Alignment: Missing required data, raising PreventUpdate")
+            raise PreventUpdate
+        
+        # rt_min and rt_max are nested inside the 'value' key
+        value_dict = slider_current.get('value', {})
+        rt_min = value_dict.get('rt_min')
+        rt_max = value_dict.get('rt_max')
+        
+        logger.info(f"RT range: rt_min={rt_min}, rt_max={rt_max}")
+        
+        if rt_min is None or rt_max is None:
+            logger.warning("RT Alignment: rt_min or rt_max is None, raising PreventUpdate")
+            raise PreventUpdate
+        
+        with duckdb_connection(wdir) as conn:
+            query = """
+                    WITH picked_samples AS (SELECT ms_file_label, color, label, sample_type
+                                            FROM samples
+                                            WHERE use_for_optimization = TRUE
+                    ),
+                         picked_target AS (SELECT peak_label,
+                                                  intensity_threshold
+                                           FROM targets
+                                           WHERE peak_label = ?),
+                         base AS (SELECT c.*,
+                                         s.color,
+                                         s.label,
+                                         s.sample_type,
+                                         t.intensity_threshold
+                                  FROM chromatograms c
+                                           JOIN picked_samples s USING (ms_file_label)
+                                           JOIN picked_target t USING (peak_label)),
+                         zipped AS (SELECT ms_file_label,
+                                           color,
+                                           label,
+                                           sample_type,
+                                           intensity_threshold,
+                                           list_transform(
+                                                   range(1, len(scan_time) + 1),
+                                                   i -> struct_pack(
+                                                           t := list_extract(scan_time, i),
+                                                           i := list_extract(intensity,  i)
+                                                        )
+                                           ) AS pairs
+                                    FROM base),
+
+                         sliced AS (SELECT ms_file_label,
+                                           color,
+                                           label,
+                                           sample_type,
+                                           pairs,
+                                           list_filter(pairs, p -> p.i >= COALESCE(intensity_threshold, 0)) AS pairs_in
+                                    FROM zipped),
+                         final AS (SELECT ms_file_label,
+                                          color,
+                                          label,
+                                          sample_type,
+                                          list_transform(pairs_in, p -> p.t)                            AS scan_time_sliced,
+                                          list_transform(pairs_in, p -> p.i)                            AS intensity_sliced,
+                                          CASE
+                                              WHEN len(pairs) = 0 THEN NULL
+                                              ELSE list_max(list_transform(pairs, p -> p.i)) * 1.10 END AS
+                                                                                                           intensity_max_in_range,
+                                          CASE
+                                              WHEN len(pairs) = 0 THEN NULL
+                                              ELSE list_min(list_transform(pairs, p -> p.i)) END        AS intensity_min_in_range,
+                                          CASE
+                                              WHEN len(pairs) = 0 THEN NULL
+                                              ELSE list_max(list_transform(pairs, p -> p.t)) END        AS scan_time_max_in_range,
+                                          CASE
+                                              WHEN len(pairs) = 0 THEN NULL
+                                              ELSE list_min(list_transform(pairs, p -> p.t)) END        AS scan_time_min_in_range
+
+                                   FROM sliced)
+                    SELECT *
+                    FROM final
+                    ORDER BY ms_file_label;
+                    """
+
+            chrom_df = conn.execute(query, [target_clicked]).pl()
+        
+        # Calculate RT alignment shifts if alignment is enabled
+        rt_alignment_shifts = None
+        if use_alignment:
+            rt_alignment_shifts = calculate_rt_alignment(chrom_df, rt_min, rt_max)
+        
+        # Regenerate traces with or without alignment
+        traces, x_min, x_max, y_min, y_max = generate_chromatogram_traces(
+            chrom_df, 
+            use_megatrace=use_megatrace,
+            rt_alignment_shifts=rt_alignment_shifts
+        )
+        
+        fig = Patch()
+        fig['data'] = traces
+        
+        # Update x-axis range if alignment is applied
+        if use_alignment and rt_alignment_shifts:
+            # Recalculate x_min and x_max based on aligned data
+            all_x_values = []
+            for trace in traces:
+                if trace.get('x'):
+                    all_x_values.extend([x for x in trace['x'] if x is not None])
+            if all_x_values:
+                fig['layout']['xaxis']['range'] = [min(all_x_values), max(all_x_values)]
+        
+        return fig
 
 
 
@@ -1848,6 +2005,7 @@ def callbacks(app, fsc, cache, cpu=None):
         Output('chromatogram-view-megatrace', 'checked', allow_duplicate=True),
         Output('chromatogram-view-log-y', 'checked', allow_duplicate=True),
         Output('chromatogram-view-groupclick', 'checked', allow_duplicate=True),
+        Output('chromatogram-view-rt-align', 'checked', allow_duplicate=True),  # Reset RT alignment
         Output('target-note', 'value', allow_duplicate=True),
 
         Input('target-preview-clicked', 'data'),
@@ -2117,7 +2275,7 @@ def callbacks(app, fsc, cache, cpu=None):
 
         logger.debug(f"Modal view prepared in {time.perf_counter() - t1:.4f}s")
         return (fig, f"{target_clicked} (rt={rt})", False, slider_reference,
-                slider_dict, {"min_y": y_min, "max_y": y_max}, total_points, use_megatrace, log_scale, group_legend, note)
+                slider_dict, {"min_y": y_min, "max_y": y_max}, total_points, use_megatrace, log_scale, group_legend, False, note)
 
     @app.callback(
         Output('chromatogram-view-plot', 'figure', allow_duplicate=True),
