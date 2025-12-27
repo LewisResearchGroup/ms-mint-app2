@@ -14,7 +14,6 @@ nav:
       - Processing: 'gui/processing.md'
       - Analysis: 'gui/analysis.md'
   - Developer Notes: 'developer-notes.md'
-  - Gallery: 'gallery.md'
 extra:
   analytics:
     provider: google

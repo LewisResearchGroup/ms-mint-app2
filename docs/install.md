@@ -37,7 +37,7 @@ The image can be started with:
 
 Then the tool is available in the browser at http://localhost:9999. -->
 
-## Installation from source (For Developers)
+## Installation from source
 If you want to contribute to MINT or use the latest unreleased features, install from source. We recommend using [conda](https://docs.anaconda.com/free/miniconda/) or [mamba](https://conda-forge.org/miniforge/) to create a virtual environment settings.
 
 ```bash

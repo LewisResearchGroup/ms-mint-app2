@@ -43,21 +43,25 @@ You will find two `csv` files and 8 `mzXML` files (4 EC + 4 CA).
 │   ├── EC_B2.mzXML
 │   ├── EC_B3.mzXML
 │   ├── EC_B4.mzXML
+│   ├── SA_B1.mzML
+│   ├── SA_B2.mzML
+│   ├── SA_B3.mzML
+│   ├── SA_B4.mzML
 └── targets
     └── targets.csv
 
 4 directories, 15 files
 ```
 
-- A folder with 8 mass spectrometry (MS) files from microbial samples. We have four files for each _Escherichia coli_ (EC) and _Candida albicans_ (CA).
+- A folder with 12 mass spectrometry (MS) files from microbial samples. We have four files for each _Escherichia coli_ (EC), _Candida albicans_ (CA), and _Staphylococcus aureus_ (SA).
 Each file belongs to one of four batches (B1-B4).
-- `metadata.csv` contains this information in tabular format. Submitting metadata is optional, but highly recommended and makes downstream analysis smoother.
+- `metadata.csv` contains this information in tabular format. Submitting metadata is optional, but highly recommended to make downstream analysis smoother.
 - `targets.csv` contains the extraction lists. The identification of the metabolites has been done before, so we know where the metabolites appear in the MS data.
 
 ## 4. Upload LC-MS files
 
-Switch to the `MS-Files` tab and upload the 8 MS files. Click `LOAD MS-FILES`, navigate to the folder where the files are located, select either the files individually or the folder, and click `Process Files`.
-Expected result: the 8 files appear in the MS-Files table.
+Switch to the `MS-Files` tab and upload the 12 MS files. Click `LOAD MS-FILES`, navigate to the folder where the files are located, select either the files individually or the folder, and click `Process Files`.
+Expected result: the 12 files appear in the MS-Files table.
 
 ![](quickstart/ms-files-uploaded-1.png)
 
@@ -183,4 +187,4 @@ Once the results are generated, there are several analyses you can perform. In t
     ![](quickstart/analysis-5.png)
 
 ## Next steps
-For a deeper tour of the interface, see the [GUI guide](gui/index.md). For details on target list formatting, see [Targets](gui/targets.md).
+For a deeper tour of the interface, see the [GUI guide](gui/index.md).
