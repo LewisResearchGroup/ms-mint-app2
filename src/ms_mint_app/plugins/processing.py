@@ -360,8 +360,8 @@ _layout = html.Div(
                                     ),
                                     label='CPU:',
                                     hasFeedback=True,
-                                    help=f"Selected {cpu_count() // 2} / {cpu_count()} cpus"
-
+                                    help=f"Selected {cpu_count() // 2} / {cpu_count()} cpus",
+                                    id='processing-chromatogram-compute-cpu-item'
                                 ),
                                 fac.AntdFormItem(
                                     fac.AntdInputNumber(
@@ -1343,6 +1343,10 @@ def callbacks(app, fsc, cache):
         Output("processing-progress-stage", "children", allow_duplicate=True),
         Output("processing-progress-detail", "children", allow_duplicate=True),
         Output("processing-recompute", "checked"),
+        Output("processing-chromatogram-compute-cpu", "value"),
+        Output("processing-chromatogram-compute-ram", "value"),
+        Output("processing-chromatogram-compute-cpu-item", "help"),
+        Output("processing-chromatogram-compute-ram-item", "help"),
 
         Input("processing-btn", "nClicks"),
         State('wdir', 'data'),
@@ -1371,6 +1375,8 @@ def callbacks(app, fsc, cache):
                     "",
                     "",
                     False,
+                    dash.no_update,
+                    dash.no_update,
                 )
 
             ms_files = conn.execute("SELECT COUNT(*) FROM samples").fetchone()
@@ -1391,8 +1397,11 @@ def callbacks(app, fsc, cache):
                     0,
                     "",
                     "",
-                    "",
                     False,
+                    dash.no_update,
+                    dash.no_update,
+                    dash.no_update,
+                    dash.no_update,
                 )
 
             results = conn.execute("SELECT COUNT(*) FROM results").fetchone()
@@ -1401,7 +1410,33 @@ def callbacks(app, fsc, cache):
 
         style = {'display': 'block'} if computed_results else {'display': 'none'}
 
-        return dash.no_update, True, style, 0, "", "", bool(computed_results)
+        recompute = bool(computed_results)
+
+        # Smart Default CPU/RAM
+        from os import cpu_count
+        n_cpus_total = cpu_count()
+        default_cpus = max(1, n_cpus_total // 2)
+        
+        available_ram_gb = psutil.virtual_memory().available / (1024 ** 3)
+        default_ram = min(float(default_cpus), available_ram_gb)
+        available_ram_gb_rounded = round(available_ram_gb, 1)
+
+        help_cpu = f"Selected {default_cpus} / {n_cpus_total} cpus"
+        help_ram = f"Selected {default_ram}GB / {available_ram_gb_rounded}GB available RAM"
+
+        return (
+            dash.no_update, 
+            True, 
+            style, 
+            0, 
+            "", 
+            "", 
+            recompute,
+            default_cpus,
+            default_ram,
+            help_cpu,
+            help_ram
+        )
 
     @app.callback(
         Output('results-action-store', 'data'),

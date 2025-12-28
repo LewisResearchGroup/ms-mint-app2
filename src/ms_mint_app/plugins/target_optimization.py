@@ -482,7 +482,8 @@ _layout = fac.AntdLayout(
                                     ),
                                     label='CPU:',
                                     hasFeedback=True,
-                                    help=f"Selected {cpu_count() // 2} / {cpu_count()} cpus"
+                                    help=f"Selected {cpu_count() // 2} / {cpu_count()} cpus",
+                                    id='chromatogram-compute-cpu-item'
                                 ),
                                 fac.AntdFormItem(
                                     fac.AntdInputNumber(
@@ -2833,9 +2834,12 @@ def callbacks(app, fsc, cache, cpu=None):
         Output("chromatogram-targets-info", "message"),
         Output("chromatogram-compute-ram", "max"),
         Output("chromatogram-compute-ram-item", "help"),
+        Output("chromatogram-compute-cpu-item", "help"),
         Output("chromatogram-processing-progress", "percent", allow_duplicate=True),
         Output("chromatogram-processing-stage", "children", allow_duplicate=True),
         Output("chromatogram-processing-detail", "children", allow_duplicate=True),
+        Output("chromatogram-compute-cpu", "value"),
+        Output("chromatogram-compute-ram", "value"),
         Output("chromatograms-recompute-ms1", "checked"),
         Output("chromatograms-recompute-ms2", "checked"),
 
@@ -2862,7 +2866,7 @@ def callbacks(app, fsc, cache, cpu=None):
                         placement="bottom",
                         showProgress=True,
                     ),
-                    False, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, 0
+                    False, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, 0, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update
                 )
 
             ms_files = conn.execute("SELECT COUNT(*) FROM samples WHERE use_for_optimization = TRUE").fetchone()
@@ -2878,7 +2882,7 @@ def callbacks(app, fsc, cache, cpu=None):
                         placement="bottom",
                         showProgress=True,
                     ),
-                    False, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, 0
+                    False, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, 0, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update
                 )
 
             chromatograms = conn.execute("SELECT COUNT(*) FROM chromatograms").fetchone()
@@ -2905,24 +2909,45 @@ def callbacks(app, fsc, cache, cpu=None):
         warning_message = f"There are already computed {computed_chromatograms} chromatograms" if computed_chromatograms else ""
 
         ram_max = round(psutil.virtual_memory().available / (1024 ** 3), 1)
-        help = f"Selected {ram_value}GB / {ram_max}GB available RAM"
-        target_message = (f'Selected {selected_targets} targets'
-                          if selected_targets
-                          else 'There are no targets selected. The chromatograms will be computed for all targets.')
+
+        # Smart Default CPU/RAM
+        n_cpus_total = cpu_count()
+        default_cpus = max(1, n_cpus_total // 2)
+        
+        available_ram_gb = psutil.virtual_memory().available / (1024 ** 3)
+        # Set RAM equal to CPUs (as GB), limited by available RAM
+        default_ram = min(float(default_cpus), available_ram_gb)
+        default_ram = round(default_ram, 1)
+
+        help_ram = f"Selected {default_ram}GB / {ram_max}GB available RAM"
+
+        recompute_ms1 = computed_chromatograms_ms1 > 0
+        recompute_ms2 = computed_chromatograms_ms2 > 0
+
+        info_message = f"Ready to compute chromatograms for {selected_targets} targets and {ms_files[0]} samples."
+
+
+
+        help_cpu = f"Selected {default_cpus} / {n_cpus_total} cpus"
+
         return (
             dash.no_update,
             True,
-            warning_style,
-            warning_message,
-            target_message,
-            ram_max,
-            help,
-            0,
-            "",
-            "",
-            bool(computed_chromatograms_ms1),
-            bool(computed_chromatograms_ms2),
+            warning_style, 
+            warning_message, 
+            info_message, 
+            ram_max, 
+            help_ram, 
+            help_cpu,
+            0, 
+            "", 
+            "", 
+            default_cpus, 
+            default_ram, 
+            recompute_ms1, 
+            recompute_ms2
         )
+
 
     @app.callback(
         Output('chromatograms', 'data'),
