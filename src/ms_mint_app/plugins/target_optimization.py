@@ -1019,6 +1019,209 @@ def layout():
     return _layout
 
 
+def _update_sample_type_tree(section_context, mark_action, expand_action, collapse_action, selection_ms_type, wdir, prop_id):
+    if not section_context or section_context.get('page') != 'Optimization':
+        raise PreventUpdate
+    if not wdir:
+        return [], [], [], {'display': 'none'}, {'display': 'block'}
+
+    with duckdb_connection(wdir) as conn:
+        if conn is None:
+            logger.error("update_sample_type_tree: Could not connect to database")
+            return [], [], [], {'display': 'none'}, {'display': 'block'}
+        
+        df = conn.execute("""
+                          SELECT sample_type,
+                                 list({'title': label, 'key': label}) as children,
+                                 list(label)                          as checked_keys
+                          FROM samples
+                          WHERE use_for_optimization = TRUE
+                            AND CASE
+                                    WHEN ? = 'ms1' THEN ms_type = 'ms1'
+                                    WHEN ? = 'ms2' THEN ms_type = 'ms2'
+                                    ELSE TRUE -- 'all' case
+                              END
+                          GROUP BY sample_type
+                          ORDER BY sample_type
+                          """, [selection_ms_type, selection_ms_type]).df()
+
+        if df.empty:
+            return [], [], [], {'display': 'none'}, {'display': 'block'}
+
+        if prop_id == 'mark-tree-action':
+            # logger.debug(f"{df['checked_keys'].values = }")
+            checked_keys = [v for value in df['checked_keys'].values for v in value]
+        elif prop_id == 'section-context':
+            quotas, checked_keys = proportional_min1_selection(df, 'sample_type', 'checked_keys', 50, 12345)
+        else:
+            checked_keys = dash.no_update
+
+        if prop_id in ['section-context', 'chromatogram-preview-filter-ms-type']:
+            tree_data = [
+                {
+                    'title': row['sample_type'],
+                    'key': row['sample_type'],
+                    'children': row['children']
+                }
+                for row in df.to_dict('records')
+            ]
+        else:
+            tree_data = dash.no_update
+
+        if prop_id == 'expand-tree-action':
+            expanded_keys = df['sample_type'].tolist()
+        elif prop_id == 'collapse-tree-action':
+            expanded_keys = []
+        else:
+            expanded_keys = dash.no_update
+    return tree_data, checked_keys, expanded_keys, {'display': 'flex'}, {'display': 'none'}
+
+
+def _delete_target_logic(target, wdir):
+    with duckdb_connection(wdir) as conn:
+        if conn is None:
+            logger.error(f"delete_target_logic: Could not connect to database for target '{target}'")
+            return (fac.AntdNotification(
+                        message="Database connection failed",
+                        description="Could not connect to the database to delete target data.",
+                        type="error",
+                        duration=4,
+                        placement='bottom',
+                        showProgress=True,
+                        stack=True
+                    ),
+                    dash.no_update,
+                    False,
+                    False)
+        try:
+            conn.execute("BEGIN")
+            conn.execute("DELETE FROM chromatograms WHERE peak_label = ?", [target])
+            conn.execute("DELETE FROM targets WHERE peak_label = ?", [target])
+            conn.execute("DELETE FROM results WHERE peak_label = ?", [target])
+            conn.execute("COMMIT")
+            logger.info(f"Deleted target '{target}' and associated chromatograms/results.")
+        except Exception:
+            conn.execute("ROLLBACK")
+            logger.error(f"Failed to delete target '{target}'", exc_info=True)
+            return (fac.AntdNotification(
+                        message="Delete target failed",
+                        description="An error occurred while deleting target data. No changes were applied.",
+                        type="error",
+                        duration=4,
+                        placement='bottom',
+                        showProgress=True,
+                        stack=True
+                    ),
+                    dash.no_update,
+                    False,
+                    False)
+
+    return (fac.AntdNotification(message=f"{target} chromatograms deleted",
+                                    type="success",
+                                    duration=3,
+                                    placement='bottom',
+                                    showProgress=True,
+                                    stack=True
+                                    ),
+            True,
+            False,
+            False)
+
+
+def _bookmark_target_logic(bookmarks, targets, trigger_id, wdir):
+    with duckdb_connection(wdir) as conn:
+        if conn is None:
+            logger.error(f"Failed to connect to database to bookmark target '{targets[trigger_id]}'")
+            return fac.AntdNotification(
+                message="Database connection failed",
+                description="Could not update bookmark status. Please check the workspace connection.",
+                type="error",
+                duration=5,
+                placement='bottom',
+                showProgress=True,
+                stack=True
+            )
+        conn.execute("UPDATE targets SET bookmark = ? WHERE peak_label = ?", [bool(bookmarks[trigger_id]),
+                                                                                targets[trigger_id]])
+    
+    status = "bookmarked" if bookmarks[trigger_id] else "unbookmarked"
+    logger.info(f"Target '{targets[trigger_id]}' was {status}.")
+
+    return fac.AntdNotification(message=f"Target {targets[trigger_id]} has been "
+                                        f"{'' if bookmarks[trigger_id] else 'un'}bookmarked",
+                                duration=3,
+                                placement='bottom',
+                                type="success",
+                                showProgress=True,
+                                stack=True)
+
+
+def _compute_chromatograms_logic(set_progress, recompute_ms1, recompute_ms2, n_cpus, ram, batch_size, wdir):
+    def progress_adapter(percent, stage="", detail=""):
+        if set_progress:
+            set_progress((percent, stage or "", detail or ""))
+
+    activate_workspace_logging(wdir)
+
+    with duckdb_connection(wdir, n_cpus=n_cpus, ram=ram) as con:
+        if con is None:
+            logger.error("Could not connect to database for chromatogram computation.")
+            return "Could not connect to database."
+        start = time.perf_counter()
+        logger.info("Starting chromatogram computation.")
+        progress_adapter(0, "Chromatograms", "Preparing batches...")
+        compute_chromatograms_in_batches(wdir, use_for_optimization=True, batch_size=batch_size,
+                                            set_progress=progress_adapter, recompute_ms1=recompute_ms1,
+                                            recompute_ms2=recompute_ms2, n_cpus=n_cpus, ram=ram)
+        logger.info(f"Chromatograms computed in {time.perf_counter() - start:.2f} seconds")
+        
+        # Update RT values to max intensity time only for targets that had RT auto-adjusted
+        progress_adapter(95, "Chromatograms", "Updating RT to peak apex...")
+        try:
+            # Chromatograms stores scan_time and intensity as arrays, so we need to unnest them
+            # Only update targets where rt_auto_adjusted = TRUE
+            update_sql = """
+                UPDATE targets
+                SET rt = subq.rt_at_max,
+                    rt_auto_adjusted = FALSE
+                FROM (
+                    WITH adjusted_targets AS (
+                        SELECT peak_label, rt_min, rt_max
+                        FROM targets
+                        WHERE rt_auto_adjusted = TRUE
+                    ),
+                    unnested AS (
+                        SELECT c.peak_label, 
+                                UNNEST(c.scan_time) AS scan_time,
+                                UNNEST(c.intensity) AS intensity
+                        FROM chromatograms c
+                        WHERE c.peak_label IN (SELECT peak_label FROM adjusted_targets)
+                    ),
+                    filtered AS (
+                        SELECT u.peak_label, u.scan_time, u.intensity
+                        FROM unnested u
+                        JOIN adjusted_targets t ON u.peak_label = t.peak_label
+                        WHERE u.scan_time BETWEEN t.rt_min AND t.rt_max
+                    ),
+                    max_per_target AS (
+                        SELECT peak_label, MAX(intensity) AS max_intensity
+                        FROM filtered
+                        GROUP BY peak_label
+                    )
+                    SELECT f.peak_label, f.scan_time AS rt_at_max
+                    FROM filtered f
+                    JOIN max_per_target m ON f.peak_label = m.peak_label AND f.intensity = m.max_intensity
+                ) AS subq
+                WHERE targets.peak_label = subq.peak_label
+            """
+            con.execute(update_sql)
+            logger.info("Updated RT to max intensity for auto-adjusted targets")
+        except Exception as e:
+            logger.warning(f"Could not update RT to max intensity: {e}")
+        
+    return True, False
+
+
 def callbacks(app, fsc, cache, cpu=None):
     app.clientside_callback(
         """(nClicks, collapsed) => {
@@ -1115,62 +1318,10 @@ def callbacks(app, fsc, cache, cpu=None):
     )
     def update_sample_type_tree(section_context, mark_action, expand_action, collapse_action, selection_ms_type, wdir):
         ctx = dash.callback_context
-        prop_id = ctx.triggered[0]['prop_id'].split('.')[0]
+        # Handle cases where ctx might be empty during tests if not mocked
+        prop_id = ctx.triggered[0]['prop_id'].split('.')[0] if ctx.triggered else None
 
-        if not section_context or section_context.get('page') != 'Optimization':
-            raise PreventUpdate
-        if not wdir:
-            return [], [], [], {'display': 'none'}, {'display': 'block'}
-
-        with duckdb_connection(wdir) as conn:
-            if conn is None:
-                return [], [], [], {'display': 'none'}, {'display': 'block'}
-            
-            df = conn.execute("""
-                              SELECT sample_type,
-                                     list({'title': label, 'key': label}) as children,
-                                     list(label)                          as checked_keys
-                              FROM samples
-                              WHERE use_for_optimization = TRUE
-                                AND CASE
-                                        WHEN ? = 'ms1' THEN ms_type = 'ms1'
-                                        WHEN ? = 'ms2' THEN ms_type = 'ms2'
-                                        ELSE TRUE -- 'all' case
-                                  END
-                              GROUP BY sample_type
-                              ORDER BY sample_type
-                              """, [selection_ms_type, selection_ms_type]).df()
-
-            if df.empty:
-                return [], [], [], {'display': 'none'}, {'display': 'block'}
-
-            if prop_id == 'mark-tree-action':
-                logger.debug(f"{df['checked_keys'].values = }")
-                checked_keys = [v for value in df['checked_keys'].values for v in value]
-            elif prop_id == 'section-context':
-                quotas, checked_keys = proportional_min1_selection(df, 'sample_type', 'checked_keys', 50, 12345)
-            else:
-                checked_keys = dash.no_update
-
-            if prop_id in ['section-context', 'chromatogram-preview-filter-ms-type']:
-                tree_data = [
-                    {
-                        'title': row['sample_type'],
-                        'key': row['sample_type'],
-                        'children': row['children']
-                    }
-                    for row in df.to_dict('records')
-                ]
-            else:
-                tree_data = dash.no_update
-
-            if prop_id == 'expand-tree-action':
-                expanded_keys = df['sample_type'].tolist()
-            elif prop_id == 'collapse-tree-action':
-                expanded_keys = []
-            else:
-                expanded_keys = dash.no_update
-        return tree_data, checked_keys, expanded_keys, {'display': 'flex'}, {'display': 'none'}
+        return _update_sample_type_tree(section_context, mark_action, expand_action, collapse_action, selection_ms_type, wdir, prop_id)
 
     ############# TREE END #######################################
 
@@ -3055,69 +3206,7 @@ def callbacks(app, fsc, cache, cpu=None):
             logger.debug("compute_chromatograms: Modal not confirmed, preventing update")
             raise PreventUpdate
 
-        def progress_adapter(percent, stage="", detail=""):
-            if set_progress:
-                set_progress((percent, stage or "", detail or ""))
-
-        activate_workspace_logging(wdir)
-
-        with duckdb_connection(wdir, n_cpus=n_cpus, ram=ram) as con:
-            if con is None:
-                logger.error("Could not connect to database for chromatogram computation.")
-                return "Could not connect to database."
-            start = time.perf_counter()
-            logger.info("Starting chromatogram computation.")
-            progress_adapter(0, "Chromatograms", "Preparing batches...")
-            compute_chromatograms_in_batches(wdir, use_for_optimization=True, batch_size=batch_size,
-                                             set_progress=progress_adapter, recompute_ms1=recompute_ms1,
-                                             recompute_ms2=recompute_ms2, n_cpus=n_cpus, ram=ram)
-            logger.info(f"Chromatograms computed in {time.perf_counter() - start:.2f} seconds")
-            
-            # Update RT values to max intensity time only for targets that had RT auto-adjusted
-            progress_adapter(95, "Chromatograms", "Updating RT to peak apex...")
-            try:
-                # Chromatograms stores scan_time and intensity as arrays, so we need to unnest them
-                # Only update targets where rt_auto_adjusted = TRUE
-                update_sql = """
-                    UPDATE targets
-                    SET rt = subq.rt_at_max,
-                        rt_auto_adjusted = FALSE
-                    FROM (
-                        WITH adjusted_targets AS (
-                            SELECT peak_label, rt_min, rt_max
-                            FROM targets
-                            WHERE rt_auto_adjusted = TRUE
-                        ),
-                        unnested AS (
-                            SELECT c.peak_label, 
-                                   UNNEST(c.scan_time) AS scan_time,
-                                   UNNEST(c.intensity) AS intensity
-                            FROM chromatograms c
-                            WHERE c.peak_label IN (SELECT peak_label FROM adjusted_targets)
-                        ),
-                        filtered AS (
-                            SELECT u.peak_label, u.scan_time, u.intensity
-                            FROM unnested u
-                            JOIN adjusted_targets t ON u.peak_label = t.peak_label
-                            WHERE u.scan_time BETWEEN t.rt_min AND t.rt_max
-                        ),
-                        max_per_target AS (
-                            SELECT peak_label, MAX(intensity) AS max_intensity
-                            FROM filtered
-                            GROUP BY peak_label
-                        )
-                        SELECT f.peak_label, f.scan_time AS rt_at_max
-                        FROM filtered f
-                        JOIN max_per_target m ON f.peak_label = m.peak_label AND f.intensity = m.max_intensity
-                    ) AS subq
-                    WHERE targets.peak_label = subq.peak_label
-                """
-                con.execute(update_sql)
-                logger.info("Updated RT to max intensity for auto-adjusted targets")
-            except Exception as e:
-                logger.warning(f"Could not update RT to max intensity: {e}")
-            
-        return True, False
+        return _compute_chromatograms_logic(set_progress, recompute_ms1, recompute_ms2, n_cpus, ram, batch_size, wdir)
 
     ############# COMPUTE CHROMATOGRAM END #######################################
 
@@ -3220,42 +3309,8 @@ def callbacks(app, fsc, cache, cpu=None):
         if not okCounts:
             logger.debug("delete_targets_chromatograms: Delete not confirmed, preventing update")
             raise PreventUpdate
-        with duckdb_connection(wdir) as conn:
-            if conn is None:
-                return dash.no_update, dash.no_update, dash.no_update, dash.no_update
-            try:
-                conn.execute("BEGIN")
-                conn.execute("DELETE FROM chromatograms WHERE peak_label = ?", [target])
-                conn.execute("DELETE FROM targets WHERE peak_label = ?", [target])
-                conn.execute("DELETE FROM results WHERE peak_label = ?", [target])
-                conn.execute("COMMIT")
-                logger.info(f"Deleted target '{target}' and associated chromatograms/results.")
-            except Exception:
-                conn.execute("ROLLBACK")
-                logger.error(f"Failed to delete target '{target}'", exc_info=True)
-                return (fac.AntdNotification(
-                            message="Delete target failed",
-                            description="Could not delete target data; no changes were applied.",
-                            type="error",
-                            duration=4,
-                            placement='bottom',
-                            showProgress=True,
-                            stack=True
-                        ),
-                        dash.no_update,
-                        False,
-                        False)
-
-        return (fac.AntdNotification(message=f"{target} chromatograms deleted",
-                                     type="success",
-                                     duration=3,
-                                     placement='bottom',
-                                     showProgress=True,
-                                     stack=True
-                                     ),
-                True,
-                False,
-                False)
+        
+        return _delete_target_logic(target, wdir)
 
     @app.callback(
         Output('notifications-container', 'children', allow_duplicate=True),
@@ -3278,28 +3333,4 @@ def callbacks(app, fsc, cache, cpu=None):
         ctx_trigger = json.loads(ctx.triggered[0]['prop_id'].split('.')[0])
         trigger_id = ctx_trigger['index']
 
-        with duckdb_connection(wdir) as conn:
-            if conn is None:
-                logger.error(f"Failed to connect to database to bookmark target '{targets[trigger_id]}'")
-                return fac.AntdNotification(
-                    message="Database connection failed",
-                    description="Could not update bookmark status. Please check the workspace connection.",
-                    type="error",
-                    duration=5,
-                    placement='bottom',
-                    showProgress=True,
-                    stack=True
-                )
-            conn.execute("UPDATE targets SET bookmark = ? WHERE peak_label = ?", [bool(bookmarks[trigger_id]),
-                                                                                  targets[trigger_id]])
-        
-        status = "bookmarked" if bookmarks[trigger_id] else "unbookmarked"
-        logger.info(f"Target '{targets[trigger_id]}' was {status}.")
-
-        return fac.AntdNotification(message=f"Target {targets[trigger_id]} has been "
-                                            f"{'' if bookmarks[trigger_id] else 'un'}bookmarked",
-                                    duration=3,
-                                    placement='bottom',
-                                    type="success",
-                                    showProgress=True,
-                                    stack=True)
+        return _bookmark_target_logic(bookmarks, targets, trigger_id, wdir)

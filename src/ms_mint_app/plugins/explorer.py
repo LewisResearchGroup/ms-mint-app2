@@ -370,6 +370,214 @@ class FileExplorer:
 
         return table_data
 
+    def callbacks(self, app, fsc, cache, args=None):
+        @app.callback(
+            Output("selection-modal", "visible", allow_duplicate=True),
+            Output("selection-modal", 'title'),
+            Output('selected-files-extensions', 'options'),
+            Output('selected-files-extensions', 'value'),
+            Output('processing-type-store', 'data', allow_duplicate=True),
+            Output('processing-cpu-form', 'style'),
+
+            Input({'action': 'file-explorer', 'type': ALL}, 'nClicks'),
+            prevent_initial_call=True
+        )
+        def open_selection_modal(n_clicks):
+            if n_clicks is None or not any(n_clicks):
+                raise PreventUpdate
+
+            ctx = dash.callback_context
+            if not ctx.triggered:
+                raise PreventUpdate
+
+            prop_id = ctx.triggered[0]['prop_id'].split('.')[0]
+            prop_data = json.loads(prop_id)
+
+            if prop_data['type'] == "ms-files":
+                title = "Load MS Files"
+                file_extensions = [".mzXML", ".mzML"]
+                style = {'display': 'block'}
+            elif prop_data['type'] == "metadata":
+                title = "Load Metadata"
+                file_extensions = [".csv"]
+                style = {'display': 'none'}
+            else:
+                title = "Load Targets"
+                file_extensions = [".csv"]
+                style = {'display': 'none'}
+
+            processing_type_store = {'type': prop_data['type'], 'extensions': file_extensions}
+
+            return True, title, file_extensions, file_extensions, processing_type_store, style
+
+        @app.callback(
+            Output('selected-files-store', 'data', allow_duplicate=True),
+            Output('processing-type-store', 'data', allow_duplicate=True),
+            Output('processed-action-store', 'data', allow_duplicate=True),
+            Output('table-data-store', 'data', allow_duplicate=True),
+            Output('marked-for-removal', 'data', allow_duplicate=True),
+            Output('is-at-root', 'data', allow_duplicate=True),
+
+            Output('selected-files-tree', 'treeData', allow_duplicate=True),
+            Output('selection-counter', 'children', allow_duplicate=True),
+            Output('file-table', 'selectedRowKeys', allow_duplicate=True),
+            Output('selected-files-tree', 'checkedKeys', allow_duplicate=True),
+            Output('selected-files-tree', 'style', allow_duplicate=True),
+            Output('files-selection-empty', 'style', allow_duplicate=True),
+
+            Input('selection-modal', 'visible'),
+            prevent_initial_call=True
+        )
+        def on_modal_close(modal_visible):
+            if modal_visible:
+                raise PreventUpdate
+            return ([], {}, None, [], [], False, [], 'Total: 0 files selected', [], [], {'display': 'none'},
+                    {'display': 'block'})
+
+        @app.callback(
+            Output('sm-processing-progress', 'percent', allow_duplicate=True),
+            Output('ms-files-progress-stage', 'children', allow_duplicate=True),
+            Output('ms-files-progress-detail', 'children', allow_duplicate=True),
+            Input('selection-modal', 'visible'),
+            prevent_initial_call=True,
+        )
+        def reset_processing_progress(modal_visible):
+            if not modal_visible:
+                raise PreventUpdate
+            return 0, "", ""
+
+        @app.callback(
+            Output('explorer-processing-progress-container', 'style', allow_duplicate=True),
+            Output('selection-container', 'style', allow_duplicate=True),
+            Output('selection-modal', 'confirmLoading', allow_duplicate=True),
+            Output('selection-modal', 'confirmAutoSpin', allow_duplicate=True),
+            Output('selection-modal', 'cancelButtonProps', allow_duplicate=True),
+            Input('selection-modal', 'visible'),
+            prevent_initial_call=True,
+        )
+        def reset_modal_state(modal_visible):
+            if not modal_visible:
+                raise PreventUpdate
+            progress_style = {'display': 'none', 'textAlign': 'center', 'padding': '20px'}
+            selection_style = {'display': 'block'}
+            return progress_style, selection_style, False, False, {'disabled': False}
+
+        @app.callback(
+            Output("current-path-modal", "items", allow_duplicate=True),
+            Output("file-table", "data", allow_duplicate=True),
+            Output('current-path-store', 'data', allow_duplicate=True),
+            Output('table-data-store', 'data', allow_duplicate=True),
+
+            Input('selection-modal', 'visible'),
+            Input('current-path-modal', 'clickedItem'),
+            Input('file-table', 'recentlyCellClickRecord'),
+
+            State('current-path-store', 'data'),
+            State('processing-type-store', 'data'),
+
+            prevent_initial_call=True
+        )
+        def navigate_folders(modal_visible, bc_clicked_item, recentlyCellClickRecord, current_path, processing_type):
+            return _navigate_folders(self, modal_visible, bc_clicked_item, recentlyCellClickRecord, current_path, processing_type)
+
+        @app.callback(
+            Output('selected-files-store', 'data', allow_duplicate=True),
+            Output('selected-files-tree', 'treeData', allow_duplicate=True),
+            Output('selected-files-tree', 'style', allow_duplicate=True),
+            Output('files-selection-empty', 'style', allow_duplicate=True),
+            Output('selection-counter', 'children', allow_duplicate=True),
+            Output('file-table', 'selectedRowKeys', allow_duplicate=True),
+            Output('marked-for-removal', 'data', allow_duplicate=True),
+            Output('selected-files-tree', 'checkedKeys', allow_duplicate=True),
+
+            Input('file-table', 'selectedRowKeys'),
+            Input('file-table', 'nClicksCell'),
+            Input('clear-selection-btn', 'nClicks'),
+            Input('remove-marked-btn', 'nClicks'),
+            Input('selected-files-tree', 'checkedKeys'),
+
+            State('file-table', 'recentlyCellClickRecord'),
+            State('selected-files-store', 'data'),
+            State('processing-type-store', 'data'),
+            State('table-data-store', 'data'),
+            State('marked-for-removal', 'data'),
+
+            prevent_initial_call=True
+        )
+        def update_selection(selectedRowKeys, nClicksCell, clear_clicks, remove_clicks, tree_checked_keys,
+                             recentlyCellClickRecord, current_selection, processing_type, table_data, marked_for_removal):
+            return _update_selection(self, selectedRowKeys, nClicksCell, clear_clicks, remove_clicks, tree_checked_keys,
+                             recentlyCellClickRecord, current_selection, processing_type, table_data, marked_for_removal)
+
+        @app.callback(
+            Output('notifications-container', "children", allow_duplicate=True),
+            Output('processed-action-store', 'data', allow_duplicate=True),
+            Output('selection-modal', 'visible', allow_duplicate=True),
+
+            Input('selection-modal', 'okCounts'),
+            State('processing-type-store', 'data'),
+            State("selected-files-store", "data"),
+            State('processing-cpu-input', 'value'),
+            State("wdir", "data"),
+            background=True,
+            running=[
+                (Output('explorer-processing-progress-container', 'style'),
+                 {
+                     "display": "flex",
+                     "justifyContent": "center",
+                     "alignItems": "center",
+                     "flexDirection": "column",
+                     "minWidth": "200px",
+                     "maxWidth": "400px",
+                     "margin": "auto",
+                     'height': "60vh"
+                 }, {'display': 'none'}),
+                (Output("selection-container", "style"), {'display': 'none'}, {'display': 'block'}),
+
+                (Output('selection-modal', 'confirmAutoSpin'), True, False),
+                (Output('selection-modal', 'cancelButtonProps'), {'disabled': True},
+                 {'disabled': False}),
+                (Output('selection-modal', 'confirmLoading'), True, False),
+            ],
+            progress=[
+                Output("sm-processing-progress", "percent"),
+                Output("ms-files-progress-stage", "children"),
+                Output("ms-files-progress-detail", "children"),
+            ],
+            cancel=[
+                Input('cancel-ms-processing', 'nClicks')
+            ],
+            prevent_initial_call=True
+        )
+        def background_processing(set_progress, okCounts, processing_type, selected_files_list,
+                                  cpu_input, wdir):
+            return _background_processing(set_progress, okCounts, processing_type, selected_files_list, cpu_input, wdir)
+
+        @app.callback(
+            Output('selection-modal', 'visible', allow_duplicate=True),
+            Input('cancel-ms-processing', 'nClicks'),
+            prevent_initial_call=True,
+        )
+        def close_modal_on_cancel(cancel_clicks):
+            if not cancel_clicks:
+                raise PreventUpdate
+            return False
+
+        @app.callback(
+            Output('explorer-processing-progress-container', 'style', allow_duplicate=True),
+            Output('selection-container', 'style', allow_duplicate=True),
+            Output('selection-modal', 'confirmLoading', allow_duplicate=True),
+            Output('selection-modal', 'confirmAutoSpin', allow_duplicate=True),
+            Output('selection-modal', 'cancelButtonProps', allow_duplicate=True),
+            Input('clear-selection-btn', 'nClicks'),
+            Input('remove-marked-btn', 'nClicks'),
+            prevent_initial_call=True,
+        )
+        def restore_modal_body(clear_clicks, remove_clicks):
+            progress_style = {'display': 'none', 'textAlign': 'center', 'padding': '20px'}
+            selection_style = {'display': 'block'}
+            return progress_style, selection_style, False, False, {'disabled': False}
+
 
 def _navigate_folders(explorer_instance, modal_visible, bc_clicked_item, recentlyCellClickRecord, current_path, processing_type):
     if not modal_visible:
@@ -622,211 +830,3 @@ def _background_processing(set_progress, okCounts, processing_type, selected_fil
 
     return notification, processed_action_store, False
 
-
-    def callbacks(self, app, fsc, cache, args=None):
-        @app.callback(
-            Output("selection-modal", "visible", allow_duplicate=True),
-            Output("selection-modal", 'title'),
-            Output('selected-files-extensions', 'options'),
-            Output('selected-files-extensions', 'value'),
-            Output('processing-type-store', 'data', allow_duplicate=True),
-            Output('processing-cpu-form', 'style'),
-
-            Input({'action': 'file-explorer', 'type': ALL}, 'nClicks'),
-            prevent_initial_call=True
-        )
-        def open_selection_modal(n_clicks):
-            if n_clicks is None or not any(n_clicks):
-                raise PreventUpdate
-
-            ctx = dash.callback_context
-            if not ctx.triggered:
-                raise PreventUpdate
-
-            prop_id = ctx.triggered[0]['prop_id'].split('.')[0]
-            prop_data = json.loads(prop_id)
-
-            if prop_data['type'] == "ms-files":
-                title = "Load MS Files"
-                file_extensions = [".mzXML", ".mzML"]
-                style = {'display': 'block'}
-            elif prop_data['type'] == "metadata":
-                title = "Load Metadata"
-                file_extensions = [".csv"]
-                style = {'display': 'none'}
-            else:
-                title = "Load Targets"
-                file_extensions = [".csv"]
-                style = {'display': 'none'}
-
-            processing_type_store = {'type': prop_data['type'], 'extensions': file_extensions}
-
-            return True, title, file_extensions, file_extensions, processing_type_store, style
-
-        @app.callback(
-            Output('selected-files-store', 'data', allow_duplicate=True),
-            Output('processing-type-store', 'data', allow_duplicate=True),
-            Output('processed-action-store', 'data', allow_duplicate=True),
-            Output('table-data-store', 'data', allow_duplicate=True),
-            Output('marked-for-removal', 'data', allow_duplicate=True),
-            Output('is-at-root', 'data', allow_duplicate=True),
-
-            Output('selected-files-tree', 'treeData', allow_duplicate=True),
-            Output('selection-counter', 'children', allow_duplicate=True),
-            Output('file-table', 'selectedRowKeys', allow_duplicate=True),
-            Output('selected-files-tree', 'checkedKeys', allow_duplicate=True),
-            Output('selected-files-tree', 'style', allow_duplicate=True),
-            Output('files-selection-empty', 'style', allow_duplicate=True),
-
-            Input('selection-modal', 'visible'),
-            prevent_initial_call=True
-        )
-        def on_modal_close(modal_visible):
-            if modal_visible:
-                raise PreventUpdate
-            return ([], {}, None, [], [], False, [], 'Total: 0 files selected', [], [], {'display': 'none'},
-                    {'display': 'block'})
-
-        @app.callback(
-            Output('sm-processing-progress', 'percent', allow_duplicate=True),
-            Output('ms-files-progress-stage', 'children', allow_duplicate=True),
-            Output('ms-files-progress-detail', 'children', allow_duplicate=True),
-            Input('selection-modal', 'visible'),
-            prevent_initial_call=True,
-        )
-        def reset_processing_progress(modal_visible):
-            if not modal_visible:
-                raise PreventUpdate
-            return 0, "", ""
-
-        @app.callback(
-            Output('explorer-processing-progress-container', 'style', allow_duplicate=True),
-            Output('selection-container', 'style', allow_duplicate=True),
-            Output('selection-modal', 'confirmLoading', allow_duplicate=True),
-            Output('selection-modal', 'confirmAutoSpin', allow_duplicate=True),
-            Output('selection-modal', 'cancelButtonProps', allow_duplicate=True),
-            Input('selection-modal', 'visible'),
-            prevent_initial_call=True,
-        )
-        def reset_modal_state(modal_visible):
-            if not modal_visible:
-                raise PreventUpdate
-            progress_style = {'display': 'none', 'textAlign': 'center', 'padding': '20px'}
-            selection_style = {'display': 'block'}
-            return progress_style, selection_style, False, False, {'disabled': False}
-
-        @app.callback(
-            Output("current-path-modal", "items", allow_duplicate=True),
-            Output("file-table", "data", allow_duplicate=True),
-            Output('current-path-store', 'data', allow_duplicate=True),
-            Output('table-data-store', 'data', allow_duplicate=True),
-
-            Input('selection-modal', 'visible'),
-            Input('current-path-modal', 'clickedItem'),
-            Input('file-table', 'recentlyCellClickRecord'),
-
-            State('current-path-store', 'data'),
-            State('processing-type-store', 'data'),
-
-            prevent_initial_call=True
-        )
-        def navigate_folders(modal_visible, bc_clicked_item, recentlyCellClickRecord, current_path, processing_type):
-            return _navigate_folders(self, modal_visible, bc_clicked_item, recentlyCellClickRecord, current_path, processing_type)
-
-        @app.callback(
-            Output('selected-files-store', 'data', allow_duplicate=True),
-            Output('selected-files-tree', 'treeData', allow_duplicate=True),
-            Output('selected-files-tree', 'style', allow_duplicate=True),
-            Output('files-selection-empty', 'style', allow_duplicate=True),
-            Output('selection-counter', 'children', allow_duplicate=True),
-            Output('file-table', 'selectedRowKeys', allow_duplicate=True),
-            Output('marked-for-removal', 'data', allow_duplicate=True),
-            Output('selected-files-tree', 'checkedKeys', allow_duplicate=True),
-
-            Input('file-table', 'selectedRowKeys'),
-            Input('file-table', 'nClicksCell'),
-            Input('clear-selection-btn', 'nClicks'),
-            Input('remove-marked-btn', 'nClicks'),
-            Input('selected-files-tree', 'checkedKeys'),
-
-            State('file-table', 'recentlyCellClickRecord'),
-            State('selected-files-store', 'data'),
-            State('processing-type-store', 'data'),
-            State('table-data-store', 'data'),
-            State('marked-for-removal', 'data'),
-
-            prevent_initial_call=True
-        )
-        def update_selection(selectedRowKeys, nClicksCell, clear_clicks, remove_clicks, tree_checked_keys,
-                             recentlyCellClickRecord, current_selection, processing_type, table_data, marked_for_removal):
-            return _update_selection(self, selectedRowKeys, nClicksCell, clear_clicks, remove_clicks, tree_checked_keys,
-                             recentlyCellClickRecord, current_selection, processing_type, table_data, marked_for_removal)
-
-        @app.callback(
-            Output('notifications-container', "children", allow_duplicate=True),
-            Output('processed-action-store', 'data', allow_duplicate=True),
-            Output('selection-modal', 'visible', allow_duplicate=True),
-
-            Input('selection-modal', 'okCounts'),
-            State('processing-type-store', 'data'),
-            State("selected-files-store", "data"),
-            State('processing-cpu-input', 'value'),
-            State("wdir", "data"),
-            background=True,
-            running=[
-                (Output('explorer-processing-progress-container', 'style'),
-                 {
-                     "display": "flex",
-                     "justifyContent": "center",
-                     "alignItems": "center",
-                     "flexDirection": "column",
-                     "minWidth": "200px",
-                     "maxWidth": "400px",
-                     "margin": "auto",
-                     'height': "60vh"
-                 }, {'display': 'none'}),
-                (Output("selection-container", "style"), {'display': 'none'}, {'display': 'block'}),
-
-                (Output('selection-modal', 'confirmAutoSpin'), True, False),
-                (Output('selection-modal', 'cancelButtonProps'), {'disabled': True},
-                 {'disabled': False}),
-                (Output('selection-modal', 'confirmLoading'), True, False),
-            ],
-            progress=[
-                Output("sm-processing-progress", "percent"),
-                Output("ms-files-progress-stage", "children"),
-                Output("ms-files-progress-detail", "children"),
-            ],
-            cancel=[
-                Input('cancel-ms-processing', 'nClicks')
-            ],
-            prevent_initial_call=True
-        )
-        def background_processing(set_progress, okCounts, processing_type, selected_files_list,
-                                  cpu_input, wdir):
-            return _background_processing(set_progress, okCounts, processing_type, selected_files_list, cpu_input, wdir)
-
-        @app.callback(
-            Output('selection-modal', 'visible', allow_duplicate=True),
-            Input('cancel-ms-processing', 'nClicks'),
-            prevent_initial_call=True,
-        )
-        def close_modal_on_cancel(cancel_clicks):
-            if not cancel_clicks:
-                raise PreventUpdate
-            return False
-
-        @app.callback(
-            Output('explorer-processing-progress-container', 'style', allow_duplicate=True),
-            Output('selection-container', 'style', allow_duplicate=True),
-            Output('selection-modal', 'confirmLoading', allow_duplicate=True),
-            Output('selection-modal', 'confirmAutoSpin', allow_duplicate=True),
-            Output('selection-modal', 'cancelButtonProps', allow_duplicate=True),
-            Input('clear-selection-btn', 'nClicks'),
-            Input('remove-marked-btn', 'nClicks'),
-            prevent_initial_call=True,
-        )
-        def restore_modal_body(clear_clicks, remove_clicks):
-            progress_style = {'display': 'none', 'textAlign': 'center', 'padding': '20px'}
-            selection_style = {'display': 'block'}
-            return progress_style, selection_style, False, False, {'disabled': False}
