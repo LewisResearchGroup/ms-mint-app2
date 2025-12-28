@@ -623,8 +623,360 @@ _layout = html.Div(
 )
 
 
-def layout():
-    return _layout
+def _targets_table(section_context, pagination, filter_, sorter, filterOptions, wdir):
+    if section_context and section_context['page'] != 'Targets':
+        logger.debug(f"_targets_table: PreventUpdate because current page is {section_context.get('page')}")
+        raise PreventUpdate
+    if not wdir:
+        logger.debug("_targets_table: PreventUpdate because wdir is not set")
+        raise PreventUpdate
+
+    if pagination:
+        page_size = pagination['pageSize']
+        current = pagination['current']
+
+        with duckdb_connection(wdir) as conn:
+            schema = conn.execute("DESCRIBE targets").pl()
+        column_types = {r["column_name"]: r["column_type"] for r in schema.to_dicts()}
+        where_sql, params = build_where_and_params(filter_, filterOptions)
+        order_by_sql = build_order_by(sorter, column_types, tie=('peak_label', 'ASC'))
+        if not order_by_sql:
+            order_by_sql = 'ORDER BY "mz_mean" ASC, "peak_label" COLLATE NOCASE ASC'
+
+        sql = f"""
+                    WITH filtered AS (
+                      SELECT *
+                      FROM targets
+                      {where_sql}
+                    ),
+                    paged AS (
+                      SELECT *, COUNT(*) OVER() AS __total__
+                      FROM filtered
+                      {(' ' + order_by_sql) if order_by_sql else ''}
+                      LIMIT ? OFFSET ?
+                    )
+                    SELECT * FROM paged;
+                    """
+
+        params_paged = params + [page_size, (current - 1) * page_size]
+
+        with duckdb_connection(wdir) as conn:
+            dfpl = conn.execute(sql, params_paged).pl()
+
+        data = (
+            dfpl
+            .with_columns(
+                # If peak_selection is null, fall back to bookmark; default False.
+                pl.when(pl.col('peak_selection').is_null())
+                .then(pl.col('bookmark').fill_null(False))
+                .otherwise(pl.col('peak_selection'))
+                .cast(pl.Boolean)
+                .alias('peak_selection_resolved'),
+                pl.col('bookmark').fill_null(False).cast(pl.Boolean).alias('bookmark_resolved'),
+                # Round rt, rt_min and rt_max to 1 decimal place for display
+                pl.col('rt').round(1).alias('rt'),
+                pl.col('rt_min').round(1).alias('rt_min'),
+                pl.col('rt_max').round(1).alias('rt_max'),
+                # Uppercase ms_type for display consistency (cast from cat to string first)
+                pl.col('ms_type').cast(pl.String).str.to_uppercase().alias('ms_type'),
+            )
+            .drop(['peak_selection', 'bookmark'])
+        )
+
+        # total rows:
+        number_records = int(data["__total__"][0]) if len(data) else 0
+        
+        # If result is empty but there are records, we may be on a page beyond the last
+        if len(data) == 0 and number_records == 0:
+            # Check if there are actually any records matching the filter
+            with duckdb_connection(wdir) as conn:
+                count_sql = f"SELECT COUNT(*) FROM targets {where_sql}"
+                total_count = conn.execute(count_sql, params).fetchone()[0]
+                if total_count > 0:
+                    number_records = total_count
+        
+        # Calculate max page and adjust current if beyond it
+        max_page = max(math.ceil(number_records / page_size), 1) if number_records else 1
+        current = min(max(current, 1), max_page)
+
+        # If we just removed the page we were on, re-query for the new page index
+        if params_paged[-1] != (current - 1) * page_size:
+            params_paged = params + [page_size, (current - 1) * page_size]
+            with duckdb_connection(wdir) as conn:
+                dfpl = conn.execute(sql, params_paged).pl()
+            
+            data = (
+                dfpl
+                .with_columns(
+                    pl.when(pl.col('peak_selection').is_null())
+                    .then(pl.col('bookmark').fill_null(False))
+                    .otherwise(pl.col('peak_selection'))
+                    .cast(pl.Boolean)
+                    .alias('peak_selection_resolved'),
+                    pl.col('bookmark').fill_null(False).cast(pl.Boolean).alias('bookmark_resolved'),
+                    pl.col('rt').round(1).alias('rt'),
+                    pl.col('rt_min').round(1).alias('rt_min'),
+                    pl.col('rt_max').round(1).alias('rt_max'),
+                    pl.col('ms_type').cast(pl.String).str.to_uppercase().alias('ms_type'),
+                )
+                .drop(['peak_selection', 'bookmark'])
+            )
+            number_records = int(data["__total__"][0]) if len(data) else 0
+
+        with (duckdb_connection(wdir) as conn):
+            category_filters = conn.execute(
+                "SELECT DISTINCT category FROM targets ORDER BY category ASC"
+            ).df()['category'].to_list()
+
+            if not isinstance(filterOptions, dict) or 'category' not in filterOptions:
+                output_filterOptions = dash.no_update
+            else:
+                st_custom_items = filterOptions['category'].get('filterCustomItems')
+                if st_custom_items != category_filters:
+                    output_filterOptions = filterOptions.copy()
+                    output_filterOptions['category']['filterCustomItems'] = (
+                        category_filters if category_filters != [None] else []
+                    )
+                else:
+                    output_filterOptions = dash.no_update
+
+        # Convert to dicts and add the checkbox structure AFTER Polars processing
+        # This avoids using pl.Object dtype which causes panic in frozen apps
+        data_dicts = data.to_dicts()
+        for row in data_dicts:
+            row['peak_selection'] = {'checked': bool(row.pop('peak_selection_resolved', False))}
+            row['bookmark'] = {'checked': bool(row.pop('bookmark_resolved', False))}
+
+        return [
+            data_dicts,
+            [],
+            {**pagination, 'total': number_records, 'current': current, 'pageSizeOptions': sorted([5, 10, 15, 25, 50,
+            100, number_records])},
+            output_filterOptions
+        ]
+    return dash.no_update
+
+
+def _target_delete(okCounts, selectedRows, clickedKey, wdir):
+    if okCounts is None or clickedKey not in ['delete-selected', 'delete-all']:
+        logger.debug(f"_target_delete: PreventUpdate because okCounts={okCounts}, clickedKey={clickedKey}")
+        raise PreventUpdate
+    if not wdir:
+        logger.debug("_target_delete: PreventUpdate because wdir is not set")
+        raise PreventUpdate
+    
+    activate_workspace_logging(wdir)
+
+    if clickedKey == "delete-selected" and not selectedRows:
+        targets_action_store = {'action': 'delete', 'status': 'failed'}
+        total_removed = 0
+    elif clickedKey == "delete-selected":
+        remove_targets = [row['peak_label'] for row in selectedRows]
+
+        with duckdb_connection(wdir) as conn:
+            if conn is None:
+                logger.debug("_target_delete: PreventUpdate because database connection is None")
+                raise PreventUpdate
+            try:
+                conn.execute("BEGIN")
+                conn.execute("DELETE FROM targets WHERE peak_label IN ?", (remove_targets,))
+                conn.execute("DELETE FROM chromatograms WHERE peak_label IN ?", (remove_targets,))
+                conn.execute("DELETE FROM results WHERE peak_label IN ?", (remove_targets,))
+                conn.execute("COMMIT")
+            except Exception as e:
+                conn.execute("ROLLBACK")
+                logger.error(f"Error deleting selected targets: {e}", exc_info=True)
+                return (fac.AntdNotification(
+                            message="Delete Targets failed",
+                            description="Could not delete the selected targets; no changes were applied.",
+                            type="error",
+                            duration=4,
+                            placement='bottom',
+                            showProgress=True,
+                            stack=True
+                        ),
+                        {'action': 'delete', 'status': 'failed'})
+        total_removed = len(remove_targets)
+        targets_action_store = {'action': 'delete', 'status': 'success'}
+    elif clickedKey == "delete-all":
+        with duckdb_connection(wdir) as conn:
+            if conn is None:
+                logger.debug("_target_delete(delete-all): PreventUpdate because database connection is None")
+                raise PreventUpdate
+            total_removed_q = conn.execute("SELECT COUNT(*) FROM targets").fetchone()
+            targets_action_store = {'action': 'delete', 'status': 'failed'}
+            total_removed = 0
+            if total_removed_q:
+                total_removed = total_removed_q[0]
+
+                try:
+                    conn.execute("BEGIN")
+                    conn.execute("DELETE FROM targets")
+                    conn.execute("DELETE FROM chromatograms")
+                    conn.execute("DELETE FROM results")
+                    conn.execute("COMMIT")
+                    targets_action_store = {'action': 'delete', 'status': 'success'}
+                except Exception as e:
+                    conn.execute("ROLLBACK")
+                    logger.error(f"Error deleting all targets: {e}", exc_info=True)
+                    return (fac.AntdNotification(
+                                message="Delete Targets failed",
+                                description="Could not delete all targets; no changes were applied.",
+                                type="error",
+                                duration=4,
+                                placement='bottom',
+                                showProgress=True,
+                                stack=True
+                            ),
+                            {'action': 'delete', 'status': 'failed'})
+    if total_removed > 0:
+        logger.info(f"Deleted {total_removed} targets.")
+
+    return (fac.AntdNotification(message="Delete Targets",
+                                 description=f"Deleted {total_removed} targets",
+                                 type="success" if total_removed > 0 else "error",
+                                 duration=3,
+                                 placement='bottom',
+                                 showProgress=True,
+                                 stack=True
+                                 ),
+            targets_action_store)
+
+
+def _save_target_table_on_edit(row_edited, column_edited, wdir):
+    if row_edited is None or column_edited is None:
+        logger.debug("_save_target_table_on_edit: PreventUpdate because row_edited or column_edited is None")
+        raise PreventUpdate
+
+    if not wdir:
+        logger.debug("_save_target_table_on_edit: PreventUpdate because wdir is not set")
+        raise PreventUpdate
+
+    allowed_columns = {
+        "rt",
+        "rt_min",
+        "rt_max",
+        "rt_unit",
+        "intensity_threshold",
+        "notes",
+        "category",
+        "score",
+    }
+    if column_edited not in allowed_columns:
+        logger.debug(f"_save_target_table_on_edit: PreventUpdate because column '{column_edited}' is not editable")
+        raise PreventUpdate
+    try:
+        with duckdb_connection(wdir) as conn:
+            if conn is None:
+                logger.debug("_save_target_table_on_edit: PreventUpdate because database connection is None")
+                raise PreventUpdate
+
+            query = f"UPDATE targets SET {column_edited} = ? WHERE peak_label = ?"
+            if column_edited == 'sample_type' and row_edited[column_edited] in [None, '']:
+                conn.execute(query, ['Unset', row_edited['peak_label']])
+            else:
+                conn.execute(query, [row_edited[column_edited], row_edited['peak_label']])
+            targets_action_store = {'action': 'edit', 'status': 'success'}
+            logger.info(f"Updated target {row_edited['peak_label']}: {column_edited} = {row_edited[column_edited]}")
+        return fac.AntdNotification(message="Successfully edition saved",
+                                    type="success",
+                                    duration=3,
+                                    placement='bottom',
+                                    showProgress=True,
+                                    stack=True
+                                    ), targets_action_store
+    except Exception as e:
+        logger.error(f"Error updating metadata: {e}", exc_info=True)
+        targets_action_store = {'action': 'edit', 'status': 'failed'}
+        return fac.AntdNotification(message="Failed to save edition",
+                                    description=f"Failing to save edition with: {str(e)}",
+                                    type="error",
+                                    duration=3,
+                                    placement='bottom',
+                                    showProgress=True,
+                                    stack=True
+                                    ), targets_action_store
+
+
+def _save_switch_changes(recentlySwitchDataIndex, recentlySwitchStatus, recentlySwitchRow, wdir):
+    if recentlySwitchDataIndex is None or recentlySwitchStatus is None or not recentlySwitchRow:
+        logger.debug("_save_switch_changes: PreventUpdate because missing switch data")
+        raise PreventUpdate
+
+    if not wdir:
+        logger.debug("_save_switch_changes: PreventUpdate because wdir is not set")
+        raise PreventUpdate
+
+    allowed_switch_columns = {"peak_selection", "bookmark"}
+    if recentlySwitchDataIndex not in allowed_switch_columns:
+        logger.debug(f"_save_switch_changes: PreventUpdate because column '{recentlySwitchDataIndex}' is not a switch column")
+        raise PreventUpdate
+
+    with duckdb_connection(wdir) as conn:
+        if conn is None:
+            logger.debug("_save_switch_changes: PreventUpdate because database connection is None")
+            raise PreventUpdate
+        conn.execute(f"UPDATE targets SET {recentlySwitchDataIndex} = ? WHERE peak_label = ?",
+                     (recentlySwitchStatus, recentlySwitchRow['peak_label']))
+        logger.info(f"Updated {recentlySwitchDataIndex} for {recentlySwitchRow['peak_label']}: {recentlySwitchStatus}")
+
+
+def _run_asari_analysis(ok_counts, wdir, multicores, mz_tol, mode, snr, min_height, min_points, gaussian_shape, cselectivity, detection_rate, set_progress=None):
+    if not ok_counts:
+         logger.debug("_run_asari_analysis: PreventUpdate because ok_counts is None")
+         raise PreventUpdate
+         
+    if not wdir:
+        return dash.no_update, True, fac.AntdAlert(message="No workspace selected.", type="error"), dash.no_update
+    
+    activate_workspace_logging(wdir)
+        
+    # Validate inputs
+    if multicores is None or multicores < 1:
+        return dash.no_update, True, fac.AntdAlert(message="Invalid CPU cores selected.", type="error"), dash.no_update
+    if mz_tol is None or mz_tol < 1:
+        return dash.no_update, True, fac.AntdAlert(message="Invalid MZ Tolerance.", type="error"), dash.no_update
+    if snr is None or snr < 1:
+        return dash.no_update, True, fac.AntdAlert(message="Invalid Signal/Noise Ratio.", type="error"), dash.no_update
+    if min_height is None or min_height < 0:
+        return dash.no_update, True, fac.AntdAlert(message="Invalid Min Peak Height.", type="error"), dash.no_update
+    if min_points is None or min_points < 1:
+         return dash.no_update, True, fac.AntdAlert(message="Invalid Min Timepoints.", type="error"), dash.no_update
+         
+    # Gaussian Shape is optional
+    if gaussian_shape is not None and (gaussian_shape < 0 or gaussian_shape > 1):
+         return dash.no_update, True, fac.AntdAlert(message="Invalid Gaussian Shape. Must be between 0 and 1.", type="error"), dash.no_update
+
+    # cSelectivity is optional
+    if cselectivity is not None and (cselectivity < 0 or cselectivity > 1):
+         return dash.no_update, True, fac.AntdAlert(message="Invalid cSelectivity. Must be between 0 and 1.", type="error"), dash.no_update
+
+    # Detection Rate is optional
+    if detection_rate is not None and (detection_rate < 0 or detection_rate > 100):
+         return dash.no_update, True, fac.AntdAlert(message="Invalid Detection Rate. Must be between 0% and 100%.", type="error"), dash.no_update
+        
+    params = {
+        'multicores': multicores,
+        'mz_tolerance_ppm': mz_tol,
+        'mode': mode,
+        'signal_noise_ratio': snr,
+        'min_peak_height': min_height,
+        'min_timepoints': min_points,
+        'gaussian_shape': gaussian_shape,
+        'cselectivity': cselectivity,
+        'detection_rate': detection_rate
+    }
+    
+    result = targets_asari.run_asari_workflow(wdir, params, set_progress=set_progress)
+    
+    status_alert = None
+    if result['success']:
+         status_alert = fac.AntdAlert(message=result['message'], type="success", showIcon=True, closable=True)
+         import time
+         return fac.AntdNotification(message="Asari Analysis", description=result['message'], type="success"), False, status_alert, {'timestamp': time.time()}
+    else:
+         status_alert = fac.AntdAlert(message=result['message'], type="error", showIcon=True, closable=True)
+         return fac.AntdNotification(message="Asari Analysis Failed", description=result['message'], type="error"), True, status_alert, dash.no_update
 
 
 def callbacks(app, fsc=None, cache=None):
@@ -646,137 +998,7 @@ def callbacks(app, fsc=None, cache=None):
     )
     def targets_table(section_context, processing_output, processed_action, pagination, filter_, sorter, filterOptions,
                       processing_type, wdir):
-        # processing_type also store info about ms-files and metadata selection since it is the same modal for all of
-        # them
-        if section_context and section_context['page'] != 'Targets':
-            raise PreventUpdate
-        if not wdir:
-            raise PreventUpdate
-
-        if pagination:
-            page_size = pagination['pageSize']
-            current = pagination['current']
-
-            with duckdb_connection(wdir) as conn:
-                schema = conn.execute("DESCRIBE targets").pl()
-            column_types = {r["column_name"]: r["column_type"] for r in schema.to_dicts()}
-            where_sql, params = build_where_and_params(filter_, filterOptions)
-            order_by_sql = build_order_by(sorter, column_types, tie=('peak_label', 'ASC'))
-            if not order_by_sql:
-                order_by_sql = 'ORDER BY "mz_mean" ASC, "peak_label" COLLATE NOCASE ASC'
-
-            sql = f"""
-                        WITH filtered AS (
-                          SELECT *
-                          FROM targets
-                          {where_sql}
-                        ),
-                        paged AS (
-                          SELECT *, COUNT(*) OVER() AS __total__
-                          FROM filtered
-                          {(' ' + order_by_sql) if order_by_sql else ''}
-                          LIMIT ? OFFSET ?
-                        )
-                        SELECT * FROM paged;
-                        """
-
-            params_paged = params + [page_size, (current - 1) * page_size]
-
-            with duckdb_connection(wdir) as conn:
-                dfpl = conn.execute(sql, params_paged).pl()
-
-            data = (
-                dfpl
-                .with_columns(
-                    # If peak_selection is null, fall back to bookmark; default False.
-                    pl.when(pl.col('peak_selection').is_null())
-                    .then(pl.col('bookmark').fill_null(False))
-                    .otherwise(pl.col('peak_selection'))
-                    .cast(pl.Boolean)
-                    .alias('peak_selection_resolved'),
-                    pl.col('bookmark').fill_null(False).cast(pl.Boolean).alias('bookmark_resolved'),
-                    # Round rt, rt_min and rt_max to 1 decimal place for display
-                    pl.col('rt').round(1).alias('rt'),
-                    pl.col('rt_min').round(1).alias('rt_min'),
-                    pl.col('rt_max').round(1).alias('rt_max'),
-                    # Uppercase ms_type for display consistency (cast from cat to string first)
-                    pl.col('ms_type').cast(pl.String).str.to_uppercase().alias('ms_type'),
-                )
-                .drop(['peak_selection', 'bookmark'])
-            )
-
-            # total rows:
-            number_records = int(data["__total__"][0]) if len(data) else 0
-            
-            # If result is empty but there are records, we may be on a page beyond the last
-            if len(data) == 0 and number_records == 0:
-                # Check if there are actually any records matching the filter
-                with duckdb_connection(wdir) as conn:
-                    count_sql = f"SELECT COUNT(*) FROM targets {where_sql}"
-                    total_count = conn.execute(count_sql, params).fetchone()[0]
-                    if total_count > 0:
-                        number_records = total_count
-            
-            # Calculate max page and adjust current if beyond it
-            max_page = max(math.ceil(number_records / page_size), 1) if number_records else 1
-            current = min(max(current, 1), max_page)
-
-            # If we just removed the page we were on, re-query for the new page index
-            if params_paged[-1] != (current - 1) * page_size:
-                params_paged = params + [page_size, (current - 1) * page_size]
-                with duckdb_connection(wdir) as conn:
-                    dfpl = conn.execute(sql, params_paged).pl()
-                
-                data = (
-                    dfpl
-                    .with_columns(
-                        pl.when(pl.col('peak_selection').is_null())
-                        .then(pl.col('bookmark').fill_null(False))
-                        .otherwise(pl.col('peak_selection'))
-                        .cast(pl.Boolean)
-                        .alias('peak_selection_resolved'),
-                        pl.col('bookmark').fill_null(False).cast(pl.Boolean).alias('bookmark_resolved'),
-                        pl.col('rt').round(1).alias('rt'),
-                        pl.col('rt_min').round(1).alias('rt_min'),
-                        pl.col('rt_max').round(1).alias('rt_max'),
-                        pl.col('ms_type').cast(pl.String).str.to_uppercase().alias('ms_type'),
-                    )
-                    .drop(['peak_selection', 'bookmark'])
-                )
-                number_records = int(data["__total__"][0]) if len(data) else 0
-
-            with (duckdb_connection(wdir) as conn):
-                category_filters = conn.execute(
-                    "SELECT DISTINCT category FROM targets ORDER BY category ASC"
-                ).df()['category'].to_list()
-
-                if not isinstance(filterOptions, dict) or 'category' not in filterOptions:
-                    output_filterOptions = dash.no_update
-                else:
-                    st_custom_items = filterOptions['category'].get('filterCustomItems')
-                    if st_custom_items != category_filters:
-                        output_filterOptions = filterOptions.copy()
-                        output_filterOptions['category']['filterCustomItems'] = (
-                            category_filters if category_filters != [None] else []
-                        )
-                    else:
-                        output_filterOptions = dash.no_update
-
-            # Convert to dicts and add the checkbox structure AFTER Polars processing
-            # This avoids using pl.Object dtype which causes panic in frozen apps
-            data_dicts = data.to_dicts()
-            for row in data_dicts:
-                row['peak_selection'] = {'checked': bool(row.pop('peak_selection_resolved', False))}
-                row['bookmark'] = {'checked': bool(row.pop('bookmark_resolved', False))}
-
-            return [
-                data_dicts,
-                [],
-                {**pagination, 'total': number_records, 'current': current, 'pageSizeOptions': sorted([5, 10, 15, 25, 50,
-                100, number_records])},
-                output_filterOptions
-            ]
-        return dash.no_update
+        return _targets_table(section_context, pagination, filter_, sorter, filterOptions, wdir)
 
     @app.callback(
         Output("targets-notifications-container", "children"),
@@ -809,10 +1031,12 @@ def callbacks(app, fsc=None, cache=None):
     def show_delete_modal(nClicks, clickedKey, selectedRows):
         ctx = dash.callback_context
         if not ctx.triggered or clickedKey not in ['delete-selected', 'delete-all']:
+            logger.debug(f"show_delete_modal: PreventUpdate because triggered={ctx.triggered}, clickedKey={clickedKey}")
             raise PreventUpdate
 
         if clickedKey == "delete-selected":
             if not bool(selectedRows):
+                logger.debug("show_delete_modal: PreventUpdate because no rows selected for deletion")
                 raise PreventUpdate
 
         children = fac.AntdFlex(
@@ -845,111 +1069,7 @@ def callbacks(app, fsc=None, cache=None):
         prevent_initial_call=True
     )
     def target_delete(okCounts, selectedRows, clickedKey, wdir):
-        """
-        Delete targets from the table.
-
-        Triggered by the delete button in the target table, this function will delete the selected targets from the
-        table and write the updated table to the targets file.
-
-        Parameters
-        ----------
-        okCounts : int
-            The number of times the ok button was clicked.
-        cancelCounts : int
-            The number of times the cancel button was clicked.
-        closeCounts : int
-            The number of times the close button was clicked.
-        selected_rows : list
-            A list of dictionaries, where each dictionary represents a selected row in the table.
-        wdir : str
-            The working directory.
-
-        Returns
-        -------
-        notifications : list
-            A list of notifications to be displayed in the notification container.
-        drop_table_output : boolean
-            A boolean indicating whether the delete button was clicked.
-        """
-        if okCounts is None or clickedKey not in ['delete-selected', 'delete-all']:
-            raise PreventUpdate
-        if not wdir:
-            raise PreventUpdate
-        
-        activate_workspace_logging(wdir)
-
-        if clickedKey == "delete-selected" and not selectedRows:
-            targets_action_store = {'action': 'delete', 'status': 'failed'}
-            total_removed = 0
-        elif clickedKey == "delete-selected":
-            remove_targets = [row['peak_label'] for row in selectedRows]
-
-            with duckdb_connection(wdir) as conn:
-                if conn is None:
-                    raise PreventUpdate
-                try:
-                    conn.execute("BEGIN")
-                    conn.execute("DELETE FROM targets WHERE peak_label IN ?", (remove_targets,))
-                    conn.execute("DELETE FROM chromatograms WHERE peak_label IN ?", (remove_targets,))
-                    conn.execute("DELETE FROM results WHERE peak_label IN ?", (remove_targets,))
-                    conn.execute("COMMIT")
-                except Exception as e:
-                    conn.execute("ROLLBACK")
-                    logger.error(f"Error deleting selected targets: {e}", exc_info=True)
-                    return (fac.AntdNotification(
-                                message="Delete Targets failed",
-                                description="Could not delete the selected targets; no changes were applied.",
-                                type="error",
-                                duration=4,
-                                placement='bottom',
-                                showProgress=True,
-                                stack=True
-                            ),
-                            {'action': 'delete', 'status': 'failed'})
-            total_removed = len(remove_targets)
-            targets_action_store = {'action': 'delete', 'status': 'success'}
-        elif clickedKey == "delete-all":
-            with duckdb_connection(wdir) as conn:
-                if conn is None:
-                    raise PreventUpdate
-                total_removed_q = conn.execute("SELECT COUNT(*) FROM targets").fetchone()
-                targets_action_store = {'action': 'delete', 'status': 'failed'}
-                total_removed = 0
-                if total_removed_q:
-                    total_removed = total_removed_q[0]
-
-                    try:
-                        conn.execute("BEGIN")
-                        conn.execute("DELETE FROM targets")
-                        conn.execute("DELETE FROM chromatograms")
-                        conn.execute("DELETE FROM results")
-                        conn.execute("COMMIT")
-                        targets_action_store = {'action': 'delete', 'status': 'success'}
-                    except Exception as e:
-                        conn.execute("ROLLBACK")
-                        logger.error(f"Error deleting all targets: {e}", exc_info=True)
-                        return (fac.AntdNotification(
-                                    message="Delete Targets failed",
-                                    description="Could not delete all targets; no changes were applied.",
-                                    type="error",
-                                    duration=4,
-                                    placement='bottom',
-                                    showProgress=True,
-                                    stack=True
-                                ),
-                                {'action': 'delete', 'status': 'failed'})
-        if total_removed > 0:
-            logger.info(f"Deleted {total_removed} targets.")
-
-        return (fac.AntdNotification(message="Delete Targets",
-                                     description=f"Deleted {total_removed} targets",
-                                     type="success" if total_removed > 0 else "error",
-                                     duration=3,
-                                     placement='bottom',
-                                     showProgress=True,
-                                     stack=True
-                                     ),
-                targets_action_store)
+        return _target_delete(okCounts, selectedRows, clickedKey, wdir)
 
     @app.callback(
         Output("notifications-container", "children", allow_duplicate=True),
@@ -961,59 +1081,7 @@ def callbacks(app, fsc=None, cache=None):
         prevent_initial_call=True,
     )
     def save_target_table_on_edit(row_edited, column_edited, wdir):
-        """
-        This callback saves the table on cell edits.
-        This saves some bandwidth.
-        """
-        ctx = dash.callback_context
-        if not ctx.triggered:
-            raise PreventUpdate
-
-        if row_edited is None or column_edited is None:
-            raise PreventUpdate
-
-        allowed_columns = {
-            "rt",
-            "rt_min",
-            "rt_max",
-            "rt_unit",
-            "intensity_threshold",
-            "notes",
-            "category",
-            "score",
-        }
-        if column_edited not in allowed_columns:
-            raise PreventUpdate
-        try:
-            with duckdb_connection(wdir) as conn:
-                if conn is None:
-                    raise PreventUpdate
-
-                query = f"UPDATE targets SET {column_edited} = ? WHERE peak_label = ?"
-                if column_edited == 'sample_type' and row_edited[column_edited] in [None, '']:
-                    conn.execute(query, ['Unset', row_edited['peak_label']])
-                else:
-                    conn.execute(query, [row_edited[column_edited], row_edited['peak_label']])
-                targets_action_store = {'action': 'edit', 'status': 'success'}
-                logger.info(f"Updated target {row_edited['peak_label']}: {column_edited} = {row_edited[column_edited]}")
-            return fac.AntdNotification(message="Successfully edition saved",
-                                        type="success",
-                                        duration=3,
-                                        placement='bottom',
-                                        showProgress=True,
-                                        stack=True
-                                        ), targets_action_store
-        except Exception as e:
-            logger.error(f"Error updating metadata: {e}", exc_info=True)
-            targets_action_store = {'action': 'edit', 'status': 'failed'}
-            return fac.AntdNotification(message="Failed to save edition",
-                                        description=f"Failing to save edition with: {str(e)}",
-                                        type="error",
-                                        duration=3,
-                                        placement='bottom',
-                                        showProgress=True,
-                                        stack=True
-                                        ), targets_action_store
+        return _save_target_table_on_edit(row_edited, column_edited, wdir)
 
     @app.callback(
         Input('targets-table', 'recentlySwitchDataIndex'),
@@ -1023,20 +1091,7 @@ def callbacks(app, fsc=None, cache=None):
         prevent_initial_call=True
     )
     def save_switch_changes(recentlySwitchDataIndex, recentlySwitchStatus, recentlySwitchRow, wdir):
-
-        if recentlySwitchDataIndex is None or recentlySwitchStatus is None or not recentlySwitchRow:
-            raise PreventUpdate
-
-        allowed_switch_columns = {"peak_selection", "bookmark"}
-        if recentlySwitchDataIndex not in allowed_switch_columns:
-            raise PreventUpdate
-
-        with duckdb_connection(wdir) as conn:
-            if conn is None:
-                raise PreventUpdate
-            conn.execute(f"UPDATE targets SET {recentlySwitchDataIndex} = ? WHERE peak_label = ?",
-                         (recentlySwitchStatus, recentlySwitchRow['peak_label']))
-            logger.info(f"Updated {recentlySwitchDataIndex} for {recentlySwitchRow['peak_label']}: {recentlySwitchStatus}")
+        return _save_switch_changes(recentlySwitchDataIndex, recentlySwitchStatus, recentlySwitchRow, wdir)
 
     @app.callback(
         Output("download-targets-csv", "data"),
@@ -1054,6 +1109,7 @@ def callbacks(app, fsc=None, cache=None):
 
         ctx = dash.callback_context
         if not ctx.triggered:
+            logger.debug("download_results: PreventUpdate because not triggered")
             raise PreventUpdate
 
         ws_name = "workspace"
@@ -1076,9 +1132,11 @@ def callbacks(app, fsc=None, cache=None):
 
         if trigger == 'download-target-list-btn':
             if not wdir:
+                logger.debug("download_results: PreventUpdate because wdir is not set for target list download")
                 raise PreventUpdate
             with duckdb_connection(wdir) as conn:
                 if conn is None:
+                    logger.debug("download_results: PreventUpdate because database connection is None")
                     raise PreventUpdate
                 df = conn.execute("SELECT * FROM targets ORDER BY mz_mean ASC").df()
                 # Reorder columns to match the template/export expectation
@@ -1086,6 +1144,7 @@ def callbacks(app, fsc=None, cache=None):
                 df = df[[c for c in cols if c in df.columns]]
                 filename = f"{T.today()}-MINT__{ws_name}-targets.csv"
         else:
+            logger.debug("download_results: PreventUpdate (unexpected trigger or no action required)")
             raise PreventUpdate
         return dcc.send_data_frame(df.to_csv, filename, index=False)
 
@@ -1106,6 +1165,7 @@ def callbacks(app, fsc=None, cache=None):
     )
     def sync_hint_store(store_data):
         if not store_data:
+            logger.debug("sync_hint_store: PreventUpdate because store_data is empty")
             raise PreventUpdate
         return store_data.get('open', True), 0
 
@@ -1119,6 +1179,7 @@ def callbacks(app, fsc=None, cache=None):
     def hide_hint(close_counts, n_clicks, store_data):
         ctx = dash.callback_context
         if not ctx.triggered:
+            logger.debug("hide_hint: PreventUpdate because not triggered")
             raise PreventUpdate
 
         trigger = ctx.triggered[0]['prop_id'].split('.')[0]
@@ -1140,6 +1201,7 @@ def callbacks(app, fsc=None, cache=None):
     )
     def open_asari_modal(n_clicks, wdir):
         if not n_clicks:
+             logger.debug("open_asari_modal: PreventUpdate because n_clicks is None")
              raise PreventUpdate
         
         mode_val = 'pos'
@@ -1230,62 +1292,7 @@ def callbacks(app, fsc=None, cache=None):
         prevent_initial_call=True
     )
     def run_asari_analysis(set_progress, ok_counts, wdir, multicores, mz_tol, mode, snr, min_height, min_points, gaussian_shape, cselectivity, detection_rate):
-        if not ok_counts:
-             raise PreventUpdate
-             
-        if not wdir:
-            return dash.no_update, True, fac.AntdAlert(message="No workspace selected.", type="error"), dash.no_update
-        
-        activate_workspace_logging(wdir)
-            
-        # Validate inputs
-        if multicores is None or multicores < 1:
-            return dash.no_update, True, fac.AntdAlert(message="Invalid CPU cores selected.", type="error"), dash.no_update
-        if mz_tol is None or mz_tol < 1:
-            return dash.no_update, True, fac.AntdAlert(message="Invalid MZ Tolerance.", type="error"), dash.no_update
-        if snr is None or snr < 1:
-            return dash.no_update, True, fac.AntdAlert(message="Invalid Signal/Noise Ratio.", type="error"), dash.no_update
-        if min_height is None or min_height < 0:
-            return dash.no_update, True, fac.AntdAlert(message="Invalid Min Peak Height.", type="error"), dash.no_update
-        if min_points is None or min_points < 1:
-             return dash.no_update, True, fac.AntdAlert(message="Invalid Min Timepoints.", type="error"), dash.no_update
-             
-        # Gaussian Shape is optional
-        if gaussian_shape is not None and (gaussian_shape < 0 or gaussian_shape > 1):
-             return dash.no_update, True, fac.AntdAlert(message="Invalid Gaussian Shape. Must be between 0 and 1.", type="error"), dash.no_update
-
-        # cSelectivity is optional
-        if cselectivity is not None and (cselectivity < 0 or cselectivity > 1):
-             return dash.no_update, True, fac.AntdAlert(message="Invalid cSelectivity. Must be between 0 and 1.", type="error"), dash.no_update
-
-        # Detection Rate is optional
-        if detection_rate is not None and (detection_rate < 0 or detection_rate > 100):
-             return dash.no_update, True, fac.AntdAlert(message="Invalid Detection Rate. Must be between 0% and 100%.", type="error"), dash.no_update
-            
         def progress_adapter(data):
-            # data is (percent, message, detail, logs)
             if set_progress:
                 set_progress(data)
-            
-        params = {
-            'multicores': multicores,
-            'mz_tolerance_ppm': mz_tol,
-            'mode': mode,
-            'signal_noise_ratio': snr,
-            'min_peak_height': min_height,
-            'min_timepoints': min_points,
-            'gaussian_shape': gaussian_shape,
-            'cselectivity': cselectivity,
-            'detection_rate': detection_rate
-        }
-        
-        result = targets_asari.run_asari_workflow(wdir, params, set_progress=progress_adapter)
-        
-        status_alert = None
-        if result['success']:
-             status_alert = fac.AntdAlert(message=result['message'], type="success", showIcon=True, closable=True)
-             import time
-             return fac.AntdNotification(message="Asari Analysis", description=result['message'], type="success"), False, status_alert, {'timestamp': time.time()}
-        else:
-             status_alert = fac.AntdAlert(message=result['message'], type="error", showIcon=True, closable=True)
-             return fac.AntdNotification(message="Asari Analysis Failed", description=result['message'], type="error"), True, status_alert, dash.no_update
+        return _run_asari_analysis(ok_counts, wdir, multicores, mz_tol, mode, snr, min_height, min_points, gaussian_shape, cselectivity, detection_rate, set_progress=progress_adapter)
