@@ -701,9 +701,11 @@ def callbacks(app, fsc, cache):
     def results_table(section_context, results_actions, selected_peaks,
                       pagination, filter_, sorter, filterOptions, wdir):
         if section_context and section_context['page'] != 'Processing':
+            logger.debug(f"results_table: PreventUpdate because current page is {section_context.get('page')}")
             raise PreventUpdate
 
         if not wdir:
+            logger.debug("results_table: PreventUpdate because wdir is not set")
             raise PreventUpdate
 
         # Autosave results table on tab load/refresh for durability (throttled to limit I/O).
@@ -718,6 +720,7 @@ def callbacks(app, fsc, cache):
             if should_write:
                 with duckdb_connection(wdir) as conn:
                     if conn is None:
+                        logger.debug("results_table: PreventUpdate because database connection is None (backup)")
                         raise PreventUpdate
                     conn.execute(
                         "COPY (SELECT * FROM results) TO ? (HEADER, DELIMITER ',')",
@@ -766,6 +769,7 @@ def callbacks(app, fsc, cache):
 
         with duckdb_connection(wdir) as conn:
             if conn is None:
+                logger.debug("results_table: PreventUpdate because database connection is None")
                 raise PreventUpdate
             results_schema = conn.execute("DESCRIBE results").fetchall()
             samples_schema = conn.execute("DESCRIBE samples").fetchall()
@@ -838,6 +842,7 @@ def callbacks(app, fsc, cache):
         if number_records and params_paged[-1] != (current - 1) * effective_page_size:
             with duckdb_connection(wdir) as conn:
                 if conn is None:
+                    logger.debug("results_table: PreventUpdate because database connection is None (repaginate)")
                     raise PreventUpdate
                 params_paged = order_params + params + [effective_page_size, (current - 1) * effective_page_size]
                 df = conn.execute(sql, params_paged).df()
@@ -886,12 +891,15 @@ def callbacks(app, fsc, cache):
     )
     def load_available_peaks(section_context, wdir, results_actions, current_value):
         if section_context and section_context['page'] != 'Processing':
+            logger.debug(f"load_available_peaks: PreventUpdate because current page is {section_context.get('page')}")
             raise PreventUpdate
         if not wdir:
+            logger.debug("load_available_peaks: PreventUpdate because wdir is not set")
             raise PreventUpdate
 
         with duckdb_connection(wdir) as conn:
             if conn is None:
+                logger.debug("load_available_peaks: PreventUpdate because database connection is None")
                 raise PreventUpdate
             peaks = conn.execute(
                 "SELECT DISTINCT peak_label FROM results ORDER BY peak_label"
@@ -928,10 +936,12 @@ def callbacks(app, fsc, cache):
                 not clickedKey or
                 clickedKey not in ['processing-delete-selected', 'processing-delete-all']
         ):
+            logger.debug(f"toggle_modal: PreventUpdate because triggered={ctx.triggered}, nClicks={nClicks}, clickedKey={clickedKey}")
             raise PreventUpdate
 
         if clickedKey == "processing-delete-selected":
             if not selectedRows:
+                logger.debug("toggle_modal: PreventUpdate because no rows selected for delete-selected")
                 raise PreventUpdate
 
         children = fac.AntdFlex(
@@ -971,8 +981,10 @@ def callbacks(app, fsc, cache):
     def confirm_and_delete(okCounts, selectedRows, clickedKey, wdir):
 
         if okCounts is None:
+            logger.debug("confirm_and_delete: PreventUpdate because okCounts is None")
             raise PreventUpdate
         if not wdir:
+            logger.debug("confirm_and_delete: PreventUpdate because wdir is not set")
             raise PreventUpdate
         if clickedKey == "processing-delete-selected" and not selectedRows:
             results_action_store = {'action': 'delete', 'status': 'failed'}
@@ -987,6 +999,7 @@ def callbacks(app, fsc, cache):
 
             with duckdb_connection(wdir) as conn:
                 if conn is None:
+                    logger.debug("confirm_and_delete(delete-selected): PreventUpdate because database connection is None")
                     raise PreventUpdate
 
                 try:
@@ -1016,6 +1029,7 @@ def callbacks(app, fsc, cache):
         else:
             with duckdb_connection(wdir) as conn:
                 if conn is None:
+                    logger.debug("confirm_and_delete(delete-all): PreventUpdate because database connection is None")
                     raise PreventUpdate
                 try:
                     conn.execute("BEGIN")
@@ -1064,6 +1078,7 @@ def callbacks(app, fsc, cache):
     )
     def open_download_results(n_clicks):
         if not n_clicks:
+            logger.debug("open_download_results: PreventUpdate because n_clicks is None")
             raise PreventUpdate
         return True
 
@@ -1156,11 +1171,14 @@ def callbacks(app, fsc, cache):
 
         ctx = dash.callback_context
         if not ctx.triggered:
+            logger.debug("download_results: PreventUpdate because not triggered")
             raise PreventUpdate
         prop_id = ctx.triggered[0]['prop_id'].split('.')[0]
         if prop_id == 'download-all-results-btn' and not d_all_clicks:
+            logger.debug("download_results: PreventUpdate because download-all-results-btn clicked but no count")
             raise PreventUpdate
         if prop_id == 'download-densematrix-results-btn' and not d_dm_clicks:
+            logger.debug("download_results: PreventUpdate because download-densematrix-results-btn clicked but no count")
             raise PreventUpdate
 
         if not wdir:
@@ -1176,9 +1194,11 @@ def callbacks(app, fsc, cache):
         ws_key = Path(wdir).stem
         with duckdb_connection_mint(Path(wdir).parent.parent) as mint_conn:
             if mint_conn is None:
+                logger.debug("download_results: PreventUpdate because mint database connection is None")
                 raise PreventUpdate
             ws_row = mint_conn.execute("SELECT name FROM workspaces WHERE key = ?", [ws_key]).fetchone()
             if ws_row is None:
+                logger.debug("download_results: PreventUpdate because workspace row not found")
                 raise PreventUpdate
             ws_name = ws_row[0]
 
@@ -1311,6 +1331,7 @@ def callbacks(app, fsc, cache):
     )
     def processing_hint_sync(store_data):
         if not store_data:
+            logger.debug("processing_hint_sync: PreventUpdate because store_data is empty")
             raise PreventUpdate
         return store_data.get('open', True), 0
 
@@ -1324,6 +1345,7 @@ def callbacks(app, fsc, cache):
     def processing_hide_hint(close_counts, n_clicks, store_data):
         ctx = dash.callback_context
         if not ctx.triggered:
+            logger.debug("processing_hide_hint: PreventUpdate because not triggered")
             raise PreventUpdate
 
         trigger = ctx.triggered[0]['prop_id'].split('.')[0]
@@ -1354,6 +1376,7 @@ def callbacks(app, fsc, cache):
     )
     def open_run_mint_modal(nClicks, wdir):
         if not nClicks:
+            logger.debug("open_run_mint_modal: PreventUpdate because nClicks is None")
             raise PreventUpdate
 
         computed_results = 0
@@ -1481,6 +1504,7 @@ def callbacks(app, fsc, cache):
     def compute_results(set_progress, okCounts, recompute, n_cpus, ram, batch_size, bookmarked, wdir):
 
         if not okCounts:
+            logger.debug("compute_results: PreventUpdate because okCounts is None")
             raise PreventUpdate
 
         activate_workspace_logging(wdir)
@@ -1539,6 +1563,7 @@ def callbacks(app, fsc, cache):
     )
     def cancel_results_processing(cancel_clicks):
         if not cancel_clicks:
+            logger.debug("cancel_results_processing: PreventUpdate because cancel_clicks is None")
             raise PreventUpdate
         return (
             {'action': 'processing', 'status': 'cancelled', 'timestamp': time.time()},
