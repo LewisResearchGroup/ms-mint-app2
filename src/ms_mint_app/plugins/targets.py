@@ -891,7 +891,7 @@ def callbacks(app, fsc=None, cache=None):
                     conn.execute("BEGIN")
                     conn.execute("DELETE FROM targets WHERE peak_label IN ?", (remove_targets,))
                     conn.execute("DELETE FROM chromatograms WHERE peak_label IN ?", (remove_targets,))
-                    # conn.execute("DELETE FROM results WHERE peak_label IN ?", (remove_targets,))
+                    conn.execute("DELETE FROM results WHERE peak_label IN ?", (remove_targets,))
                     conn.execute("COMMIT")
                 except Exception as e:
                     conn.execute("ROLLBACK")
@@ -922,7 +922,7 @@ def callbacks(app, fsc=None, cache=None):
                         conn.execute("BEGIN")
                         conn.execute("DELETE FROM targets")
                         conn.execute("DELETE FROM chromatograms")
-                        # conn.execute("DELETE FROM results")
+                        conn.execute("DELETE FROM results")
                         conn.execute("COMMIT")
                         targets_action_store = {'action': 'delete', 'status': 'success'}
                     except Exception as e:
