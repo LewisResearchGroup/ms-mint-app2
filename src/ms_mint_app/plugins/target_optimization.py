@@ -1317,7 +1317,7 @@ def callbacks(app, fsc, cache, cpu=None):
 
             query = f"""
                                 WITH picked_samples AS (
-                                    SELECT ms_file_label, color, label
+                                    SELECT ms_file_label, color, label, sample_type
                                     FROM samples
                                     WHERE use_for_optimization = TRUE
                                       AND ms_file_label IN (SELECT unnest(?::VARCHAR[]))
@@ -1332,6 +1332,8 @@ def callbacks(app, fsc, cache, cpu=None):
                                            t.rt,
                                            t.intensity_threshold,
                                            t.mz_mean,
+                                           t.rt_align_enabled,
+                                           t.rt_align_shifts,
                                            t.filterLine
                                     FROM targets t
                                     WHERE (
@@ -1379,7 +1381,10 @@ def callbacks(app, fsc, cache, cpu=None):
                                        t.mz_mean,
                                        t.bookmark,  -- Add additional fields as needed
                                        t.ms_type,
-                                       t.filterLine
+                                           t.rt_align_enabled,
+                                           t.rt_align_shifts,
+                                           t.filterLine,
+                                           s.sample_type
                                     FROM chromatograms c
                                           JOIN picked_samples s USING (ms_file_label)
                                           JOIN picked_targets t USING (peak_label)
@@ -1396,18 +1401,18 @@ def callbacks(app, fsc, cache, cpu=None):
                                            mz_mean,
                                            bookmark,
                                            ms_type,
+                                           rt_align_enabled,
+                                           rt_align_shifts,
                                            filterLine,
-                                           list_filter(
-                                               list_transform(
+                                           sample_type,
+                                           list_transform(
                                                    range(1, len(scan_time) + 1),
                                                    i -> struct_pack(
                                                        t := list_extract(scan_time, i),
                                                        i := list_extract(intensity, i)
                                                    )
-                                               ),
-                                               p -> p.t >= rt_min AND p.t <= rt_max
-                                                     AND p.i >= COALESCE(intensity_threshold, 0)
-                                           ) AS pairs_in
+                                               )
+                                           AS pairs_in
                                     FROM base
                                 ),
                                 final AS (
@@ -1421,7 +1426,10 @@ def callbacks(app, fsc, cache, cpu=None):
                                            rt,
                                            bookmark,
                                            ms_type,
+                                           rt_align_enabled,
+                                           rt_align_shifts,
                                            filterLine,
+                                           sample_type,
                                            list_transform(pairs_in, p -> p.t) AS scan_time_sliced,
                                            list_transform(pairs_in, p -> p.i) AS intensity_sliced
                                     FROM filtered
@@ -1445,9 +1453,17 @@ def callbacks(app, fsc, cache, cpu=None):
         updated_preview_y_range = dict(preview_y_range)
 
         for peak_label_data, peak_data in df.group_by(
-                ['peak_label', 'ms_type', 'bookmark', 'rt_min', 'rt_max', 'rt', 'mz_mean', 'filterLine'],
+                ['peak_label', 'ms_type', 'bookmark', 'rt_min', 'rt_max', 'rt', 'mz_mean', 'filterLine', 'rt_align_enabled', 'rt_align_shifts'],
                 maintain_order=True):
-            peak_label, ms_type, bookmark, rt_min, rt_max, rt, mz_mean, filterLine = peak_label_data
+            peak_label, ms_type, bookmark, rt_min, rt_max, rt, mz_mean, filterLine, rt_align_enabled, rt_align_shifts = peak_label_data
+            
+            # Parse alignment shifts if enabled
+            shifts_map = {}
+            if rt_align_enabled and rt_align_shifts:
+                try:
+                    shifts_map = json.loads(rt_align_shifts)
+                except Exception as e:
+                    logger.error(f"Error parsing alignment shifts for {peak_label}: {e}")
 
             titles.append(peak_label)
             bookmarks.append(int(bookmark))  # convert bool to int
@@ -1457,8 +1473,27 @@ def callbacks(app, fsc, cache, cpu=None):
             y_max = 0.0
             y_min_pos = None
             for i, row in enumerate(peak_data.iter_rows(named=True)):
+                
+                scan_time = np.array(row['scan_time_sliced'])
+                intensity = np.array(row['intensity_sliced'])
+
+                # Apply alignment shift if available
+                if rt_align_enabled and shifts_map:
+                    sample_type = row.get('sample_type')
+                    shift = shifts_map.get(sample_type, 0.0)
+                    if shift != 0:
+                        scan_time = scan_time + shift
+                
+                # Filter by rt_min/rt_max (since we fetched full traces)
+                mask = (scan_time >= rt_min) & (scan_time <= rt_max)
+                if not np.any(mask):
+                    continue
+                
+                scan_time_sliced = scan_time[mask]
+                intensity_sliced = intensity[mask]
+
                 scan_time_sparse, intensity_sparse = sparsify_chrom(
-                    row['scan_time_sliced'], row['intensity_sliced']
+                    scan_time_sliced, intensity_sliced
                 )
                 if len(intensity_sparse):
                     local_max = max(intensity_sparse)
@@ -3126,7 +3161,7 @@ def callbacks(app, fsc, cache, cpu=None):
                                  ),
             buttons_style,
             slider_reference,
-            True
+            time.time()
         )
 
     @app.callback(
