@@ -175,7 +175,7 @@ _layout = fac.AntdLayout(
                                                 treeData=[],
                                                 multiple=True,
                                                 checkable=True,
-                                                defaultExpandAll=True,
+                                                defaultExpandAll=False,
                                                 showIcon=True,
                                                 style={'display': 'none'}
                                             ),
@@ -1158,7 +1158,7 @@ def callbacks(app, fsc, cache, cpu=None):
             else:
                 tree_data = dash.no_update
 
-            if prop_id in ['expand-tree-action', 'section-context']:
+            if prop_id == 'expand-tree-action':
                 expanded_keys = df['sample_type'].tolist()
             elif prop_id == 'collapse-tree-action':
                 expanded_keys = []
