@@ -31,3 +31,4 @@ analysis/*
 analyze_dependencies.py
 pyinstaller/asari_env/*
 !pyinstaller/asari_env/.gitkeep
+tests/test_MS1/*

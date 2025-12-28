@@ -855,6 +855,16 @@ def process_ms_files(wdir, set_progress, selected_files, n_cpus):
                         continue
 
                     _file_path, _ms_file_label, _ms_level, _polarity, _parquet_df = result
+                    
+                    if _parquet_df is None:
+                        # Conversion failed or file was empty
+                        failed_files.append({_file_path: "No valid data found or conversion failed"})
+                        total_processed += 1
+                        done_count = total_processed + len(failed_files) + duplicates_count
+                        _send_progress(round(done_count / n_total * 100, 1))
+                        print(f"Failed (no data): {Path(_file_path).name}")
+                        continue
+
                     suffix = Path(_file_path).suffix.lower()
                     if suffix == ".mzxml":
                         file_type = "mzXML"
