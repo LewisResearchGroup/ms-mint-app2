@@ -3140,7 +3140,21 @@ def callbacks(app, fsc, cache, cpu=None):
 
         with duckdb_connection(wdir) as conn:
             if conn is None:
-                return dash.no_update
+                logger.error("Failed to connect to database to save RT values")
+                return (
+                    fac.AntdNotification(
+                        message="Database connection failed",
+                        description="Could not save RT values. Please check the workspace connection.",
+                        type="error",
+                        duration=5,
+                        placement='bottom',
+                        showProgress=True,
+                        stack=True
+                    ),
+                    dash.no_update,
+                    dash.no_update,
+                    dash.no_update
+                )
             conn.execute("UPDATE targets SET rt_min = ?, rt = ?, rt_max = ? "
                          "WHERE peak_label = ?", (rt_min, rt_, rt_max, target_clicked))
         
@@ -3288,7 +3302,16 @@ def callbacks(app, fsc, cache, cpu=None):
 
         with duckdb_connection(wdir) as conn:
             if conn is None:
-                return dash.no_update
+                logger.error(f"Failed to connect to database to bookmark target '{targets[trigger_id]}'")
+                return fac.AntdNotification(
+                    message="Database connection failed",
+                    description="Could not update bookmark status. Please check the workspace connection.",
+                    type="error",
+                    duration=5,
+                    placement='bottom',
+                    showProgress=True,
+                    stack=True
+                )
             conn.execute("UPDATE targets SET bookmark = ? WHERE peak_label = ?", [bool(bookmarks[trigger_id]),
                                                                                   targets[trigger_id]])
         
