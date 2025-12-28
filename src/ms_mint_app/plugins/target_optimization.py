@@ -1651,9 +1651,6 @@ def callbacks(app, fsc, cache, cpu=None):
             return True, dash.no_update, dash.no_update
             # if not has_changes, close it
         elif trigger_id == 'chromatogram-view-close':
-            logger.info(f"Closing modal for {target_clicked}, note value received: '{target_note}'")
-            logger.info(f"RT alignment toggle state: {rt_align_toggle}")
-            
             with duckdb_connection(wdir) as conn:
                 if conn is None:
                     return dash.no_update, dash.no_update, dash.no_update
@@ -1679,9 +1676,10 @@ def callbacks(app, fsc, cache, cpu=None):
                             shifts_json,
                             rt_alignment_data['rt_min'],
                             rt_alignment_data['rt_max'],
+
                             target_clicked
                         ])
-                        logger.info(f"Saved RT alignment: enabled=TRUE, ref={rt_alignment_data['reference_rt']:.2f}s")
+                        logger.debug(f"Saved RT alignment: enabled=TRUE, ref={rt_alignment_data['reference_rt']:.2f}s")
                     else:
                         logger.warning("RT align toggle is ON but no alignment data available - not saving")
                 else:
@@ -1695,12 +1693,34 @@ def callbacks(app, fsc, cache, cpu=None):
                             rt_align_rt_max = NULL
                         WHERE peak_label = ?
                     """, [target_clicked])
-                    logger.info("Saved RT alignment: enabled=FALSE (cleared all data)")
+                    logger.debug("Saved RT alignment: enabled=FALSE (cleared all data)")
                 
-                # Save notes (this was accidentally removed)
+                # Prepare final notes:
+                # 1. Remove any existing auto-generated RT Alignment note to prevent duplication
+                #    or persistence when disabled.
+                raw_note = target_note or ''
+                # Split by double newline to find blocks
+                note_parts = raw_note.split('\n\n')
+                # Filter out lines starting with our specific prefix
+                clean_parts = [p for p in note_parts if not p.startswith("RT Alignment: ✓ Applied")]
+                final_note = '\n\n'.join(clean_parts)
+                
+                if rt_align_toggle and rt_alignment_data and rt_alignment_data.get('enabled'):
+                    # Generate human-readable alignment note
+                    ref_rt = rt_alignment_data['reference_rt']
+                    shifts = rt_alignment_data.get('shifts_by_sample_type', {})
+                    shift_str = ', '.join([f"{st}: {shift:+.1f}s" for st, shift in sorted(shifts.items())])
+                    alignment_note = f"RT Alignment: ✓ Applied, ref={ref_rt:.2f}s | {shift_str}"
+                    
+                    # Prepend alignment note (so it's always at top)
+                    if final_note:
+                        final_note = f"{alignment_note}\n\n{final_note}"
+                    else:
+                        final_note = alignment_note
+                
+                # Save notes
                 conn.execute("UPDATE targets SET notes = ? WHERE peak_label = ?",
-                             (target_note, target_clicked))
-                logger.info(f"Saved notes for {target_clicked}: '{target_note}'")
+                             (final_note, target_clicked))
 
             # allow close if no slider data or no changes
             if (not slider_ref or not slider_data) or slider_ref.get('value') == slider_data.get('value'):
@@ -1748,9 +1768,10 @@ def callbacks(app, fsc, cache, cpu=None):
         State('chromatogram-view-plot', 'figure'),
         State('chromatogram-view-plot-max', 'data'),
         State('chromatogram-view-plot-points', 'data'),
+        State('rt-alignment-data', 'data'),
         prevent_initial_call=True
     )
-    def chromatogram_view_y_scale(log_scale, figure, max_y, total_points):
+    def chromatogram_view_y_scale(log_scale, figure, max_y, total_points, rt_alignment_data):
 
         y_min, y_max = max_y
         fig = Patch()
@@ -1815,9 +1836,10 @@ def callbacks(app, fsc, cache, cpu=None):
     @app.callback(
         Output('chromatogram-view-plot', 'figure', allow_duplicate=True),
         Input('chromatogram-view-groupclick', 'checked'),
+        State('rt-alignment-data', 'data'),
         prevent_initial_call=True
     )
-    def chromatogram_view_legend_group(groupclick):
+    def chromatogram_view_legend_group(groupclick, rt_alignment_data):
         fig = Patch()
         if groupclick:
             fig['layout']['legend']['groupclick'] = 'togglegroup'
@@ -1913,7 +1935,8 @@ def callbacks(app, fsc, cache, cpu=None):
                 rt_alignment_data['rt_min'], 
                 rt_alignment_data['rt_max']
             )
-            logger.info(f"Megatrace callback: Applying RT alignment with {len(rt_alignment_shifts)} shifts")
+
+            # logger.debug(f"Megatrace callback: Applying RT alignment with {len(rt_alignment_shifts)} shifts")
         
         traces, x_min, x_max, y_min, y_max = generate_chromatogram_traces(
             chrom_df, 
@@ -1947,12 +1970,12 @@ def callbacks(app, fsc, cache, cpu=None):
     )
     def apply_rt_alignment(use_alignment, figure, use_megatrace, slider_current, target_clicked, wdir, existing_rt_data):
         """Apply or remove RT alignment when toggle changes"""
-        logger.info(f"RT Alignment callback triggered: use_alignment={use_alignment}")
+        # logger.debug(f"RT Alignment callback triggered: use_alignment={use_alignment}")
         
         # If turning ON and we already have matching alignment data in the store,
         # this is likely a state restoration - skip to avoid overwriting pre-aligned figure
         if use_alignment and existing_rt_data and existing_rt_data.get('enabled'):
-            logger.info("Skipping RT alignment callback - state restoration detected (data already in store)")
+            logger.debug("Skipping RT alignment callback - state restoration detected (data already in store)")
             raise PreventUpdate
         
         if not wdir or not target_clicked or not slider_current:
@@ -1964,7 +1987,7 @@ def callbacks(app, fsc, cache, cpu=None):
         rt_min = value_dict.get('rt_min')
         rt_max = value_dict.get('rt_max')
         
-        logger.info(f"RT range: rt_min={rt_min}, rt_max={rt_max}")
+        # logger.debug(f"RT range: rt_min={rt_min}, rt_max={rt_max}")
         
         if rt_min is None or rt_max is None:
             logger.warning("RT Alignment: rt_min or rt_max is None, raising PreventUpdate")
@@ -2069,7 +2092,7 @@ def callbacks(app, fsc, cache, cpu=None):
                 'rt_min': rt_min,
                 'rt_max': rt_max
             }
-            logger.info(f"RT Alignment data prepared: {alignment_data}")
+            # logger.debug(f"RT Alignment data prepared: {alignment_data}")
         
         # Regenerate traces with or without alignment
         traces, x_min, x_max, y_min, y_max = generate_chromatogram_traces(
@@ -2101,7 +2124,7 @@ def callbacks(app, fsc, cache, cpu=None):
     )
     def lock_rt_span_when_aligning(rt_align_on):
         """Force RT span to Lock mode when RT alignment is ON"""
-        logger.info(f"Lock RT span callback: rt_align_on={rt_align_on}, setting Lock mode (checked={rt_align_on})")
+        # logger.debug(f"Lock RT span callback: rt_align_on={rt_align_on}, setting Lock mode (checked={rt_align_on})")
         return rt_align_on  # True = Lock mode, False = Edit mode
 
 
@@ -2115,7 +2138,7 @@ def callbacks(app, fsc, cache, cpu=None):
         """Turn OFF RT alignment when user switches from Lock to Edit mode"""
         # When switching to Edit mode (is_locked=False), turn off alignment
         if not is_locked and rt_align_on:
-            logger.info("RT span switched to Edit mode - turning OFF RT alignment")
+            logger.debug("RT span switched to Edit mode - turning OFF RT alignment")
             return False
         raise PreventUpdate
 
@@ -2269,14 +2292,12 @@ def callbacks(app, fsc, cache, cpu=None):
             # Calculate alignment shifts from stored data
             rt_alignment_shifts_to_apply = calculate_rt_alignment(chrom_df, align_rt_min, align_rt_max)
             logger.info(f"Applying saved RT alignment on modal open: ref={align_ref_rt:.2f}s")
-            logger.info(f"Calculated shifts for initial figure: {rt_alignment_shifts_to_apply}")
         
         traces, x_min, x_max, y_min, y_max = generate_chromatogram_traces(
             chrom_df, 
             use_megatrace=use_megatrace,
             rt_alignment_shifts=rt_alignment_shifts_to_apply
         )
-        logger.info(f"Initial figure generated with {len(traces) if traces else 0} traces, alignment_applied={rt_alignment_shifts_to_apply is not None}")
 
         if traces:
             total_points = sum(len(t['x']) for t in traces)
@@ -2446,7 +2467,7 @@ def callbacks(app, fsc, cache, cpu=None):
                     'rt_max': align_rt_max
                 }
                 rt_align_toggle_state = True  # Set toggle to ON to match saved state
-                logger.info(f"Restoring RT alignment state: toggle=ON, ref={align_ref_rt:.2f}s")
+                logger.debug(f"Restoring RT alignment state: toggle=ON, ref={align_ref_rt:.2f}s")
             except Exception as e:
                 logger.error(f"Error parsing RT alignment data: {e}")
 
@@ -2466,9 +2487,10 @@ def callbacks(app, fsc, cache, cpu=None):
         State('chromatogram-view-plot', 'figure'),
         State('chromatogram-view-plot-points', 'data'),
         State('chromatogram-view-lock-range', 'checked'),
+        State('rt-alignment-data', 'data'),
         prevent_initial_call=True
     )
-    def update_rt_range_from_shape(relayout, slider_reference_data, slider_data, figure_state, total_points, lock_range):
+    def update_rt_range_from_shape(relayout, slider_reference_data, slider_data, figure_state, total_points, lock_range, rt_alignment_data):
         if not slider_reference_data:
             raise PreventUpdate
 
@@ -2738,9 +2760,10 @@ def callbacks(app, fsc, cache, cpu=None):
         Output('chromatogram-view-plot', 'config', allow_duplicate=True),
         Output('chromatogram-view-plot', 'figure', allow_duplicate=True),
         Input('chromatogram-view-lock-range', 'checked'),
+        State('rt-alignment-data', 'data'),
         prevent_initial_call=True
     )
-    def chromatogram_view_lock_range(lock_range):
+    def chromatogram_view_lock_range(lock_range, rt_alignment_data):
         config_patch = Patch()
         config_patch['edits']['shapePosition'] = not lock_range
 
@@ -2760,9 +2783,10 @@ def callbacks(app, fsc, cache, cpu=None):
         Input('chromatogram-view-plot', 'clickData'),
         State('slider-data', 'data'),
         State('slider-reference-data', 'data'),
+        State('rt-alignment-data', 'data'),
         prevent_initial_call=True
     )
-    def set_rt_on_click(click_data, slider_data, slider_reference):
+    def set_rt_on_click(click_data, slider_data, slider_reference, rt_alignment_data):
         """Set RT position when user clicks on the chromatogram."""
         if not click_data or not slider_data or not slider_reference:
             raise PreventUpdate
