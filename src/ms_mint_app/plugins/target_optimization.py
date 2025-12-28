@@ -1048,6 +1048,7 @@ def callbacks(app, fsc, cache, cpu=None):
     )
     def optimization_hint_sync(store_data):
         if not store_data:
+            logger.debug("optimization_hint_sync: No store data, preventing update")
             raise PreventUpdate
         return store_data.get('open', True), 0
 
@@ -1061,6 +1062,7 @@ def callbacks(app, fsc, cache, cpu=None):
     def optimization_hide_hint(close_counts, n_clicks, store_data):
         ctx = dash.callback_context
         if not ctx.triggered:
+            logger.debug("optimization_hide_hint: No callback trigger, preventing update")
             raise PreventUpdate
 
         trigger = ctx.triggered[0]['prop_id'].split('.')[0]
@@ -1080,6 +1082,9 @@ def callbacks(app, fsc, cache, cpu=None):
     def warn_missing_workspace(section_context, wdir):
         if not section_context or section_context.get('page') != 'Optimization':
             return dash.no_update
+        if not wdir:
+            logger.debug("warn_missing_workspace: No workspace directory set, preventing update")
+            raise PreventUpdate
         if wdir:
             return []
         return fac.AntdNotification(
@@ -1186,6 +1191,7 @@ def callbacks(app, fsc, cache, cpu=None):
         """
         ctx = dash.callback_context
         if not ctx.triggered:
+            logger.debug("set_chromatogram_graph_size: No callback trigger, preventing update")
             raise PreventUpdate
 
         trigger = ctx.triggered[0]['prop_id'].split('.')[0]
@@ -1205,6 +1211,7 @@ def callbacks(app, fsc, cache, cpu=None):
         if trigger == 'chromatogram-preview-pagination':
             width, height = autosize(page_size, width, height)
         elif trigger != 'chromatogram-graph-button':
+            logger.debug("set_chromatogram_graph_size: Update not triggered by graph button, preventing update")
             raise PreventUpdate
 
         return ([{
@@ -1249,6 +1256,7 @@ def callbacks(app, fsc, cache, cpu=None):
         if 'targets-select' in ctx.triggered[0]['prop_id'] and selected_targets:
             current_page = 1
         if not wdir:
+            logger.debug("chromatograms_preview: No workspace directory, preventing update")
             raise PreventUpdate
 
         page_size = page_size or 1
@@ -1645,7 +1653,8 @@ def callbacks(app, fsc, cache, cpu=None):
         prevent_initial_call=True
     )
     def open_chromatogram_view_modal(card_preview_clicks, bookmark_target_clicks, delete_target_clicks, data_target):
-        if not card_preview_clicks:
+        if not any([clicks for clicks in card_preview_clicks if clicks]):
+            logger.debug("open_chromatogram_view_modal: No card clicks detected, preventing update")
             raise PreventUpdate
 
         ctx = dash.callback_context
@@ -1781,6 +1790,7 @@ def callbacks(app, fsc, cache, cpu=None):
     )
     def show_confirm_modal(close_clicks, reference_data, slider_data):
         if not close_clicks:
+            logger.debug("show_confirm_modal: No close clicks, preventing update")
             raise PreventUpdate
 
         if not reference_data or not slider_data:
@@ -1866,7 +1876,7 @@ def callbacks(app, fsc, cache, cpu=None):
             if y_range_calc:
                 fig['layout']['yaxis']['range'] = y_range_calc
             else:
-                fig['layout']['yaxis']['range'] = [y_min, y_max]
+                fig['layout']['yaxis']['range'] = [0, y_max * 1.05]
         return fig
 
     @app.callback(
@@ -1894,6 +1904,7 @@ def callbacks(app, fsc, cache, cpu=None):
     )
     def update_megatrace_mode(use_megatrace, figure, target_clicked, wdir, rt_alignment_data):
         if not wdir or not target_clicked:
+            logger.debug("update_megatrace_mode: No workspace directory or target clicked, preventing update")
             raise PreventUpdate
         
         with duckdb_connection(wdir) as conn:
@@ -2011,7 +2022,7 @@ def callbacks(app, fsc, cache, cpu=None):
         # If turning ON and we already have matching alignment data in the store,
         # this is likely a state restoration - skip to avoid overwriting pre-aligned figure
         if use_alignment and existing_rt_data and existing_rt_data.get('enabled'):
-            logger.debug("Skipping RT alignment callback - state restoration detected (data already in store)")
+            logger.debug("apply_rt_alignment: State restoration detected (data already in store), preventing update")
             raise PreventUpdate
         
         if not wdir or not target_clicked or not slider_current:
@@ -2160,6 +2171,9 @@ def callbacks(app, fsc, cache, cpu=None):
     )
     def lock_rt_span_when_aligning(rt_align_on):
         """Force RT span to Lock mode when RT alignment is ON"""
+        if not rt_align_on:
+            logger.debug("lock_rt_span_when_aligning: RT alignment is off, preventing update")
+            raise PreventUpdate
         # logger.debug(f"Lock RT span callback: rt_align_on={rt_align_on}, setting Lock mode (checked={rt_align_on})")
         return rt_align_on  # True = Lock mode, False = Edit mode
 
@@ -2629,6 +2643,7 @@ def callbacks(app, fsc, cache, cpu=None):
             return fig, slider_data, buttons_style
 
         if not relayout:
+            logger.debug("update_rt_range_from_shape: No relayout event, preventing update")
             raise PreventUpdate
 
         x_range = (relayout.get('xaxis.range[0]'), relayout.get('xaxis.range[1]'))
@@ -2824,13 +2839,22 @@ def callbacks(app, fsc, cache, cpu=None):
     )
     def set_rt_on_click(click_data, slider_data, slider_reference, rt_alignment_data):
         """Set RT position when user clicks on the chromatogram."""
-        if not click_data or not slider_data or not slider_reference:
+        if not click_data:
+            logger.debug("set_rt_on_click: No click data, preventing update")
+            raise PreventUpdate
+        if not slider_data or not slider_reference:
+            logger.debug("set_rt_on_click: No slider data or reference, preventing update")
             raise PreventUpdate
         
         # Get clicked x position (retention time)
         point = click_data.get('points', [{}])[0]
         clicked_rt = point.get('x')
         if clicked_rt is None:
+            raise PreventUpdate
+        
+        # If RT alignment is enabled, prevent manual RT adjustment
+        if rt_alignment_data and rt_alignment_data.get('enabled'):
+            logger.debug("set_rt_on_click: RT alignment is enabled, preventing manual RT adjustment")
             raise PreventUpdate
         
         # Ensure clicked RT is within the RT span
@@ -2885,6 +2909,7 @@ def callbacks(app, fsc, cache, cpu=None):
     )
     def open_compute_chromatogram_modal(nClicks, ram_value, wdir):
         if not nClicks:
+            logger.debug("open_compute_chromatogram_modal: No button clicks, preventing update")
             raise PreventUpdate
 
         computed_chromatograms = 0
@@ -2993,7 +3018,7 @@ def callbacks(app, fsc, cache, cpu=None):
         State("chromatograms-recompute-ms2", "checked"),
         State("chromatogram-compute-cpu", "value"),
         State("chromatogram-compute-ram", "value"),
-        State('chromatogram-compute-batch-size', "value"),
+        State("chromatogram-compute-batch-size", "value"),
         State("wdir", "data"),
         background=True,
         running=[
@@ -3027,6 +3052,7 @@ def callbacks(app, fsc, cache, cpu=None):
     def compute_chromatograms(set_progress, okCounts, recompute_ms1, recompute_ms2, n_cpus, ram, batch_size, wdir):
 
         if not okCounts:
+            logger.debug("compute_chromatograms: Modal not confirmed, preventing update")
             raise PreventUpdate
 
         def progress_adapter(percent, stage="", detail=""):
@@ -3108,6 +3134,7 @@ def callbacks(app, fsc, cache, cpu=None):
     )
     def cancel_compute_chromatograms(cancel_clicks):
         if not cancel_clicks:
+            logger.debug("cancel_compute_chromatograms: No cancel clicks, preventing update")
             raise PreventUpdate
         return (
             {'action': 'processing', 'status': 'cancelled', 'timestamp': time.time()},
@@ -3117,65 +3144,6 @@ def callbacks(app, fsc, cache, cpu=None):
             0,
             "",
             "",
-        )
-
-    @app.callback(
-        # Output('chromatogram-view-modal', 'visible', allow_duplicate=True),
-        Output('notifications-container', 'children', allow_duplicate=True),
-        Output('action-buttons-container', 'style', allow_duplicate=True),
-        Output('slider-reference-data', 'data', allow_duplicate=True),
-        Output('update-chromatograms', 'data'),
-
-        Input('save-btn', 'nClicks'),
-        State('target-preview-clicked', 'data'),
-        State('slider-data', 'data'),
-        State('slider-reference-data', 'data'),
-        State('wdir', 'data'),
-        prevent_initial_call=True
-    )
-    def save_changes(save_clicks, target_clicked, slider_data, slider_reference, wdir):
-        if not save_clicks:
-            raise PreventUpdate
-        rt_min, rt_, rt_max = slider_data['value'].values()
-
-        with duckdb_connection(wdir) as conn:
-            if conn is None:
-                logger.error("Failed to connect to database to save RT values")
-                return (
-                    fac.AntdNotification(
-                        message="Database connection failed",
-                        description="Could not save RT values. Please check the workspace connection.",
-                        type="error",
-                        duration=5,
-                        placement='bottom',
-                        showProgress=True,
-                        stack=True
-                    ),
-                    dash.no_update,
-                    dash.no_update,
-                    dash.no_update
-                )
-            conn.execute("UPDATE targets SET rt_min = ?, rt = ?, rt_max = ? "
-                         "WHERE peak_label = ?", (rt_min, rt_, rt_max, target_clicked))
-        
-        logger.info(f"Updated RT for target '{target_clicked}': rt_min={rt_min}, rt={rt_}, rt_max={rt_max}")
-
-        buttons_style = {
-            'visibility': 'hidden',
-            'opacity': '0',
-            'transition': 'opacity 0.3s ease-in-out'
-        }
-        slider_reference['value'].update(slider_data['value'])
-        return (
-            fac.AntdNotification(message=f"RT values saved...\n",
-                                 type="success",
-                                 placement='bottom',
-                                 showProgress=True,
-                                 stack=True
-                                 ),
-            buttons_style,
-            slider_reference,
-            time.time()
         )
 
     @app.callback(
@@ -3189,6 +3157,7 @@ def callbacks(app, fsc, cache, cpu=None):
     def reset_changes(reset_clicks, slider_reference):
 
         if not reset_clicks:
+            logger.debug("reset_changes: No reset clicks, preventing update")
             raise PreventUpdate
         return slider_reference
 
@@ -3207,12 +3176,14 @@ def callbacks(app, fsc, cache, cpu=None):
 
         ctx = dash.callback_context
         if not ctx.triggered:
+            logger.debug("show_delete_modal: No callback trigger, preventing update")
             raise PreventUpdate
         trigger = ctx.triggered[0]['prop_id'].split('.')[0]
 
         # Delete from card icon
         if trigger.startswith('{'):
-            if not delete_clicks:
+            if not any(delete_clicks):
+                logger.debug("show_delete_modal: No delete clicks from card, preventing update")
                 raise PreventUpdate
             ctx_trigger = json.loads(trigger)
             if len(dash.callback_context.triggered) > 1:
@@ -3221,7 +3192,11 @@ def callbacks(app, fsc, cache, cpu=None):
             target = data_target[prop_id]
         # Delete from modal button
         elif trigger == 'delete-target-from-modal':
-            if not delete_modal_click or not target_clicked:
+            if not delete_modal_click:
+                logger.debug("show_delete_modal: No delete clicks from modal button, preventing update")
+                raise PreventUpdate
+            if not target_clicked:
+                logger.debug("show_delete_modal: No target clicked for modal delete, preventing update")
                 raise PreventUpdate
             target = target_clicked
         else:
@@ -3243,6 +3218,7 @@ def callbacks(app, fsc, cache, cpu=None):
     )
     def delete_targets_chromatograms(okCounts, target, wdir):
         if not okCounts:
+            logger.debug("delete_targets_chromatograms: Delete not confirmed, preventing update")
             raise PreventUpdate
         with duckdb_connection(wdir) as conn:
             if conn is None:
@@ -3293,8 +3269,10 @@ def callbacks(app, fsc, cache, cpu=None):
         # TODO: change bookmark to bool since the AntdRate component returns an int and the db require a bool
         ctx = dash.callback_context
         if not ctx.triggered or len(dash.callback_context.triggered) > 1:
+            logger.debug("bookmark_target: No callback trigger or multiple triggers, preventing update")
             raise PreventUpdate
         if not wdir:
+            logger.debug("bookmark_target: No workspace directory set, preventing update")
             raise PreventUpdate
 
         ctx_trigger = json.loads(ctx.triggered[0]['prop_id'].split('.')[0])
