@@ -241,6 +241,13 @@ def _create_tables(conn: duckdb.DuckDBPyConnection):
                  """)
     # Backfill rt_auto_adjusted for existing DBs
     conn.execute("ALTER TABLE targets ADD COLUMN IF NOT EXISTS rt_auto_adjusted BOOLEAN DEFAULT FALSE;")
+    
+    # RT Alignment columns for storing alignment parameters
+    conn.execute("ALTER TABLE targets ADD COLUMN IF NOT EXISTS rt_align_enabled BOOLEAN DEFAULT FALSE;")
+    conn.execute("ALTER TABLE targets ADD COLUMN IF NOT EXISTS rt_align_reference_rt DOUBLE;")
+    conn.execute("ALTER TABLE targets ADD COLUMN IF NOT EXISTS rt_align_shifts JSON;")
+    conn.execute("ALTER TABLE targets ADD COLUMN IF NOT EXISTS rt_align_rt_min DOUBLE;")
+    conn.execute("ALTER TABLE targets ADD COLUMN IF NOT EXISTS rt_align_rt_max DOUBLE;")
 
     conn.execute("""
                  CREATE TABLE IF NOT EXISTS chromatograms

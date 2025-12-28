@@ -59,6 +59,31 @@ def calculate_rt_alignment(chrom_df, rt_min, rt_max):
     return shifts
 
 
+def calculate_shifts_per_sample_type(chrom_df, shifts_dict):
+    """
+    Group shifts by sample_type and calculate median.
+    
+    Args:
+        chrom_df: DuckDB LazyFrame with chromatogram data (must have sample_type column)
+        shifts_dict: Dictionary of {ms_file_label: shift_value}
+    
+    Returns:
+        dict: {sample_type: median_shift}
+    """
+    sample_type_shifts = {}
+    
+    for row in chrom_df.iter_rows(named=True):
+        sample_type = row['sample_type']
+        shift = shifts_dict.get(row['ms_file_label'], 0.0)
+        
+        if sample_type not in sample_type_shifts:
+            sample_type_shifts[sample_type] = []
+        sample_type_shifts[sample_type].append(shift)
+    
+    # Calculate median shift per sample type
+    return {st: float(np.median(shifts)) for st, shifts in sample_type_shifts.items()}
+
+
 def generate_chromatogram_traces(chrom_df, use_megatrace=False, rt_alignment_shifts=None):
     x_min = float('inf')
     x_max = float('-inf')

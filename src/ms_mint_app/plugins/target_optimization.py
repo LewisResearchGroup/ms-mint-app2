@@ -17,7 +17,7 @@ from dash.exceptions import PreventUpdate
 from ..duckdb_manager import duckdb_connection, compute_chromatograms_in_batches
 from ..plugin_interface import PluginInterface
 from ..tools import sparsify_chrom, proportional_min1_selection
-from ..plugins.analysis_tools.trace_helper import generate_chromatogram_traces, calculate_rt_alignment
+from ..plugins.analysis_tools.trace_helper import generate_chromatogram_traces, calculate_rt_alignment, calculate_shifts_per_sample_type
 from .workspaces import activate_workspace_logging
 
 _label = "Optimization"
@@ -940,6 +940,7 @@ _layout = fac.AntdLayout(
 
         dcc.Store(id='slider-data'),
         dcc.Store(id='slider-reference-data'),
+        dcc.Store(id='rt-alignment-data'),  # Stores RT alignment info for saving to notes
         dcc.Store(id='target-preview-clicked'),
 
         dcc.Store(id='chromatograms', data=True),
@@ -1631,6 +1632,8 @@ def callbacks(app, fsc, cache, cpu=None):
         Input('confirm-unsave-modal', 'okCounts'),
         State('update-chromatograms', 'data'),
         State('target-note', 'value'),
+        State('rt-alignment-data', 'data'),  # Get RT alignment calculation data
+        State('chromatogram-view-rt-align', 'checked'),  # Get current toggle state
 
         State('slider-reference-data', 'data'),
         State('slider-data', 'data'),
@@ -1638,7 +1641,7 @@ def callbacks(app, fsc, cache, cpu=None):
         prevent_initial_call=True
     )
     def handle_modal_open_close(target_clicked, close_clicks, close_without_save_clicks, update_chromatograms,
-                                target_note, slider_ref, slider_data, wdir):
+                                target_note, rt_alignment_data, rt_align_toggle, slider_ref, slider_data, wdir):
         ctx = dash.callback_context
         if not ctx.triggered:
             return dash.no_update, dash.no_update, dash.no_update
@@ -1648,11 +1651,56 @@ def callbacks(app, fsc, cache, cpu=None):
             return True, dash.no_update, dash.no_update
             # if not has_changes, close it
         elif trigger_id == 'chromatogram-view-close':
+            logger.info(f"Closing modal for {target_clicked}, note value received: '{target_note}'")
+            logger.info(f"RT alignment toggle state: {rt_align_toggle}")
+            
             with duckdb_connection(wdir) as conn:
                 if conn is None:
                     return dash.no_update, dash.no_update, dash.no_update
+                
+                # Always save the current RT alignment toggle state
+                if rt_align_toggle:
+                    # Toggle is ON - save alignment data
+                    if rt_alignment_data and rt_alignment_data.get('enabled'):
+                        # We have valid alignment data to save
+                        import json
+                        shifts_json = json.dumps(rt_alignment_data.get('shifts_by_sample_type', {}))
+                       
+                        conn.execute("""
+                            UPDATE targets 
+                            SET rt_align_enabled = TRUE,
+                                rt_align_reference_rt = ?,
+                                rt_align_shifts = ?,
+                                rt_align_rt_min = ?,
+                                rt_align_rt_max = ?
+                            WHERE peak_label = ?
+                        """, [
+                            rt_alignment_data['reference_rt'],
+                            shifts_json,
+                            rt_alignment_data['rt_min'],
+                            rt_alignment_data['rt_max'],
+                            target_clicked
+                        ])
+                        logger.info(f"Saved RT alignment: enabled=TRUE, ref={rt_alignment_data['reference_rt']:.2f}s")
+                    else:
+                        logger.warning("RT align toggle is ON but no alignment data available - not saving")
+                else:
+                    # Toggle is OFF - clear alignment data
+                    conn.execute("""
+                        UPDATE targets 
+                        SET rt_align_enabled = FALSE,
+                            rt_align_reference_rt = NULL,
+                            rt_align_shifts = NULL,
+                            rt_align_rt_min = NULL,
+                            rt_align_rt_max = NULL
+                        WHERE peak_label = ?
+                    """, [target_clicked])
+                    logger.info("Saved RT alignment: enabled=FALSE (cleared all data)")
+                
+                # Save notes (this was accidentally removed)
                 conn.execute("UPDATE targets SET notes = ? WHERE peak_label = ?",
                              (target_note, target_clicked))
+                logger.info(f"Saved notes for {target_clicked}: '{target_note}'")
 
             # allow close if no slider data or no changes
             if (not slider_ref or not slider_data) or slider_ref.get('value') == slider_data.get('value'):
@@ -1783,9 +1831,10 @@ def callbacks(app, fsc, cache, cpu=None):
         State('chromatogram-view-plot', 'figure'),
         State('target-preview-clicked', 'data'),
         State('wdir', 'data'),
+        State('rt-alignment-data', 'data'),  # Check if RT alignment is active
         prevent_initial_call=True
     )
-    def update_megatrace_mode(use_megatrace, figure, target_clicked, wdir):
+    def update_megatrace_mode(use_megatrace, figure, target_clicked, wdir, rt_alignment_data):
         if not wdir or not target_clicked:
             raise PreventUpdate
         
@@ -1855,8 +1904,22 @@ def callbacks(app, fsc, cache, cpu=None):
                     """
 
             chrom_df = conn.execute(query, [target_clicked]).pl()
-            
-        traces, x_min, x_max, y_min, y_max = generate_chromatogram_traces(chrom_df, use_megatrace=use_megatrace)
+        
+        # Apply RT alignment if active
+        rt_alignment_shifts = None
+        if rt_alignment_data and rt_alignment_data.get('enabled'):
+            rt_alignment_shifts = calculate_rt_alignment(
+                chrom_df, 
+                rt_alignment_data['rt_min'], 
+                rt_alignment_data['rt_max']
+            )
+            logger.info(f"Megatrace callback: Applying RT alignment with {len(rt_alignment_shifts)} shifts")
+        
+        traces, x_min, x_max, y_min, y_max = generate_chromatogram_traces(
+            chrom_df, 
+            use_megatrace=use_megatrace,
+            rt_alignment_shifts=rt_alignment_shifts
+        )
         
         fig = Patch()
         fig['data'] = traces
@@ -1872,16 +1935,25 @@ def callbacks(app, fsc, cache, cpu=None):
 
     @app.callback(
         Output('chromatogram-view-plot', 'figure', allow_duplicate=True),
+        Output('rt-alignment-data', 'data'),  # Store alignment info for saving to notes
         Input('chromatogram-view-rt-align', 'checked'),
         State('chromatogram-view-plot', 'figure'),
         State('chromatogram-view-megatrace', 'checked'),
         State('slider-data', 'data'),  # Use current slider values, not reference
         State('target-preview-clicked', 'data'),
         State('wdir', 'data'),
+        State('rt-alignment-data', 'data'),  # Check if this is a restoration
         prevent_initial_call=True
     )
-    def apply_rt_alignment(use_alignment, figure, use_megatrace, slider_current, target_clicked, wdir):
+    def apply_rt_alignment(use_alignment, figure, use_megatrace, slider_current, target_clicked, wdir, existing_rt_data):
+        """Apply or remove RT alignment when toggle changes"""
         logger.info(f"RT Alignment callback triggered: use_alignment={use_alignment}")
+        
+        # If turning ON and we already have matching alignment data in the store,
+        # this is likely a state restoration - skip to avoid overwriting pre-aligned figure
+        if use_alignment and existing_rt_data and existing_rt_data.get('enabled'):
+            logger.info("Skipping RT alignment callback - state restoration detected (data already in store)")
+            raise PreventUpdate
         
         if not wdir or not target_clicked or not slider_current:
             logger.warning("RT Alignment: Missing required data, raising PreventUpdate")
@@ -1967,8 +2039,37 @@ def callbacks(app, fsc, cache, cpu=None):
         
         # Calculate RT alignment shifts if alignment is enabled
         rt_alignment_shifts = None
+        alignment_data = None
+        
         if use_alignment:
             rt_alignment_shifts = calculate_rt_alignment(chrom_df, rt_min, rt_max)
+            
+            # Calculate shifts per sample type for notes
+            shifts_per_sample_type = calculate_shifts_per_sample_type(chrom_df, rt_alignment_shifts)
+            
+            # Find reference RT (median of apex RTs)
+            apex_rts = []
+            for row in chrom_df.iter_rows(named=True):
+                scan_time = np.array(row['scan_time_sliced'])
+                intensity = np.array(row['intensity_sliced'])
+                mask = (scan_time >= rt_min) & (scan_time <= rt_max)
+                if mask.any():
+                    rt_in_range = scan_time[mask]
+                    int_in_range = intensity[mask]
+                    apex_idx = int_in_range.argmax()
+                    apex_rts.append(rt_in_range[apex_idx])
+            
+            reference_rt = float(np.median(apex_rts)) if apex_rts else None
+            
+            # Store alignment data for saving to notes
+            alignment_data = {
+                'enabled': True,
+                'reference_rt': reference_rt,
+                'shifts_by_sample_type': shifts_per_sample_type,
+                'rt_min': rt_min,
+                'rt_max': rt_max
+            }
+            logger.info(f"RT Alignment data prepared: {alignment_data}")
         
         # Regenerate traces with or without alignment
         traces, x_min, x_max, y_min, y_max = generate_chromatogram_traces(
@@ -1990,8 +2091,33 @@ def callbacks(app, fsc, cache, cpu=None):
             if all_x_values:
                 fig['layout']['xaxis']['range'] = [min(all_x_values), max(all_x_values)]
         
-        return fig
+        return fig, alignment_data
 
+
+    @app.callback(
+        Output('chromatogram-view-lock-range', 'checked', allow_duplicate=True),
+        Input('chromatogram-view-rt-align', 'checked'),
+        prevent_initial_call=True
+    )
+    def lock_rt_span_when_aligning(rt_align_on):
+        """Force RT span to Lock mode when RT alignment is ON"""
+        logger.info(f"Lock RT span callback: rt_align_on={rt_align_on}, setting Lock mode (checked={rt_align_on})")
+        return rt_align_on  # True = Lock mode, False = Edit mode
+
+
+    @app.callback(
+        Output('chromatogram-view-rt-align', 'checked', allow_duplicate=True),
+        Input('chromatogram-view-lock-range', 'checked'),
+        State('chromatogram-view-rt-align', 'checked'),
+        prevent_initial_call=True
+    )
+    def turn_off_alignment_when_editing(is_locked, rt_align_on):
+        """Turn OFF RT alignment when user switches from Lock to Edit mode"""
+        # When switching to Edit mode (is_locked=False), turn off alignment
+        if not is_locked and rt_align_on:
+            logger.info("RT span switched to Edit mode - turning OFF RT alignment")
+            return False
+        raise PreventUpdate
 
 
     @app.callback(
@@ -2005,7 +2131,8 @@ def callbacks(app, fsc, cache, cpu=None):
         Output('chromatogram-view-megatrace', 'checked', allow_duplicate=True),
         Output('chromatogram-view-log-y', 'checked', allow_duplicate=True),
         Output('chromatogram-view-groupclick', 'checked', allow_duplicate=True),
-        Output('chromatogram-view-rt-align', 'checked', allow_duplicate=True),  # Reset RT alignment
+        Output('chromatogram-view-rt-align', 'checked', allow_duplicate=True),  # Set RT alignment state
+        Output('rt-alignment-data', 'data', allow_duplicate=True),  # Load alignment data
         Output('target-note', 'value', allow_duplicate=True),
 
         Input('target-preview-clicked', 'data'),
@@ -2019,9 +2146,24 @@ def callbacks(app, fsc, cache, cpu=None):
         if not wdir:
             raise PreventUpdate
         with duckdb_connection(wdir) as conn:
-            d = conn.execute("SELECT rt, rt_min, rt_max, COALESCE(notes, '') FROM targets WHERE peak_label = ?",
-                             [target_clicked]).fetchall()
-            rt, rt_min, rt_max, note = d[0] if d else (None, None, None, '')
+            # Load target data including RT alignment columns
+            d = conn.execute("""
+                SELECT rt, rt_min, rt_max, COALESCE(notes, ''),
+                       rt_align_enabled, rt_align_reference_rt, rt_align_shifts,
+                       rt_align_rt_min, rt_align_rt_max
+                FROM targets 
+                WHERE peak_label = ?
+            """, [target_clicked]).fetchall()
+            
+            if d:
+                rt, rt_min, rt_max, note, align_enabled, align_ref_rt, align_shifts_json, align_rt_min, align_rt_max = d[0]
+            else:
+                rt, rt_min, rt_max, note = None, None, None, ''
+                align_enabled = False
+                align_ref_rt = None
+                align_shifts_json = None
+                align_rt_min = None
+                align_rt_max = None
 
             query = """
                     WITH picked_samples AS (SELECT ms_file_label, color, label, sample_type
@@ -2121,7 +2263,20 @@ def callbacks(app, fsc, cache, cpu=None):
         else:
             use_megatrace = True
 
-        traces, x_min, x_max, y_min, y_max = generate_chromatogram_traces(chrom_df, use_megatrace=use_megatrace)
+        # Calculate RT alignment shifts if enabled in database
+        rt_alignment_shifts_to_apply = None
+        if align_enabled and align_ref_rt is not None:
+            # Calculate alignment shifts from stored data
+            rt_alignment_shifts_to_apply = calculate_rt_alignment(chrom_df, align_rt_min, align_rt_max)
+            logger.info(f"Applying saved RT alignment on modal open: ref={align_ref_rt:.2f}s")
+            logger.info(f"Calculated shifts for initial figure: {rt_alignment_shifts_to_apply}")
+        
+        traces, x_min, x_max, y_min, y_max = generate_chromatogram_traces(
+            chrom_df, 
+            use_megatrace=use_megatrace,
+            rt_alignment_shifts=rt_alignment_shifts_to_apply
+        )
+        logger.info(f"Initial figure generated with {len(traces) if traces else 0} traces, alignment_applied={rt_alignment_shifts_to_apply is not None}")
 
         if traces:
             total_points = sum(len(t['x']) for t in traces)
@@ -2133,6 +2288,7 @@ def callbacks(app, fsc, cache, cpu=None):
         fig['layout']['yaxis']['range'] = [y_min, y_max * 1.05]
         fig['layout']['xaxis']['autorange'] = False
         fig['layout']['yaxis']['autorange'] = False
+        fig['layout']['_initial_alignment_applied'] = (rt_alignment_shifts_to_apply is not None)  # Marker for debugging
         fig['data'] = traces
         # fig['layout']['title'] = {'text': f"{target_clicked} (rt={rt})"}
         fig['layout']['shapes'] = []
@@ -2272,10 +2428,32 @@ def callbacks(app, fsc, cache, cpu=None):
         }
         slider_reference = s_data
         slider_dict = slider_reference.copy()
+        
+        # Parse RT alignment data from database
+        # Simple approach: restore the exact state that was saved
+        rt_align_toggle_state = False  # Default if no alignment saved
+        rt_alignment_data_to_load = None
+        
+        if align_enabled and align_ref_rt is not None:
+            try:
+                import json
+                shifts_dict = json.loads(align_shifts_json) if align_shifts_json else {}
+                rt_alignment_data_to_load = {
+                    'enabled': True,
+                    'reference_rt': align_ref_rt,
+                    'shifts_by_sample_type': shifts_dict,
+                    'rt_min': align_rt_min,
+                    'rt_max': align_rt_max
+                }
+                rt_align_toggle_state = True  # Set toggle to ON to match saved state
+                logger.info(f"Restoring RT alignment state: toggle=ON, ref={align_ref_rt:.2f}s")
+            except Exception as e:
+                logger.error(f"Error parsing RT alignment data: {e}")
 
         logger.debug(f"Modal view prepared in {time.perf_counter() - t1:.4f}s")
         return (fig, f"{target_clicked} (rt={rt})", False, slider_reference,
-                slider_dict, {"min_y": y_min, "max_y": y_max}, total_points, use_megatrace, log_scale, group_legend, False, note)
+                slider_dict, {"min_y": y_min, "max_y": y_max}, total_points, use_megatrace, log_scale, group_legend, 
+                rt_align_toggle_state, rt_alignment_data_to_load, note)
 
     @app.callback(
         Output('chromatogram-view-plot', 'figure', allow_duplicate=True),
