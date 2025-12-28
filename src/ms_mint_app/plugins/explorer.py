@@ -370,6 +370,259 @@ class FileExplorer:
 
         return table_data
 
+
+def _navigate_folders(explorer_instance, modal_visible, bc_clicked_item, recentlyCellClickRecord, current_path, processing_type):
+    if not modal_visible:
+        return dash.no_update, dash.no_update, dash.no_update, dash.no_update
+
+    ctx = dash.callback_context
+    # Check triggered for real callbacks, but allow manual calls for testing
+    if ctx and ctx.triggered:
+        trigger_id = ctx.triggered[0]['prop_id'].split('.')[0]
+    else:
+        # Fallback for testing or non-contextual calls
+        trigger_id = 'selection-modal'
+
+    # Determine the new path
+    if 'current-path-modal' in trigger_id and bc_clicked_item:
+        new_path = Path(bc_clicked_item.get('itemKey', current_path))
+    elif 'file-table' in trigger_id and recentlyCellClickRecord:
+        # Navigate only if is a directory
+        if recentlyCellClickRecord.get('is_dir'):
+            new_path = Path(recentlyCellClickRecord['key'])
+        else:
+            return dash.no_update, dash.no_update, dash.no_update, dash.no_update
+    elif 'selection-modal' in trigger_id:
+        new_path = Path(current_path or home_path)
+    else:
+        return dash.no_update, dash.no_update, dash.no_update, dash.no_update
+
+    # Construct breadcrumb
+    try:
+        if platform.system() == 'Windows':
+            root = Path(new_path.drive + '\\')
+            all_paths = [root] + [p for p in new_path.parents if p != root][::-1]
+            if new_path != root:
+                all_paths.append(new_path)
+        else:
+            all_paths = [Path('/')] + [p for p in new_path.parents if p != Path('/')][::-1]
+            if new_path != Path('/'):
+                all_paths.append(new_path)
+
+        breadcrumb_items = []
+        for i, path in enumerate(all_paths):
+            if i == 0:
+                breadcrumb_items.append(
+                    {'title': 'root' if str(path) == '/' else str(path), 'key': str(path)})
+            else:
+                breadcrumb_items.append({'title': path.name, 'key': str(path)})
+    except Exception as e:
+        logger.error(f"Error constructing breadcrumb for {new_path}: {e}")
+        breadcrumb_items = [{'title': str(new_path), 'key': str(new_path)}]
+
+    # Generate table data
+    extensions = processing_type.get('extensions', ['.csv'])
+    new_table_data = explorer_instance.get_table_data(new_path, extensions)
+
+    return breadcrumb_items, new_table_data, str(new_path), new_table_data
+
+
+def _update_selection(explorer_instance, selectedRowKeys, nClicksCell, clear_clicks, remove_clicks, tree_checked_keys,
+                      recentlyCellClickRecord, current_selection, processing_type, table_data, marked_for_removal):
+    ctx = dash.callback_context
+    if ctx and not ctx.triggered:
+        raise PreventUpdate
+
+    if ctx:
+        trigger_id = ctx.triggered[0]['prop_id'].split('.')[0]
+        trigger_action = ctx.triggered[0]['prop_id'].split('.')[-1]
+    else:
+        # Fallback for testing
+        trigger_id = 'file-table'
+        trigger_action = 'selectedRowKeys'
+
+    selected_files = set(current_selection or [])
+    marked = set(marked_for_removal or [])
+
+    if trigger_id == 'clear-selection-btn':
+        # Clear all selection
+        selected_files = set()
+        new_selected_keys = []
+        marked = set()
+        tree_checks = []
+
+    elif trigger_id == 'file-table':
+        # Update selection based on selected rows
+        extensions = processing_type.get('extensions', [])
+        if trigger_action == 'nClicksCell':
+            # Cell was clicked - add the file if it's not a directory
+            if recentlyCellClickRecord and not recentlyCellClickRecord.get('is_dir'):
+                selected_files.add(recentlyCellClickRecord['key'])
+        else:
+            if selectedRowKeys:
+                # Process new selections
+                for row_key in selectedRowKeys:
+                    # Search for the item in the table
+                    for item in table_data:
+                        if item['key'] == row_key:
+                            if item['is_dir']:
+                                # It's a folder, add all its files recursively
+                                folder_path = Path(item['path'])
+                                for ext in extensions:
+                                    selected_files.update(str(f) for f in folder_path.rglob(f"*{ext}"))
+                            else:
+                                # It's a file
+                                selected_files.add(item['path'])
+                                break
+        new_selected_keys = selectedRowKeys
+        tree_checks = list(marked)
+
+    elif trigger_id == 'selected-files-tree':
+        # Update marked items for removal
+        marked = set(tree_checked_keys or [])
+        new_selected_keys = dash.no_update
+        tree_checks = list(marked)
+
+    elif trigger_id == 'remove-marked-btn':
+        # Remove marked items
+        items_to_remove = set()
+        selectedRowKeysToDelete = set()
+        for item in marked:
+            if item in (selectedRowKeys or []):
+                selectedRowKeysToDelete.add(item)
+            path = Path(item)
+            if path.is_dir() or item in [Path(f).parent.as_posix() for f in selected_files]:
+                # It's a folder, remove all its files
+                items_to_remove.update(f for f in selected_files if Path(f).parent.as_posix() == item)
+            else:
+                # It's a file
+                items_to_remove.add(item)
+
+        selected_files -= items_to_remove
+        marked = set()
+        new_selected_keys = list(set(selectedRowKeys or []) - selectedRowKeysToDelete)
+        tree_checks = []
+    else:
+        raise PreventUpdate
+
+    selected_list = sorted(list(selected_files))
+
+    # generate selected tree data
+    tree_data = explorer_instance.get_selected_tree_data(selected_list)
+
+    # styles
+    if selected_list:
+        tree_style = {'display': 'flex'}
+        empty_style = {'display': 'none'}
+    else:
+        tree_style = {'display': 'none'}
+        empty_style = {'display': 'block'}
+
+    counter = f"Total: {len(selected_list)} files selected"
+    return selected_list, tree_data, tree_style, empty_style, counter, new_selected_keys, list(
+        marked), tree_checks
+
+
+def _background_processing(set_progress, okCounts, processing_type, selected_files_list,
+                           cpu_input, wdir):
+    if not okCounts or not selected_files_list:
+        raise PreventUpdate
+    
+    if wdir:
+        activate_workspace_logging(wdir)
+
+    # Convert list to dictionary grouped by folder for compatibility
+    selected_files = {}
+    for file_path in selected_files_list:
+        folder = str(Path(file_path).parent)
+        if folder not in selected_files:
+            selected_files[folder] = []
+        selected_files[folder].append(file_path)
+
+    # defaults for branches
+    failed_targets = []
+    stats = {}
+    duplicates_count = 0
+    stage_label = "Processing"
+
+    def progress_adapter(percent, detail=""):
+        if set_progress:
+            set_progress((percent, stage_label, detail or ""))
+
+    if processing_type['type'] == "ms-files":
+        stage_label = "MS Files"
+        logger.info(f"Starting MS-Files processing. Selected: {len(selected_files_list)} files.")
+        total_processed, failed_files, duplicates_count = process_ms_files(
+            wdir, progress_adapter, selected_files, cpu_input
+        )
+        message = "MS Files processed"
+    elif processing_type['type'] == "metadata":
+        stage_label = "Metadata"
+        logger.info("Starting Metadata processing.")
+        total_processed, failed_files = process_metadata(wdir, progress_adapter, selected_files)
+        message = "Metadata processed"
+    else:
+        stage_label = "Targets"
+        logger.info("Starting Targets processing.")
+        total_processed, failed_files, failed_targets, stats = process_targets(wdir, progress_adapter, selected_files)
+        message = "Targets processed"
+
+    duplicate_targets = stats.get("duplicate_peak_labels", 0) if processing_type['type'] == "targets" else 0
+    failed_targets_count = len(failed_targets) if processing_type['type'] == "targets" else 0
+    rt_adjusted_count = stats.get("rt_adjusted_count", 0) if processing_type['type'] == "targets" else 0
+
+    # Log results
+    logger.info(f"Processing finished. Processed: {total_processed}, Failed: {len(failed_files)}, Duplicates: {duplicates_count}")
+    if failed_files:
+        logger.warning(f"Failed files: {failed_files}")
+    if failed_targets:
+        logger.warning(f"Failed targets: {failed_targets}")
+
+    if total_processed:
+        details = []
+        if failed_files:
+            details.append(f"{len(failed_files)} file(s) failed")
+        if duplicates_count:
+            details.append(f"{duplicates_count} duplicate file(s) skipped")
+        if failed_targets_count:
+            details.append(f"{failed_targets_count} target row(s) failed")
+        if duplicate_targets:
+            details.append(f"{duplicate_targets} duplicate target label(s) deduplicated")
+        if rt_adjusted_count:
+            details.append(f"{rt_adjusted_count} RT value(s) adjusted (outside span)")
+
+        if details:
+            description = f"Processed {total_processed} files; " + "; ".join(details) + "."
+            if failed_files or failed_targets_count:
+                mss_type = "warning"
+            elif duplicates_count or duplicate_targets:
+                mss_type = "info"
+            else:
+                mss_type = "success"
+        else:
+            description = f"Successfully processed {total_processed} files."
+            mss_type = "success"
+    elif duplicates_count:
+        description = f"No new files processed; {duplicates_count} duplicate file(s) skipped."
+        mss_type = "info"
+    elif failed_files or failed_targets_count:
+        description = f"Failed processing {len(failed_files)} files."
+        mss_type = "error"
+    else:
+        description = "No files were processed."
+        mss_type = "info"
+    notification = fac.AntdNotification(message=message,
+                                        description=description,
+                                        type=mss_type,
+                                        duration=3,
+                                        placement='bottom',
+                                        showProgress=True,
+                                        style={"maxWidth": 420, "width": "420px"})
+    processed_action_store = {'action': 'processing', 'status': 'success'}
+
+    return notification, processed_action_store, False
+
+
     def callbacks(self, app, fsc, cache, args=None):
         @app.callback(
             Output("selection-modal", "visible", allow_duplicate=True),
@@ -478,56 +731,7 @@ class FileExplorer:
             prevent_initial_call=True
         )
         def navigate_folders(modal_visible, bc_clicked_item, recentlyCellClickRecord, current_path, processing_type):
-            if not modal_visible:
-                return dash.no_update, dash.no_update, dash.no_update, dash.no_update
-
-            ctx = dash.callback_context
-            if not ctx.triggered:
-                return dash.no_update, dash.no_update, dash.no_update, dash.no_update
-
-            trigger_id = ctx.triggered[0]['prop_id'].split('.')[0]
-
-            # Determine the new path
-            if 'current-path-modal' in trigger_id and bc_clicked_item:
-                new_path = Path(bc_clicked_item.get('itemKey', current_path))
-            elif 'file-table' in trigger_id and recentlyCellClickRecord:
-                # Navigate only if is a directory
-                if recentlyCellClickRecord.get('is_dir'):
-                    new_path = Path(recentlyCellClickRecord['key'])
-                else:
-                    return dash.no_update, dash.no_update, dash.no_update, dash.no_update
-            elif 'selection-modal' in trigger_id:
-                new_path = Path(current_path or home_path)
-            else:
-                return dash.no_update, dash.no_update, dash.no_update, dash.no_update
-
-            # Construct breadcrumb
-            try:
-                if platform.system() == 'Windows':
-                    root = Path(new_path.drive + '\\')
-                    all_paths = [root] + [p for p in new_path.parents if p != root][::-1]
-                    if new_path != root:
-                        all_paths.append(new_path)
-                else:
-                    all_paths = [Path('/')] + [p for p in new_path.parents if p != Path('/')][::-1]
-                    if new_path != Path('/'):
-                        all_paths.append(new_path)
-
-                breadcrumb_items = []
-                for i, path in enumerate(all_paths):
-                    if i == 0:
-                        breadcrumb_items.append(
-                            {'title': 'root' if str(path) == '/' else str(path), 'key': str(path)})
-                    else:
-                        breadcrumb_items.append({'title': path.name, 'key': str(path)})
-            except:
-                breadcrumb_items = [{'title': str(new_path), 'key': str(new_path)}]
-
-            # Generate table data
-            extensions = processing_type.get('extensions', ['.csv'])
-            new_table_data = self.get_table_data(new_path, extensions)
-
-            return breadcrumb_items, new_table_data, str(new_path), new_table_data
+            return _navigate_folders(self, modal_visible, bc_clicked_item, recentlyCellClickRecord, current_path, processing_type)
 
         @app.callback(
             Output('selected-files-store', 'data', allow_duplicate=True),
@@ -555,93 +759,8 @@ class FileExplorer:
         )
         def update_selection(selectedRowKeys, nClicksCell, clear_clicks, remove_clicks, tree_checked_keys,
                              recentlyCellClickRecord, current_selection, processing_type, table_data, marked_for_removal):
-            ctx = dash.callback_context
-            if not ctx.triggered:
-                raise PreventUpdate
-
-            trigger_id = ctx.triggered[0]['prop_id'].split('.')[0]
-            trigger_action = ctx.triggered[0]['prop_id'].split('.')[-1]
-
-            selected_files = set(current_selection or [])
-            marked = set(marked_for_removal or [])
-
-            if trigger_id == 'clear-selection-btn':
-                # Clear all selection
-                selected_files = set()
-                new_selected_keys = []
-                marked = set()
-                tree_checks = []
-
-            elif trigger_id == 'file-table':
-                # Update selection based on selected rows
-                extensions = processing_type.get('extensions', [])
-                if trigger_action == 'nClicksCell':
-                    # Cell was clicked - add the file if it's not a directory
-                    if recentlyCellClickRecord and not recentlyCellClickRecord.get('is_dir'):
-                        selected_files.add(recentlyCellClickRecord['key'])
-                else:
-                    if selectedRowKeys:
-                        # Process new selections
-                        for row_key in selectedRowKeys:
-                            # Search for the item in the table
-                            for item in table_data:
-                                if item['key'] == row_key:
-                                    if item['is_dir']:
-                                        # It's a folder, add all its files recursively
-                                        folder_path = Path(item['path'])
-                                        for ext in extensions:
-                                            selected_files.update(str(f) for f in folder_path.rglob(f"*{ext}"))
-                                    else:
-                                        # It's a file
-                                        selected_files.add(item['path'])
-                                        break
-                new_selected_keys = selectedRowKeys
-                tree_checks = list(marked)
-
-            elif trigger_id == 'selected-files-tree':
-                # Update marked items for removal
-                marked = set(tree_checked_keys or [])
-                new_selected_keys = dash.no_update
-                tree_checks = list(marked)
-
-            elif trigger_id == 'remove-marked-btn':
-                # Remove marked items
-                items_to_remove = set()
-                selectedRowKeysToDelete = set()
-                for item in marked:
-                    if item in selectedRowKeys:
-                        selectedRowKeysToDelete.add(item)
-                    path = Path(item)
-                    if path.is_dir() or item in [Path(f).parent.as_posix() for f in selected_files]:
-                        # It's a folder, remove all its files
-                        items_to_remove.update(f for f in selected_files if Path(f).parent.as_posix() == item)
-                    else:
-                        # It's a file
-                        items_to_remove.add(item)
-
-                selected_files -= items_to_remove
-                marked = set()
-                new_selected_keys = list(set(selectedRowKeys) - selectedRowKeysToDelete)
-                tree_checks = []
-            else:
-                raise PreventUpdate
-
-            selected_list = sorted(list(selected_files))
-
-            # generate selected tree data
-            tree_data = self.get_selected_tree_data(selected_list)
-
-            # styles
-            if selected_list:
-                tree_style = {'display': 'flex'}
-                empty_style = {'display': 'none'}
-            else:
-                tree_style = {'display': 'none'}
-                empty_style = {'display': 'block'}
-
-            counter = f"Total: {len(selected_list)} files selected"
-            return selected_list, tree_data, tree_style, empty_style, counter, new_selected_keys, list(
-                marked), tree_checks
+            return _update_selection(self, selectedRowKeys, nClicksCell, clear_clicks, remove_clicks, tree_checked_keys,
+                             recentlyCellClickRecord, current_selection, processing_type, table_data, marked_for_removal)
 
         @app.callback(
             Output('notifications-container', "children", allow_duplicate=True),
@@ -685,102 +804,7 @@ class FileExplorer:
         )
         def background_processing(set_progress, okCounts, processing_type, selected_files_list,
                                   cpu_input, wdir):
-            if not okCounts or not selected_files_list:
-                raise PreventUpdate
-            
-            if wdir:
-                activate_workspace_logging(wdir)
-
-            # Convert list to dictionary grouped by folder for compatibility
-            selected_files = {}
-            for file_path in selected_files_list:
-                folder = str(Path(file_path).parent)
-                if folder not in selected_files:
-                    selected_files[folder] = []
-                selected_files[folder].append(file_path)
-
-            # defaults for branches
-            failed_targets = []
-            stats = {}
-            duplicates_count = 0
-            stage_label = "Processing"
-
-            def progress_adapter(percent, detail=""):
-                if set_progress:
-                    set_progress((percent, stage_label, detail or ""))
-
-            if processing_type['type'] == "ms-files":
-                stage_label = "MS Files"
-                logger.info(f"Starting MS-Files processing. Selected: {len(selected_files_list)} files.")
-                total_processed, failed_files, duplicates_count = process_ms_files(
-                    wdir, progress_adapter, selected_files, cpu_input
-                )
-                message = "MS Files processed"
-            elif processing_type['type'] == "metadata":
-                stage_label = "Metadata"
-                logger.info("Starting Metadata processing.")
-                total_processed, failed_files = process_metadata(wdir, progress_adapter, selected_files)
-                message = "Metadata processed"
-            else:
-                stage_label = "Targets"
-                logger.info("Starting Targets processing.")
-                total_processed, failed_files, failed_targets, stats = process_targets(wdir, progress_adapter, selected_files)
-                message = "Targets processed"
-
-            duplicate_targets = stats.get("duplicate_peak_labels", 0) if processing_type['type'] == "targets" else 0
-            failed_targets_count = len(failed_targets) if processing_type['type'] == "targets" else 0
-            rt_adjusted_count = stats.get("rt_adjusted_count", 0) if processing_type['type'] == "targets" else 0
-
-            # Log results
-            logger.info(f"Processing finished. Processed: {total_processed}, Failed: {len(failed_files)}, Duplicates: {duplicates_count}")
-            if failed_files:
-                logger.warning(f"Failed files: {failed_files}")
-            if failed_targets:
-                logger.warning(f"Failed targets: {failed_targets}")
-
-            if total_processed:
-                details = []
-                if failed_files:
-                    details.append(f"{len(failed_files)} file(s) failed")
-                if duplicates_count:
-                    details.append(f"{duplicates_count} duplicate file(s) skipped")
-                if failed_targets_count:
-                    details.append(f"{failed_targets_count} target row(s) failed")
-                if duplicate_targets:
-                    details.append(f"{duplicate_targets} duplicate target label(s) deduplicated")
-                if rt_adjusted_count:
-                    details.append(f"{rt_adjusted_count} RT value(s) adjusted (outside span)")
-
-                if details:
-                    description = f"Processed {total_processed} files; " + "; ".join(details) + "."
-                    if failed_files or failed_targets_count:
-                        mss_type = "warning"
-                    elif duplicates_count or duplicate_targets:
-                        mss_type = "info"
-                    else:
-                        mss_type = "success"
-                else:
-                    description = f"Successfully processed {total_processed} files."
-                    mss_type = "success"
-            elif duplicates_count:
-                description = f"No new files processed; {duplicates_count} duplicate file(s) skipped."
-                mss_type = "info"
-            elif failed_files or failed_targets_count:
-                description = f"Failed processing {len(failed_files)} files."
-                mss_type = "error"
-            else:
-                description = "No files were processed."
-                mss_type = "info"
-            notification = fac.AntdNotification(message=message,
-                                                description=description,
-                                                type=mss_type,
-                                                duration=3,
-                                                placement='bottom',
-                                                showProgress=True,
-                                                style={"maxWidth": 420, "width": "420px"})
-            processed_action_store = {'action': 'processing', 'status': 'success'}
-
-            return notification, processed_action_store, False
+            return _background_processing(set_progress, okCounts, processing_type, selected_files_list, cpu_input, wdir)
 
         @app.callback(
             Output('selection-modal', 'visible', allow_duplicate=True),
