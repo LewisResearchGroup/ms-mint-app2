@@ -527,6 +527,349 @@ def generate_colors(wdir, regenerate=False):
         return len(sample_keys) - len(assigned_colors)
 
 
+
+def _set_color(okCounts, color, recentlyButtonClickedRow, data, wdir):
+    if recentlyButtonClickedRow is None or not okCounts or not wdir:
+        return dash.no_update, dash.no_update
+
+    previous_color = recentlyButtonClickedRow['color']['content']
+    try:
+        with duckdb_connection(wdir) as conn:
+            conn.execute("UPDATE samples SET color = ? WHERE ms_file_label = ?",
+                         [color, recentlyButtonClickedRow['ms_file_label']])
+        ms_table_action_store = {'action': 'color-changed', 'status': 'success'}
+        
+        logger.info(f"Changed color for {recentlyButtonClickedRow['ms_file_label']} from {previous_color} to {color}")
+
+        return (fac.AntdNotification(message='Color changed successfully',
+                                     description=f'Color changed from {previous_color} to {color}',
+                                     type='success',
+                                     duration=3,
+                                     placement='bottom',
+                                     showProgress=True,
+                                     stack=True,
+                                     style=NOTIFICATION_COMPACT_STYLE
+                                     ),
+                ms_table_action_store
+                )
+    except Exception as e:
+        logger.error(f"DB error: {e}")
+
+        return (fac.AntdNotification(message='Failed to change color',
+                                     description=f'Color change failed with {str(e)}',
+                                     type='error',
+                                     duration=3,
+                                     placement='bottom',
+                                     showProgress=True,
+                                     stack=True,
+                                     style=NOTIFICATION_COMPACT_STYLE
+                                     ),
+                dash.no_update)
+
+
+def _genere_color_map(nClicks, clickedKey, wdir):
+    ctx = dash.callback_context
+    if (
+            (ctx and (not ctx.triggered or not nClicks or clickedKey != 'generate-colors')) or
+            (not ctx and clickedKey != 'generate-colors')
+    ):
+        raise PreventUpdate
+    
+    if wdir:
+        activate_workspace_logging(wdir)
+
+    # Single option: always generate colors by sample type, refreshing missing/placeholder values.
+    n_colors = generate_colors(wdir, regenerate=True)
+
+    if n_colors == 0:
+        logger.info("Color generation requested but no new colors were needed.")
+        notification = fac.AntdNotification(message='No colors generated',
+                                            type='warning',
+                                            duration=3,
+                                            placement='bottom',
+                                            showProgress=True,
+                                            stack=True,
+                                            style=NOTIFICATION_COMPACT_STYLE
+                                            )
+    else:
+        logger.info(f"Generated {n_colors} new colors.")
+        notification = fac.AntdNotification(message='Colors generated successfully',
+                                 description=f'{n_colors} colors generated',
+                                 type='success',
+                                 duration=3,
+                                 placement='bottom',
+                                 showProgress=True,
+                                 stack=True,
+                                 style=NOTIFICATION_COMPACT_STYLE
+                                 )
+    ms_table_action_store = {'action': 'color-changed', 'status': 'success'}
+    return notification, ms_table_action_store
+
+
+def _save_switch_changes(recentlySwitchDataIndex, recentlySwitchStatus, recentlySwitchRow, wdir):
+    if not wdir or not recentlySwitchDataIndex or recentlySwitchStatus is None or not recentlySwitchRow:
+        raise PreventUpdate
+
+    allowed_switch_columns = {
+        "use_for_optimization",
+        "use_for_processing",
+        "use_for_analysis",
+    }
+    if recentlySwitchDataIndex not in allowed_switch_columns:
+        raise PreventUpdate
+
+    with duckdb_connection(wdir) as conn:
+        if conn is None:
+            raise PreventUpdate
+        conn.execute(f"UPDATE samples SET {recentlySwitchDataIndex} = ? WHERE ms_file_label = ?",
+                     (recentlySwitchStatus, recentlySwitchRow['ms_file_label']))
+        logger.info(f"Updated {recentlySwitchDataIndex} for {recentlySwitchRow['ms_file_label']}: {recentlySwitchStatus}")
+
+
+def _ms_files_table(section_context, processing_output, processed_action, pagination, filter_, sorter, filterOptions,
+                   processing_type, wdir):
+    if section_context and section_context['page'] != 'MS-Files':
+        raise PreventUpdate
+    if not wdir:
+        raise PreventUpdate
+
+    start_time = time.perf_counter()
+    if pagination:
+        page_size = pagination['pageSize']
+        current = pagination['current']
+
+        with duckdb_connection(wdir) as conn:
+            schema = conn.execute("DESCRIBE samples").pl()
+        column_types = {r["column_name"]: r["column_type"] for r in schema.to_dicts()}
+        where_sql, params = build_where_and_params(filter_, filterOptions)
+        order_by_sql = build_order_by(sorter, column_types, tie=('ms_file_label', 'ASC'))  # '' if there is no valid sorter
+
+        sql = f"""
+        WITH filtered AS (
+          SELECT *
+          FROM samples
+          {where_sql}
+        ),
+        paged AS (
+          SELECT *, COUNT(*) OVER() AS __total__
+          FROM filtered
+          {(' ' + order_by_sql) if order_by_sql else ''}
+          LIMIT ? OFFSET ?
+        )
+        SELECT * FROM paged;
+        """
+
+        params_paged = params + [page_size, (current - 1) * page_size]
+
+        with duckdb_connection(wdir) as conn:
+            dfpl = conn.execute(sql, params_paged).pl()
+
+        # total rows:
+        number_records = int(dfpl["__total__"][0]) if len(dfpl) else 0
+        max_page = max(math.ceil(number_records / page_size), 1)
+        current = min(max(current, 1), max_page)
+
+        # If we just removed the page we were on, re-query for the new page index
+        if params_paged[-1] != (current - 1) * page_size:
+            params_paged = params + [page_size, (current - 1) * page_size]
+            with duckdb_connection(wdir) as conn:
+                dfpl = conn.execute(sql, params_paged).pl()
+            number_records = int(dfpl["__total__"][0]) if len(dfpl) else 0
+
+        with (duckdb_connection(wdir) as conn):
+            st_custom_items = filterOptions['sample_type'].get('filterCustomItems')
+            sample_type_filters = conn.execute("SELECT DISTINCT sample_type "
+                                               "FROM samples "
+                                               "ORDER BY sample_type ASC").df()['sample_type'].to_list()
+            if st_custom_items != sample_type_filters:
+                output_filterOptions = filterOptions.copy()
+                output_filterOptions['sample_type']['filterCustomItems'] = (sample_type_filters
+                                                                            if sample_type_filters != [None] else
+                                                                            [])
+            else:
+                output_filterOptions = dash.no_update
+
+        data = dfpl.with_columns(
+            pl.col('color').map_elements(
+                lambda value: {
+                    'content': value,
+                    'variant': 'filled',
+                    'custom': {'color': value},
+                    'style': {'background': value, 'width': '70px'}
+                },
+                return_dtype=pl.Struct({
+                    'content': pl.String,
+                    'variant': pl.String,
+                    'custom': pl.Struct({'color': pl.String}),
+                    'style': pl.Struct({'background': pl.String, 'width': pl.String})
+                }),
+                skip_nulls=False,
+            ).alias('color'),
+            pl.col('use_for_optimization').map_elements(
+                lambda value: {'checked': value},
+                return_dtype=pl.Struct({'checked': pl.Boolean})
+            ).alias('use_for_optimization'),
+            pl.col('use_for_processing').map_elements(
+                lambda value: {'checked': value},
+                return_dtype=pl.Struct({'checked': pl.Boolean})
+            ).alias('use_for_processing'),
+            pl.col('use_for_analysis').map_elements(
+                lambda value: {'checked': value},
+                return_dtype=pl.Struct({'checked': pl.Boolean})
+            ).alias('use_for_analysis'),
+            pl.col('ms_type').map_elements(
+                lambda value: value.upper() if isinstance(value, str) else value,
+                return_dtype=pl.String,
+            ).alias('ms_type'),
+        )
+        end_time = time.perf_counter()
+        time.sleep(max(0.0, min(len(data), 0.5 - (end_time - start_time))))
+
+        return [
+            data.to_dicts(),
+            [],
+            {**pagination,
+             'total': number_records,
+             'current': current,
+             'pageSizeOptions': sorted(set([5, 10, 15, 25, 50, 100] + ([number_records] if number_records else [])))},
+            output_filterOptions
+        ]
+    return dash.no_update
+
+
+def _confirm_and_delete(okCounts, selectedRows, clickedKey, wdir):
+    if okCounts is None:
+        raise PreventUpdate
+    if not wdir:
+        raise PreventUpdate
+    
+    activate_workspace_logging(wdir)
+
+    if clickedKey == "delete-selected" and not selectedRows:
+        ms_table_action_store = {'action': 'delete', 'status': 'failed'}
+        total_removed = 0
+    elif clickedKey == "delete-selected":
+        remove_ms_files = [
+            row["ms_file_label"]
+            for row in selectedRows
+            if isinstance(row, dict) and row.get("ms_file_label")
+        ]
+        remove_ms_files = sorted(set(remove_ms_files))
+
+        with duckdb_connection(wdir) as conn:
+            if conn is None:
+                raise PreventUpdate
+            try:
+                conn.execute("BEGIN")
+                if remove_ms_files:
+                    conn.execute("DELETE FROM ms1_data WHERE ms_file_label IN ?", (remove_ms_files,))
+                    conn.execute("DELETE FROM ms2_data WHERE ms_file_label IN ?", (remove_ms_files,))
+                    conn.execute("DELETE FROM chromatograms WHERE ms_file_label IN ?", (remove_ms_files,))
+                    conn.execute("DELETE FROM results WHERE ms_file_label IN ?", (remove_ms_files,))
+                    conn.execute("DELETE FROM samples WHERE ms_file_label IN ?", (remove_ms_files,))
+                conn.execute("COMMIT")
+                conn.execute("CHECKPOINT")
+            except Exception as e:
+                conn.execute("ROLLBACK")
+                logger.error(f"Error deleting selected MS files: {e}", exc_info=True)
+                return (fac.AntdNotification(
+                            message="Delete MS-files failed",
+                            description="Could not delete the selected files; no changes were applied.",
+                            type="error",
+                            duration=4,
+                            placement='bottom',
+                            showProgress=True,
+                            stack=True,
+                            style=NOTIFICATION_COMPACT_STYLE
+                        ),
+                        {'action': 'delete', 'status': 'failed'},
+                        dash.no_update)
+
+        total_removed = len(remove_ms_files)
+        ms_table_action_store = {'action': 'delete', 'status': 'success'}
+    else:
+        with duckdb_connection(wdir) as conn:
+            if conn is None:
+                raise PreventUpdate
+            total_removed_q = conn.execute("SELECT COUNT(*) FROM samples").fetchone()
+            ms_table_action_store = {'action': 'delete', 'status': 'failed'}
+            total_removed = 0
+            if total_removed_q:
+                total_removed = total_removed_q[0]
+
+                conn.execute("BEGIN")
+                for t in ("ms1_data", "ms2_data", "chromatograms", "results", "samples"):
+                    conn.execute(f"TRUNCATE {t}")
+                conn.execute("COMMIT")
+                conn.execute("CHECKPOINT")
+                conn.execute("ANALYZE")
+
+                ms_table_action_store = {'action': 'delete', 'status': 'success'}
+    
+    if total_removed > 0:
+        logger.info(f"Deleted {total_removed} MS-Files.")
+    
+    return (fac.AntdNotification(message="Delete MS-files",
+                                 description=f"Deleted {total_removed} MS-Files",
+                                 type="success" if total_removed > 0 else "error",
+                                 duration=3,
+                                 placement='bottom',
+                                 showProgress=True,
+                                 stack=True,
+                                 style=NOTIFICATION_COMPACT_STYLE
+                                 ),
+            ms_table_action_store,
+            dash.no_update)
+
+
+def _save_table_on_edit(row_edited, column_edited, wdir):
+    if not row_edited or not column_edited or not wdir:
+        raise PreventUpdate
+
+    ms_file_label = row_edited.get('ms_file_label')
+    if not ms_file_label:
+        raise PreventUpdate
+
+    new_value = row_edited.get(column_edited)
+
+    allowed_columns = {
+        "label",
+        "sample_type",
+        *GROUP_COLUMNS,
+    }
+    if column_edited not in allowed_columns:
+        raise PreventUpdate
+
+    try:
+        with duckdb_connection(wdir) as conn:
+            if conn is None:
+                raise PreventUpdate
+            conn.execute(f"UPDATE samples SET {column_edited} = ? WHERE ms_file_label = ?",
+                         (new_value, ms_file_label))
+            ms_table_action_store = {'action': 'edit', 'status': 'success'}
+            logger.info(f"Updated metadata for {ms_file_label}: {column_edited} = {new_value}")
+        return fac.AntdNotification(message="Successfully edition saved",
+                                    type="success",
+                                    duration=3,
+                                    placement='bottom',
+                                    showProgress=True,
+                                    stack=True,
+                                    style=NOTIFICATION_COMPACT_STYLE
+                                    ), ms_table_action_store
+    except Exception as e:
+        logger.error(f"Error updating metadata: {e}", exc_info=True)
+        ms_table_action_store = {'action': 'edit', 'status': 'failed'}
+        return fac.AntdNotification(message="Failed to save edition",
+                                    description=f"Failing to save edition with: {str(e)}",
+                                    type="error",
+                                    duration=3,
+                                    placement='bottom',
+                                    showProgress=True,
+                                    stack=True,
+                                    style=NOTIFICATION_COMPACT_STYLE
+                                    ), ms_table_action_store
+
+
 def callbacks(cls, app, fsc, cache, args_namespace):
     @app.callback(
         Output('color-picker-modal', 'visible'),
@@ -551,43 +894,7 @@ def callbacks(cls, app, fsc, cache, args_namespace):
         prevent_initial_call=True
     )
     def set_color(okCounts, color, recentlyButtonClickedRow, data, wdir):
-
-        if recentlyButtonClickedRow is None or not okCounts or not wdir:
-            return dash.no_update, dash.no_update
-
-        previous_color = recentlyButtonClickedRow['color']['content']
-        try:
-            with duckdb_connection(wdir) as conn:
-                conn.execute("UPDATE samples SET color = ? WHERE ms_file_label = ?",
-                             [color, recentlyButtonClickedRow['ms_file_label']])
-            ms_table_action_store = {'action': 'color-changed', 'status': 'success'}
-            
-            logger.info(f"Changed color for {recentlyButtonClickedRow['ms_file_label']} from {previous_color} to {color}")
-
-            return (fac.AntdNotification(message='Color changed successfully',
-                                         description=f'Color changed from {previous_color} to {color}',
-                                         type='success',
-                                         duration=3,
-                                         placement='bottom',
-                                         showProgress=True,
-                                         stack=True,
-                                         style=NOTIFICATION_COMPACT_STYLE
-                                         ),
-                    ms_table_action_store
-                    )
-        except Exception as e:
-            logging.error(f"DB error: {e}")
-
-            return (fac.AntdNotification(message='Failed to change color',
-                                         description=f'Color change failed with {str(e)}',
-                                         type='error',
-                                         duration=3,
-                                         placement='bottom',
-                                         showProgress=True,
-                                         stack=True,
-                                         style=NOTIFICATION_COMPACT_STYLE
-                                         ),
-                    dash.no_update)
+        return _set_color(okCounts, color, recentlyButtonClickedRow, data, wdir)
 
     @app.callback(
         Output('notifications-container', 'children', allow_duplicate=True),
@@ -603,43 +910,7 @@ def callbacks(cls, app, fsc, cache, args_namespace):
         prevent_initial_call=True
     )
     def genere_color_map(nClicks, clickedKey, wdir):
-        ctx = dash.callback_context
-        if (
-                not ctx.triggered or
-                not nClicks or
-                clickedKey != 'generate-colors'
-        ):
-            raise PreventUpdate
-        
-        if wdir:
-            activate_workspace_logging(wdir)
-
-        # Single option: always generate colors by sample type, refreshing missing/placeholder values.
-        n_colors = generate_colors(wdir, regenerate=True)
-
-        if n_colors == 0:
-            logger.info("Color generation requested but no new colors were needed.")
-            notification = fac.AntdNotification(message='No colors generated',
-                                                type='warning',
-                                                duration=3,
-                                                placement='bottom',
-                                                showProgress=True,
-                                                stack=True,
-                                                style=NOTIFICATION_COMPACT_STYLE
-                                                )
-        else:
-            logger.info(f"Generated {n_colors} new colors.")
-            notification = fac.AntdNotification(message='Colors generated successfully',
-                                     description=f'{n_colors} colors generated',
-                                     type='success',
-                                     duration=3,
-                                     placement='bottom',
-                                     showProgress=True,
-                                     stack=True,
-                                     style=NOTIFICATION_COMPACT_STYLE
-                                     )
-        ms_table_action_store = {'action': 'color-changed', 'status': 'success'}
-        return notification, ms_table_action_store
+        return _genere_color_map(nClicks, clickedKey, wdir)
 
     @app.callback(
         Input('ms-files-table', 'recentlySwitchDataIndex'),
@@ -649,24 +920,7 @@ def callbacks(cls, app, fsc, cache, args_namespace):
         prevent_initial_call=True
     )
     def save_switch_changes(recentlySwitchDataIndex, recentlySwitchStatus, recentlySwitchRow, wdir):
-
-        if not wdir or not recentlySwitchDataIndex or recentlySwitchStatus is None or not recentlySwitchRow:
-            raise PreventUpdate
-
-        allowed_switch_columns = {
-            "use_for_optimization",
-            "use_for_processing",
-            "use_for_analysis",
-        }
-        if recentlySwitchDataIndex not in allowed_switch_columns:
-            raise PreventUpdate
-
-        with duckdb_connection(wdir) as conn:
-            if conn is None:
-                raise PreventUpdate
-            conn.execute(f"UPDATE samples SET {recentlySwitchDataIndex} = ? WHERE ms_file_label = ?",
-                         (recentlySwitchStatus, recentlySwitchRow['ms_file_label']))
-            logger.info(f"Updated {recentlySwitchDataIndex} for {recentlySwitchRow['ms_file_label']}: {recentlySwitchStatus}")
+        return _save_switch_changes(recentlySwitchDataIndex, recentlySwitchStatus, recentlySwitchRow, wdir)
 
     @app.callback(
         Output("download-ms-files-csv", "data"),
@@ -731,115 +985,8 @@ def callbacks(cls, app, fsc, cache, args_namespace):
     )
     def ms_files_table(section_context, processing_output, processed_action, pagination, filter_, sorter, filterOptions,
                        processing_type, wdir):
-
-        if section_context and section_context['page'] != 'MS-Files':
-            raise PreventUpdate
-        if not wdir:
-            raise PreventUpdate
-
-        start_time = time.perf_counter()
-        if pagination:
-            page_size = pagination['pageSize']
-            current = pagination['current']
-
-            with duckdb_connection(wdir) as conn:
-                schema = conn.execute("DESCRIBE samples").pl()
-            column_types = {r["column_name"]: r["column_type"] for r in schema.to_dicts()}
-            where_sql, params = build_where_and_params(filter_, filterOptions)
-            order_by_sql = build_order_by(sorter, column_types, tie=('ms_file_label', 'ASC'))  # '' if there is no valid sorter
-
-            sql = f"""
-            WITH filtered AS (
-              SELECT *
-              FROM samples
-              {where_sql}
-            ),
-            paged AS (
-              SELECT *, COUNT(*) OVER() AS __total__
-              FROM filtered
-              {(' ' + order_by_sql) if order_by_sql else ''}
-              LIMIT ? OFFSET ?
-            )
-            SELECT * FROM paged;
-            """
-
-            params_paged = params + [page_size, (current - 1) * page_size]
-
-            with duckdb_connection(wdir) as conn:
-                dfpl = conn.execute(sql, params_paged).pl()
-
-            # total rows:
-            number_records = int(dfpl["__total__"][0]) if len(dfpl) else 0
-            max_page = max(math.ceil(number_records / page_size), 1)
-            current = min(max(current, 1), max_page)
-
-            # If we just removed the page we were on, re-query for the new page index
-            if params_paged[-1] != (current - 1) * page_size:
-                params_paged = params + [page_size, (current - 1) * page_size]
-                with duckdb_connection(wdir) as conn:
-                    dfpl = conn.execute(sql, params_paged).pl()
-                number_records = int(dfpl["__total__"][0]) if len(dfpl) else 0
-
-
-            with (duckdb_connection(wdir) as conn):
-                st_custom_items = filterOptions['sample_type'].get('filterCustomItems')
-                sample_type_filters = conn.execute("SELECT DISTINCT sample_type "
-                                                   "FROM samples "
-                                                   "ORDER BY sample_type ASC").df()['sample_type'].to_list()
-                if st_custom_items != sample_type_filters:
-                    output_filterOptions = filterOptions.copy()
-                    output_filterOptions['sample_type']['filterCustomItems'] = (sample_type_filters
-                                                                                if sample_type_filters != [None] else
-                                                                                [])
-                else:
-                    output_filterOptions = dash.no_update
-
-            data = dfpl.with_columns(
-                pl.col('color').map_elements(
-                    lambda value: {
-                        'content': value,
-                        'variant': 'filled',
-                        'custom': {'color': value},
-                        'style': {'background': value, 'width': '70px'}
-                    },
-                    return_dtype=pl.Struct({
-                        'content': pl.String,
-                        'variant': pl.String,
-                        'custom': pl.Struct({'color': pl.String}),
-                        'style': pl.Struct({'background': pl.String, 'width': pl.String})
-                    }),
-                    skip_nulls=False,
-                ).alias('color'),
-                pl.col('use_for_optimization').map_elements(
-                    lambda value: {'checked': value},
-                    return_dtype=pl.Object  # Specify that the result is a Python object
-                ).alias('use_for_optimization'),
-                pl.col('use_for_processing').map_elements(
-                    lambda value: {'checked': value},
-                    return_dtype=pl.Object
-                ).alias('use_for_processing'),
-                pl.col('use_for_analysis').map_elements(
-                    lambda value: {'checked': value},
-                    return_dtype=pl.Object
-                ).alias('use_for_analysis'),
-                pl.col('ms_type').map_elements(
-                    lambda value: value.upper() if isinstance(value, str) else value,
-                    return_dtype=pl.String,
-                ).alias('ms_type'),
-            )
-            end_time = time.perf_counter()
-            time.sleep(max(0.0, min(len(data), 0.5 - (end_time - start_time))))
-
-            return [
-                data.to_dicts(),
-                [],
-                {**pagination,
-                 'total': number_records,
-                 'current': current,
-                 'pageSizeOptions': sorted(set([5, 10, 15, 25, 50, 100] + ([number_records] if number_records else [])))},
-                output_filterOptions
-            ]
-        return dash.no_update
+        return _ms_files_table(section_context, processing_output, processed_action, pagination, filter_, sorter, filterOptions,
+                       processing_type, wdir)
 
     @app.callback(
         Output("notifications-container", "children", allow_duplicate=True),
@@ -922,146 +1069,19 @@ def callbacks(cls, app, fsc, cache, args_namespace):
         prevent_initial_call=True,
     )
     def confirm_and_delete(okCounts, selectedRows, clickedKey, wdir):
-
-        if okCounts is None:
-            raise PreventUpdate
-        if not wdir:
-            raise PreventUpdate
-        
-        activate_workspace_logging(wdir)
-
-        if clickedKey == "delete-selected" and not selectedRows:
-            ms_table_action_store = {'action': 'delete', 'status': 'failed'}
-            total_removed = 0
-        elif clickedKey == "delete-selected":
-            remove_ms_files = [
-                row["ms_file_label"]
-                for row in selectedRows
-                if isinstance(row, dict) and row.get("ms_file_label")
-            ]
-            remove_ms_files = sorted(set(remove_ms_files))
-
-            with duckdb_connection(wdir) as conn:
-                if conn is None:
-                    raise PreventUpdate
-                try:
-                    conn.execute("BEGIN")
-                    if remove_ms_files:
-                        conn.execute("DELETE FROM ms1_data WHERE ms_file_label IN ?", (remove_ms_files,))
-                        conn.execute("DELETE FROM ms2_data WHERE ms_file_label IN ?", (remove_ms_files,))
-                        conn.execute("DELETE FROM chromatograms WHERE ms_file_label IN ?", (remove_ms_files,))
-                        conn.execute("DELETE FROM results WHERE ms_file_label IN ?", (remove_ms_files,))
-                        conn.execute("DELETE FROM samples WHERE ms_file_label IN ?", (remove_ms_files,))
-                    conn.execute("COMMIT")
-                    conn.execute("CHECKPOINT")
-                except Exception as e:
-                    conn.execute("ROLLBACK")
-                    logger.error(f"Error deleting selected MS files: {e}", exc_info=True)
-                    return (fac.AntdNotification(
-                                message="Delete MS-files failed",
-                                description="Could not delete the selected files; no changes were applied.",
-                                type="error",
-                                duration=4,
-                                placement='bottom',
-                                showProgress=True,
-                                stack=True,
-                                style=NOTIFICATION_COMPACT_STYLE
-                            ),
-                            {'action': 'delete', 'status': 'failed'},
-                            dash.no_update)
-
-            total_removed = len(remove_ms_files)
-            ms_table_action_store = {'action': 'delete', 'status': 'success'}
-        else:
-            with duckdb_connection(wdir) as conn:
-                if conn is None:
-                    raise PreventUpdate
-                total_removed_q = conn.execute("SELECT COUNT(*) FROM samples").fetchone()
-                ms_table_action_store = {'action': 'delete', 'status': 'failed'}
-                total_removed = 0
-                if total_removed_q:
-                    total_removed = total_removed_q[0]
-
-                    conn.execute("BEGIN")
-                    for t in ("ms1_data", "ms2_data", "chromatograms", "results", "samples"):
-                        conn.execute(f"TRUNCATE {t}")
-                    conn.execute("COMMIT")
-                    conn.execute("CHECKPOINT")
-                    conn.execute("ANALYZE")
-
-                    ms_table_action_store = {'action': 'delete', 'status': 'success'}
-        
-        if total_removed > 0:
-            logger.info(f"Deleted {total_removed} MS-Files.")
-        
-        return (fac.AntdNotification(message="Delete MS-files",
-                                     description=f"Deleted {total_removed} MS-Files",
-                                     type="success" if total_removed > 0 else "error",
-                                     duration=3,
-                                     placement='bottom',
-                                     showProgress=True,
-                                     stack=True,
-                                     style=NOTIFICATION_COMPACT_STYLE
-                                     ),
-                ms_table_action_store,
-                dash.no_update)
+        return _confirm_and_delete(okCounts, selectedRows, clickedKey, wdir)
 
     @app.callback(
         Output("notifications-container", "children", allow_duplicate=True),
         Output("ms-table-action-store", "data", allow_duplicate=True),
 
-        Input("ms-files-table", "recentlyChangedRow"),
-        State("ms-files-table", "recentlyChangedColumn"),
+        Input("ms-files-table", "recentlyRowEdited"),
+        State("ms-files-table", "recentlyColumnEdited"),
         State("wdir", "data"),
         prevent_initial_call=True,
     )
     def save_table_on_edit(row_edited, column_edited, wdir):
-        """
-        This callback saves the table on cell edits.
-        This saves some bandwidth.
-        """
-        ctx = dash.callback_context
-        if not ctx.triggered:
-            raise PreventUpdate
-
-        if not wdir or row_edited is None or column_edited is None:
-            raise PreventUpdate
-
-        allowed_columns = {
-            "label",
-            "sample_type",
-            *GROUP_COLUMNS,
-        }
-        if column_edited not in allowed_columns:
-            raise PreventUpdate
-        try:
-            with duckdb_connection(wdir) as conn:
-                if conn is None:
-                    raise PreventUpdate
-                query = f"UPDATE samples SET {column_edited} = ? WHERE ms_file_label = ?"
-                conn.execute(query, [row_edited[column_edited], row_edited['ms_file_label']])
-                ms_table_action_store = {'action': 'edit', 'status': 'success'}
-                logger.info(f"Updated metadata for {row_edited['ms_file_label']}: {column_edited} = {row_edited[column_edited]}")
-            return fac.AntdNotification(message="Successfully edition saved",
-                                        type="success",
-                                        duration=3,
-                                        placement='bottom',
-                                        showProgress=True,
-                                        stack=True,
-                                        style=NOTIFICATION_COMPACT_STYLE
-                                        ), ms_table_action_store
-        except Exception as e:
-            logger.error(f"Error updating metadata: {e}", exc_info=True)
-            ms_table_action_store = {'action': 'edit', 'status': 'failed'}
-            return fac.AntdNotification(message="Failed to save edition",
-                                        description=f"Failing to save edition with: {str(e)}",
-                                        type="error",
-                                        duration=3,
-                                        placement='bottom',
-                                        showProgress=True,
-                                        stack=True,
-                                        style=NOTIFICATION_COMPACT_STYLE
-                                        ), ms_table_action_store
+        return _save_table_on_edit(row_edited, column_edited, wdir)
 
     @app.callback(
         Output('ms-files-tour', 'current'),
