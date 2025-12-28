@@ -625,6 +625,7 @@ def callbacks(app, fsc, cache):
 
     @app.callback(
         Output("notifications-container", "children", allow_duplicate=True),
+        Output('ws-action-store', 'data', allow_duplicate=True),
 
         Input("ws-table", "recentlyChangedRow"),
         State("ws-table", "recentlyChangedColumn"),
@@ -656,7 +657,7 @@ def callbacks(app, fsc, cache):
                 placement='bottom',
                 showProgress=True,
                 stack=True
-            )
+            ), dash.no_update
 
         ws_key = row_edited.get('key')
         if not ws_key:
@@ -668,7 +669,7 @@ def callbacks(app, fsc, cache):
             with duckdb_connection_mint(tmpdir, workspace=ws_key) as mint_conn:
                 if mint_conn is None:
                     raise PreventUpdate
-                query = f"UPDATE workspaces SET {column_edited} = ? WHERE key = ?"
+                query = f"UPDATE workspaces SET {column_edited} = ?, last_activity = NOW() WHERE key = ?"
                 mint_conn.execute(query, [row_edited[column_edited], ws_key])
             return fac.AntdNotification(message="Successfully edition saved",
                                         type="success",
@@ -676,7 +677,7 @@ def callbacks(app, fsc, cache):
                                         placement='bottom',
                                         showProgress=True,
                                         stack=True
-                                        )
+                                        ), {'type': 'edit'}
         except Exception as e:
             logger.error(f"Failed to save edit for workspace {ws_key}: {e}", exc_info=True)
             return fac.AntdNotification(message="Failed to save edition",
@@ -686,7 +687,7 @@ def callbacks(app, fsc, cache):
                                         placement='bottom',
                                         showProgress=True,
                                         stack=True
-                                        )
+                                        ), dash.no_update
 
     @app.callback(
         Output("ws-change-data-dir-modal", "visible"),
@@ -710,13 +711,13 @@ def callbacks(app, fsc, cache):
             raise PreventUpdate
         
         if not new_path or not new_path.strip():
-             return dash.no_update, fac.AntdNotification(message="Please enter a valid path.", type="error"), dash.no_update
+             return dash.no_update, fac.AntdNotification(message="Please enter a valid path.", type="error"), True
         
         new_path = os.path.expanduser(new_path)
         new_path_obj = Path(new_path)
 
         if not new_path_obj.is_absolute():
-            return dash.no_update, fac.AntdNotification(message="Path must be absolute.", type="error"), dash.no_update
+            return dash.no_update, fac.AntdNotification(message="Path must be absolute.", type="error"), True
         
         # Try to create directory if it doesn't exist to verify permissions
         try:
@@ -724,7 +725,7 @@ def callbacks(app, fsc, cache):
             # Create .cache inside
             (new_path_obj / ".cache").mkdir(exist_ok=True)
         except OSError as e:
-             return dash.no_update, fac.AntdNotification(message=f"Permission denied or invalid path: {e}", type="error"), dash.no_update
+             return dash.no_update, fac.AntdNotification(message=f"Permission denied or invalid path: {e}", type="error"), True
 
         # Update Config
         config_path = os.path.expanduser(os.environ.get("MINT_CONFIG_PATH") or "~/.mint_config.json")
@@ -741,7 +742,7 @@ def callbacks(app, fsc, cache):
                 json.dump(cfg, fh, indent=2)
                 
         except Exception as e:
-             return dash.no_update, fac.AntdNotification(message=f"Failed to update config file: {e}", type="error"), dash.no_update
+             return dash.no_update, fac.AntdNotification(message=f"Failed to update config file: {e}", type="error"), True
 
         # Update Environment Variable for this session (best effort)
         os.environ["MINT_DATA_DIR"] = str(new_path_obj)
