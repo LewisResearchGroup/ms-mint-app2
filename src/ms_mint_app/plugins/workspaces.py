@@ -248,6 +248,299 @@ _outputs = html.Div(
 )
 
 
+
+def _create_ws_input_validation(value, tmpdir):
+    if value is None:
+        raise PreventUpdate
+
+    if not tmpdir:
+        okButtonProps = {'disabled': True}
+        validateStatus = 'error'
+        help = 'Workspace path not available'
+    elif value is not None and bool(pattern.match(value)):
+        with duckdb_connection_mint(tmpdir) as mint_conn:
+            if mint_conn is None:
+                okButtonProps = {'disabled': True}
+                validateStatus = 'error'
+                help = 'Cannot open workspace database'
+            else:
+                ws_df = mint_conn.execute("SELECT * FROM workspaces WHERE name = ?", (value,)).df()
+                if ws_df.empty:
+                    okButtonProps = {'disabled': False}
+                    validateStatus = 'success'
+                    help = None
+                else:
+                    okButtonProps = {'disabled': True}
+                    validateStatus = 'error'
+                    help = 'Workspace already exists!'
+    else:
+        okButtonProps = {'disabled': True}
+        validateStatus = 'error'
+        help = 'Workspace name can only contain: a-z, A-Z, 0-9 and _'
+    return validateStatus, help, okButtonProps
+
+
+def _create_workspace(okCounts, tmpdir, ws_name, ws_description):
+    if not okCounts:
+        raise PreventUpdate
+    if not tmpdir:
+        raise PreventUpdate
+    with duckdb_connection_mint(tmpdir) as mint_conn:
+        if mint_conn is None:
+            raise PreventUpdate
+        previous_active = mint_conn.execute("SELECT key FROM workspaces WHERE active = true").fetchone()
+
+        key = mint_conn.execute("INSERT INTO workspaces (name, description, active, created_at, last_activity) "
+                                "VALUES (?, ?, true, NOW(), NOW()) RETURNING key", (ws_name, ws_description)).fetchone()
+        if previous_active:
+            mint_conn.execute("UPDATE workspaces SET active = false WHERE key = ?", (previous_active[0],))
+        if key:
+            ws_path = Path(tmpdir, 'workspaces', str(key[0]))
+            ws_path.mkdir(parents=True, exist_ok=True)
+            logger.info(f"Created workspace: {ws_name} at {ws_path}")
+
+    return 'create', None, None, None
+
+
+def _delete_workspace(okCounts, tmpdir, selectedRowKeys):
+    if not okCounts:
+        raise PreventUpdate
+    if not tmpdir or not selectedRowKeys:
+        raise PreventUpdate
+
+    ws_key = selectedRowKeys[0]
+
+    with duckdb_connection_mint(tmpdir) as mint_conn:
+        try:
+            mint_conn.execute("BEGIN")
+            ws_row = mint_conn.execute(
+                "SELECT name FROM workspaces WHERE key = ?",
+                (ws_key,)
+            ).fetchone()
+            if not ws_row:
+                mint_conn.execute("ROLLBACK")
+                return fac.AntdNotification(
+                    message="Workspace not found",
+                    type="error",
+                    duration=4,
+                    placement='bottom',
+                    showProgress=True,
+                    stack=True
+                ), {'type': 'delete', 'status': 'error'}
+
+            next_active = mint_conn.execute(
+                "SELECT key FROM workspaces WHERE key != ? ORDER BY last_activity DESC LIMIT 1",
+                (ws_key,)
+            ).fetchone()
+
+            ws_path = Path(tmpdir, 'workspaces', str(ws_key))
+            deactivate_workspace_logging()
+
+            def _onerror(func, p, exc_info):
+                import os
+                try:
+                    os.chmod(p, 0o700)
+                    func(p)
+                except Exception:
+                    raise
+
+            try:
+                shutil.rmtree(ws_path, onerror=_onerror)
+            except Exception as fs_err:
+                mint_conn.execute("ROLLBACK")
+                return fac.AntdNotification(
+                    message="Failed to delete workspace files",
+                    description=str(fs_err),
+                    type="error",
+                    duration=5,
+                    placement='bottom',
+                    showProgress=True,
+                    stack=True
+                ), {'type': 'delete', 'status': 'error'}
+
+            mint_conn.execute("DELETE FROM workspaces WHERE key = ?", (ws_key,))
+            if next_active:
+                mint_conn.execute("UPDATE workspaces SET active = true WHERE key = ?", (next_active[0],))
+            mint_conn.execute("COMMIT")
+
+            ws_name = ws_row[0]
+            logger.info(f"Deleted workspace: {ws_name} (key: {ws_key})")
+            return fac.AntdNotification(message=f"Workspace {ws_name} deleted.",
+                                        type="success",
+                                        duration=3,
+                                        placement='bottom',
+                                        showProgress=True,
+                                        stack=True), {'type': 'delete', 'status': 'success'}
+        except Exception as e:
+            logger.error(f"Error deleting workspace {ws_key}: {e}", exc_info=True)
+            mint_conn.execute("ROLLBACK")
+            raise
+
+    return dash.no_update, {'type': 'delete', 'status': 'error'}
+
+
+def _ws_activate(selectedRowKeys, tmpdir, ws_action):
+    if not selectedRowKeys:
+        return dash.no_update, '', '', None
+
+    ws_key = selectedRowKeys[0]
+
+    with duckdb_connection_mint(tmpdir) as mint_conn:
+        # Check if this workspace is already active
+        is_active = mint_conn.execute("SELECT active FROM workspaces WHERE key = ?", (ws_key,)).fetchone()
+        already_active = is_active and is_active[0]
+
+        if already_active:
+             # Just update activity time
+            mint_conn.execute("UPDATE workspaces SET last_activity = NOW() WHERE key = ?", (ws_key,))
+            name = mint_conn.execute("SELECT name FROM workspaces WHERE key = ?", (ws_key,)).fetchone()
+            notification = dash.no_update
+        else:
+            # Full activation switch
+            mint_conn.execute("UPDATE workspaces SET active = false WHERE key != ?", (ws_key,))
+            name = mint_conn.execute(
+                "UPDATE workspaces SET active = true, last_activity = NOW() WHERE key = ? RETURNING name",
+                (ws_key,)
+            ).fetchone()
+            
+            if name:
+                ws_name = name[0]
+                # Only log the explicit activation switch here
+                logger.info(f"Activated workspace: {ws_name} (key: {ws_key})")
+                notification = fac.AntdNotification(message=f"Workspace {ws_name} activated.",
+                                                    type="success",
+                                                    duration=3,
+                                                    placement='bottom',
+                                                    showProgress=True,
+                                                    stack=True)
+            else:
+                 notification = dash.no_update
+
+        if name:
+            ws_name = name[0]
+            wdir = Path(tmpdir, 'workspaces', ws_key)
+        else:
+            return dash.no_update, '', '', None
+
+    # This will now be silent if the handler is already attached (idempotent)
+    activate_workspace_logging(wdir, workspace_name=ws_name)
+
+    return notification, ws_name, wdir.as_posix(), wdir.as_posix()
+
+
+def _save_ws_table_on_edit(row_edited, column_edited, tmpdir):
+    ctx = dash.callback_context
+    # if not ctx.triggered:
+    #     raise PreventUpdate
+
+    if row_edited is None or column_edited is None:
+        raise PreventUpdate
+
+    if not tmpdir:
+        raise PreventUpdate
+
+    allowed_columns = {"description"}
+    if column_edited not in allowed_columns:
+        return fac.AntdNotification(
+            message="Edit not allowed",
+            description=f"Column '{column_edited}' cannot be edited.",
+            type="error",
+            duration=4,
+            placement='bottom',
+            showProgress=True,
+            stack=True
+        ), dash.no_update
+
+    ws_key = row_edited.get('key')
+    if not ws_key:
+        raise PreventUpdate
+
+    logger.info(f"Updating workspace {ws_key}: {column_edited} = {row_edited[column_edited]}")
+
+    try:
+        with duckdb_connection_mint(tmpdir, workspace=ws_key) as mint_conn:
+            if mint_conn is None:
+                raise PreventUpdate
+            query = f"UPDATE workspaces SET {column_edited} = ?, last_activity = NOW() WHERE key = ?"
+            mint_conn.execute(query, [row_edited[column_edited], ws_key])
+        return fac.AntdNotification(message="Successfully edition saved",
+                                    type="success",
+                                    duration=3,
+                                    placement='bottom',
+                                    showProgress=True,
+                                    stack=True
+                                    ), {'type': 'edit'}
+    except Exception as e:
+        logger.error(f"Failed to save edit for workspace {ws_key}: {e}", exc_info=True)
+        return fac.AntdNotification(message="Failed to save edition",
+                                    description=f"Failing to save edition with: {str(e)}",
+                                    type="error",
+                                    duration=3,
+                                    placement='bottom',
+                                    showProgress=True,
+                                    stack=True
+                                    ), dash.no_update
+
+
+def _save_new_data_dir(okCounts, new_path):
+    if not okCounts:
+        raise PreventUpdate
+    
+    if not new_path or not new_path.strip():
+         return dash.no_update, fac.AntdNotification(message="Please enter a valid path.", type="error"), True
+    
+    new_path = os.path.expanduser(new_path)
+    new_path_obj = Path(new_path)
+
+    if not new_path_obj.is_absolute():
+        return dash.no_update, fac.AntdNotification(message="Path must be absolute.", type="error"), True
+    
+    # Try to create directory if it doesn't exist to verify permissions
+    try:
+        new_path_obj.mkdir(parents=True, exist_ok=True)
+        # Create .cache inside
+        (new_path_obj / ".cache").mkdir(exist_ok=True)
+    except OSError as e:
+         return dash.no_update, fac.AntdNotification(message=f"Permission denied or invalid path: {e}", type="error"), True
+
+    # Update Config
+    config_path = os.path.expanduser(os.environ.get("MINT_CONFIG_PATH") or "~/.mint_config.json")
+    try:
+        if os.path.isfile(config_path):
+            with open(config_path, "r", encoding="utf-8") as fh:
+                cfg = json.load(fh)
+        else:
+            cfg = {}
+        
+        cfg["data_dir"] = str(new_path_obj)
+        
+        with open(config_path, "w", encoding="utf-8") as fh:
+            json.dump(cfg, fh, indent=2)
+            
+    except Exception as e:
+         return dash.no_update, fac.AntdNotification(message=f"Failed to update config file: {e}", type="error"), True
+
+    # Update Environment Variable for this session (best effort)
+    os.environ["MINT_DATA_DIR"] = str(new_path_obj)
+    
+    # Update global TMPDIR in app.py to ensure page refreshes pick up the new path
+    try:
+        import ms_mint_app.app as app_module
+        app_module.TMPDIR = new_path_obj
+        app_module.CACHEDIR = new_path_obj / ".cache"
+        logger.info(f"Updated app.TMPDIR to {app_module.TMPDIR}")
+    except Exception as e:
+        logger.warning(f"Failed to update app.TMPDIR: {e}")
+
+    new_user_path = new_path_obj / "Local"
+    new_user_path.mkdir(parents=True, exist_ok=True)
+    
+    with duckdb_connection_mint(str(new_user_path)) as mint_conn:
+        logger.info(f"Initialized DB in {new_user_path}")
+
+    return str(new_user_path), fac.AntdNotification(message="Global Data Directory updated successfully!", type="success"), False
+
+
 def callbacks(app, fsc, cache):
     @app.callback(
         Output('workspace-tour', 'current'),
@@ -296,34 +589,7 @@ def callbacks(app, fsc, cache):
         prevent_initial_call=True
     )
     def create_ws_input_validation(value, tmpdir):
-        if value is None:
-            raise PreventUpdate
-
-        if not tmpdir:
-            okButtonProps = {'disabled': True}
-            validateStatus = 'error'
-            help = 'Workspace path not available'
-        elif value is not None and bool(pattern.match(value)):
-            with duckdb_connection_mint(tmpdir) as mint_conn:
-                if mint_conn is None:
-                    okButtonProps = {'disabled': True}
-                    validateStatus = 'error'
-                    help = 'Cannot open workspace database'
-                else:
-                    ws_df = mint_conn.execute("SELECT * FROM workspaces WHERE name = ?", (value,)).df()
-                    if ws_df.empty:
-                        okButtonProps = {'disabled': False}
-                        validateStatus = 'success'
-                        help = None
-                    else:
-                        okButtonProps = {'disabled': True}
-                        validateStatus = 'error'
-                        help = 'Workspace already exists!'
-        else:
-            okButtonProps = {'disabled': True}
-            validateStatus = 'error'
-            help = 'Workspace name can only contain: a-z, A-Z, 0-9 and _'
-        return validateStatus, help, okButtonProps
+        return _create_ws_input_validation(value, tmpdir)
 
     @app.callback(
         Output('ws-action-store', 'data', allow_duplicate=True),
@@ -338,25 +604,7 @@ def callbacks(app, fsc, cache):
         prevent_initial_call=True
     )
     def create_workspace(okCounts, tmpdir, ws_name, ws_description):
-        if not okCounts:
-            raise PreventUpdate
-        if not tmpdir:
-            raise PreventUpdate
-        with duckdb_connection_mint(tmpdir) as mint_conn:
-            if mint_conn is None:
-                raise PreventUpdate
-            previous_active = mint_conn.execute("SELECT key FROM workspaces WHERE active = true").fetchone()
-
-            key = mint_conn.execute("INSERT INTO workspaces (name, description, active, created_at, last_activity) "
-                                    "VALUES (?, ?, true, NOW(), NOW()) RETURNING key", (ws_name, ws_description)).fetchone()
-            if previous_active:
-                mint_conn.execute("UPDATE workspaces SET active = false WHERE key = ?", (previous_active[0],))
-            if key:
-                ws_path = Path(tmpdir, 'workspaces', str(key[0]))
-                ws_path.mkdir(parents=True, exist_ok=True)
-                logger.info(f"Created workspace: {ws_name} at {ws_path}")
-
-        return 'create', None, None, None
+        return _create_workspace(okCounts, tmpdir, ws_name, ws_description)
 
     @app.callback(
         Output('ws-create-modal', 'visible'),
@@ -377,80 +625,7 @@ def callbacks(app, fsc, cache):
         prevent_initial_call=True
     )
     def delete_workspace(okCounts, tmpdir, selectedRowKeys):
-        if not okCounts:
-            raise PreventUpdate
-        if not tmpdir or not selectedRowKeys:
-            raise PreventUpdate
-
-        ws_key = selectedRowKeys[0]
-
-        with duckdb_connection_mint(tmpdir) as mint_conn:
-            try:
-                mint_conn.execute("BEGIN")
-                ws_row = mint_conn.execute(
-                    "SELECT name FROM workspaces WHERE key = ?",
-                    (ws_key,)
-                ).fetchone()
-                if not ws_row:
-                    mint_conn.execute("ROLLBACK")
-                    return fac.AntdNotification(
-                        message="Workspace not found",
-                        type="error",
-                        duration=4,
-                        placement='bottom',
-                        showProgress=True,
-                        stack=True
-                    ), {'type': 'delete', 'status': 'error'}
-
-                next_active = mint_conn.execute(
-                    "SELECT key FROM workspaces WHERE key != ? ORDER BY last_activity DESC LIMIT 1",
-                    (ws_key,)
-                ).fetchone()
-
-                ws_path = Path(tmpdir, 'workspaces', str(ws_key))
-                deactivate_workspace_logging()
-
-                def _onerror(func, p, exc_info):
-                    import os
-                    try:
-                        os.chmod(p, 0o700)
-                        func(p)
-                    except Exception:
-                        raise
-
-                try:
-                    shutil.rmtree(ws_path, onerror=_onerror)
-                except Exception as fs_err:
-                    mint_conn.execute("ROLLBACK")
-                    return fac.AntdNotification(
-                        message="Failed to delete workspace files",
-                        description=str(fs_err),
-                        type="error",
-                        duration=5,
-                        placement='bottom',
-                        showProgress=True,
-                        stack=True
-                    ), {'type': 'delete', 'status': 'error'}
-
-                mint_conn.execute("DELETE FROM workspaces WHERE key = ?", (ws_key,))
-                if next_active:
-                    mint_conn.execute("UPDATE workspaces SET active = true WHERE key = ?", (next_active[0],))
-                mint_conn.execute("COMMIT")
-
-                ws_name = ws_row[0]
-                logger.info(f"Deleted workspace: {ws_name} (key: {ws_key})")
-                return fac.AntdNotification(message=f"Workspace {ws_name} deleted.",
-                                            type="success",
-                                            duration=3,
-                                            placement='bottom',
-                                            showProgress=True,
-                                            stack=True), {'type': 'delete', 'status': 'success'}
-            except Exception as e:
-                logger.error(f"Error deleting workspace {ws_key}: {e}", exc_info=True)
-                mint_conn.execute("ROLLBACK")
-                raise
-
-        return dash.no_update, {'type': 'delete', 'status': 'error'}
+        return _delete_workspace(okCounts, tmpdir, selectedRowKeys)
 
     @app.callback(
         Output('ws-delete-modal', 'visible'),
@@ -575,53 +750,7 @@ def callbacks(app, fsc, cache):
         prevent_initial_call=True
     )
     def ws_activate(selectedRowKeys, tmpdir, ws_action):
-
-        if not selectedRowKeys:
-            return dash.no_update, '', '', None
-
-        ws_key = selectedRowKeys[0]
-
-        with duckdb_connection_mint(tmpdir) as mint_conn:
-            # Check if this workspace is already active
-            is_active = mint_conn.execute("SELECT active FROM workspaces WHERE key = ?", (ws_key,)).fetchone()
-            already_active = is_active and is_active[0]
-
-            if already_active:
-                 # Just update activity time
-                mint_conn.execute("UPDATE workspaces SET last_activity = NOW() WHERE key = ?", (ws_key,))
-                name = mint_conn.execute("SELECT name FROM workspaces WHERE key = ?", (ws_key,)).fetchone()
-                notification = dash.no_update
-            else:
-                # Full activation switch
-                mint_conn.execute("UPDATE workspaces SET active = false WHERE key != ?", (ws_key,))
-                name = mint_conn.execute(
-                    "UPDATE workspaces SET active = true, last_activity = NOW() WHERE key = ? RETURNING name",
-                    (ws_key,)
-                ).fetchone()
-                
-                if name:
-                    ws_name = name[0]
-                    # Only log the explicit activation switch here
-                    logger.info(f"Activated workspace: {ws_name} (key: {ws_key})")
-                    notification = fac.AntdNotification(message=f"Workspace {ws_name} activated.",
-                                                        type="success",
-                                                        duration=3,
-                                                        placement='bottom',
-                                                        showProgress=True,
-                                                        stack=True)
-                else:
-                     notification = dash.no_update
-
-            if name:
-                ws_name = name[0]
-                wdir = Path(tmpdir, 'workspaces', ws_key)
-            else:
-                return dash.no_update, '', '', None
-
-        # This will now be silent if the handler is already attached (idempotent)
-        activate_workspace_logging(wdir, workspace_name=ws_name)
-
-        return notification, ws_name, wdir.as_posix(), wdir.as_posix()
+        return _ws_activate(selectedRowKeys, tmpdir, ws_action)
 
     @app.callback(
         Output("notifications-container", "children", allow_duplicate=True),
@@ -633,61 +762,7 @@ def callbacks(app, fsc, cache):
         prevent_initial_call=True,
     )
     def save_ws_table_on_edit(row_edited, column_edited, tmpdir):
-        """
-        This callback saves the table on cell edits.
-        This saves some bandwidth.
-        """
-        ctx = dash.callback_context
-        if not ctx.triggered:
-            raise PreventUpdate
-
-        if row_edited is None or column_edited is None:
-            raise PreventUpdate
-
-        if not tmpdir:
-            raise PreventUpdate
-
-        allowed_columns = {"description"}
-        if column_edited not in allowed_columns:
-            return fac.AntdNotification(
-                message="Edit not allowed",
-                description=f"Column '{column_edited}' cannot be edited.",
-                type="error",
-                duration=4,
-                placement='bottom',
-                showProgress=True,
-                stack=True
-            ), dash.no_update
-
-        ws_key = row_edited.get('key')
-        if not ws_key:
-            raise PreventUpdate
-
-        logger.info(f"Updating workspace {ws_key}: {column_edited} = {row_edited[column_edited]}")
-
-        try:
-            with duckdb_connection_mint(tmpdir, workspace=ws_key) as mint_conn:
-                if mint_conn is None:
-                    raise PreventUpdate
-                query = f"UPDATE workspaces SET {column_edited} = ?, last_activity = NOW() WHERE key = ?"
-                mint_conn.execute(query, [row_edited[column_edited], ws_key])
-            return fac.AntdNotification(message="Successfully edition saved",
-                                        type="success",
-                                        duration=3,
-                                        placement='bottom',
-                                        showProgress=True,
-                                        stack=True
-                                        ), {'type': 'edit'}
-        except Exception as e:
-            logger.error(f"Failed to save edit for workspace {ws_key}: {e}", exc_info=True)
-            return fac.AntdNotification(message="Failed to save edition",
-                                        description=f"Failing to save edition with: {str(e)}",
-                                        type="error",
-                                        duration=3,
-                                        placement='bottom',
-                                        showProgress=True,
-                                        stack=True
-                                        ), dash.no_update
+        return _save_ws_table_on_edit(row_edited, column_edited, tmpdir)
 
     @app.callback(
         Output("ws-change-data-dir-modal", "visible"),
@@ -707,74 +782,7 @@ def callbacks(app, fsc, cache):
         prevent_initial_call=True
     )
     def save_new_data_dir(okCounts, new_path):
-        if not okCounts:
-            raise PreventUpdate
-        
-        if not new_path or not new_path.strip():
-             return dash.no_update, fac.AntdNotification(message="Please enter a valid path.", type="error"), True
-        
-        new_path = os.path.expanduser(new_path)
-        new_path_obj = Path(new_path)
-
-        if not new_path_obj.is_absolute():
-            return dash.no_update, fac.AntdNotification(message="Path must be absolute.", type="error"), True
-        
-        # Try to create directory if it doesn't exist to verify permissions
-        try:
-            new_path_obj.mkdir(parents=True, exist_ok=True)
-            # Create .cache inside
-            (new_path_obj / ".cache").mkdir(exist_ok=True)
-        except OSError as e:
-             return dash.no_update, fac.AntdNotification(message=f"Permission denied or invalid path: {e}", type="error"), True
-
-        # Update Config
-        config_path = os.path.expanduser(os.environ.get("MINT_CONFIG_PATH") or "~/.mint_config.json")
-        try:
-            if os.path.isfile(config_path):
-                with open(config_path, "r", encoding="utf-8") as fh:
-                    cfg = json.load(fh)
-            else:
-                cfg = {}
-            
-            cfg["data_dir"] = str(new_path_obj)
-            
-            with open(config_path, "w", encoding="utf-8") as fh:
-                json.dump(cfg, fh, indent=2)
-                
-        except Exception as e:
-             return dash.no_update, fac.AntdNotification(message=f"Failed to update config file: {e}", type="error"), True
-
-        # Update Environment Variable for this session (best effort)
-        os.environ["MINT_DATA_DIR"] = str(new_path_obj)
-        
-        # Update global TMPDIR in app.py to ensure page refreshes pick up the new path
-        try:
-            import ms_mint_app.app as app_module
-            app_module.TMPDIR = new_path_obj
-            app_module.CACHEDIR = new_path_obj / ".cache"
-            logger.info(f"Updated app.TMPDIR to {app_module.TMPDIR}")
-        except Exception as e:
-            logger.warning(f"Failed to update app.TMPDIR: {e}")
-
-        # Construct the correct user-specific path (mirroring app.user_tmpdir logic)
-        # We assume Local mode usually, or simple auth. 
-        # Since we can't easily import current_user here without context issues sometimes, 
-        # let's look at the OLD tmpdir to guess the structure? 
-        # Or better, just implement the standard logic:
-        # If we are in 'Local' mode (default for single user), append 'Local'.
-        # If we handle multi-user, this feature should probably be admin-only or handle 'User/uid'.
-        # For now, let's stick to 'Local' as that's what the User sees.
-        
-        # NOTE: Ideally we would call app.user_tmpdir() but that relies on global TMPDIR which is stale.
-        # So we manually append 'Local'.
-        new_user_path = new_path_obj / "Local"
-        new_user_path.mkdir(parents=True, exist_ok=True)
-        
-        with duckdb_connection_mint(str(new_user_path)) as mint_conn:
-            logger.info(f"Initialized DB in {new_user_path}")
-
-        # Notify success and update tmpdir store with the USER path (ending in /Local)
-        return str(new_user_path), fac.AntdNotification(message="Global Data Directory updated successfully!", type="success"), False
+        return _save_new_data_dir(okCounts, new_path)
 
     @app.callback(
         Output("ws-current-data-dir-text", "children"),
