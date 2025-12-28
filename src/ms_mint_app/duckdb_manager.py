@@ -31,28 +31,7 @@ def _send_progress(set_progress, percent, stage: str = "", detail: str = ""):
         pass
 
 
-def _write_progress_log(log_path: Path | str | None, message: str):
-    """
-    Append a progress line to the provided log file path.
-    """
-    if not log_path:
-        return
-    try:
-        path = Path(log_path)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        timestamp = time.strftime('%Y-%m-%d %H:%M:%S')
-        with path.open('a', encoding='utf-8') as f:
-            f.write(f"[{timestamp}] {message}\n")
-    except Exception:
-        pass
 
-
-def _center_lines(text: str, width: int = 100) -> str:
-    """
-    Center each line of a text block to the given width.
-    Useful for nicer alignment inside the processing log file.
-    """
-    return "\n".join(line.center(width) for line in text.splitlines())
 
 def _update_workspace_activity(mint_root: Path, workspace_id: str, retries: int = 3, delay_s: float = 0.05):
     for attempt in range(retries):
@@ -800,8 +779,7 @@ def compute_chromatograms_in_batches(wdir: str,
                                      ram=None,
                                      use_bookmarked: bool = False,
                                      ):
-    # progress_log = Path(wdir) / "processing_progress.log" if wdir else None
-    progress_log = None
+
     logger.info(f"Computing chromatograms in batches. wDir: {wdir}")
     QUERY_CREATE_SCAN_LOOKUP = """
                                CREATE TABLE IF NOT EXISTS ms_file_scans AS
@@ -1146,7 +1124,7 @@ def compute_chromatograms_in_batches(wdir: str,
                         log_line = (f"Batch {batch_num}/{total_batches} | "
                                     f"Progress {processed:,}/{total_pairs_type:,} | "
                                     f"Time/batch {batch_elapsed:0.2f}s")
-                        _write_progress_log(progress_log, _center_lines(log_line))
+
 
                         if checkpoint_every and batches_since_checkpoint >= checkpoint_every:
                             conn.execute("COMMIT")
@@ -1163,11 +1141,7 @@ def compute_chromatograms_in_batches(wdir: str,
                         failed += batch_count
 
                         logger.error(f"Error processing batch: {batch_elapsed:>5.2f}s | Error: {str(e)[:80]}")
-                        error_line = (f"Batch {batch_num}/{total_batches} | "
-                                      f"IDs {start_id}-{end_id} | "
-                                      f"{batch_count} pairs | "
-                                      f"Error: {str(e)}")
-                        _write_progress_log(progress_log, _center_lines(error_line))
+
 
                         with open(f'failed_batches_{ms_type}.log', 'a') as f:
                             f.write(f"\n{'=' * 60}\n")
@@ -1228,7 +1202,7 @@ def compute_results_in_batches(wdir: str,
     include_arrays=False: numeric metrics only (FAST)
     include_arrays=True: include scan_time and intensity arrays (SLOWER)
     """
-    progress_log = Path(wdir) / "processing_progress.log" if wdir else None
+
 
     # INLINE macro - returns the table directly (AS TABLE)
     QUERY_CREATE_HELPERS = """
@@ -1469,7 +1443,7 @@ def compute_results_in_batches(wdir: str,
                             f"Time/batch {batch_elapsed:0.2f}s"
                             # f"Processing ({pairs_per_sec:0.1f} pairs/s)"
                             )
-                _write_progress_log(progress_log, _center_lines(log_line))
+
 
                 # Periodic checkpoint
                 if batches_in_txn >= checkpoint_every:
@@ -1490,11 +1464,7 @@ def compute_results_in_batches(wdir: str,
                 failed += batch_count if 'batch_count' in locals() else 0
 
                 logger.error(f"Error processing batch: {batch_elapsed:>5.2f}s | Error: {str(e)[:80]}")
-                error_line = (f"RESULTS batch {batch_num}/{total_batches} | "
-                              f"IDs {start_id}-{end_id} | "
-                              f"{batch_count if 'batch_count' in locals() else 0} pairs | "
-                              f"Error: {str(e)}")
-                _write_progress_log(progress_log, _center_lines(error_line))
+
 
                 with open('failed_batches_results.log', 'a') as f:
                     f.write(f"\n{'=' * 60}\n")
