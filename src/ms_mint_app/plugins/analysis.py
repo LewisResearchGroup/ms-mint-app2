@@ -1375,7 +1375,8 @@ def callbacks(app, fsc, cache):
 
         with duckdb_connection(wdir) as conn:
             if conn is None:
-                raise PreventUpdate
+                logger.error("SCALiR: Failed to connect to database.")
+                return ("Database connection failed.", "", "", [], [], [], hidden_style, None)
             if intensity not in allowed_metrics:
                 intensity = 'peak_area'
             try:

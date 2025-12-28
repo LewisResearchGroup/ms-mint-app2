@@ -271,6 +271,8 @@ def transform(X, calibration_curves_df):
         df.loc[df.pred_conc > np.exp(lin_range_max), "in_range"] = 0
         df["peak_label"] = peak_label
         results.append(df)
+    if not results:
+        return pd.DataFrame(columns=["peak_label", "pred_conc", "in_range"], index=X0.index)
     df_conc = pd.concat(results).loc[X0.index, ["peak_label", "pred_conc", "in_range"]]
     return df_conc
 
