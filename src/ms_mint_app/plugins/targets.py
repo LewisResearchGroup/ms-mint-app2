@@ -789,8 +789,8 @@ def _target_delete(okCounts, selectedRows, clickedKey, wdir):
                 conn.execute("ROLLBACK")
                 logger.error(f"Error deleting selected targets: {e}", exc_info=True)
                 return (fac.AntdNotification(
-                            message="Delete Targets failed",
-                            description="Could not delete the selected targets; no changes were applied.",
+                            message="Failed to delete targets",
+                            description=f"Error: {e}",
                             type="error",
                             duration=4,
                             placement='bottom',
@@ -822,8 +822,8 @@ def _target_delete(okCounts, selectedRows, clickedKey, wdir):
                     conn.execute("ROLLBACK")
                     logger.error(f"Error deleting all targets: {e}", exc_info=True)
                     return (fac.AntdNotification(
-                                message="Delete Targets failed",
-                                description="Could not delete all targets; no changes were applied.",
+                                message="Failed to delete targets",
+                                description=f"Error: {e}",
                                 type="error",
                                 duration=4,
                                 placement='bottom',
@@ -880,9 +880,10 @@ def _save_target_table_on_edit(row_edited, column_edited, wdir):
                 conn.execute(query, [row_edited[column_edited], row_edited['peak_label']])
             targets_action_store = {'action': 'edit', 'status': 'success'}
             logger.info(f"Updated target {row_edited['peak_label']}: {column_edited} = {row_edited[column_edited]}")
-        return fac.AntdNotification(message="Successfully edition saved",
+        return fac.AntdNotification(message="Changes saved",
+                                    description="Targets saved to disk.",
                                     type="success",
-                                    duration=3,
+                                    duration=4,
                                     placement='bottom',
                                     showProgress=True,
                                     stack=True
@@ -890,10 +891,10 @@ def _save_target_table_on_edit(row_edited, column_edited, wdir):
     except Exception as e:
         logger.error(f"Error updating metadata: {e}", exc_info=True)
         targets_action_store = {'action': 'edit', 'status': 'failed'}
-        return fac.AntdNotification(message="Failed to save edition",
-                                    description=f"Failing to save edition with: {str(e)}",
+        return fac.AntdNotification(message="Failed to save changes",
+                                    description=f"Error: {e}",
                                     type="error",
-                                    duration=3,
+                                    duration=4,
                                     placement='bottom',
                                     showProgress=True,
                                     stack=True
@@ -978,7 +979,7 @@ def _run_asari_analysis(ok_counts, wdir, multicores, mz_tol, mode, snr, min_heig
          return fac.AntdNotification(message="Asari Analysis", description=result['message'], type="success", placement="bottom"), False, status_alert, {'timestamp': time.time()}
     else:
          status_alert = fac.AntdAlert(message=result['message'], type="error", showIcon=True, closable=True)
-         return fac.AntdNotification(message="Asari Analysis Failed", description=result['message'], type="error", placement="bottom"), True, status_alert, dash.no_update
+         return fac.AntdNotification(message="Analysis failed", description=result['message'], type="error", placement="bottom"), True, status_alert, dash.no_update
 
 
 def callbacks(app, fsc=None, cache=None):

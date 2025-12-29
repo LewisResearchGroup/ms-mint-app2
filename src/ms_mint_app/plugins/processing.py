@@ -776,7 +776,7 @@ def _download_all_results(wdir: str, ws_name: str, selected_columns: list) -> tu
     if not selected_columns or not isinstance(selected_columns, list):
         return dash.no_update, fac.AntdNotification(
             message="Download Results",
-            description="Select at least one result column to download.",
+            description="Select at least one column.",
             type="warning",
             duration=4,
             placement="bottom",
@@ -787,7 +787,7 @@ def _download_all_results(wdir: str, ws_name: str, selected_columns: list) -> tu
     if not safe_cols:
         return dash.no_update, fac.AntdNotification(
             message="Download Results",
-            description="No valid result columns selected.",
+            description="No valid columns selected.",
             type="warning",
             duration=4,
             placement="bottom",
@@ -798,7 +798,7 @@ def _download_all_results(wdir: str, ws_name: str, selected_columns: list) -> tu
         if conn is None:
             return dash.no_update, fac.AntdNotification(
                 message="Download Results",
-                description="Could not open the results database.",
+                description="Database unavailable.",
                 type="error",
                 duration=4,
                 placement="bottom",
@@ -846,7 +846,7 @@ def _download_dense_matrix(wdir: str, ws_name: str, rows: list, cols: list, valu
     if not rows or not cols or not value:
         return dash.no_update, fac.AntdNotification(
             message="Download Results",
-            description="Select row, column, and value fields for the dense matrix.",
+            description="Missing row, column, or value selection.",
             type="warning",
             duration=4,
             placement="bottom",
@@ -860,7 +860,7 @@ def _download_dense_matrix(wdir: str, ws_name: str, rows: list, cols: list, valu
     if row_col not in allowed_rows_cols or col_col not in allowed_rows_cols:
         return dash.no_update, fac.AntdNotification(
             message="Download Results",
-            description="Invalid row/column selection for dense matrix.",
+            description="Invalid row/column selection.",
             type="warning",
             duration=4,
             placement="bottom",
@@ -870,7 +870,7 @@ def _download_dense_matrix(wdir: str, ws_name: str, rows: list, cols: list, valu
     if val_col not in allowed_values:
         return dash.no_update, fac.AntdNotification(
             message="Download Results",
-            description="Invalid value selection for dense matrix.",
+            description="Invalid value selection.",
             type="warning",
             duration=4,
             placement="bottom",
@@ -881,7 +881,7 @@ def _download_dense_matrix(wdir: str, ws_name: str, rows: list, cols: list, valu
         if conn is None:
             return dash.no_update, fac.AntdNotification(
                 message="Download Results",
-                description="Could not open the results database.",
+                description="Database unavailable.",
                 type="error",
                 duration=4,
                 placement="bottom",
@@ -943,12 +943,12 @@ def _delete_selected_results(wdir: str, selected_rows: list) -> tuple:
                 total_removed = [0, 0]
             conn.execute("COMMIT")
             return (None, results_action_store, total_removed)
-        except Exception:
+        except Exception as e:
             conn.execute("ROLLBACK")
             return (
                 fac.AntdNotification(
-                    message="Delete Results failed",
-                    description="Could not delete the selected results; no changes were applied.",
+                    message="Failed to delete results",
+                    description=f"Error: {e}",
                     type="error",
                     duration=4,
                     placement='bottom',
@@ -995,13 +995,13 @@ def _delete_all_results(wdir: str) -> tuple:
             
             conn.execute("COMMIT")
             return (None, results_action_store, total_removed)
-        except Exception:
+        except Exception as e:
             logger.error("Failed to delete results.", exc_info=True)
             conn.execute("ROLLBACK")
             return (
                 fac.AntdNotification(
-                    message="Delete Results failed",
-                    description="Could not delete all results; no changes were applied.",
+                    message="Failed to delete results",
+                    description=f"Error: {e}",
                     type="error",
                     duration=4,
                     placement='bottom',
@@ -1026,7 +1026,7 @@ def callbacks(app, fsc, cache):
             return []
         return fac.AntdNotification(
             message="Activate a workspace",
-            description="Select or create a workspace before using Processing.",
+            description="Please select or create a workspace first.",
             type="warning",
             duration=4,
             placement='bottom',
@@ -1333,8 +1333,8 @@ def callbacks(app, fsc, cache):
         # Return success notification
         return (
             fac.AntdNotification(
-                message="Delete Results",
-                description=f"Deleted {total_removed[0]} targets with {total_removed[1]} samples from results",
+                message="Results deleted",
+                description=f"Deleted {total_removed[0]} targets and {total_removed[1]} samples.",
                 type="success" if total_removed != [0, 0] else "error",
                 duration=3,
                 placement='bottom',
@@ -1458,7 +1458,7 @@ def callbacks(app, fsc, cache):
         if not wdir:
             return dash.no_update, fac.AntdNotification(
                 message="Download Results",
-                description="Workspace is not available. Please select or create a workspace.",
+                description="Workspace not available. Please select or create a workspace.",
                 type="error",
                 duration=4,
                 placement="bottom",
@@ -1553,7 +1553,7 @@ def callbacks(app, fsc, cache):
                 return (
                     fac.AntdNotification(
                         message="Run MINT",
-                        description="Workspace is not available. Please select or create a workspace.",
+                        description="Workspace not available. Please select or create a workspace.",
                         type="error",
                         duration=4,
                         placement="bottom",
@@ -1575,8 +1575,8 @@ def callbacks(app, fsc, cache):
             if not ms_files or ms_files[0] == 0 or not targets or targets[0] == 0:
                 return (
                     fac.AntdNotification(
-                        message="Run MINT",
-                        description="Need at least one MS-file and one target before running MINT processing.",
+                        message="Requirements not met",
+                        description="At least one MS-file and one target are required.",
                         type="warning",
                         duration=4,
                         placement="bottom",

@@ -541,7 +541,7 @@ def _set_color(okCounts, color, recentlyButtonClickedRow, data, wdir):
         
         logger.info(f"Changed color for {recentlyButtonClickedRow['ms_file_label']} from {previous_color} to {color}")
 
-        return (fac.AntdNotification(message='Color changed successfully',
+        return (fac.AntdNotification(message='Color updated',
                                      description=f'Color changed from {previous_color} to {color}',
                                      type='success',
                                      duration=3,
@@ -555,8 +555,8 @@ def _set_color(okCounts, color, recentlyButtonClickedRow, data, wdir):
     except Exception as e:
         logger.error(f"DB error: {e}")
 
-        return (fac.AntdNotification(message='Failed to change color',
-                                     description=f'Color change failed with {str(e)}',
+        return (fac.AntdNotification(message='Failed to update color',
+                                     description=f'Error: {str(e)}',
                                      type='error',
                                      duration=3,
                                      placement='bottom',
@@ -583,7 +583,7 @@ def _genere_color_map(nClicks, clickedKey, wdir):
 
     if n_colors == 0:
         logger.info("Color generation requested but no new colors were needed.")
-        notification = fac.AntdNotification(message='No colors generated',
+        notification = fac.AntdNotification(message='No new colors generated',
                                             type='warning',
                                             duration=3,
                                             placement='bottom',
@@ -593,8 +593,8 @@ def _genere_color_map(nClicks, clickedKey, wdir):
                                             )
     else:
         logger.info(f"Generated {n_colors} new colors.")
-        notification = fac.AntdNotification(message='Colors generated successfully',
-                                 description=f'{n_colors} colors generated',
+        notification = fac.AntdNotification(message='Colors generated',
+                                 description=f'{n_colors} new colors generated',
                                  type='success',
                                  duration=3,
                                  placement='bottom',
@@ -773,8 +773,8 @@ def _confirm_and_delete(okCounts, selectedRows, clickedKey, wdir):
                 conn.execute("ROLLBACK")
                 logger.error(f"Error deleting selected MS files: {e}", exc_info=True)
                 return (fac.AntdNotification(
-                            message="Delete MS-files failed",
-                            description="Could not delete the selected files; no changes were applied.",
+                            message="Failed to delete MS files",
+                            description="No files were deleted.",
                             type="error",
                             duration=4,
                             placement='bottom',
@@ -809,8 +809,8 @@ def _confirm_and_delete(okCounts, selectedRows, clickedKey, wdir):
     if total_removed > 0:
         logger.info(f"Deleted {total_removed} MS-Files.")
     
-    return (fac.AntdNotification(message="Delete MS-files",
-                                 description=f"Deleted {total_removed} MS-Files",
+    return (fac.AntdNotification(message="MS files deleted" if total_removed > 0 else "Failed to delete MS files",
+                                 description=f"Deleted {total_removed} files",
                                  type="success" if total_removed > 0 else "error",
                                  duration=3,
                                  placement='bottom',
@@ -848,7 +848,7 @@ def _save_table_on_edit(row_edited, column_edited, wdir):
                          (new_value, ms_file_label))
             ms_table_action_store = {'action': 'edit', 'status': 'success'}
             logger.info(f"Updated metadata for {ms_file_label}: {column_edited} = {new_value}")
-        return fac.AntdNotification(message="Successfully edition saved",
+        return fac.AntdNotification(message="Changes saved",
                                     type="success",
                                     duration=3,
                                     placement='bottom',
@@ -859,8 +859,8 @@ def _save_table_on_edit(row_edited, column_edited, wdir):
     except Exception as e:
         logger.error(f"Error updating metadata: {e}", exc_info=True)
         ms_table_action_store = {'action': 'edit', 'status': 'failed'}
-        return fac.AntdNotification(message="Failed to save edition",
-                                    description=f"Failing to save edition with: {str(e)}",
+        return fac.AntdNotification(message="Failed to save changes",
+                                    description=f"Error: {str(e)}",
                                     type="error",
                                     duration=3,
                                     placement='bottom',
@@ -1001,7 +1001,7 @@ def callbacks(cls, app, fsc, cache, args_namespace):
             raise PreventUpdate
         return fac.AntdNotification(
             message="Activate a workspace",
-            description="Select or create a workspace before working with MS files.",
+            description="Please select or create a workspace before working with MS files.",
             type="warning",
             duration=4,
             placement='bottom',

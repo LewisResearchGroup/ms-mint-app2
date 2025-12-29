@@ -1304,7 +1304,7 @@ def callbacks(app, fsc, cache):
             return []
         return fac.AntdNotification(
             message="Activate a workspace",
-            description="Select or create a workspace before using Analysis.",
+            description="Please select or create a workspace first.",
             type="warning",
             duration=4,
             placement='bottom',

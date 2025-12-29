@@ -1098,7 +1098,7 @@ def _delete_target_logic(target, wdir):
             logger.error(f"delete_target_logic: Could not connect to database for target '{target}'")
             return (fac.AntdNotification(
                         message="Database connection failed",
-                        description="Could not connect to the database to delete target data.",
+                        description="Could not connect to the database.",
                         type="error",
                         duration=4,
                         placement='bottom',
@@ -1115,12 +1115,12 @@ def _delete_target_logic(target, wdir):
             conn.execute("DELETE FROM results WHERE peak_label = ?", [target])
             conn.execute("COMMIT")
             logger.info(f"Deleted target '{target}' and associated chromatograms/results.")
-        except Exception:
+        except Exception as e:
             conn.execute("ROLLBACK")
             logger.error(f"Failed to delete target '{target}'", exc_info=True)
             return (fac.AntdNotification(
-                        message="Delete target failed",
-                        description="An error occurred while deleting target data. No changes were applied.",
+                        message="Failed to delete target",
+                        description=f"Error: {e}",
                         type="error",
                         duration=4,
                         placement='bottom',
@@ -1131,7 +1131,7 @@ def _delete_target_logic(target, wdir):
                     False,
                     False)
 
-    return (fac.AntdNotification(message=f"{target} chromatograms deleted",
+    return (fac.AntdNotification(message=f"Chromatograms deleted for '{target}'",
                                     type="success",
                                     duration=3,
                                     placement='bottom',
@@ -1149,7 +1149,7 @@ def _bookmark_target_logic(bookmarks, targets, trigger_id, wdir):
             logger.error(f"Failed to connect to database to bookmark target '{targets[trigger_id]}'")
             return fac.AntdNotification(
                 message="Database connection failed",
-                description="Could not update bookmark status. Please check the workspace connection.",
+                description="Could not update bookmark status.",
                 type="error",
                 duration=5,
                 placement='bottom',
@@ -1162,8 +1162,7 @@ def _bookmark_target_logic(bookmarks, targets, trigger_id, wdir):
     status = "bookmarked" if bookmarks[trigger_id] else "unbookmarked"
     logger.info(f"Target '{targets[trigger_id]}' was {status}.")
 
-    return fac.AntdNotification(message=f"Target {targets[trigger_id]} has been "
-                                        f"{'' if bookmarks[trigger_id] else 'un'}bookmarked",
+    return fac.AntdNotification(message=f"Target '{targets[trigger_id]}' {'bookmarked' if bookmarks[trigger_id] else 'unbookmarked'}",
                                 duration=3,
                                 placement='bottom',
                                 type="success",
@@ -1307,7 +1306,7 @@ def callbacks(app, fsc, cache, cpu=None):
             return []
         return fac.AntdNotification(
             message="Activate a workspace",
-            description="Select or create a workspace before using Optimization.",
+            description="Please select or create a workspace before using Optimization.",
             type="warning",
             duration=4,
             placement='bottom',
@@ -3091,8 +3090,8 @@ def callbacks(app, fsc, cache, cpu=None):
             if conn is None:
                 return (
                     fac.AntdNotification(
-                        message="Compute Chromatograms",
-                        description="Workspace is not available. Please select or create a workspace.",
+                        message="Workspace required",
+                        description="Please select or create a workspace.",
                         type="error",
                         duration=4,
                         placement="bottom",
@@ -3107,8 +3106,8 @@ def callbacks(app, fsc, cache, cpu=None):
             if not ms_files or ms_files[0] == 0 or not targets or targets[0] == 0:
                 return (
                     fac.AntdNotification(
-                        message="Compute Chromatograms",
-                        description="Need at least one MS-file (marked for optimization) and one target before computing chromatograms.",
+                        message="Requirements not met",
+                        description="At least one MS-file and one target are required.",
                         type="warning",
                         duration=4,
                         placement="bottom",
@@ -3390,8 +3389,8 @@ def callbacks(app, fsc, cache, cpu=None):
                           [rt_min, rt_max, rt, target_label])
         
         notification = fac.AntdNotification(
-            message="Changes Saved",
-            description=f"Retention time changes for {target_label} saved successfully.",
+            message="Changes saved",
+            description=f"Retention time for {target_label} updated.",
             type="success",
             duration=3,
             placement="bottom"

@@ -365,7 +365,7 @@ def _delete_workspace(okCounts, tmpdir, selectedRowKeys):
 
             ws_name = ws_row[0]
             logger.info(f"Deleted workspace: {ws_name} (key: {ws_key})")
-            return fac.AntdNotification(message=f"Workspace {ws_name} deleted.",
+            return fac.AntdNotification(message=f"Workspace '{ws_name}' deleted",
                                         type="success",
                                         duration=3,
                                         placement='bottom',
@@ -407,7 +407,7 @@ def _ws_activate(selectedRowKeys, tmpdir, ws_action):
                 ws_name = name[0]
                 # Only log the explicit activation switch here
                 logger.info(f"Activated workspace: {ws_name} (key: {ws_key})")
-                notification = fac.AntdNotification(message=f"Workspace {ws_name} activated.",
+                notification = fac.AntdNotification(message=f"Workspace '{ws_name}' activated",
                                                     type="success",
                                                     duration=3,
                                                     placement='bottom',
@@ -463,7 +463,7 @@ def _save_ws_table_on_edit(row_edited, column_edited, tmpdir):
                 raise PreventUpdate
             query = f"UPDATE workspaces SET {column_edited} = ?, last_activity = NOW() WHERE key = ?"
             mint_conn.execute(query, [row_edited[column_edited], ws_key])
-        return fac.AntdNotification(message="Successfully edition saved",
+        return fac.AntdNotification(message="Changes saved",
                                     type="success",
                                     duration=3,
                                     placement='bottom',
@@ -472,8 +472,8 @@ def _save_ws_table_on_edit(row_edited, column_edited, tmpdir):
                                     ), {'type': 'edit'}
     except Exception as e:
         logger.error(f"Failed to save edit for workspace {ws_key}: {e}", exc_info=True)
-        return fac.AntdNotification(message="Failed to save edition",
-                                    description=f"Failing to save edition with: {str(e)}",
+        return fac.AntdNotification(message="Failed to save changes",
+                                    description=f"Error: {e}",
                                     type="error",
                                     duration=3,
                                     placement='bottom',
@@ -487,13 +487,13 @@ def _save_new_data_dir(okCounts, new_path):
         raise PreventUpdate
     
     if not new_path or not new_path.strip():
-         return dash.no_update, fac.AntdNotification(message="Please enter a valid path.", type="error", placement="bottom"), True
+         return dash.no_update, fac.AntdNotification(message="Invalid path", type="error", placement="bottom"), True
     
     new_path = os.path.expanduser(new_path)
     new_path_obj = Path(new_path)
 
     if not new_path_obj.is_absolute():
-        return dash.no_update, fac.AntdNotification(message="Path must be absolute.", type="error", placement="bottom"), True
+        return dash.no_update, fac.AntdNotification(message="Path must be absolute", type="error", placement="bottom"), True
     
     # Try to create directory if it doesn't exist to verify permissions
     try:

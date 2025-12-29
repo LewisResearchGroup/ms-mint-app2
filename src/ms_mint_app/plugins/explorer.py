@@ -800,7 +800,7 @@ def _background_processing(set_progress, okCounts, processing_type, selected_fil
             details.append(f"{rt_adjusted_count} RT value(s) adjusted (outside span)")
 
         if details:
-            description = f"Processed {total_processed} files; " + "; ".join(details) + "."
+            description = f"Processed {total_processed} items. " + ", ".join(details)
             if failed_files or failed_targets_count:
                 mss_type = "warning"
             elif duplicates_count or duplicate_targets:
@@ -808,16 +808,16 @@ def _background_processing(set_progress, okCounts, processing_type, selected_fil
             else:
                 mss_type = "success"
         else:
-            description = f"Successfully processed {total_processed} files."
+            description = f"Processed {total_processed} items."
             mss_type = "success"
     elif duplicates_count:
-        description = f"No new files processed; {duplicates_count} duplicate file(s) skipped."
+        description = f"Skipped {duplicates_count} duplicates."
         mss_type = "info"
     elif failed_files or failed_targets_count:
-        description = f"Failed processing {len(failed_files)} files."
+        description = f"Failed to process {len(failed_files)} items."
         mss_type = "error"
     else:
-        description = "No files were processed."
+        description = "No items processed."
         mss_type = "info"
     notification = fac.AntdNotification(message=message,
                                         description=description,
