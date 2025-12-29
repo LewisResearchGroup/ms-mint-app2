@@ -663,6 +663,46 @@ def layout():
     return _layout
 
 
+def _build_delete_modal_content(clickedKey: str, selectedRows: list) -> tuple[bool, fac.AntdFlex]:
+    """
+    Build the delete confirmation modal content based on the clicked action.
+    
+    Args:
+        clickedKey: The key of the clicked option ('processing-delete-selected' or 'processing-delete-all')
+        selectedRows: List of selected rows from the table
+        
+    Returns:
+        Tuple of (modal_visible, modal_children)
+        
+    Raises:
+        PreventUpdate: If validation fails (no rows selected for delete-selected)
+    """
+    if clickedKey == "processing-delete-selected":
+        if not selectedRows:
+            logger.debug("_build_delete_modal_content: PreventUpdate because no rows selected for delete-selected")
+            raise PreventUpdate
+        
+        children = fac.AntdFlex(
+            [
+                fac.AntdText("This action will delete selected results and cannot be undone?",
+                             strong=True),
+                fac.AntdText("Are you sure you want to delete the selected results?")
+            ],
+            vertical=True,
+        )
+    else:  # processing-delete-all
+        children = fac.AntdFlex(
+            [
+                fac.AntdText("This action will delete ALL results and cannot be undone?",
+                             strong=True, type="danger"),
+                fac.AntdText("Are you sure you want to delete the ALL results?")
+            ],
+            vertical=True,
+        )
+    
+    return True, children
+
+
 def callbacks(app, fsc, cache):
     @app.callback(
         Output("processing-notifications-container", "children"),
@@ -868,6 +908,35 @@ def callbacks(app, fsc, cache):
             for row in df.itertuples(index=False)
         ]
 
+        # If current page is empty but there are records, navigate to the last valid page
+        if len(data) == 0 and number_records > 0:
+            max_page = max(math.ceil(number_records / effective_page_size), 1)
+            current = max_page
+            # Re-query with the adjusted page
+            offset = (current - 1) * effective_page_size
+            params_paged = order_params + params + [effective_page_size, offset]
+            df = conn.execute(sql, params_paged).df()
+            data = [
+                {
+                    'key': f'{row.peak_label}-{row.ms_file_label}',
+                    'peak_label': row.peak_label,
+                    'ms_file_label': row.ms_file_label,
+                    'ms_type': getattr(row, 'ms_type', None),
+                    'peak_area': row.peak_area,
+                    'peak_area_top3': row.peak_area_top3,
+                    'peak_mean': row.peak_mean,
+                    'peak_median': row.peak_median,
+                    'peak_n_datapoints': row.peak_n_datapoints,
+                    'peak_min': row.peak_min,
+                    'peak_max': row.peak_max,
+                    'peak_rt_of_max': row.peak_rt_of_max,
+                    'total_intensity': row.total_intensity,
+                    'intensity': row.intensity,
+                    'sample_type': getattr(row, 'sample_type', None),
+                }
+                for row in df.itertuples(index=False)
+            ]
+
         return [
             data,
             [],
@@ -917,6 +986,11 @@ def callbacks(app, fsc, cache):
             return options, [options[0]['value']]
         valid_values = {opt['value'] for opt in options}
         filtered_value = [v for v in current_value if v in valid_values]
+        
+        # If current selection is no longer valid (deleted), auto-select first available
+        if not filtered_value and options:
+            return options, [options[0]['value']]
+        
         return options, filtered_value
 
     @app.callback(
@@ -939,29 +1013,7 @@ def callbacks(app, fsc, cache):
             logger.debug(f"toggle_modal: PreventUpdate because triggered={ctx.triggered}, nClicks={nClicks}, clickedKey={clickedKey}")
             raise PreventUpdate
 
-        if clickedKey == "processing-delete-selected":
-            if not selectedRows:
-                logger.debug("toggle_modal: PreventUpdate because no rows selected for delete-selected")
-                raise PreventUpdate
-
-        children = fac.AntdFlex(
-            [
-                fac.AntdText("This action will delete selected results and cannot be undone?",
-                             strong=True),
-                fac.AntdText("Are you sure you want to delete the selected results?")
-            ],
-            vertical=True,
-        )
-        if clickedKey == "processing-delete-all":
-            children = fac.AntdFlex(
-                [
-                    fac.AntdText("This action will delete ALL results and cannot be undone?",
-                                 strong=True, type="danger"),
-                    fac.AntdText("Are you sure you want to delete the ALL results?")
-                ],
-                vertical=True,
-            )
-        return True, children
+        return _build_delete_modal_content(clickedKey, selectedRows)
 
     @app.callback(
         Output("notifications-container", "children", allow_duplicate=True),
