@@ -15,6 +15,7 @@ from ..duckdb_manager import duckdb_connection, build_where_and_params, build_or
 from ..plugin_interface import PluginInterface
 from ..logging_setup import activate_workspace_logging
 from . import targets_asari
+from .target_optimization import _get_cpu_help_text
 
 _label = "Targets"
 # Template column headers and descriptions for quick downloads
@@ -434,14 +435,15 @@ _layout = html.Div(
                     fac.AntdForm(
                         [
                             html.Div([
-                                fac.AntdFormItem(
-                                    fac.AntdInputNumber(id='asari-multicores', value=cpu_count()//2, min=1, max=cpu_count(), style={'width': '100%'}),
-                                    label="CPU",
-                                    tooltip="Number of processor cores to use for parallel processing (multicores parameter in Asari)",
-                                    hasFeedback=True,
-                                    help=f"Selected {cpu_count()//2} / {cpu_count()} cpus",
-                                    labelCol={'span': 13}, wrapperCol={'span': 11}
-                                ),
+                                    fac.AntdFormItem(
+                                        fac.AntdInputNumber(id='asari-multicores', value=cpu_count()//2, min=1, max=cpu_count(), style={'width': '100%'}),
+                                        label="CPU",
+                                        tooltip="Number of processor cores to use for parallel processing (multicores parameter in Asari)",
+                                        hasFeedback=True,
+                                        help=f"Selected {cpu_count()//2} / {cpu_count()} cpus",
+                                        labelCol={'span': 13}, wrapperCol={'span': 11},
+                                        id='asari-multicores-item'
+                                    ),
                                 fac.AntdFormItem(
                                     fac.AntdSelect(id='asari-mode', options=[{'label': 'Positive', 'value': 'pos'}, {'label': 'Negative', 'value': 'neg'}], value='pos', style={'width': '100%'}),
                                     label="Mode",
@@ -1296,3 +1298,11 @@ def callbacks(app, fsc=None, cache=None):
             if set_progress:
                 set_progress(data)
         return _run_asari_analysis(ok_counts, wdir, multicores, mz_tol, mode, snr, min_height, min_points, gaussian_shape, cselectivity, detection_rate, set_progress=progress_adapter)
+
+    @app.callback(
+        Output('asari-multicores-item', 'help'),
+        Input('asari-multicores', 'value'),
+        prevent_initial_call=True
+    )
+    def update_asari_cpu_help(cpu):
+        return _get_cpu_help_text(cpu)
