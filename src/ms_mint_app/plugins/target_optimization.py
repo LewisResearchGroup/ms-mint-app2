@@ -2368,6 +2368,7 @@ def callbacks(app, fsc, cache, cpu=None):
         Output('chromatogram-view-rt-align', 'checked', allow_duplicate=True),  # Set RT alignment state
         Output('rt-alignment-data', 'data', allow_duplicate=True),  # Load alignment data
         Output('target-note', 'value', allow_duplicate=True),
+        Output('chromatogram-view-lock-range', 'checked', allow_duplicate=True), # Set initial lock state
 
         Input('target-preview-clicked', 'data'),
         State('chromatogram-preview-log-y', 'checked'),
@@ -2685,7 +2686,7 @@ def callbacks(app, fsc, cache, cpu=None):
         logger.debug(f"Modal view prepared in {time.perf_counter() - t1:.4f}s")
         return (fig, f"{target_clicked} (rt={rt})", False, slider_reference,
                 slider_dict, {"min_y": y_min, "max_y": y_max}, total_points, use_megatrace, log_scale, group_legend, 
-                rt_align_toggle_state, rt_alignment_data_to_load, note)
+                rt_align_toggle_state, rt_alignment_data_to_load, note, rt_align_toggle_state)
 
     @app.callback(
         Output('chromatogram-view-plot', 'figure', allow_duplicate=True),
