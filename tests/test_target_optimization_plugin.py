@@ -8,7 +8,8 @@ from dash.exceptions import PreventUpdate
 
 from ms_mint_app.plugins.target_optimization import (
     _update_sample_type_tree, _delete_target_logic, 
-    _bookmark_target_logic, _compute_chromatograms_logic
+    _bookmark_target_logic, _compute_chromatograms_logic,
+    _get_cpu_help_text, _get_ram_help_text
 )
 from ms_mint_app.duckdb_manager import duckdb_connection
 
@@ -148,3 +149,19 @@ class TestTargetOptimizationLogic:
         assert tree_data == []
         assert tree_style['display'] == 'none'
         assert empty_style['display'] == 'block'
+
+    def test_get_cpu_help_text(self):
+        with patch('ms_mint_app.plugins.target_optimization.cpu_count', return_value=8):
+            text = _get_cpu_help_text(4)
+            assert text == "Selected 4 / 8 cpus"
+
+    def test_get_ram_help_text(self):
+        # Mock psutil.virtual_memory
+        mock_memory = MagicMock()
+        mock_memory.available = 16 * (1024 ** 3) # 16 GB available
+        
+        with patch('psutil.virtual_memory', return_value=mock_memory):
+            text = _get_ram_help_text(8.5)
+            # ram_max calculation: round(16 * 1024**3 / 1024**3, 1) = 16.0
+            assert text == "Selected 8.5GB / 16.0GB available RAM"
+

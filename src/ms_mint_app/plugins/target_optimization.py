@@ -41,6 +41,16 @@ class TargetOptimizationPlugin(PluginInterface):
         return None
 
 
+def _get_cpu_help_text(cpu):
+    n_cpus_total = cpu_count()
+    return f"Selected {cpu} / {n_cpus_total} cpus"
+
+
+def _get_ram_help_text(ram):
+    ram_max = round(psutil.virtual_memory().available / (1024 ** 3), 1)
+    return f"Selected {ram}GB / {ram_max}GB available RAM"
+
+
 def downsample_for_preview(scan_time, intensity, max_points=100):
     """Reduce puntos manteniendo la forma general"""
     if len(scan_time) <= max_points:
@@ -3043,8 +3053,8 @@ def callbacks(app, fsc, cache, cpu=None):
         Output("chromatogram-warning", "message"),
         Output("chromatogram-targets-info", "message"),
         Output("chromatogram-compute-ram", "max"),
-        Output("chromatogram-compute-ram-item", "help"),
-        Output("chromatogram-compute-cpu-item", "help"),
+        Output("chromatogram-compute-ram-item", "help", allow_duplicate=True),
+        Output("chromatogram-compute-cpu-item", "help", allow_duplicate=True),
         Output("chromatogram-processing-progress", "percent", allow_duplicate=True),
         Output("chromatogram-processing-stage", "children", allow_duplicate=True),
         Output("chromatogram-processing-detail", "children", allow_duplicate=True),
@@ -3130,16 +3140,14 @@ def callbacks(app, fsc, cache, cpu=None):
         default_ram = min(float(default_cpus), available_ram_gb)
         default_ram = round(default_ram, 1)
 
-        help_ram = f"Selected {default_ram}GB / {ram_max}GB available RAM"
+        help_ram = _get_ram_help_text(default_ram)
 
         recompute_ms1 = computed_chromatograms_ms1 > 0
         recompute_ms2 = computed_chromatograms_ms2 > 0
 
         info_message = f"Ready to compute chromatograms for {selected_targets} targets and {ms_files[0]} samples."
 
-
-
-        help_cpu = f"Selected {default_cpus} / {n_cpus_total} cpus"
+        help_cpu = _get_cpu_help_text(default_cpus)
 
         return (
             dash.no_update,
@@ -3234,6 +3242,18 @@ def callbacks(app, fsc, cache, cpu=None):
             "",
             "",
         )
+
+    @app.callback(
+        Output("chromatogram-compute-cpu-item", "help"),
+        Output("chromatogram-compute-ram-item", "help"),
+        Input("chromatogram-compute-cpu", "value"),
+        Input("chromatogram-compute-ram", "value"),
+        prevent_initial_call=True
+    )
+    def update_resource_usage_help(cpu, ram):
+        help_cpu = _get_cpu_help_text(cpu)
+        help_ram = _get_ram_help_text(ram)
+        return help_cpu, help_ram
 
     @app.callback(
         # only save the current values stored in slider-reference-data since this will shut all the actions
