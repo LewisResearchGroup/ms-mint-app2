@@ -24,6 +24,10 @@ from ..duckdb_manager import (
     duckdb_connection_mint,
 )
 from ..plugin_interface import PluginInterface
+from .target_optimization import (
+    _get_cpu_help_text,
+    _get_ram_help_text
+)
 
 _label = "Processing"
 
@@ -1530,8 +1534,8 @@ def callbacks(app, fsc, cache):
         Output("processing-recompute", "checked"),
         Output("processing-chromatogram-compute-cpu", "value"),
         Output("processing-chromatogram-compute-ram", "value"),
-        Output("processing-chromatogram-compute-cpu-item", "help"),
-        Output("processing-chromatogram-compute-ram-item", "help"),
+        Output("processing-chromatogram-compute-cpu-item", "help", allow_duplicate=True),
+        Output("processing-chromatogram-compute-ram-item", "help", allow_duplicate=True),
 
         Input("processing-btn", "nClicks"),
         State('wdir', 'data'),
@@ -1737,3 +1741,15 @@ def callbacks(app, fsc, cache):
             "",
             "",
         )
+
+    @app.callback(
+        Output("processing-chromatogram-compute-cpu-item", "help", allow_duplicate=True),
+        Output("processing-chromatogram-compute-ram-item", "help", allow_duplicate=True),
+        Input("processing-chromatogram-compute-cpu", "value"),
+        Input("processing-chromatogram-compute-ram", "value"),
+        prevent_initial_call=True
+    )
+    def update_processing_resource_help(cpu, ram):
+        help_cpu = _get_cpu_help_text(cpu)
+        help_ram = _get_ram_help_text(ram)
+        return help_cpu, help_ram
