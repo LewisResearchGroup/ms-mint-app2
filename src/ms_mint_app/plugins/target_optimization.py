@@ -3354,3 +3354,35 @@ def callbacks(app, fsc, cache, cpu=None):
         trigger_id = ctx_trigger['index']
 
         return _bookmark_target_logic(bookmarks, targets, trigger_id, wdir)
+
+    @app.callback(
+        Output('slider-reference-data', 'data', allow_duplicate=True),
+        Output('notifications-container', 'children', allow_duplicate=True),
+        
+        Input('save-btn', 'nClicks'),
+        State('slider-data', 'data'),
+        State('target-preview-clicked', 'data'),
+        State('wdir', 'data'),
+        prevent_initial_call=True
+    )
+    def save_changes(save_clicks, slider_data, target_label, wdir):
+        if not save_clicks:
+             logger.debug("save_changes: No save clicks, preventing update")
+             raise PreventUpdate
+        
+        rt_min = slider_data['value']['rt_min']
+        rt_max = slider_data['value']['rt_max']
+        rt = slider_data['value']['rt']
+        
+        with duckdb_connection(wdir) as conn:
+             conn.execute("UPDATE targets SET rt_min = ?, rt_max = ?, rt = ? WHERE peak_label = ?", 
+                          [rt_min, rt_max, rt, target_label])
+        
+        notification = fac.AntdNotification(
+            message="Changes Saved",
+            description=f"Retention time changes for {target_label} saved successfully.",
+            type="success",
+            duration=3
+        )
+        
+        return slider_data, notification

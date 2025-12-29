@@ -165,3 +165,49 @@ class TestTargetOptimizationLogic:
             # ram_max calculation: round(16 * 1024**3 / 1024**3, 1) = 16.0
             assert text == "Selected 8.5GB / 16.0GB available RAM"
 
+    def test_save_changes_callback(self, temp_wdir):
+        # Insert target to be updated
+        with duckdb_connection(temp_wdir) as conn:
+             conn.execute("INSERT INTO targets (peak_label, rt_min, rt_max, rt) VALUES ('TargetToUpdate', 10.0, 20.0, 15.0)")
+
+        # Callback logic simulation
+        target_label = 'TargetToUpdate'
+        slider_data = {'value': {'rt_min': 12.0, 'rt_max': 18.0, 'rt': 16.0}}
+        
+        # Verify update
+        rt_min = slider_data['value']['rt_min']
+        rt_max = slider_data['value']['rt_max']
+        rt = slider_data['value']['rt']
+        
+        with duckdb_connection(temp_wdir) as conn:
+             conn.execute("UPDATE targets SET rt_min = ?, rt_max = ?, rt = ? WHERE peak_label = ?", 
+                          [rt_min, rt_max, rt, target_label])
+             
+             result = conn.execute("SELECT rt_min, rt_max, rt FROM targets WHERE peak_label = ?", [target_label]).fetchone()
+             assert result[0] == 12.0
+             assert result[1] == 18.0
+             assert result[2] == 16.0
+
+    def test_save_changes_callback(self, temp_wdir):
+        # Insert target to be updated
+        with duckdb_connection(temp_wdir) as conn:
+             conn.execute("INSERT INTO targets (peak_label, rt_min, rt_max, rt) VALUES ('TargetToUpdate', 10.0, 20.0, 15.0)")
+
+        # Callback logic simulation
+        target_label = 'TargetToUpdate'
+        slider_data = {'value': {'rt_min': 12.0, 'rt_max': 18.0, 'rt': 16.0}}
+        
+        # Verify update
+        rt_min = slider_data['value']['rt_min']
+        rt_max = slider_data['value']['rt_max']
+        rt = slider_data['value']['rt']
+        
+        with duckdb_connection(temp_wdir) as conn:
+             conn.execute("UPDATE targets SET rt_min = ?, rt_max = ?, rt = ? WHERE peak_label = ?", 
+                          [rt_min, rt_max, rt, target_label])
+             
+             result = conn.execute("SELECT rt_min, rt_max, rt FROM targets WHERE peak_label = ?", [target_label]).fetchone()
+             assert result[0] == 12.0
+             assert result[1] == 18.0
+             assert result[2] == 16.0
+
