@@ -661,7 +661,8 @@ _layout = fac.AntdLayout(
                                                         id='chromatogram-view-megatrace',
                                                         checked=True,
                                                         checkedChildren='On',
-                                                        unCheckedChildren='Off'
+                                                        unCheckedChildren='Off',
+                                                        style={'width': '60px'}
                                                     ),
                                                     style={
                                                         'width': '110px',
@@ -697,7 +698,8 @@ _layout = fac.AntdLayout(
                                                         id='chromatogram-view-log-y',
                                                         checked=False,
                                                         checkedChildren='Log',
-                                                        unCheckedChildren='Lin'
+                                                        unCheckedChildren='Lin',
+                                                        style={'width': '60px'}
                                                     ),
                                                     style={
                                                         'width': '110px',
@@ -733,7 +735,8 @@ _layout = fac.AntdLayout(
                                                         id='chromatogram-view-groupclick',
                                                         checked=False,
                                                         checkedChildren='Grp',
-                                                        unCheckedChildren='Sng'
+                                                        unCheckedChildren='Sng',
+                                                        style={'width': '60px'}
                                                     ),
                                                     style={
                                                         'width': '110px',
@@ -769,7 +772,8 @@ _layout = fac.AntdLayout(
                                                         id='chromatogram-view-lock-range',
                                                         checked=False,
                                                         checkedChildren='Lock',
-                                                        unCheckedChildren='Edit'
+                                                        unCheckedChildren='Edit',
+                                                        style={'width': '60px'}
                                                     ),
                                                     style={
                                                         'width': '110px',
@@ -805,7 +809,8 @@ _layout = fac.AntdLayout(
                                                         id='chromatogram-view-rt-align',
                                                         checked=False,
                                                         checkedChildren='On',
-                                                        unCheckedChildren='Off'
+                                                        unCheckedChildren='Off',
+                                                        style={'width': '60px'}
                                                     ),
                                                     style={
                                                         'width': '110px',
@@ -841,7 +846,7 @@ _layout = fac.AntdLayout(
                                                     allowClear=True,
                                                     mode='text-area',
                                                     autoSize={'minRows': 6, 'maxRows': 12},
-                                                    style={'width': '225px'},
+                                                    style={'width': '230px'},
                                                     placeholder='Add notes for this target'
                                                 ),
                                             ],
