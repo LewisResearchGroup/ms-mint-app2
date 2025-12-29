@@ -1,17 +1,26 @@
-import pytest
-import duckdb
-import json
-import dash
+import tempfile
 from pathlib import Path
-from unittest.mock import MagicMock, patch
-from dash.exceptions import PreventUpdate
+import time
+import pytest
+from unittest.mock import patch, MagicMock
 
 from ms_mint_app.duckdb_manager import (
     duckdb_connection,
+    create_pivot,
     compute_chromatograms_in_batches,
     compute_results_in_batches,
-    create_pivot,
 )
+from ms_mint_app.plugins.processing import (
+    _build_delete_modal_content,
+    _load_peaks_from_results,
+    _download_all_results,
+    _download_dense_matrix,
+    _delete_selected_results,
+    _delete_all_results,
+)
+from dash.exceptions import PreventUpdate
+import feffery_antd_components as fac
+import dash
 
 
 @pytest.fixture
@@ -514,11 +523,472 @@ class TestProcessingDataPersistence:
                 (str(backup_path),)
             )
             
-            # Verify file exists
+            # Verify backup file was created with results
             assert backup_path.exists()
+            assert backup_path.stat().st_size > 0
             
             # Verify content
             content = backup_path.read_text()
             assert 'Target1' in content
             assert 'Target2' in content
             assert '1000.0' in content
+
+
+class TestStandaloneFunctions:
+    """Unit tests for standalone functions extracted from callbacks."""
+    
+    class TestBuildDeleteModalContent:
+        """Test suite for _build_delete_modal_content() standalone function."""
+        
+        def test_delete_selected_with_rows(self):
+            """Should return modal for deleting selected rows."""
+            visible, children = _build_delete_modal_content(
+                clickedKey="processing-delete-selected",
+                selectedRows=[{"peak_label": "A", "ms_file_label": "F1"}]
+            )
+            
+            assert visible is True
+            assert isinstance(children, fac.AntdFlex)
+            assert "selected results" in children.children[0].children
+            assert children.children[0].strong is True
+        
+        def test_delete_selected_without_rows_raises_prevent_update(self):
+            """Should raise PreventUpdate if no rows selected for delete-selected."""
+            with pytest.raises(PreventUpdate):
+                _build_delete_modal_content(
+                    clickedKey="processing-delete-selected",
+                    selectedRows=[]
+                )
+        
+        def test_delete_selected_with_none_raises_prevent_update(self):
+            """Should raise PreventUpdate if selectedRows is None."""
+            with pytest.raises(PreventUpdate):
+                _build_delete_modal_content(
+                    clickedKey="processing-delete-selected",
+                    selectedRows=None
+                )
+        
+        def test_delete_all(self):
+            """Should return modal for deleting all results with danger type."""
+            visible, children = _build_delete_modal_content(
+                clickedKey="processing-delete-all",
+                selectedRows=[]
+            )
+            
+            assert visible is True
+            assert isinstance(children, fac.AntdFlex)
+            assert "ALL results" in children.children[0].children
+            assert children.children[0].type == "danger"
+    
+    class TestLoadPeaksFromResults:
+        """Test suite for _load_peaks_from_results() standalone function."""
+        
+        @patch('ms_mint_app.plugins.processing.duckdb_connection')
+        def test_load_peaks_with_data(self, mock_conn):
+            """Should return options and select first peak when no current value."""
+            mock_cursor = MagicMock()
+            mock_cursor.fetchall.return_value = [
+                ('Peak_A',),
+                ('Peak_B',),
+                ('Peak_C',),
+            ]
+            mock_conn.return_value.__enter__.return_value.execute.return_value = mock_cursor
+            
+            options, selected = _load_peaks_from_results(wdir="/fake/wdir", current_value=None)
+            
+            assert len(options) == 3
+            assert options[0] == {'label': 'Peak_A', 'value': 'Peak_A'}
+            assert selected == ['Peak_A']
+        
+        @patch('ms_mint_app.plugins.processing.duckdb_connection')
+        def test_load_peaks_preserves_valid_selection(self, mock_conn):
+            """Should preserve current selection if it's still valid."""
+            mock_cursor = MagicMock()
+            mock_cursor.fetchall.return_value = [
+                ('Peak_A',),
+                ('Peak_B',),
+                ('Peak_C',),
+            ]
+            mock_conn.return_value.__enter__.return_value.execute.return_value = mock_cursor
+            
+            options, selected = _load_peaks_from_results(
+                wdir="/fake/wdir",
+                current_value=['Peak_B', 'Peak_C']
+            )
+            
+            assert selected == ['Peak_B', 'Peak_C']
+        
+        @patch('ms_mint_app.plugins.processing.duckdb_connection')
+        def test_load_peaks_auto_selects_when_invalid(self, mock_conn):
+            """Should auto-select first peak if current selection no longer exists."""
+            mock_cursor = MagicMock()
+            mock_cursor.fetchall.return_value = [
+                ('Peak_A',),
+                ('Peak_B',),
+            ]
+            mock_conn.return_value.__enter__.return_value.execute.return_value = mock_cursor
+            
+            options, selected = _load_peaks_from_results(
+                wdir="/fake/wdir",
+                current_value=['Peak_X', 'Peak_Y']
+            )
+            
+            assert selected == ['Peak_A']
+        
+        @patch('ms_mint_app.plugins.processing.duckdb_connection')
+        def test_load_peaks_filters_invalid_selections(self, mock_conn):
+            """Should filter out invalid peaks but keep valid ones."""
+            mock_cursor = MagicMock()
+            mock_cursor.fetchall.return_value = [
+                ('Peak_A',),
+                ('Peak_B',),
+            ]
+            mock_conn.return_value.__enter__.return_value.execute.return_value = mock_cursor
+            
+            options, selected = _load_peaks_from_results(
+                wdir="/fake/wdir",
+                current_value=['Peak_A', 'Peak_X']
+            )
+            
+            assert selected == ['Peak_A']
+        
+        @patch('ms_mint_app.plugins.processing.duckdb_connection')
+        def test_load_peaks_empty_results(self, mock_conn):
+            """Should return empty lists if no peaks in database."""
+            mock_cursor = MagicMock()
+            mock_cursor.fetchall.return_value = []
+            mock_conn.return_value.__enter__.return_value.execute.return_value = mock_cursor
+            
+            options, selected = _load_peaks_from_results(wdir="/fake/wdir", current_value=None)
+            
+            assert options == []
+            assert selected == []
+        
+        def test_load_peaks_no_wdir_raises_prevent_update(self):
+            """Should raise PreventUpdate if wdir is not provided."""
+            with pytest.raises(PreventUpdate):
+                _load_peaks_from_results(wdir=None, current_value=None)
+        
+        @patch('ms_mint_app.plugins.processing.duckdb_connection')
+        def test_load_peaks_no_connection_raises_prevent_update(self, mock_conn):
+            """Should raise PreventUpdate if database connection fails."""
+            mock_conn.return_value.__enter__.return_value = None
+            
+            with pytest.raises(PreventUpdate):
+                _load_peaks_from_results(wdir="/fake/wdir", current_value=None)
+        
+        @patch('ms_mint_app.plugins.processing.duckdb_connection')
+        def test_load_peaks_filters_none_values(self, mock_conn):
+            """Should filter out None values from database results."""
+            mock_cursor = MagicMock()
+            mock_cursor.fetchall.return_value = [
+                ('Peak_A',),
+                (None,),
+                ('Peak_B',),
+            ]
+            mock_conn.return_value.__enter__.return_value.execute.return_value = mock_cursor
+            
+            options, selected = _load_peaks_from_results(wdir="/fake/wdir", current_value=None)
+            
+            assert len(options) == 2
+            assert options[0]['value'] == 'Peak_A'
+            assert options[1]['value'] == 'Peak_B'
+    
+    class TestDownloadAllResults:
+        """Test suite for _download_all_results() standalone function."""
+        
+        def test_no_columns_selected(self):
+            """Should return warning notification if no columns selected."""
+            download, notification = _download_all_results("/fake/wdir", "TestWS", None)
+            
+            assert download == dash.no_update
+            assert isinstance(notification, fac.AntdNotification)
+            assert notification.type == "warning"
+            assert "at least one result column" in notification.description
+        
+        def test_empty_columns_list(self):
+            """Should return warning notification if empty list."""
+            download, notification = _download_all_results("/fake/wdir", "TestWS", [])
+            
+            assert download == dash.no_update
+            assert notification.type == "warning"
+        
+        def test_invalid_columns(self):
+            """Should return warning if only invalid columns selected."""
+            download, notification = _download_all_results("/fake/wdir", "TestWS", ['invalid_col', 'bad_col'])
+            
+            assert download == dash.no_update
+            assert notification.type == "warning"
+            assert "No valid result columns" in notification.description
+        
+        @patch('ms_mint_app.plugins.processing.duckdb_connection')
+        def test_database_connection_failure(self, mock_conn):
+            """Should return error notification if database connection fails."""
+            mock_conn.return_value.__enter__.return_value = None
+            
+            download, notification = _download_all_results("/fake/wdir", "TestWS", ['peak_area'])
+            
+            assert download == dash.no_update
+            assert notification.type == "error"
+            assert "Could not open the results database" in notification.description
+        
+        @patch('ms_mint_app.plugins.processing.duckdb_connection')
+        @patch('ms_mint_app.plugins.processing.dcc.send_data_frame')
+        def test_successful_download(self, mock_send, mock_conn):
+            """Should successfully download with valid columns."""
+            import pandas as pd
+            
+            # Mock database query
+            mock_df = pd.DataFrame({
+                'peak_label': ['Peak1', 'Peak2'],
+                'ms_file_label': ['File1', 'File2'],
+                'ms_type': ['ms1', 'ms1'],
+                'peak_area': [1000.0, 2000.0]
+            })
+            mock_conn.return_value.__enter__.return_value.execute.return_value.df.return_value = mock_df
+            mock_send.return_value = "mock_download"
+            
+            download, notification = _download_all_results("/fake/wdir", "TestWorkspace", ['peak_area', 'peak_mean'])
+            
+            assert download == "mock_download"
+            assert notification == dash.no_update
+            # Verify send_data_frame was called
+            assert mock_send.called
+    
+    class TestDownloadDenseMatrix:
+        """Test suite for _download_dense_matrix() standalone function."""
+        
+        def test_missing_rows_parameter(self):
+            """Should return warning if rows not provided."""
+            download, notification = _download_dense_matrix("/fake/wdir", "TestWS", None, ['peak_label'], ['peak_area'])
+            
+            assert download == dash.no_update
+            assert notification.type == "warning"
+            assert "row, column, and value fields" in notification.description
+        
+        def test_missing_cols_parameter(self):
+            """Should return warning if cols not provided."""
+            download, notification = _download_dense_matrix("/fake/wdir", "TestWS", ['ms_file_label'], None, ['peak_area'])
+            
+            assert download == dash.no_update
+            assert notification.type == "warning"
+        
+        def test_missing_value_parameter(self):
+            """Should return warning if value not provided."""
+            download, notification = _download_dense_matrix("/fake/wdir", "TestWS", ['ms_file_label'], ['peak_label'], None)
+            
+            assert download == dash.no_update
+            assert notification.type == "warning"
+        
+        def test_invalid_row_column(self):
+            """Should return warning if invalid row/column selection."""
+            download, notification = _download_dense_matrix(
+                "/fake/wdir", "TestWS",
+                ['invalid_col'],  # Invalid
+                ['peak_label'],
+                ['peak_area']
+            )
+            
+            assert download == dash.no_update
+            assert notification.type == "warning"
+            assert "Invalid row/column selection" in notification.description
+        
+        def test_invalid_value_column(self):
+            """Should return warning if invalid value column."""
+            download, notification = _download_dense_matrix(
+                "/fake/wdir", "TestWS",
+                ['ms_file_label'],
+                ['peak_label'],
+                ['invalid_value']  # Invalid
+            )
+            
+            assert download == dash.no_update
+            assert notification.type == "warning"
+            assert "Invalid value selection" in notification.description
+        
+        @patch('ms_mint_app.plugins.processing.duckdb_connection')
+        def test_database_connection_failure(self, mock_conn):
+            """Should return error notification if database connection fails."""
+            mock_conn.return_value.__enter__.return_value = None
+            
+            download, notification = _download_dense_matrix(
+                "/fake/wdir", "TestWS",
+                ['ms_file_label'], ['peak_label'], ['peak_area']
+            )
+            
+            assert download == dash.no_update
+            assert notification.type == "error"
+            assert "Could not open the results database" in notification.description
+        
+        @patch('ms_mint_app.plugins.processing.duckdb_connection')
+        @patch('ms_mint_app.plugins.processing.create_pivot')
+        @patch('ms_mint_app.plugins.processing.dcc.send_data_frame')
+        def test_successful_dense_matrix_download(self, mock_send, mock_pivot, mock_conn):
+            """Should successfully create and download dense matrix."""
+            import pandas as pd
+            
+            mock_df = pd.DataFrame({
+                'Peak1': [1000.0, 1500.0],
+                'Peak2': [2000.0, 2500.0]
+            })
+            mock_pivot.return_value = mock_df
+            mock_send.return_value = "mock_download"
+            mock_conn.return_value.__enter__.return_value = MagicMock()
+            
+            download, notification = _download_dense_matrix(
+                "/fake/wdir", "TestWorkspace",
+                ['ms_file_label'], ['peak_label'], ['peak_area']
+            )
+            
+            assert download == "mock_download"
+            assert notification == dash.no_update
+            assert mock_pivot.called
+            assert mock_send.called
+    
+    class TestDeleteSelectedResults:
+        """Test suite for _delete_selected_results() standalone function."""
+        
+        def test_no_rows_selected(self):
+            """Should return failed status with no notification when no rows selected."""
+            notif, action_store, total = _delete_selected_results("/fake/wdir", [])
+            
+            assert notif is None
+            assert action_store == {'action': 'delete', 'status': 'failed'}
+            assert total == [0, 0]
+        
+        def test_empty_rows_list(self):
+            """Should handle None as selected rows."""
+            notif, action_store, total = _delete_selected_results("/fake/wdir", None)
+            
+            assert notif is None
+            assert action_store == {'action': 'delete', 'status': 'failed'}
+            assert total == [0, 0]
+        
+        @patch('ms_mint_app.plugins.processing.duckdb_connection')
+        def test_database_connection_failure(self, mock_conn):
+            """Should raise PreventUpdate if database connection fails."""
+            mock_conn.return_value.__enter__.return_value = None
+            
+            with pytest.raises(PreventUpdate):
+                _delete_selected_results("/fake/wdir", [{'peak_label': 'P1', 'ms_file_label': 'F1'}])
+        
+        @patch('ms_mint_app.plugins.processing.duckdb_connection')
+        def test_successful_deletion(self, mock_conn):
+            """Should successfully delete selected results."""
+            mock_db = MagicMock()
+            mock_conn.return_value.__enter__.return_value = mock_db
+            
+            selected = [
+                {'peak_label': 'Peak1', 'ms_file_label': 'File1'},
+                {'peak_label': 'Peak1', 'ms_file_label': 'File2'},
+                {'peak_label': 'Peak2', 'ms_file_label': 'File1'},
+            ]
+            
+            notif, action_store, total = _delete_selected_results("/fake/wdir", selected)
+            
+            assert notif is None
+            assert action_store == {'action': 'delete', 'status': 'success'}
+            assert total == [2, 2]  # 2 unique peaks, 2 unique files
+            assert mock_db.execute.call_count >= 2  # BEGIN, DELETE, COMMIT
+        
+        @patch('ms_mint_app.plugins.processing.duckdb_connection')
+        def test_deletion_rollback_on_error(self, mock_conn):
+            """Should rollback transaction and return error notification on failure."""
+            mock_db = MagicMock()
+            # BEGIN succeeds, then DELETE fails, then ROLLBACK succeeds
+            mock_db.execute.side_effect = [None, Exception("DB Error"), None]
+            mock_conn.return_value.__enter__.return_value = mock_db
+            
+            selected = [{'peak_label': 'Peak1', 'ms_file_label': 'File1'}]
+            notif, action_store, total = _delete_selected_results("/fake/wdir", selected)
+            
+            assert notif is not None
+            assert notif.type == "error"
+            assert "Could not delete the selected results" in notif.description
+            assert action_store == {'action': 'delete', 'status': 'failed'}
+            assert total == [0, 0]
+        
+        @patch('ms_mint_app.plugins.processing.duckdb_connection')
+        def test_filters_invalid_rows(self, mock_conn):
+            """Should filter out rows with missing peak_label or ms_file_label."""
+            mock_db = MagicMock()
+            mock_conn.return_value.__enter__.return_value = mock_db
+            
+            selected = [
+                {'peak_label': 'Peak1', 'ms_file_label': 'File1'},
+                {'peak_label': None, 'ms_file_label': 'File2'},  # Invalid
+                {'peak_label': 'Peak2'},  # Missing ms_file_label
+            ]
+            
+            notif, action_store, total = _delete_selected_results("/fake/wdir", selected)
+            
+            # Should only count the valid row
+            assert total[0] == 1  # 1 unique peak
+            assert total[1] == 1  # 1 unique file
+    
+    class TestDeleteAllResults:
+        """Test suite for _delete_all_results() standalone function."""
+        
+        @patch('ms_mint_app.plugins.processing.duckdb_connection')
+        def test_database_connection_failure(self, mock_conn):
+            """Should raise PreventUpdate if database connection fails."""
+            mock_conn.return_value.__enter__.return_value = None
+            
+            with pytest.raises(PreventUpdate):
+                _delete_all_results("/fake/wdir")
+        
+        @patch('ms_mint_app.plugins.processing.duckdb_connection')
+        def test_successful_deletion_all(self, mock_conn):
+            """Should successfully delete all results."""
+            mock_db = MagicMock()
+            mock_db.execute.return_value.fetchone.return_value = (5, 10)  # 5 peaks, 10 files
+            mock_conn.return_value.__enter__.return_value = mock_db
+            
+            notif, action_store, total = _delete_all_results("/fake/wdir")
+            
+            assert notif is None
+            assert action_store == {'action': 'delete', 'status': 'success'}
+            assert total == [5, 10]
+        
+        @patch('ms_mint_app.plugins.processing.duckdb_connection')
+        def test_deletion_with_empty_table(self, mock_conn):
+            """Should handle deletion when table is already empty."""
+            mock_db = MagicMock()
+            mock_db.execute.return_value.fetchone.return_value = None
+            mock_conn.return_value.__enter__.return_value = mock_db
+            
+            notif, action_store, total = _delete_all_results("/fake/wdir")
+            
+            assert notif is None
+            assert action_store == {'action': 'delete', 'status': 'failed'}
+            assert total == [0, 0]
+        
+        @patch('ms_mint_app.plugins.processing.duckdb_connection')
+        def test_deletion_rollback_on_error(self, mock_conn):
+            """Should rollback transaction and return error notification on failure."""
+            mock_db = MagicMock()
+            # BEGIN succeeds, COUNT fails, then ROLLBACK succeeds
+            mock_db.execute.side_effect = [None, Exception("DB Error"), None]
+            mock_conn.return_value.__enter__.return_value = mock_db
+            
+            notif, action_store, total = _delete_all_results("/fake/wdir")
+            
+            assert notif is not None
+            assert notif.type == "error"
+            assert "Could not delete all results" in notif.description
+            assert action_store == {'action': 'delete', 'status': 'failed'}
+            assert total == [0, 0]
+        
+        @patch('ms_mint_app.plugins.processing.duckdb_connection')
+        def test_transaction_management(self, mock_conn):
+            """Should properly manage transactions (BEGIN/COMMIT)."""
+            mock_db = MagicMock()
+            mock_db.execute.return_value.fetchone.return_value = (3, 5)
+            mock_conn.return_value.__enter__.return_value = mock_db
+            
+            _delete_all_results("/fake/wdir")
+            
+            # Verify transaction flow: BEGIN, COUNT, DELETE, COMMIT
+            calls = [str(call) for call in mock_db.execute.call_args_list]
+            assert any('BEGIN' in str(call) for call in calls)
+            assert any('COMMIT' in str(call) for call in calls)
