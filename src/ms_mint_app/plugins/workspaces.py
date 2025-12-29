@@ -487,13 +487,13 @@ def _save_new_data_dir(okCounts, new_path):
         raise PreventUpdate
     
     if not new_path or not new_path.strip():
-         return dash.no_update, fac.AntdNotification(message="Please enter a valid path.", type="error"), True
+         return dash.no_update, fac.AntdNotification(message="Please enter a valid path.", type="error", placement="bottom"), True
     
     new_path = os.path.expanduser(new_path)
     new_path_obj = Path(new_path)
 
     if not new_path_obj.is_absolute():
-        return dash.no_update, fac.AntdNotification(message="Path must be absolute.", type="error"), True
+        return dash.no_update, fac.AntdNotification(message="Path must be absolute.", type="error", placement="bottom"), True
     
     # Try to create directory if it doesn't exist to verify permissions
     try:
@@ -501,7 +501,7 @@ def _save_new_data_dir(okCounts, new_path):
         # Create .cache inside
         (new_path_obj / ".cache").mkdir(exist_ok=True)
     except OSError as e:
-         return dash.no_update, fac.AntdNotification(message=f"Permission denied or invalid path: {e}", type="error"), True
+         return dash.no_update, fac.AntdNotification(message=f"Permission denied or invalid path: {e}", type="error", placement="bottom"), True
 
     # Update Config
     config_path = os.path.expanduser(os.environ.get("MINT_CONFIG_PATH") or "~/.mint_config.json")
@@ -518,7 +518,7 @@ def _save_new_data_dir(okCounts, new_path):
             json.dump(cfg, fh, indent=2)
             
     except Exception as e:
-         return dash.no_update, fac.AntdNotification(message=f"Failed to update config file: {e}", type="error"), True
+         return dash.no_update, fac.AntdNotification(message=f"Failed to update config file: {e}", type="error", placement="bottom"), True
 
     # Update Environment Variable for this session (best effort)
     os.environ["MINT_DATA_DIR"] = str(new_path_obj)
@@ -538,7 +538,7 @@ def _save_new_data_dir(okCounts, new_path):
     with duckdb_connection_mint(str(new_user_path)) as mint_conn:
         logger.info(f"Initialized DB in {new_user_path}")
 
-    return str(new_user_path), fac.AntdNotification(message="Global Data Directory updated successfully!", type="success"), False
+    return str(new_user_path), fac.AntdNotification(message="Global Data Directory updated successfully!", type="success", placement="bottom"), False
 
 
 def callbacks(app, fsc, cache):

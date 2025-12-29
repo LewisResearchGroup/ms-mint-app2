@@ -3388,7 +3388,8 @@ def callbacks(app, fsc, cache, cpu=None):
             message="Changes Saved",
             description=f"Retention time changes for {target_label} saved successfully.",
             type="success",
-            duration=3
+            duration=3,
+            placement="bottom"
         )
         
         return slider_data, notification

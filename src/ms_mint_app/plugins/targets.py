@@ -975,10 +975,10 @@ def _run_asari_analysis(ok_counts, wdir, multicores, mz_tol, mode, snr, min_heig
     if result['success']:
          status_alert = fac.AntdAlert(message=result['message'], type="success", showIcon=True, closable=True)
          import time
-         return fac.AntdNotification(message="Asari Analysis", description=result['message'], type="success"), False, status_alert, {'timestamp': time.time()}
+         return fac.AntdNotification(message="Asari Analysis", description=result['message'], type="success", placement="bottom"), False, status_alert, {'timestamp': time.time()}
     else:
          status_alert = fac.AntdAlert(message=result['message'], type="error", showIcon=True, closable=True)
-         return fac.AntdNotification(message="Asari Analysis Failed", description=result['message'], type="error"), True, status_alert, dash.no_update
+         return fac.AntdNotification(message="Asari Analysis Failed", description=result['message'], type="error", placement="bottom"), True, status_alert, dash.no_update
 
 
 def callbacks(app, fsc=None, cache=None):
