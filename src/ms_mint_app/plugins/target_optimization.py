@@ -2796,6 +2796,11 @@ def callbacks(app, fsc, cache, cpu=None):
             fig['layout']['annotations'][1]['x'] = rt_max_ref
             fig['layout']['annotations'][1]['text'] = f"RT-max: {rt_max_ref:.2f}s"
 
+            # Fix: Also reset the RT line (shapes[1]) to the reference RT
+            rt_ref = slider_data['value']['rt']
+            fig['layout']['shapes'][1]['x0'] = rt_ref
+            fig['layout']['shapes'][1]['x1'] = rt_ref
+
             buttons_style = {
                 'visibility': 'hidden',
                 'opacity': '0',
