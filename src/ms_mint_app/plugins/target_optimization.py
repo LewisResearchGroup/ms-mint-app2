@@ -840,7 +840,7 @@ _layout = fac.AntdLayout(
                                                     id='target-note',
                                                     allowClear=True,
                                                     mode='text-area',
-                                                    autoSize={'minRows': 2, 'maxRows': 4},
+                                                    autoSize={'minRows': 6, 'maxRows': 12},
                                                     style={'width': '225px'},
                                                     placeholder='Add notes for this target'
                                                 ),
