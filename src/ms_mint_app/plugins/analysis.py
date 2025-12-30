@@ -753,12 +753,15 @@ def show_tab_content(section_context, tab_key, x_comp, y_comp, violin_comp_check
     if not wdir:
         raise PreventUpdate
     # Early guard: if there are no results yet, return empty placeholders instead of erroring.
-    empty_fig = go.Figure()
-    empty_fig.update_layout(
-        title="No results available",
-        template="plotly_white",
+    # Create an invisible figure for PCA when there's no data
+    invisible_fig = go.Figure()
+    invisible_fig.update_layout(
+        xaxis=dict(visible=False),
+        yaxis=dict(visible=False),
         paper_bgcolor='white',
         plot_bgcolor='white',
+        margin=dict(l=0, r=0, t=0, b=0),
+        height=10,  # Minimum height allowed by Plotly
     )
     from dash import callback_context
     ctx = callback_context
@@ -767,10 +770,10 @@ def show_tab_content(section_context, tab_key, x_comp, y_comp, violin_comp_check
     selected_group = group_by if group_by in grouping_fields else GROUPING_FIELDS[0]
     with duckdb_connection(wdir) as conn:
         if conn is None:
-            return None, empty_fig, [], [], []
+            return None, invisible_fig, [], [], []
         results_count = conn.execute("SELECT COUNT(*) FROM results").fetchone()[0]
         if results_count == 0:
-            return None, empty_fig, [], [], []
+            return None, invisible_fig, [], [], []
         metric = metric_value if metric_value in allowed_metrics else 'peak_area'
         df = create_pivot(conn, value=metric)
         df.set_index('ms_file_label', inplace=True)
@@ -818,7 +821,7 @@ def show_tab_content(section_context, tab_key, x_comp, y_comp, violin_comp_check
         raw_df[raw_numeric_cols] = raw_numeric
         color_labels = group_series.reindex(df.index).fillna(missing_group_label)
         if df.empty or raw_numeric.empty:
-            return None, empty_fig, [], [], []
+            return None, invisible_fig, [], [], []
         from sklearn.preprocessing import StandardScaler
         scaler = StandardScaler()
         provided_norm = norm_value  # keep the user-provided value (None on first layout pass)
@@ -849,7 +852,7 @@ def show_tab_content(section_context, tab_key, x_comp, y_comp, violin_comp_check
         else:
             violin_matrix = df
         if violin_matrix.empty:
-            return dash.no_update, empty_fig, go.Figure(), [], [], []
+            return dash.no_update, invisible_fig, [], [], []
     if tab_key == 'clustermap':
         import seaborn as sns
         import matplotlib.pyplot as plt
@@ -1300,17 +1303,34 @@ def callbacks(app, fsc, cache):
     def warn_missing_workspace(section_context, wdir):
         if not section_context or section_context.get('page') != 'Analysis':
             return dash.no_update
-        if wdir:
-            return []
-        return fac.AntdNotification(
-            message="Activate a workspace",
-            description="Please select or create a workspace first.",
-            type="warning",
-            duration=4,
-            placement='bottom',
-            showProgress=True,
-            stack=True,
-        )
+        if not wdir:
+            return fac.AntdNotification(
+                message="Activate a workspace",
+                description="Please select or create a workspace first.",
+                type="warning",
+                duration=4,
+                placement='bottom',
+                showProgress=True,
+                stack=True,
+            )
+        
+        # Check if results table is empty
+        with duckdb_connection(wdir) as conn:
+            if conn is None:
+                return []
+            results_count = conn.execute("SELECT COUNT(*) FROM results").fetchone()[0]
+            if results_count == 0:
+                return fac.AntdNotification(
+                    message="No data available",
+                    description="Please run MINT processing first by navigating to the Processing tab and clicking Run MINT.",
+                    type="info",
+                    duration=6,
+                    placement='bottom',
+                    showProgress=True,
+                    stack=True,
+                )
+        
+        return []
 
 
 
