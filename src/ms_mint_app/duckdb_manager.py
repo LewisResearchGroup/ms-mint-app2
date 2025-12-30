@@ -1226,13 +1226,17 @@ def compute_results_in_batches(wdir: str,
                 FROM filtered_data
             ),
             top3 AS (
-                SELECT ROUND(AVG(intensity), 0) AS peak_area_top3
-                FROM (
-                    SELECT intensity
+                WITH ranked AS (
+                    SELECT 
+                        intensity,
+                        COALESCE(LAG(intensity) OVER (ORDER BY scan_time), 0) AS prev_intensity,
+                        COALESCE(LEAD(intensity) OVER (ORDER BY scan_time), 0) AS next_intensity
                     FROM filtered_data
-                    ORDER BY intensity DESC
-                    LIMIT 3
                 )
+                SELECT ROUND(intensity + prev_intensity + next_intensity, 0) AS peak_area_top3
+                FROM ranked
+                ORDER BY intensity DESC
+                LIMIT 1
             ),
             rt_of_max AS (
                 SELECT scan_time AS peak_rt_of_max
@@ -1597,16 +1601,23 @@ def compute_peak_properties(con: duckdb.DuckDBPyConnection,
                                 FROM filtered_range
                                 GROUP BY peak_label, ms_file_label),
 -- Compute peak_area_top3
-                 top3_calc AS (SELECT peak_label,
-                                      ms_file_label,
-                                      ROUND(AVG(intensity), 0) AS peak_area_top3
-                               FROM (SELECT peak_label,
-                                            ms_file_label,
-                                            intensity,
-                                            ROW_NUMBER() OVER (PARTITION BY peak_label, ms_file_label ORDER BY intensity DESC) AS rn
-                                     FROM filtered_range) sub
-                               WHERE rn <= 3
-                               GROUP BY peak_label, ms_file_label),
+                 top3_calc AS (
+                     SELECT 
+                         peak_label,
+                         ms_file_label,
+                         ROUND(intensity + prev_intensity + next_intensity, 0) AS peak_area_top3
+                     FROM (
+                         SELECT 
+                             peak_label,
+                             ms_file_label,
+                             intensity,
+                             COALESCE(LAG(intensity) OVER (PARTITION BY peak_label, ms_file_label ORDER BY scan_time), 0) AS prev_intensity,
+                             COALESCE(LEAD(intensity) OVER (PARTITION BY peak_label, ms_file_label ORDER BY scan_time), 0) AS next_intensity,
+                             ROW_NUMBER() OVER (PARTITION BY peak_label, ms_file_label ORDER BY intensity DESC) AS rn
+                         FROM filtered_range
+                     ) ranked
+                     WHERE rn = 1
+                 ),
 -- Find scan_time of peak_max
                  rt_of_max AS (SELECT peak_label,
                                       ms_file_label,
