@@ -1700,7 +1700,9 @@ def callbacks(app, fsc, cache):
                                n_cpus=n_cpus,
                                ram=ram)
 
+
             # Persist the results table to a workspace folder for resilience
+            progress_adapter(100, "Results", "Backing up results...")
             try:
                 with duckdb_connection(wdir) as conn:
                     results_df = conn.execute("SELECT * FROM results").df()
@@ -1709,6 +1711,7 @@ def callbacks(app, fsc, cache):
                 results_df.to_csv(results_dir / "results_backup.csv", index=False)
             except Exception:
                 logger.warning("Failed to backup results to CSV.", exc_info=True)
+
 
             logger.info(f"Results computed in {time.perf_counter() - start:.2f} seconds")
         except Exception:
