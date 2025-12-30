@@ -312,11 +312,10 @@ _layout = html.Div(
                                                          'peak_rt_of_max', 'total_intensity']},
                         pagination={
                             'position': 'bottomCenter',
-                            'pageSize': 25,
-                            'current': 1,
-                            'showSizeChanger': True,
-                            'pageSizeOptions': [10, 25, 50, 100],
+                            'pageSize': 15,
                             'showQuickJumper': True,
+                            'showSizeChanger': True,
+                            'pageSizeOptions': [5, 10, 15, 25, 50, 100],
                         },
                         tableLayout='fixed',
                         maxWidth="calc(100vw - 250px - 4rem)",
@@ -1103,16 +1102,15 @@ def callbacks(app, fsc, cache):
 
         pagination = pagination or {
             'position': 'bottomCenter',
-            'pageSize': 25,
-            'current': 1,
-            'showSizeChanger': True,
-            'pageSizeOptions': [10, 25, 50, 100],
+            'pageSize': 15,
             'showQuickJumper': True,
+            'showSizeChanger': True,
+            'pageSizeOptions': [5, 10, 15, 25, 50, 100],
         }
-        base_page_size_options = [10, 25, 50, 100]
+        base_page_size_options = [5, 10, 15, 25, 50, 100]
         page_size_options = base_page_size_options.copy()
         try:
-            page_size = int(pagination.get('pageSize') or 25)
+            page_size = int(pagination.get('pageSize') or 15)
         except (TypeError, ValueError):
             page_size = 25
         if page_size <= 0:
