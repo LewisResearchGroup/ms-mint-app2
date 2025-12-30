@@ -413,16 +413,29 @@ _layout = html.Div(
                     'label': 'Violin',
                     'children': html.Div(
                         [
-                            fac.AntdSelect(
-                                id='violin-comp-checks',
-                                mode='multiple',
-                                options=[],
-                                value=[],
-                                allowClear=False,
-                                maxTagCount=4,
-                                optionFilterProp='label',
-                                optionFilterMode='case-insensitive',
-                                style={'width': 360, 'marginBottom': 12},
+                            fac.AntdFlex(
+                                [
+                                    fac.AntdText('Targets to display', strong=True),
+                                    fac.AntdSelect(
+                                        id='violin-comp-checks',
+                                        mode='multiple',
+                                        options=[],
+                                        value=[],
+                                        allowClear=False,
+                                        maxTagCount=4,
+                                        optionFilterProp='label',
+                                        optionFilterMode='case-insensitive',
+                                        style={'minWidth': '320px', 'maxWidth': '540px'},
+                                    ),
+                                    fac.AntdText(
+                                        'Use the dropdown to limit the plots to specific compounds.',
+                                        type='secondary',
+                                    ),
+                                ],
+                                align='center',
+                                gap='small',
+                                wrap=True,
+                                style={'paddingBottom': '0.75rem'},
                             ),
                             html.Div(
                                 id='violin-graphs',
