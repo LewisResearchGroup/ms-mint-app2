@@ -1236,6 +1236,69 @@ def _compute_chromatograms_logic(set_progress, recompute_ms1, recompute_ms2, n_c
     return True, False
 
 
+def _calc_y_range_numpy(data, x_left, x_right, is_log=False):
+    """
+    Calculate the Y-axis range for the given x-range using NumPy for performance.
+    
+    Args:
+        data: List of trace dictionaries (from Plotly figure['data'])
+        x_left: Left bound of X-axis
+        x_right: Right bound of X-axis
+        is_log: Whether the Y-axis is in log scale
+        
+    Returns:
+        list: [y_min, y_max] or None if no valid data
+    """
+    ys_all = []
+    if not data:
+        return None
+        
+    for trace in data:
+        # Data from Dash callbacks comes as lists (if from JSON)
+        xs = trace.get('x')
+        ys = trace.get('y')
+        
+        if xs is None or ys is None or len(xs) == 0:
+            continue
+            
+        # Convert to numpy for speed
+        try:
+            xs = np.array(xs, dtype=np.float64)
+            ys = np.array(ys, dtype=np.float64)
+        except Exception:
+             continue
+        
+        mask = (xs >= x_left) & (xs <= x_right)
+        ys_filtered = ys[mask]
+        
+        # Filter out None/NaN/Inf
+        valid_mask = np.isfinite(ys_filtered)
+        ys_filtered = ys_filtered[valid_mask]
+        
+        if len(ys_filtered) > 0:
+            ys_all.append(ys_filtered)
+            
+    if not ys_all:
+        return None
+        
+    ys_concat = np.concatenate(ys_all)
+    
+    if len(ys_concat) == 0:
+        return None
+
+    if is_log:
+        pos_mask = ys_concat > 1
+        ys_pos = ys_concat[pos_mask]
+        if len(ys_pos) == 0:
+            return None
+        return [math.log10(np.min(ys_pos)), math.log10(np.max(ys_pos) * 1.05)]
+
+    y_min = np.min(ys_concat)
+    y_max = np.max(ys_concat)
+    y_min = 0 if y_min > 0 else y_min
+    return [y_min, y_max * 1.05]
+
+
 def callbacks(app, fsc, cache, cpu=None):
     app.clientside_callback(
         """(nClicks, collapsed) => {
@@ -1389,6 +1452,61 @@ def callbacks(app, fsc, cache, cpu=None):
 
     ############# GRAPH OPTIONS END #######################################
 
+    @app.callback(
+        Output({'type': 'graph', 'index': ALL}, 'figure', allow_duplicate=True),
+        Input('chromatogram-preview-log-y', 'checked'),
+        State({'type': 'graph', 'index': ALL}, 'figure'),
+        prevent_initial_call=True
+    )
+    def update_preview_log_scale(log_scale, figures):
+        if not figures:
+            raise PreventUpdate
+        
+        t1 = time.perf_counter()
+        updated_figures = []
+        for fig in figures:
+            if not fig:
+                updated_figures.append(fig)
+                continue
+            
+            new_fig = Patch()
+            
+            # Update Y-axis type
+            new_fig['layout']['yaxis']['type'] = 'log' if log_scale else 'linear'
+            new_fig['layout']['yaxis']['nticks'] = 3
+            new_fig['layout']['yaxis']['dtick'] = None  # Ensure auto-ticking takes over
+            
+            # Recalculate range using existing data in the figure
+            # Figure data structure: fig['data'] is a list of traces
+            # Each trace has 'x' and 'y' arrays
+            # We already have the optimized function available in scope? No, it's defined at module level now.
+            
+            # Try to get x-range from layout to be consistent, or just use full data if zoomed out
+            x_range = fig.get('layout', {}).get('xaxis', {}).get('range')
+            if x_range:
+                x_min, x_max = x_range
+            else:
+                 # If no range, find global min/max from data? 
+                 # Usually previews are full range. Let's assume full range of data if not set.
+                 # But _calc_y_range_numpy needs x bounds.
+                 # Let's use a very wide range if not specified, or just parse trace data.
+                 # Actually, for preview, the x-axis is fixed to [rt_min, rt_max] usually.
+                 # But simpler: scan all data in traces.
+                 x_min, x_max = -float('inf'), float('inf')
+
+            y_range = _calc_y_range_numpy(fig.get('data', []), x_min, x_max, is_log=log_scale)
+            
+            if y_range:
+                new_fig['layout']['yaxis']['range'] = y_range
+                new_fig['layout']['yaxis']['autorange'] = False
+            else:
+                new_fig['layout']['yaxis']['autorange'] = True
+
+            updated_figures.append(new_fig)
+            
+        logger.debug(f"Log scale updated in {time.perf_counter() - t1:.4f}s")
+        return updated_figures
+
     ############# PREVIEW BEGIN #####################################
     @app.callback(
         Output({'type': 'target-card-preview', 'index': ALL}, 'data-target'),
@@ -1403,19 +1521,19 @@ def callbacks(app, fsc, cache, cpu=None):
         Input('chromatogram-preview-pagination', 'current'),
         Input('chromatogram-preview-pagination', 'pageSize'),
         Input('sample-type-tree', 'checkedKeys'),
-        Input('chromatogram-preview-log-y', 'checked'),
         Input('chromatogram-preview-filter-bookmark', 'value'),
         Input('chromatogram-preview-filter-ms-type', 'value'),
         Input('chromatogram-preview-order', 'value'),
         Input('drop-chromatogram', 'data'),
         Input('targets-select', 'value'),
+        State('chromatogram-preview-log-y', 'checked'),
         State('chromatograms-dummy-output', 'children'),
         State('wdir', 'data'),
         prevent_initial_call=True
     )
-    def chromatograms_preview(chromatograms, current_page, page_size, checkedkeys, log_scale, selection_bookmark,
+    def chromatograms_preview(chromatograms, current_page, page_size, checkedkeys, selection_bookmark,
                               selection_ms_type, targets_order, dropped_target, selected_targets,
-                              preview_y_range, wdir):
+                              log_scale, preview_y_range, wdir):
 
         ctx = dash.callback_context
         if 'targets-select' in ctx.triggered[0]['prop_id'] and selected_targets:
@@ -1588,7 +1706,10 @@ def callbacks(app, fsc, cache, cpu=None):
                                                        i := list_extract(intensity, i)
                                                    )
                                                )
-                                           AS pairs_in
+                                           AS pairs_raw,
+                                           -- Filter roughly within [rt_min-300, rt_max+300] to avoid fetching all data
+                                           -- The larger buffer handles generous alignment shifts
+                                           list_filter(pairs_raw, p -> p.t >= (rt_min - 300) AND p.t <= (rt_max + 300)) AS pairs_in
                                     FROM base
                                 ),
                                 final AS (
@@ -1671,14 +1792,19 @@ def callbacks(app, fsc, cache, cpu=None):
                 scan_time_sparse, intensity_sparse = sparsify_chrom(
                     scan_time_sliced, intensity_sliced
                 )
-                if len(intensity_sparse):
-                    local_max = max(intensity_sparse)
+                
+                if len(intensity_sparse) > 0:
+                    local_max = intensity_sparse.max()
                     if local_max > y_max:
-                        y_max = local_max
-                    local_min_pos = min((v for v in intensity_sparse if v > 0), default=None)
-                    if local_min_pos is not None:
+                        y_max = float(local_max)
+                    
+                    # Vectorized min > 0
+                    pos_vals = intensity_sparse[intensity_sparse > 0]
+                    if len(pos_vals) > 0:
+                        local_min_pos = pos_vals.min()
                         if y_min_pos is None or local_min_pos < y_min_pos:
-                            y_min_pos = local_min_pos
+                            y_min_pos = float(local_min_pos)
+
                 traces.append({
                     'type': 'scatter',
                     'mode': 'lines',
@@ -1741,7 +1867,7 @@ def callbacks(app, fsc, cache, cpu=None):
 
             if log_scale:
                 fig['layout']['yaxis']['type'] = 'log'
-                fig['layout']['yaxis']['dtick'] = 1  # Only show powers of 10 to avoid cramped labels
+                fig['layout']['yaxis']['nticks'] = 3
                 fig['layout']['yaxis']['tickfont'] = {'size': 9}
                 if y_max_use and y_max_use > 0:
                     y_min_use = y_min_use if y_min_use and y_min_use > 0 else max(y_max_use * 1e-6, 1e-6)
@@ -1749,6 +1875,7 @@ def callbacks(app, fsc, cache, cpu=None):
                     fig['layout']['yaxis']['autorange'] = False
             else:
                 fig['layout']['yaxis']['type'] = 'linear'
+                fig['layout']['yaxis']['nticks'] = 3
                 fig['layout']['yaxis']['tickfont'] = {'size': 9}
                 if y_max_use and y_max_use > 0:
                     fig['layout']['yaxis']['range'] = [0, y_max_use * 1.05]
@@ -1990,31 +2117,6 @@ def callbacks(app, fsc, cache, cpu=None):
         y_min, y_max = max_y
         fig = Patch()
 
-        def _calc_y_range(data, x_left, x_right, is_log=False):
-            ys = []
-            for trace in data or []:
-                xs = trace.get('x', [])
-                ys_trace = trace.get('y', [])
-                for xv, yv in zip(xs, ys_trace):
-                    if xv is None or yv is None:
-                        continue
-                    if x_left <= xv <= x_right:
-                        ys.append(yv)
-
-            if not ys:
-                return None
-
-            if is_log:
-                ys = [y for y in ys if y is not None and y > 1]
-                if not ys:
-                    return None
-                y_min_local, y_max_local = min(ys), max(ys)
-                return [math.log10(y_min_local), math.log10(y_max_local * 1.05)]
-
-            y_min_local, y_max_local = min(ys), max(ys)
-            y_min_local = 0 if y_min_local > 0 else y_min_local
-            return [y_min_local, y_max_local * 1.05]
-
         # Try to use the current x-range (zoom or RT span) to compute an informed y-range.
         x_range = figure.get('layout', {}).get('xaxis', {}).get('range')
         if x_range and len(x_range) == 2:
@@ -2029,7 +2131,7 @@ def callbacks(app, fsc, cache, cpu=None):
             fig['layout']['yaxis']['type'] = 'log'
             y_range_calc = None
             if x_left is not None and x_right is not None:
-                y_range_calc = _calc_y_range(figure.get('data', []), min(x_left, x_right), max(x_left, x_right), True)
+                y_range_calc = _calc_y_range_numpy(figure.get('data', []), min(x_left, x_right), max(x_left, x_right), True)
             if y_range_calc:
                 fig['layout']['yaxis']['range'] = y_range_calc
             else:
@@ -2040,7 +2142,7 @@ def callbacks(app, fsc, cache, cpu=None):
             fig['layout']['yaxis']['type'] = 'linear'
             y_range_calc = None
             if x_left is not None and x_right is not None:
-                y_range_calc = _calc_y_range(figure.get('data', []), min(x_left, x_right), max(x_left, x_right), False)
+                y_range_calc = _calc_y_range_numpy(figure.get('data', []), min(x_left, x_right), max(x_left, x_right), False)
             if y_range_calc:
                 fig['layout']['yaxis']['range'] = y_range_calc
             else:
@@ -2615,34 +2717,8 @@ def callbacks(app, fsc, cache, cpu=None):
         fig['layout']['xaxis']['autorange'] = False
         fig['layout']['yaxis']['autorange'] = False
 
-        def _calc_y_range_from_traces(data, x_left, x_right, is_log=False):
-            ys = []
-            for trace in data or []:
-                xs = trace.get('x', [])
-                ys_trace = trace.get('y', [])
-                for xv, yv in zip(xs, ys_trace):
-                    if xv is None or yv is None:
-                        continue
-                    if x_left <= xv <= x_right:
-                        ys.append(yv)
-
-            if not ys:
-                return None
-
-            if is_log:
-                # Drop non-positive values; use the smallest intensity strictly greater than 1 as the floor.
-                ys = [y for y in ys if y is not None and y > 1]
-                if not ys:
-                    return None
-                y_min_local, y_max_local = min(ys), max(ys)
-                return [math.log10(y_min_local), math.log10(y_max_local * 1.05)]
-
-            y_min_local, y_max_local = min(ys), max(ys)
-            y_min_local = 0 if y_min_local > 0 else y_min_local
-            return [y_min_local, y_max_local * 1.05]
-
         fig['layout']['yaxis']['type'] = 'log' if log_scale else 'linear'
-        y_range_zoom = _calc_y_range_from_traces(traces, nx_min, nx_max, is_log=log_scale)
+        y_range_zoom = _calc_y_range_numpy(traces, nx_min, nx_max, is_log=log_scale)
         if y_range_zoom:
             fig['layout']['yaxis']['range'] = y_range_zoom
             fig['layout']['yaxis']['autorange'] = False
@@ -2713,32 +2789,6 @@ def callbacks(app, fsc, cache, cpu=None):
         if not slider_reference_data:
             raise PreventUpdate
 
-        def _calc_y_range(data, x_left, x_right, is_log=False):
-            ys = []
-            for trace in data or []:
-                xs = trace.get('x', [])
-                ys_trace = trace.get('y', [])
-                for xv, yv in zip(xs, ys_trace):
-                    if xv is None or yv is None:
-                        continue
-                    if x_left <= xv <= x_right:
-                        ys.append(yv)
-
-            if not ys:
-                return None
-
-            if is_log:
-                # Drop non-positive values; use the smallest intensity strictly greater than 1 as the floor.
-                ys = [y for y in ys if y is not None and y > 1]
-                if not ys:
-                    return None
-                y_min_local, y_max_local = min(ys), max(ys)
-                return [math.log10(y_min_local), math.log10(y_max_local * 1.05)]
-
-            y_min_local, y_max_local = min(ys), max(ys)
-            y_min_local = 0 if y_min_local > 0 else y_min_local
-            return [y_min_local, y_max_local * 1.05]
-
         def _maybe_pad_x_range(current_range, rt_min_val, rt_max_val, pad_seconds):
             if rt_min_val is None or rt_max_val is None:
                 return None
@@ -2794,7 +2844,7 @@ def callbacks(app, fsc, cache, cpu=None):
                 fig['layout']['xaxis']['autorange'] = False
 
             if figure_state:
-                y_calc = _calc_y_range(figure_state.get('data', []), rt_min_ref, rt_max_ref, is_log)
+                y_calc = _calc_y_range_numpy(figure_state.get('data', []), rt_min_ref, rt_max_ref, is_log)
                 if y_calc:
                     fig['layout']['yaxis']['range'] = y_calc
                     fig['layout']['yaxis']['autorange'] = False
@@ -2837,7 +2887,7 @@ def callbacks(app, fsc, cache, cpu=None):
                 fig_zoom['layout']['yaxis']['range'] = [y_range[0], y_range[1]]
                 fig_zoom['layout']['yaxis']['autorange'] = False
             elif x_range[0] is not None and x_range[1] is not None and figure_state:
-                y_calc = _calc_y_range(figure_state.get('data', []), x_range[0], x_range[1], is_log)
+                y_calc = _calc_y_range_numpy(figure_state.get('data', []), x_range[0], x_range[1], is_log)
                 if y_calc:
                     fig_zoom['layout']['yaxis']['range'] = y_calc
                     fig_zoom['layout']['yaxis']['autorange'] = False
@@ -2963,7 +3013,7 @@ def callbacks(app, fsc, cache, cpu=None):
         # adjust axes to the current RT span box for better scaling
         is_log = figure_state and figure_state.get('layout', {}).get('yaxis', {}).get('type') == 'log'
         if figure_state:
-            y_range_zoom = _calc_y_range(figure_state.get('data', []), rt_min_new, rt_max_new, is_log)
+            y_range_zoom = _calc_y_range_numpy(figure_state.get('data', []), rt_min_new, rt_max_new, is_log)
             if y_range_zoom:
                 fig['layout']['yaxis']['range'] = y_range_zoom
                 fig['layout']['yaxis']['autorange'] = False
