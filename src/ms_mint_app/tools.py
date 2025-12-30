@@ -1028,6 +1028,20 @@ def process_targets(wdir, set_progress, selected_files):
             "filterLine, ms_type, category, score, peak_selection, bookmark, source, notes, rt_auto_adjusted "
             "FROM targets_df ORDER BY mz_mean, peak_label"
         )
+        
+        # Create initial backup CSV for recovery
+        try:
+            from pathlib import Path
+            data_dir = Path(wdir) / "data"
+            data_dir.mkdir(parents=True, exist_ok=True)
+            backup_path = data_dir / "targets_backup.csv"
+            conn.execute(
+                "COPY (SELECT * FROM targets) TO ? (HEADER, DELIMITER ',')",
+                (str(backup_path),)
+            )
+            logging.info(f"Created initial targets backup: {backup_path}")
+        except Exception as e:
+            logging.warning(f"Failed to create initial targets backup: {e}")
 
     set_progress(100)
     return len(targets_df), failed_files, failed_targets, stats
