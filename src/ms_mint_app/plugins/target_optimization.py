@@ -68,6 +68,18 @@ DEFAULT_GRAPH_HEIGHT = 180
 # trigger Plotly's "_doPlot" warning for graphs that haven't been plotted yet.
 EMPTY_PLOTLY_FIGURE = {"data": [], "layout": {"template": "plotly_white"}}
 
+# High-resolution export configuration for Plotly graphs
+PLOTLY_HIGH_RES_CONFIG = {
+    'toImageButtonOptions': {
+        'format': 'png',
+        'scale': 4,  # 4x scale ≈ 300 DPI
+        'height': None,
+        'width': None,
+    },
+    'displayModeBar': True,
+    'displaylogo': False,
+}
+
 _layout = fac.AntdLayout(
     [
         fac.AntdHeader(
@@ -614,7 +626,7 @@ _layout = fac.AntdLayout(
                                             margin=dict(l=40, r=10, t=50, b=80),
                                         )
                                     ),
-                                    config={'displayModeBar': True, 'edits': {'shapePosition': True}},
+                                    config={**PLOTLY_HIGH_RES_CONFIG, 'edits': {'shapePosition': True}},
                                     style={'width': '100%', 'height': '600px'}
                                 ),
                             ],

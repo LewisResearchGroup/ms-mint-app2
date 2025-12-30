@@ -18,6 +18,18 @@ from ..plugin_interface import PluginInterface
 
 _label = "Quality Control"
 
+# High-resolution export configuration for Plotly graphs
+PLOTLY_HIGH_RES_CONFIG = {
+    'toImageButtonOptions': {
+        'format': 'png',
+        'scale': 4,
+        'height': None,
+        'width': None,
+    },
+    'displayModeBar': True,
+    'displaylogo': False,
+}
+
 class QualityControlPlugin(PluginInterface):
     def __init__(self):
         self._label = _label
@@ -53,6 +65,7 @@ _layout = html.Div([
                     "text-align": "left",
                     "maxWidth": "900px",
                 },
+                config=PLOTLY_HIGH_RES_CONFIG,
             ),
             style={'width': '100%', 'text-align': 'left'}
         )
@@ -67,6 +80,7 @@ _layout = html.Div([
                 "text-align": "left",
                 "maxWidth": "100%",
             },
+            config=PLOTLY_HIGH_RES_CONFIG,
         )
     ),
 
@@ -83,6 +97,7 @@ _layout = html.Div([
                     "maxWidth": "100%",
                     "minWidth": "100%",
                 },
+                config=PLOTLY_HIGH_RES_CONFIG,
             ),
             style={'width': '100%', 'margin': 'auto'}
         ),
@@ -101,6 +116,7 @@ _layout = html.Div([
                     "maxWidth": "100%",
                     
                 },
+                config=PLOTLY_HIGH_RES_CONFIG,
             ),
             style={'width': '100%', 'margin': 'auto'}
         ),

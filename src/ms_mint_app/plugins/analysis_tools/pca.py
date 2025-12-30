@@ -44,6 +44,7 @@ _layout = html.Div(
             dcc.Loading(
                 dcc.Graph(
                     id="pca-figure-pairplot",
+                    config=PLOTLY_HIGH_RES_CONFIG,
                 )
             ),
         ]),
@@ -53,18 +54,31 @@ _layout = html.Div(
             dcc.Loading(
                 dcc.Graph(
                     id="pca-figure-explained-variance",
+                    config=PLOTLY_HIGH_RES_CONFIG,
                 )
             ),
         ]),
     
         html.H4("PCA-Loadings"),
         html.Center([
-            dcc.Loading(dcc.Graph(id="pca-figure-contrib")),
+            dcc.Loading(dcc.Graph(id="pca-figure-contrib", config=PLOTLY_HIGH_RES_CONFIG)),
         ]),
     ]
 )
 
 _label = "PCA"
+
+# High-resolution export configuration for Plotly graphs
+PLOTLY_HIGH_RES_CONFIG = {
+    'toImageButtonOptions': {
+        'format': 'png',
+        'scale': 4,
+        'height': None,
+        'width': None,
+    },
+    'displayModeBar': True,
+    'displaylogo': False,
+}
 
 
 def layout():

@@ -54,6 +54,19 @@ GROUP_SELECT_OPTIONS = [
     for field in GROUPING_FIELDS
 ]
 
+# High-resolution export configuration for Plotly graphs
+# Scale of 4 provides ~300 DPI (default is 72 DPI)
+PLOTLY_HIGH_RES_CONFIG = {
+    'toImageButtonOptions': {
+        'format': 'png',
+        'scale': 4,  # 4x scale ≈ 300 DPI
+        'height': None,  # maintains aspect ratio
+        'width': None,   # maintains aspect ratio
+    },
+    'displayModeBar': True,
+    'displaylogo': False,
+}
+
 
 class AnalysisPlugin(PluginInterface):
     def __init__(self):
@@ -193,7 +206,7 @@ pca_tab = html.Div(
             style={'marginBottom': 10},
         ),
         fac.AntdSpin(
-            dcc.Graph(id='pca-graph'),
+            dcc.Graph(id='pca-graph', config=PLOTLY_HIGH_RES_CONFIG),
             text='Loading PCA...',
         ),
     ]
@@ -1180,7 +1193,11 @@ def show_tab_content(section_context, tab_key, x_comp, y_comp, violin_comp_check
                 paper_bgcolor='white',
                 plot_bgcolor='white',
             )
-            graphs.append(dcc.Graph(figure=fig, style={'marginBottom': 20, 'width': '100%'}))
+            graphs.append(dcc.Graph(
+                figure=fig, 
+                style={'marginBottom': 20, 'width': '100%'},
+                config=PLOTLY_HIGH_RES_CONFIG
+            ))
         return dash.no_update, dash.no_update, graphs, violin_options, selected_list
     return dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update
 
@@ -1277,7 +1294,7 @@ def run_scalir(n_clicks, standards_contents, standards_filename, intensity, slop
                     'maxWidth': '520px',
                     'minHeight': '320px',
                 },
-                config={'displaylogo': False},
+                config=PLOTLY_HIGH_RES_CONFIG,
             )
         )
     plot_style = {
@@ -1518,7 +1535,7 @@ def callbacks(app, fsc, cache):
                         'maxWidth': '520px',
                         'minHeight': '320px',
                     },
-                    config={'displaylogo': False},
+                    config=PLOTLY_HIGH_RES_CONFIG,
                 )
             )
 

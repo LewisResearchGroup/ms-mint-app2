@@ -13,6 +13,18 @@ from ... import tools as T
 
 _label = "Heatmap"
 
+# High-resolution export configuration for Plotly graphs
+PLOTLY_HIGH_RES_CONFIG = {
+    'toImageButtonOptions': {
+        'format': 'png',
+        'scale': 4,
+        'height': None,
+        'width': None,
+    },
+    'displayModeBar': True,
+    'displaylogo': False,
+}
+
 
 heatmap_options = [
     {"label": "Cluster", "value": "clustered"},
@@ -35,7 +47,7 @@ _layout = html.Div(
         ),
         dcc.Loading(
             html.Div(
-                [dcc.Graph(id="heatmap-figure", style={"height": "90vh"})],
+                [dcc.Graph(id="heatmap-figure", style={"height": "90vh"}, config=PLOTLY_HIGH_RES_CONFIG)],
                 style={"marginTop": "50px"},
             ),
         ),
