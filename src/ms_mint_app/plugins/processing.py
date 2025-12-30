@@ -1059,23 +1059,35 @@ def callbacks(app, fsc, cache):
             raise PreventUpdate
 
         # Autosave results table on tab load/refresh for durability (throttled to limit I/O).
+        # Skip if processing just completed (already backed up there)
         try:
-            results_dir = Path(wdir) / "results"
-            results_dir.mkdir(parents=True, exist_ok=True)
-            backup_path = results_dir / "results_backup.csv"
-            should_write = True
-            if backup_path.exists():
-                last_write = backup_path.stat().st_mtime
-                should_write = (time.time() - last_write) > 30
-            if should_write:
-                with duckdb_connection(wdir) as conn:
-                    if conn is None:
-                        logger.debug("results_table: PreventUpdate because database connection is None (backup)")
-                        raise PreventUpdate
-                    conn.execute(
-                        "COPY (SELECT * FROM results) TO ? (HEADER, DELIMITER ',')",
-                        (str(backup_path),),
-                    )
+            # Check if processing just completed
+            skip_backup = False
+            if isinstance(results_actions, dict):
+                if results_actions.get('action') == 'processing' and results_actions.get('status') == 'completed':
+                    timestamp = results_actions.get('timestamp', 0)
+                    if time.time() - timestamp < 10:  # Within last 10 seconds
+                        skip_backup = True
+                        logger.debug("Skipping backup - processing just completed")
+            
+            if not skip_backup:
+                results_dir = Path(wdir) / "results"
+                results_dir.mkdir(parents=True, exist_ok=True)
+                backup_path = results_dir / "results_backup.csv"
+                should_write = True
+                if backup_path.exists():
+                    last_write = backup_path.stat().st_mtime
+                    should_write = (time.time() - last_write) > 30
+                if should_write:
+                    with duckdb_connection(wdir) as conn:
+                        if conn is None:
+                            logger.debug("results_table: PreventUpdate because database connection is None (backup)")
+                            raise PreventUpdate
+                        conn.execute(
+                            "COPY (SELECT * FROM results) TO ? (HEADER, DELIMITER ',')",
+                            (str(backup_path),),
+                        )
+                    logger.debug(f"Auto-backed up results to {backup_path}")
         except PreventUpdate:
             raise
         except Exception:
@@ -1704,11 +1716,17 @@ def callbacks(app, fsc, cache):
             # Persist the results table to a workspace folder for resilience
             progress_adapter(100, "Results", "Backing up results...")
             try:
-                with duckdb_connection(wdir) as conn:
-                    results_df = conn.execute("SELECT * FROM results").df()
                 results_dir = Path(wdir) / "results"
                 results_dir.mkdir(parents=True, exist_ok=True)
-                results_df.to_csv(results_dir / "results_backup.csv", index=False)
+                backup_path = results_dir / "results_backup.csv"
+                
+                # Use DuckDB's native COPY for much faster CSV export
+                with duckdb_connection(wdir) as conn:
+                    conn.execute(
+                        "COPY (SELECT * FROM results) TO ? (HEADER, DELIMITER ',')",
+                        (str(backup_path),)
+                    )
+                logger.info(f"Backed up results to {backup_path}")
             except Exception:
                 logger.warning("Failed to backup results to CSV.", exc_info=True)
 
@@ -1718,7 +1736,7 @@ def callbacks(app, fsc, cache):
              logger.error("Processing failed during computation", exc_info=True)
              raise
 
-        return True, False
+        return {'action': 'processing', 'status': 'completed', 'timestamp': time.time()}, False
 
     @app.callback(
         Output('results-action-store', 'data', allow_duplicate=True),
