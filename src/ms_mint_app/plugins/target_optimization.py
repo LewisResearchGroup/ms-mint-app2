@@ -1058,14 +1058,14 @@ def _update_sample_type_tree(section_context, mark_action, expand_action, collap
                               END
                           GROUP BY sample_type
                           ORDER BY sample_type
-                          """, [selection_ms_type, selection_ms_type]).df()
+                          """, [selection_ms_type, selection_ms_type]).pl()
 
-        if df.empty:
+        if df.is_empty():
             return [], [], [], {'display': 'none'}, {'display': 'block'}
 
         if prop_id == 'mark-tree-action':
-            # logger.debug(f"{df['checked_keys'].values = }")
-            checked_keys = [v for value in df['checked_keys'].values for v in value]
+            # logger.debug(f"{df['checked_keys'].to_list() = }")
+            checked_keys = [v for value in df['checked_keys'].to_list() for v in value]
         elif prop_id == 'section-context':
             quotas, checked_keys = proportional_min1_selection(df, 'sample_type', 'checked_keys', 50, 12345)
         else:
@@ -1078,13 +1078,13 @@ def _update_sample_type_tree(section_context, mark_action, expand_action, collap
                     'key': row['sample_type'],
                     'children': row['children']
                 }
-                for row in df.to_dict('records')
+                for row in df.to_dicts()
             ]
         else:
             tree_data = dash.no_update
 
         if prop_id == 'expand-tree-action':
-            expanded_keys = df['sample_type'].tolist()
+            expanded_keys = df['sample_type'].to_list()
         elif prop_id == 'collapse-tree-action':
             expanded_keys = []
         else:
