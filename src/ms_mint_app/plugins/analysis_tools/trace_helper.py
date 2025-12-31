@@ -84,7 +84,7 @@ def calculate_shifts_per_sample_type(chrom_df, shifts_dict):
     return {st: float(np.median(shifts)) for st, shifts in sample_type_shifts.items()}
 
 
-def generate_chromatogram_traces(chrom_df, use_megatrace=False, rt_alignment_shifts=None):
+def generate_chromatogram_traces(chrom_df, use_megatrace=False, rt_alignment_shifts=None, ms_type=None):
     x_min = float('inf')
     x_max = float('-inf')
     y_min = float('inf')
@@ -96,6 +96,13 @@ def generate_chromatogram_traces(chrom_df, use_megatrace=False, rt_alignment_shi
     if chrom_df is None or len(chrom_df) == 0:
         return traces, x_min, x_max, y_min, y_max
 
+    # MS2/SRM uses min_peak_width=1 and higher baseline to filter noise
+    # MS1 uses defaults (min_peak_width=3, baseline=1.0)
+    if ms_type == 'ms2':
+        sparsify_kwargs = {'w': 1, 'baseline': 10.0, 'eps': 0.0, 'min_peak_width': 1}
+    else:
+        sparsify_kwargs = {'w': 1, 'baseline': 1.0, 'eps': 0.0}
+
     if not use_megatrace:
         # ------------------------------------
         # ------------------------------------
@@ -104,7 +111,7 @@ def generate_chromatogram_traces(chrom_df, use_megatrace=False, rt_alignment_shi
         for i, row in enumerate(chrom_df.iter_rows(named=True)):
 
             scan_time_sparse, intensity_sparse = sparsify_chrom(
-                row['scan_time_sliced'], row['intensity_sliced'], w=1, baseline=1.0, eps=0.0
+                row['scan_time_sliced'], row['intensity_sliced'], **sparsify_kwargs
             )
             
             # Apply RT alignment shift if provided
@@ -157,7 +164,7 @@ def generate_chromatogram_traces(chrom_df, use_megatrace=False, rt_alignment_shi
 
             # Sparsify individually before joining (optional, to save more)
             st, ints = sparsify_chrom(
-                row['scan_time_sliced'], row['intensity_sliced'], w=1, baseline=1.0, eps=0.0
+                row['scan_time_sliced'], row['intensity_sliced'], **sparsify_kwargs
             )
 
             # Apply RT alignment shift if provided

@@ -434,7 +434,7 @@ _layout = fac.AntdLayout(
                                                 ),
                                                 fac.AntdPagination(
                                                     id='chromatogram-preview-pagination',
-                                                    defaultPageSize=20,
+                                                    defaultPageSize=9,  # Reduced from 20 for faster load with large MS2 data
                                                     showSizeChanger=True,
                                                     pageSizeOptions=[4, 9, 20, 50],
                                                     locale='en-us',
@@ -1719,9 +1719,9 @@ def callbacks(app, fsc, cache, cpu=None):
                                                    )
                                                )
                                            AS pairs_raw,
-                                           -- Filter roughly within [rt_min-300, rt_max+300] to avoid fetching all data
-                                           -- The larger buffer handles generous alignment shifts
-                                           list_filter(pairs_raw, p -> p.t >= (rt_min - 300) AND p.t <= (rt_max + 300)) AS pairs_in
+                                           -- Filter roughly within [rt_min-30, rt_max+30] for efficient preview
+                                           -- Enough margin for display context, modal uses larger buffer if needed
+                                           list_filter(pairs_raw, p -> p.t >= (rt_min - 30) AND p.t <= (rt_max + 30)) AS pairs_in
                                     FROM base
                                 ),
                                 final AS (
@@ -1801,9 +1801,16 @@ def callbacks(app, fsc, cache, cpu=None):
                 scan_time_sliced = scan_time[mask]
                 intensity_sliced = intensity[mask]
 
-                scan_time_sparse, intensity_sparse = sparsify_chrom(
-                    scan_time_sliced, intensity_sliced
-                )
+                # MS2/SRM data has sparse peaks - use min_peak_width=1 and higher baseline
+                # MS1 uses default parameters (min_peak_width=3, baseline=1.0)
+                if ms_type == 'ms2':
+                    scan_time_sparse, intensity_sparse = sparsify_chrom(
+                        scan_time_sliced, intensity_sliced, min_peak_width=1, baseline=10.0
+                    )
+                else:
+                    scan_time_sparse, intensity_sparse = sparsify_chrom(
+                        scan_time_sliced, intensity_sliced
+                    )
                 
                 if len(intensity_sparse) > 0:
                     local_max = intensity_sparse.max()
@@ -2125,8 +2132,11 @@ def callbacks(app, fsc, cache, cpu=None):
         prevent_initial_call=True
     )
     def chromatogram_view_y_scale(log_scale, figure, max_y, total_points, rt_alignment_data):
-
-        y_min, y_max = max_y
+        # max_y is stored as {"min_y": ..., "max_y": ...}
+        if not max_y or not isinstance(max_y, dict):
+            raise PreventUpdate
+        y_min = max_y.get("min_y", 0)
+        y_max = max_y.get("max_y", 1)
         fig = Patch()
 
         # Try to use the current x-range (zoom or RT span) to compute an informed y-range.
@@ -2255,6 +2265,12 @@ def callbacks(app, fsc, cache, cpu=None):
                     """
 
             chrom_df = conn.execute(query, [target_clicked]).pl()
+            
+            # Fetch ms_type for this target
+            target_ms_type = conn.execute(
+                "SELECT ms_type FROM targets WHERE peak_label = ?", [target_clicked]
+            ).fetchone()
+            target_ms_type = target_ms_type[0] if target_ms_type else None
         
         # Apply RT alignment if active
         rt_alignment_shifts = None
@@ -2270,7 +2286,8 @@ def callbacks(app, fsc, cache, cpu=None):
         traces, x_min, x_max, y_min, y_max = generate_chromatogram_traces(
             chrom_df, 
             use_megatrace=use_megatrace,
-            rt_alignment_shifts=rt_alignment_shifts
+            rt_alignment_shifts=rt_alignment_shifts,
+            ms_type=target_ms_type
         )
         
         fig = Patch()
@@ -2388,6 +2405,12 @@ def callbacks(app, fsc, cache, cpu=None):
                     """
 
             chrom_df = conn.execute(query, [target_clicked]).pl()
+            
+            # Fetch ms_type for this target
+            target_ms_type = conn.execute(
+                "SELECT ms_type FROM targets WHERE peak_label = ?", [target_clicked]
+            ).fetchone()
+            target_ms_type = target_ms_type[0] if target_ms_type else None
         
         # Calculate RT alignment shifts if alignment is enabled
         rt_alignment_shifts = None
@@ -2427,7 +2450,8 @@ def callbacks(app, fsc, cache, cpu=None):
         traces, x_min, x_max, y_min, y_max = generate_chromatogram_traces(
             chrom_df, 
             use_megatrace=use_megatrace,
-            rt_alignment_shifts=rt_alignment_shifts
+            rt_alignment_shifts=rt_alignment_shifts,
+            ms_type=target_ms_type
         )
         
         fig = Patch()
@@ -2504,7 +2528,7 @@ def callbacks(app, fsc, cache, cpu=None):
         with duckdb_connection(wdir) as conn:
             # Load target data including RT alignment columns
             d = conn.execute("""
-                SELECT rt, rt_min, rt_max, COALESCE(notes, ''),
+                SELECT rt, rt_min, rt_max, COALESCE(notes, ''), ms_type,
                        rt_align_enabled, rt_align_reference_rt, rt_align_shifts,
                        rt_align_rt_min, rt_align_rt_max
                 FROM targets 
@@ -2512,9 +2536,10 @@ def callbacks(app, fsc, cache, cpu=None):
             """, [target_clicked]).fetchall()
             
             if d:
-                rt, rt_min, rt_max, note, align_enabled, align_ref_rt, align_shifts_json, align_rt_min, align_rt_max = d[0]
+                rt, rt_min, rt_max, note, target_ms_type, align_enabled, align_ref_rt, align_shifts_json, align_rt_min, align_rt_max = d[0]
             else:
                 rt, rt_min, rt_max, note = None, None, None, ''
+                target_ms_type = None
                 align_enabled = False
                 align_ref_rt = None
                 align_shifts_json = None
@@ -2629,7 +2654,8 @@ def callbacks(app, fsc, cache, cpu=None):
         traces, x_min, x_max, y_min, y_max = generate_chromatogram_traces(
             chrom_df, 
             use_megatrace=use_megatrace,
-            rt_alignment_shifts=rt_alignment_shifts_to_apply
+            rt_alignment_shifts=rt_alignment_shifts_to_apply,
+            ms_type=target_ms_type
         )
 
         if traces:
