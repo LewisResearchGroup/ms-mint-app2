@@ -412,15 +412,10 @@ def run_asari_workflow(wdir, params, set_progress=None):
         if not os.path.exists(data_dir):
             os.makedirs(data_dir, exist_ok=True)
             
-        mint_targets_path = os.path.join(data_dir, "targets.csv")
-        
-        if os.path.exists(mint_targets_path):
-            backup_path = os.path.join(data_dir, f"targets_backup_{int(time.time())}.csv")
-            shutil.copy(mint_targets_path, backup_path)
-            logger.info(f"Backed up existing targets to {backup_path}")
-            
-        df.to_csv(mint_targets_path, index=False)
-        logger.info(f"Saved MINT targets to {mint_targets_path}")
+        # Save directly to targets_backup.csv (matching user upload behavior)
+        backup_path = os.path.join(data_dir, "targets_backup.csv")
+        df.to_csv(backup_path, index=False)
+        logger.info(f"Saved MINT targets to {backup_path}")
         
         # INSERT INTO DATABASE
         report_progress(99, "Finalizing", "Updating database...")
@@ -485,6 +480,6 @@ def run_asari_workflow(wdir, params, set_progress=None):
     
     return {
         "success": True, 
-        "message": f"Asari analysis completed successfully. Targets generated in {mint_targets_path}",
-        "result_path": mint_targets_path
+        "message": f"Asari analysis completed successfully. Targets saved to {backup_path}",
+        "result_path": backup_path
     }
