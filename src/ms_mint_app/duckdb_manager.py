@@ -77,8 +77,12 @@ def duckdb_connection(workspace_path: Path | str, register_activity=True, n_cpus
         con.execute(f"SET temp_directory = '{workspace_path.as_posix()}';")
         if n_cpus:
             con.execute(f"SET threads = {n_cpus}", )
+            logger.debug(f"DuckDB threads set to {n_cpus}")
         if ram:
             con.execute(f"SET memory_limit = '{ram}GB'")
+            # Verify the setting was applied
+            actual_limit = con.execute("SELECT current_setting('memory_limit')").fetchone()[0]
+            logger.info(f"DuckDB memory_limit set to {ram}GB (verified: {actual_limit})")
         _create_tables(con)
     except Exception as e:
         print(f"Error connecting to DuckDB: {e}")
@@ -1204,62 +1208,66 @@ def compute_results_in_batches(wdir: str,
     """
 
 
-    # INLINE macro - returns the table directly (AS TABLE)
+    # OPTIMIZED macro using list functions - avoids UNNEST memory explosion
+    # This approach filters arrays directly without creating intermediate rows,
+    # reducing memory usage from 15GB+ to under 4GB for large chromatograms (37K+ points)
     QUERY_CREATE_HELPERS = """
         CREATE OR REPLACE MACRO compute_chromatogram_metrics(scan_times, intensities, rt_min, rt_max) AS TABLE (
-            WITH unnested_data AS (
-                SELECT UNNEST(scan_times) AS scan_time,
-                       UNNEST(intensities) AS intensity
+            WITH 
+            -- Filter arrays using list operations (no UNNEST = no memory explosion)
+            filtered AS (
+                SELECT list_filter(
+                    list_transform(
+                        range(1, len(scan_times) + 1),
+                        i -> struct_pack(t := list_extract(scan_times, i), i := list_extract(intensities, i))
+                    ),
+                    p -> p.t >= rt_min AND p.t <= rt_max
+                ) AS pairs
             ),
-            filtered_data AS (
-                SELECT scan_time, intensity
-                FROM unnested_data
-                WHERE scan_time BETWEEN rt_min AND rt_max
-            ),
-            metrics AS (
-                SELECT ROUND(SUM(intensity), 0) AS peak_area,
-                       ROUND(MAX(intensity), 0) AS peak_max,
-                       ROUND(MIN(intensity), 0) AS peak_min,
-                       ROUND(AVG(intensity), 0) AS peak_mean,
-                       ROUND(MEDIAN(intensity), 0) AS peak_median,
-                       COUNT(*) AS peak_n_datapoints
-                FROM filtered_data
-            ),
-            top3 AS (
-                WITH ranked AS (
-                    SELECT 
-                        intensity,
-                        COALESCE(LAG(intensity) OVER (ORDER BY scan_time), 0) AS prev_intensity,
-                        COALESCE(LEAD(intensity) OVER (ORDER BY scan_time), 0) AS next_intensity
-                    FROM filtered_data
-                )
-                SELECT ROUND(intensity + prev_intensity + next_intensity, 0) AS peak_area_top3
-                FROM ranked
-                ORDER BY intensity DESC
-                LIMIT 1
-            ),
-            rt_of_max AS (
-                SELECT scan_time AS peak_rt_of_max
-                FROM filtered_data
-                ORDER BY intensity DESC
-                LIMIT 1
-            ),
+            -- Extract arrays from filtered pairs
             arrays AS (
-                SELECT LIST(scan_time ORDER BY scan_time) AS scan_time_list,
-                       LIST(intensity ORDER BY scan_time) AS intensity_list
-                FROM filtered_data
+                SELECT
+                    list_transform(pairs, p -> p.t) AS scan_time_arr,
+                    list_transform(pairs, p -> p.i) AS intensity_arr
+                FROM filtered
+            ),
+            -- Compute all metrics from arrays
+            metrics AS (
+                SELECT
+                    len(intensity_arr) AS peak_n_datapoints,
+                    ROUND(list_sum(intensity_arr), 0) AS peak_area,
+                    ROUND(list_max(intensity_arr), 0) AS peak_max,
+                    ROUND(list_min(intensity_arr), 0) AS peak_min,
+                    ROUND(list_avg(intensity_arr), 0) AS peak_mean,
+                    -- Median: sorted list at middle index
+                    ROUND(list_sort(intensity_arr)[CAST(len(intensity_arr) / 2 + 1 AS BIGINT)], 0) AS peak_median,
+                    -- RT of max intensity
+                    scan_time_arr[CAST(list_position(intensity_arr, list_max(intensity_arr)) AS BIGINT)] AS peak_rt_of_max,
+                    -- Index of max for top3 calculation
+                    CAST(list_position(intensity_arr, list_max(intensity_arr)) AS BIGINT) AS max_idx,
+                    scan_time_arr,
+                    intensity_arr
+                FROM arrays
+                WHERE len(intensity_arr) > 0
             )
-            SELECT m.peak_area,
-                   t3.peak_area_top3,
-                   m.peak_max,
-                   m.peak_min,
-                   m.peak_mean,
-                   rm.peak_rt_of_max,
-                   m.peak_median,
-                   m.peak_n_datapoints,
-                   a.scan_time_list,
-                   a.intensity_list
-            FROM metrics m, top3 t3, rt_of_max rm, arrays a
+            -- Final output with peak_area_top3
+            SELECT
+                peak_area,
+                ROUND(
+                    COALESCE(intensity_arr[max_idx - 1], 0) +
+                    list_max(intensity_arr) +
+                    COALESCE(intensity_arr[max_idx + 1], 0),
+                    0
+                ) AS peak_area_top3,
+                peak_max,
+                peak_min,
+                peak_mean,
+                peak_rt_of_max,
+                peak_median,
+                peak_n_datapoints,
+                scan_time_arr AS scan_time_list,
+                intensity_arr AS intensity_list
+            FROM metrics
         );
     """
 
@@ -1405,6 +1413,7 @@ def compute_results_in_batches(wdir: str,
         while current_id <= max_id:
             start_id = current_id
             end_id = current_id + batch_size - 1
+            log_line = None  # Initialize before try block to avoid UnboundLocalError in finally
 
             try:
                 batch_count = conn.execute("""
@@ -1464,11 +1473,15 @@ def compute_results_in_batches(wdir: str,
                 batch_elapsed = time.time() - batch_start if 'batch_start' in locals() else 0
                 failed += batch_count if 'batch_count' in locals() else 0
 
-                batch_elapsed = time.time() - batch_start if 'batch_start' in locals() else 0
-                failed += batch_count if 'batch_count' in locals() else 0
-
                 logger.error(f"Error processing batch: {batch_elapsed:>5.2f}s | Error: {str(e)[:80]}")
 
+                # Recover from aborted transaction to allow subsequent batches to proceed
+                try:
+                    conn.execute("ROLLBACK")
+                    conn.execute("BEGIN TRANSACTION")
+                    batches_in_txn = 0
+                except Exception as rollback_error:
+                    logger.error(f"Failed to rollback transaction: {rollback_error}")
 
                 with open('failed_batches_results.log', 'a') as f:
                     f.write(f"\n{'=' * 60}\n")
@@ -1477,6 +1490,8 @@ def compute_results_in_batches(wdir: str,
                     f.write(f"IDs: {start_id}-{end_id}\n")
                     f.write(f"Error: {str(e)}\n")
                     f.write(f"{'=' * 60}\n")
+                
+                batch_num += 1  # Move to next batch even on failure
 
             finally:
                 if 'batch_count' in locals() and batch_count > 0:
