@@ -1329,6 +1329,7 @@ def callbacks(app, fsc, cache):
         Output("analysis-notifications-container", "children"),
         Input('section-context', 'data'),
         Input("wdir", "data"),
+        prevent_initial_call=True,
     )
     def warn_missing_workspace(section_context, wdir):
         if not section_context or section_context.get('page') != 'Analysis':

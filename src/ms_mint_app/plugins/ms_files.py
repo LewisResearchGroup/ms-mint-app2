@@ -982,6 +982,7 @@ def callbacks(cls, app, fsc, cache, args_namespace):
         State('ms-files-table', 'filterOptions'),
         State("processing-type-store", "data"), # from explorer
         State("wdir", "data"),
+        prevent_initial_call=True,
     )
     def ms_files_table(section_context, processing_output, processed_action, pagination, filter_, sorter, filterOptions,
                        processing_type, wdir):
