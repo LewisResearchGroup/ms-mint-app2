@@ -1719,9 +1719,8 @@ def callbacks(app, fsc, cache, cpu=None):
                                                    )
                                                )
                                            AS pairs_raw,
-                                           -- Filter roughly within [rt_min-30, rt_max+30] for efficient preview
-                                           -- Enough margin for display context, modal uses larger buffer if needed
-                                           list_filter(pairs_raw, p -> p.t >= (rt_min - 30) AND p.t <= (rt_max + 30)) AS pairs_in
+                                           -- Filter to RT window for preview (no margin needed - display is fixed to this range)
+                                           list_filter(pairs_raw, p -> p.t >= rt_min AND p.t <= rt_max) AS pairs_in
                                     FROM base
                                 ),
                                 final AS (

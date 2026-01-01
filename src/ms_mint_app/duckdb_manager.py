@@ -74,7 +74,11 @@ def duckdb_connection(workspace_path: Path | str, register_activity=True, n_cpus
         con.execute("SET enable_progress_bar = true")
         con.execute("SET enable_progress_bar_print = false")
         con.execute("SET progress_bar_time = 0")
-        con.execute(f"SET temp_directory = '{workspace_path.as_posix()}';")
+        # Try to set temp_directory, but don't fail if it can't be changed
+        try:
+            con.execute(f"SET temp_directory = '{workspace_path.as_posix()}';")
+        except Exception:
+            pass  # temp_directory already set or can't be changed - not critical
         if n_cpus:
             con.execute(f"SET threads = {n_cpus}", )
             logger.debug(f"DuckDB threads set to {n_cpus}")
@@ -616,6 +620,8 @@ def compute_and_insert_chromatograms_from_ms_data(con: duckdb.DuckDBPyConnection
                 WITH pairs_to_process AS (SELECT t.peak_label,
                                                  t.mz_mean,
                                                  t.mz_width,
+                                                 t.rt_min,
+                                                 t.rt_max,
                                                  s.ms_file_label
                                           FROM targets t
                                                    JOIN samples s
@@ -642,7 +648,11 @@ def compute_and_insert_chromatograms_from_ms_data(con: duckdb.DuckDBPyConnection
                                            JOIN ms1_data ms1
                                                 ON ms1.ms_file_label = p.ms_file_label
                                                     AND ms1.mz BETWEEN p.mz_mean - (p.mz_mean * p.mz_width / 1e6)
-                                                       AND p.mz_mean + (p.mz_mean * p.mz_width / 1e6) QUALIFY
+                                                       AND p.mz_mean + (p.mz_mean * p.mz_width / 1e6)
+                                                    -- RT filter: only extract ±30s around target window
+                                                    AND ms1.scan_time BETWEEN COALESCE(p.rt_min, 0) - 30 
+                                                                          AND COALESCE(p.rt_max, 999999) + 30
+                                  QUALIFY
                                         ROW_NUMBER() OVER (
                                           PARTITION BY p.peak_label, p.ms_file_label, ROUND(ms1.scan_time, 2)
                                             ORDER BY ms1.intensity DESC
@@ -661,6 +671,8 @@ def compute_and_insert_chromatograms_from_ms_data(con: duckdb.DuckDBPyConnection
                 INSERT INTO chromatograms (peak_label, ms_file_label, scan_time, intensity, ms_type)
                 WITH pairs_to_process AS (SELECT t.peak_label,
                                                  t.filterLine,
+                                                 t.rt_min,
+                                                 t.rt_max,
                                                  s.ms_file_label
                                           FROM targets AS t
                                                    JOIN samples s
@@ -686,7 +698,10 @@ def compute_and_insert_chromatograms_from_ms_data(con: duckdb.DuckDBPyConnection
                              FROM pairs_to_process p
                                       JOIN ms2_data ms2
                                            ON ms2.ms_file_label = p.ms_file_label
-                                               AND ms2.filterLine = p.filterLine),
+                                               AND ms2.filterLine = p.filterLine
+                                               -- RT filter: only extract ±30s around target window
+                                               AND ms2.scan_time BETWEEN COALESCE(p.rt_min, 0) - 30 
+                                                                     AND COALESCE(p.rt_max, 999999) + 30),
                      grouped AS (SELECT peak_label,
                                         ms_file_label,
                                         scan_time,
@@ -814,6 +829,8 @@ def compute_chromatograms_in_batches(wdir: str,
                                                                mz_mean,
                                                                mz_width,
                                                                filterLine,
+                                                               rt_min,
+                                                               rt_max,
                                                                bookmark
                                                         FROM targets t
                                                         WHERE (
@@ -842,7 +859,9 @@ def compute_chromatograms_in_batches(wdir: str,
                                                                     t.ms_type,
                                                                     t.mz_mean,
                                                                     t.mz_width,
-                                                                    t.filterLine
+                                                                    t.filterLine,
+                                                                    t.rt_min,
+                                                                    t.rt_max
                                                              FROM target_filter t
                                                                       CROSS JOIN sample_filter s),
                                       pending AS (SELECT a.peak_label,
@@ -851,6 +870,8 @@ def compute_chromatograms_in_batches(wdir: str,
                                                          a.mz_mean,
                                                          a.mz_width,
                                                          a.filterLine,
+                                                         a.rt_min,
+                                                         a.rt_max,
                                                          ROW_NUMBER() OVER () AS pair_id
                                                   FROM all_possible_pairs a
                                                            LEFT JOIN existing_pairs e
@@ -864,14 +885,16 @@ def compute_chromatograms_in_batches(wdir: str,
                                         ms_type,
                                         mz_mean,
                                         mz_width,
-                                        filterLine
+                                        filterLine,
+                                        rt_min,
+                                        rt_max
                                  FROM pending
                                  ORDER BY pair_id;
                                  """
 
     QUERY_PROCESS_BATCH_MS1 = """
                               INSERT INTO chromatograms (peak_label, ms_file_label, scan_time, intensity, ms_type)
-                              WITH batch_pairs AS (SELECT peak_label, ms_file_label, ms_type, mz_mean, mz_width
+                              WITH batch_pairs AS (SELECT peak_label, ms_file_label, ms_type, mz_mean, mz_width, rt_min, rt_max
                                                    FROM pending_pairs
                                                    WHERE ms_type = 'ms1'
                                                      AND pair_id BETWEEN ? AND ?),
@@ -888,13 +911,16 @@ def compute_chromatograms_in_batches(wdir: str,
                                                                                 AND
                                                                                 bp.mz_mean + (bp.mz_mean * bp.mz_width / 1e6)
                                                            GROUP BY bp.peak_label, bp.ms_file_label, ms1.scan_id),
-                                   -- Step 2: Expand to all scans
+                                   -- Step 2: Expand to scans within RT window (±30s margin)
                                    all_scans_needed AS (SELECT DISTINCT bp.peak_label,
                                                                         bp.ms_file_label,
                                                                         s.scan_id,
                                                                         s.scan_time
                                                         FROM batch_pairs bp
-                                                                 JOIN ms_file_scans s ON s.ms_file_label = bp.ms_file_label),
+                                                                 JOIN ms_file_scans s ON s.ms_file_label = bp.ms_file_label
+                                                                     -- RT filter: only include scans ±30s around target window
+                                                                     AND s.scan_time BETWEEN COALESCE(bp.rt_min, 0) - 30 
+                                                                                         AND COALESCE(bp.rt_max, 999999) + 30),
                                    -- Step 3: LEFT JOIN (both tables are small)
                                    complete_data AS (SELECT a.peak_label,
                                                             a.ms_file_label,
@@ -919,7 +945,7 @@ def compute_chromatograms_in_batches(wdir: str,
 
     QUERY_PROCESS_BATCH_MS2 = """
                               INSERT INTO chromatograms (peak_label, ms_file_label, scan_time, intensity, ms_type)
-                              WITH batch_pairs AS (SELECT peak_label, ms_file_label, ms_type, filterLine
+                              WITH batch_pairs AS (SELECT peak_label, ms_file_label, ms_type, filterLine, rt_min, rt_max
                                                    FROM pending_pairs
                                                    WHERE ms_type = 'ms2'
                                                      AND pair_id BETWEEN ? AND ?),
@@ -932,13 +958,16 @@ def compute_chromatograms_in_batches(wdir: str,
                                                         JOIN ms2_data ms2
                                                              ON ms2.ms_file_label = bp.ms_file_label
                                                                  AND ms2.filterLine = bp.filterLine),
-                                  -- Step 2: Expand to all scans
+                                  -- Step 2: Expand to scans within RT window (±30s margin)
                                    all_scans_needed AS (SELECT DISTINCT bp.peak_label,
                                                                         bp.ms_file_label,
                                                                         s.scan_id,
                                                                         s.scan_time
                                                         FROM batch_pairs bp
-                                                                 JOIN ms_file_scans s ON s.ms_file_label = bp.ms_file_label),
+                                                                 JOIN ms_file_scans s ON s.ms_file_label = bp.ms_file_label
+                                                                     -- RT filter: only include scans ±30s around target window
+                                                                     AND s.scan_time BETWEEN COALESCE(bp.rt_min, 0) - 30 
+                                                                                         AND COALESCE(bp.rt_max, 999999) + 30),
                                   -- Step 3: LEFT JOIN (both tables are small)
                                    complete_data AS (SELECT a.peak_label,
                                                             a.ms_file_label,
