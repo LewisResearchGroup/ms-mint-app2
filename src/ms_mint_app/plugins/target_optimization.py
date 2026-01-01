@@ -225,7 +225,7 @@ _layout = fac.AntdLayout(
                                             'Options',
                                             size='small'
                                         ),
-                                        fac.AntdForm(
+                                        html.Div(
                                             [
                                                 fac.AntdFormItem(
                                                     fac.AntdSelect(
@@ -325,7 +325,7 @@ _layout = fac.AntdLayout(
                                             style={'padding': 10, 'justifyContent': 'center'}
                                         )
                                     ],
-                                    style={'overflow': 'hidden'},
+                                    style={'overflow': 'visible', 'flexShrink': 0, 'minHeight': '280px'},
                                     id='sidebar-options'
                                 ),
                             ],
@@ -448,6 +448,7 @@ _layout = fac.AntdLayout(
                                             ])
                                     ],
                                     text='Loading plots...',
+                                    id='chromatogram-preview-spin',
                                 ),
                             ],
                             id='chromatogram-preview-container'
