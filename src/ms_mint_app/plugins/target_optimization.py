@@ -2685,7 +2685,7 @@ def callbacks(app, fsc, cache, cpu=None):
                 'ay': -15,
                 'axref': 'pixel',
                 'ayref': 'pixel',
-                'text': f"RT-min: {rt_min:.2f}s" if rt_min is not None else 'RT-min',
+                'text': f"RT-min: {rt_min:.1f}s" if rt_min is not None else 'RT-min',
                 'x': rt_min,
                 'xanchor': 'right',
                 'xref': 'x',
@@ -2704,7 +2704,7 @@ def callbacks(app, fsc, cache, cpu=None):
                 'ay': -15,
                 'axref': 'pixel',
                 'ayref': 'pixel',
-                'text': f"RT-max: {rt_max:.2f}s" if rt_max is not None else 'RT-max',
+                'text': f"RT-max: {rt_max:.1f}s" if rt_max is not None else 'RT-max',
                 'x': rt_max,
                 'xanchor': 'left',
                 'xref': 'x',
@@ -2804,7 +2804,7 @@ def callbacks(app, fsc, cache, cpu=None):
                 logger.error(f"Error parsing RT alignment data: {e}")
 
         logger.debug(f"Modal view prepared in {time.perf_counter() - t1:.4f}s")
-        return (fig, f"{target_clicked} (rt={rt})", False, slider_reference,
+        return (fig, f"{target_clicked}", False, slider_reference,
                 slider_dict, {"min_y": y_min, "max_y": y_max}, total_points, use_megatrace, log_scale, group_legend, 
                 rt_align_toggle_state, rt_alignment_data_to_load, note, rt_align_toggle_state)
 
@@ -2887,9 +2887,9 @@ def callbacks(app, fsc, cache, cpu=None):
                     fig['layout']['yaxis']['autorange'] = False
 
             fig['layout']['annotations'][0]['x'] = rt_min_ref
-            fig['layout']['annotations'][0]['text'] = f"RT-min: {rt_min_ref:.2f}s"
+            fig['layout']['annotations'][0]['text'] = f"RT-min: {rt_min_ref:.1f}s"
             fig['layout']['annotations'][1]['x'] = rt_max_ref
-            fig['layout']['annotations'][1]['text'] = f"RT-max: {rt_max_ref:.2f}s"
+            fig['layout']['annotations'][1]['text'] = f"RT-max: {rt_max_ref:.1f}s"
 
             # Fix: Also reset the RT line (shapes[1]) to the reference RT
             rt_ref = slider_data['value']['rt']
@@ -3062,9 +3062,9 @@ def callbacks(app, fsc, cache, cpu=None):
                 fig['layout']['xaxis']['autorange'] = False
 
         fig['layout']['annotations'][0]['x'] = rt_min_new
-        fig['layout']['annotations'][0]['text'] = f"RT-min: {rt_min_new:.2f}s"
+        fig['layout']['annotations'][0]['text'] = f"RT-min: {rt_min_new:.1f}s"
         fig['layout']['annotations'][1]['x'] = rt_max_new
-        fig['layout']['annotations'][1]['text'] = f"RT-max: {rt_max_new:.2f}s"
+        fig['layout']['annotations'][1]['text'] = f"RT-max: {rt_max_new:.1f}s"
 
         return fig, slider_data, buttons_style
 
