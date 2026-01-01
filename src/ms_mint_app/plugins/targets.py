@@ -1195,6 +1195,37 @@ def callbacks(app, fsc=None, cache=None):
         return store_data or {'open': True}
 
     @app.callback(
+        Output("asari-open-modal-btn", "disabled"),
+        Output("asari-open-modal-btn", "title"),
+        Input("wdir", "data"),
+        Input("targets-action-store", "data"),  # Trigger refresh when targets change
+    )
+    def toggle_asari_button_for_ms_type(wdir, _action):
+        """Disable Auto-Generate button when only MS2 files are loaded (Asari only works with MS1)."""
+        if not wdir:
+            return False, None  # Button enabled by default when no workspace
+        
+        try:
+            with duckdb_connection(wdir) as conn:
+                if conn is None:
+                    return False, None
+                
+                # Check if there are any MS1 files loaded
+                result = conn.execute("""
+                    SELECT COUNT(*) FROM ms1_data LIMIT 1
+                """).fetchone()
+                
+                has_ms1_data = result and result[0] > 0
+                
+                if has_ms1_data:
+                    return False, None  # Button enabled
+                else:
+                    return True, "Auto-Generate requires MS1 data (not available for MS2-only workflows)"
+        except Exception:
+            return False, None  # Default to enabled on error
+
+
+    @app.callback(
         Output("asari-modal", "visible", allow_duplicate=True),
         Output("asari-mode", "value"),
         Output("asari-auto-mode-alert", "children"),
@@ -1206,6 +1237,20 @@ def callbacks(app, fsc=None, cache=None):
         if not n_clicks:
              logger.debug("open_asari_modal: PreventUpdate because n_clicks is None")
              raise PreventUpdate
+        
+        # Check if MS1 data exists (Asari only works with MS1)
+        if wdir:
+            try:
+                with duckdb_connection(wdir) as conn:
+                    if conn:
+                        result = conn.execute("SELECT COUNT(*) FROM ms1_data LIMIT 1").fetchone()
+                        has_ms1_data = result and result[0] > 0
+                        if not has_ms1_data:
+                            # No MS1 data - don't open modal, show notification instead
+                            logger.debug("open_asari_modal: No MS1 data available, Asari cannot run")
+                            raise PreventUpdate
+            except Exception as e:
+                logger.debug(f"open_asari_modal: Error checking MS1 data: {e}")
         
         mode_val = 'pos'
         alert = None
