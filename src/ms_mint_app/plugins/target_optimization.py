@@ -630,6 +630,8 @@ _layout = fac.AntdLayout(
                                     config={**PLOTLY_HIGH_RES_CONFIG, 'edits': {'shapePosition': True}},
                                     style={'width': '100%', 'height': '600px'}
                                 ),
+                                # Invisible placeholder for spinner callbacks (keeps callbacks valid)
+                                html.Div(id='chromatogram-view-spin', style={'display': 'none'}),
                             ],
                             id='chromatogram-view-container',
                             className='ant-layout-content css-1v28nim',
@@ -923,6 +925,27 @@ _layout = fac.AntdLayout(
                         ),
                         fac.AntdSpace(
                             [
+                                # Navigation buttons group (compact spacing)
+                                fac.AntdSpace(
+                                    [
+                                        fac.AntdButton(
+                                            icon=fac.AntdIcon(icon='antd-left'),
+                                            id="target-nav-prev",
+                                            disabled=True,
+                                        ),
+                                        fac.AntdText(
+                                            "1 / 1",
+                                            id="target-nav-counter",
+                                            style={'minWidth': '30px', 'textAlign': 'center'}
+                                        ),
+                                        fac.AntdButton(
+                                            icon=fac.AntdIcon(icon='antd-right'),
+                                            id="target-nav-next",
+                                            disabled=True,
+                                        ),
+                                    ],
+                                    size=15,
+                                ),
                                 fac.AntdButton(
                                     "Delete target",
                                     id="delete-target-from-modal",
@@ -978,6 +1001,27 @@ _layout = fac.AntdLayout(
         dcc.Store(id='chromatogram-view-plot-max'),
         dcc.Store(id='chromatogram-view-plot-points'),
         dcc.Store(id='update-chromatograms', data=False),
+        dcc.Store(id='target-nav-store', data={'targets': [], 'current_index': 0}),  # For Prev/Next navigation
+        dcc.Store(id='pending-nav-direction', data=None),  # Stores pending navigation when unsaved changes exist
+        fac.AntdModal(
+            "You have unsaved changes. Are you sure you want to navigate to another target?",
+            id="confirm-nav-modal",
+            title="Unsaved changes",
+            width=400,
+            okButtonProps={'danger': True},
+            okText="Discard & Navigate",
+            renderFooter=True,
+            locale='en-us'
+        ),
+        dcc.Store(id='keyboard-nav-trigger', data={'key': None, 'timestamp': 0}),
+        dcc.Store(id='spinner-start-time', data=None),  # Track when spinner started
+        dcc.Interval(id='spinner-timeout-interval', interval=1000, disabled=True),  # Check every second
+        # Clientside keyboard listener for arrow key navigation
+        html.Div(
+            id='keyboard-listener',
+            style={'position': 'absolute', 'width': 0, 'height': 0, 'overflow': 'hidden'},
+            tabIndex=-1
+        ),
         fac.AntdTour(
             locale='en-us',
             steps=[
@@ -2519,9 +2563,14 @@ def callbacks(app, fsc, cache, cpu=None):
         State('chromatogram-preview-log-y', 'checked'),
         State('sample-type-tree', 'checkedKeys'),
         State('wdir', 'data'),
+        State('chromatogram-view-modal', 'visible'),  # Check if modal is already open (navigation)
+        State('chromatogram-view-megatrace', 'checked'),  # Current megatrace state
+        State('chromatogram-view-log-y', 'checked'),  # Current log-y state  
+        State('chromatogram-view-groupclick', 'checked'),  # Current legend behavior state
         prevent_initial_call=True
     )
-    def chromatogram_view_modal(target_clicked, log_scale, checkedKeys, wdir):
+    def chromatogram_view_modal(target_clicked, log_scale, checkedKeys, wdir, 
+                                 modal_already_open, current_megatrace, current_log_y, current_groupclick):
 
         if not wdir:
             raise PreventUpdate
@@ -2643,6 +2692,16 @@ def callbacks(app, fsc, cache, cpu=None):
             use_megatrace = False
         else:
             use_megatrace = True
+        
+        # If modal is already open (navigation), preserve current toggle states
+        if modal_already_open:
+            # Use current states instead of recalculating defaults
+            if current_megatrace is not None:
+                use_megatrace = current_megatrace
+            if current_log_y is not None:
+                log_scale = current_log_y
+            if current_groupclick is not None:
+                group_legend = current_groupclick
 
         # Calculate RT alignment shifts if enabled in database
         rt_alignment_shifts_to_apply = None
@@ -3488,3 +3547,251 @@ def callbacks(app, fsc, cache, cpu=None):
         )
         
         return slider_data, notification
+
+    # =====================================================
+    # TARGET NAVIGATION (Previous / Next)
+    # =====================================================
+    
+    @app.callback(
+        Output('target-nav-store', 'data'),
+        Output('target-nav-counter', 'children'),
+        Output('target-nav-prev', 'disabled'),
+        Output('target-nav-next', 'disabled'),
+        
+        Input('target-preview-clicked', 'data'),
+        State('chromatogram-preview-filter-bookmark', 'value'),
+        State('chromatogram-preview-filter-ms-type', 'value'),
+        State('chromatogram-preview-order', 'value'),
+        State('wdir', 'data'),
+        prevent_initial_call=True
+    )
+    def update_target_nav_on_modal_open(target_clicked, bookmark_filter, ms_type_filter, order_by, wdir):
+        """Populate navigation store when modal opens."""
+        if not target_clicked or not wdir:
+            raise PreventUpdate
+        
+        try:
+            with duckdb_connection(wdir) as conn:
+                if conn is None:
+                    raise PreventUpdate
+                    
+                # Get ordered list of targets matching current filters
+                filters = []
+                params = []
+                
+                if bookmark_filter == 'Bookmarked':
+                    filters.append("bookmark = true")
+                elif bookmark_filter == 'Unmarked':
+                    filters.append("(bookmark = false OR bookmark IS NULL)")
+                
+                if ms_type_filter and ms_type_filter != 'All':
+                    filters.append("ms_type = ?")
+                    params.append(ms_type_filter.lower())
+                
+                where_clause = "WHERE " + " AND ".join(filters) if filters else ""
+                order_clause = f"ORDER BY {order_by} ASC" if order_by else "ORDER BY mz_mean ASC"
+                
+                query = f"SELECT peak_label FROM targets {where_clause} {order_clause}"
+                targets = [row[0] for row in conn.execute(query, params).fetchall()]
+        except Exception as e:
+            logger.warning(f"Navigation store update failed for target '{target_clicked}' (possibly due to rapid navigation): {e}")
+            raise PreventUpdate
+        
+        if not targets:
+            return {'targets': [], 'current_index': 0}, "0 / 0", True, True
+        
+        try:
+            current_index = targets.index(target_clicked)
+        except ValueError:
+            current_index = 0
+        
+        total = len(targets)
+        counter_text = f"{current_index + 1} / {total}"
+        prev_disabled = current_index == 0
+        next_disabled = current_index >= total - 1
+        
+        return {'targets': targets, 'current_index': current_index}, counter_text, prev_disabled, next_disabled
+
+    @app.callback(
+        Output('pending-nav-direction', 'data'),
+        Output('confirm-nav-modal', 'visible'),
+        Output('target-preview-clicked', 'data', allow_duplicate=True),
+        
+        Input('target-nav-prev', 'nClicks'),
+        Input('target-nav-next', 'nClicks'),
+        State('target-nav-store', 'data'),
+        State('slider-reference-data', 'data'),
+        State('slider-data', 'data'),
+        prevent_initial_call=True
+    )
+    def navigate_targets(prev_clicks, next_clicks, nav_store, reference_data, slider_data):
+        """Handle Previous/Next button clicks with unsaved changes check."""
+        if not nav_store or not nav_store.get('targets'):
+            raise PreventUpdate
+        
+        ctx = dash.callback_context
+        if not ctx.triggered:
+            raise PreventUpdate
+        
+        trigger = ctx.triggered[0]['prop_id'].split('.')[0]
+        targets = nav_store['targets']
+        current_index = nav_store['current_index']
+        
+        if trigger == 'target-nav-prev' and prev_clicks:
+            direction = 'prev'
+            new_index = max(0, current_index - 1)
+        elif trigger == 'target-nav-next' and next_clicks:
+            direction = 'next'
+            new_index = min(len(targets) - 1, current_index + 1)
+        else:
+            raise PreventUpdate
+        
+        # Check for unsaved changes
+        has_changes = False
+        if reference_data and slider_data:
+            reference_value = reference_data.get('value') if isinstance(reference_data, dict) else None
+            slider_value = slider_data.get('value') if isinstance(slider_data, dict) else None
+            if reference_value is not None and slider_value is not None:
+                has_changes = slider_value != reference_value
+        
+        if has_changes:
+            # Store pending direction and show confirmation modal
+            return direction, True, dash.no_update
+        else:
+            # No unsaved changes - navigate directly
+            new_target = targets[new_index]
+            return None, False, new_target
+
+    @app.callback(
+        Output('target-preview-clicked', 'data', allow_duplicate=True),
+        Output('confirm-nav-modal', 'visible', allow_duplicate=True),
+        
+        Input('confirm-nav-modal', 'okCounts'),
+        State('pending-nav-direction', 'data'),
+        State('target-nav-store', 'data'),
+        prevent_initial_call=True
+    )
+    def confirm_navigation(ok_counts, direction, nav_store):
+        """Navigate after user confirms discarding unsaved changes."""
+        if not ok_counts or not direction or not nav_store:
+            raise PreventUpdate
+        
+        targets = nav_store['targets']
+        current_index = nav_store['current_index']
+        
+        if direction == 'prev':
+            new_index = max(0, current_index - 1)
+        elif direction == 'next':
+            new_index = min(len(targets) - 1, current_index + 1)
+        else:
+            raise PreventUpdate
+        
+        new_target = targets[new_index]
+        return new_target, False
+
+    @app.callback(
+        Output('chromatogram-preview-pagination', 'current', allow_duplicate=True),
+        
+        Input('chromatogram-view-modal', 'visible'),
+        State('target-nav-store', 'data'),
+        State('chromatogram-preview-pagination', 'pageSize'),
+        prevent_initial_call=True
+    )
+    def sync_pagination_on_modal_close(modal_visible, nav_store, page_size):
+        """When modal closes, navigate to the page containing the current target."""
+        # Only trigger when modal is being closed (visible becomes False)
+        if modal_visible:
+            raise PreventUpdate
+        
+        if not nav_store or not nav_store.get('targets'):
+            raise PreventUpdate
+        
+        current_index = nav_store.get('current_index', 0)
+        
+        # Calculate which page the current target is on (1-indexed)
+        page_size = page_size or 9  # Default pageSize
+        new_page = (current_index // page_size) + 1
+        
+        return new_page
+
+    # Clientside callback to handle arrow key navigation
+    # This simulates clicking the prev/next buttons when arrow keys are pressed
+    app.clientside_callback(
+        """
+        function(modalVisible) {
+            if (!modalVisible) {
+                // Remove listener when modal is closed
+                if (window._mintKeyHandler) {
+                    document.removeEventListener('keydown', window._mintKeyHandler);
+                    window._mintKeyHandler = null;
+                }
+                return window.dash_clientside.no_update;
+            }
+            
+            // Add keyboard listener when modal opens
+            if (!window._mintKeyHandler) {
+                window._mintKeyHandler = function(e) {
+                    // Only handle arrow keys when not in an input/textarea
+                    if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') {
+                        return;
+                    }
+                    
+                    if (e.key === 'ArrowLeft') {
+                        const prevBtn = document.getElementById('target-nav-prev');
+                        if (prevBtn && !prevBtn.disabled) {
+                            prevBtn.click();
+                        }
+                    } else if (e.key === 'ArrowRight') {
+                        const nextBtn = document.getElementById('target-nav-next');
+                        if (nextBtn && !nextBtn.disabled) {
+                            nextBtn.click();
+                        }
+                    }
+                };
+                document.addEventListener('keydown', window._mintKeyHandler);
+            }
+            
+            return window.dash_clientside.no_update;
+        }
+        """,
+        Output('keyboard-nav-trigger', 'data'),
+        Input('chromatogram-view-modal', 'visible')
+    )
+
+    # Spinner timeout: Enable interval and record start time when spinner starts
+    @app.callback(
+        Output('spinner-start-time', 'data'),
+        Output('spinner-timeout-interval', 'disabled'),
+        Input('chromatogram-view-spin', 'spinning'),
+        prevent_initial_call=True
+    )
+    def manage_spinner_timeout(spinning):
+        import time as time_module
+        if spinning:
+            # Spinner started - record time and enable interval
+            return time_module.time(), False
+        else:
+            # Spinner stopped - disable interval
+            return None, True
+
+    # Check if spinner has been running too long and reset it
+    @app.callback(
+        Output('chromatogram-view-spin', 'spinning', allow_duplicate=True),
+        Output('spinner-timeout-interval', 'disabled', allow_duplicate=True),
+        Input('spinner-timeout-interval', 'n_intervals'),
+        State('spinner-start-time', 'data'),
+        State('chromatogram-view-spin', 'spinning'),
+        prevent_initial_call=True
+    )
+    def reset_stuck_spinner(n_intervals, start_time, is_spinning):
+        import time as time_module
+        if not start_time or not is_spinning:
+            raise PreventUpdate
+        
+        elapsed = time_module.time() - start_time
+        if elapsed > 8:  # 8 second timeout
+            logger.warning(f"Spinner was stuck for {elapsed:.1f}s - forcing reset")
+            return False, True  # Stop spinning and disable interval
+        
+        raise PreventUpdate
+
