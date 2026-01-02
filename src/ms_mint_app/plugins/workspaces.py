@@ -110,7 +110,7 @@ _layout = html.Div(
                 rowSelectionType='radio',
                 size='small',
             )],
-            style={"marginTop": "2rem"},
+            style={"marginTop": "2rem", "maxHeight": "calc(100vh - 280px)", "overflowY": "auto"},
         ),
         fac.AntdModal(
             [
