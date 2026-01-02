@@ -147,13 +147,30 @@ def run_asari_workflow(wdir, params, set_progress=None):
     # 2. Export Files from DB to Temp Dir
     report_progress(5, "Preparing Data", "Connecting to database...")
     
-    # Create temp dir in the WORKSPACE as requested
-    run_id = f"asari_run_{int(time.time())}"
-    temp_dir = os.path.join(wdir, run_id)
-    os.makedirs(temp_dir, exist_ok=True)
+    # Check for existing asari_run directories with mzML files we can reuse
+    existing_mzml_dir = None
+    existing_mzml_files = set()
+    for item in os.listdir(wdir):
+        item_path = os.path.join(wdir, item)
+        if item.startswith("asari_run_") and os.path.isdir(item_path):
+            mzml_files = [f for f in os.listdir(item_path) if f.lower().endswith(".mzml")]
+            if mzml_files:
+                existing_mzml_dir = item_path
+                existing_mzml_files = {os.path.splitext(f)[0] for f in mzml_files}
+                logger.info(f"Found {len(mzml_files)} existing mzML files in {item_path}, will reuse them")
+                break
+    
+    # Use existing dir if found, otherwise create new one
+    if existing_mzml_dir:
+        temp_dir = existing_mzml_dir
+        logs.append(f"Reusing existing mzML files from: {temp_dir}")
+    else:
+        run_id = f"asari_run_{int(time.time())}"
+        temp_dir = os.path.join(wdir, run_id)
+        os.makedirs(temp_dir, exist_ok=True)
     
     logger.info(f"==========================================")
-    logger.info(f"DEBUG MODE: Asari temp directory: {temp_dir}")
+    logger.info(f"Asari working directory: {temp_dir}")
     logger.info(f"==========================================")
     
     logs.append(f"Working directory: {temp_dir}")
@@ -177,21 +194,32 @@ def run_asari_workflow(wdir, params, set_progress=None):
             logger.info(f"Found {total_files} samples to process.")
             logs.append(f"Found {total_files} samples to process.")
             
+            skipped_count = 0
+            exported_count = 0
             for i, (label, polarity) in enumerate(samples):
                 report_progress(
                     10 + int(30 * (i / total_files)), 
                     "Exporting Data", 
-                    f"Exporting {label} ({i+1}/{total_files})..."
+                    f"Processing {label} ({i+1}/{total_files})..."
                 )
                 
-                # Synthesize filename
+                # Check if mzML already exists (from previous run)
                 file_path = os.path.join(temp_dir, f"{label}.mzML")
+                if label in existing_mzml_files and os.path.exists(file_path):
+                    skipped_count += 1
+                    continue  # Skip export, reuse existing file
+                
                 try:
                     export_ms1_from_db(conn, label, file_path, polarity or "Positive")
+                    exported_count += 1
                 except Exception as ex:
                     logger.error(f"Failed to export {label}: {ex}")
                     logs.append(f"Failed to export {label}: {ex}")
                     pass
+            
+            if skipped_count > 0:
+                logs.append(f"Reused {skipped_count} existing mzML files, exported {exported_count} new files")
+                logger.info(f"Reused {skipped_count} existing mzML files, exported {exported_count} new files")
                 
     except Exception as e:
         logger.error(f"Error exporting data: {e}")
@@ -406,6 +434,34 @@ def run_asari_workflow(wdir, params, set_progress=None):
         final_cols = ['peak_label', 'mz_mean', 'mz_width', 'rt', 'rt_min', 'rt_max', 'intensity_threshold']
         df = df[final_cols]
         
+        # Check if no features passed filters
+        if df.empty:
+            suggestions = []
+            
+            current_detection_rate = params.get('detection_rate', 90)
+            if current_detection_rate is not None and float(current_detection_rate) > 50:
+                suggestions.append(f"  - Lower Detection Rate from {current_detection_rate}% to 50% or less")
+            
+            current_snr = params.get('signal_noise_ratio', 20)
+            if current_snr is not None and int(current_snr) > 5:
+                suggestions.append(f"  - Lower Signal/Noise Ratio from {current_snr} to 5-10")
+            
+            current_min_height = params.get('min_peak_height', 100000)
+            if current_min_height is not None and int(current_min_height) > 10000:
+                suggestions.append(f"  - Lower Min Peak Height from {int(current_min_height):,} to 10,000-50,000")
+            
+            current_cselectivity = params.get('cselectivity', 1.0)
+            if current_cselectivity is not None and float(current_cselectivity) > 0.5:
+                suggestions.append(f"  - Lower cSelectivity from {current_cselectivity} to 0.5-0.7")
+            
+            msg = (
+                "Asari completed but no features passed the current filter thresholds.\n\n"
+                "Suggestions:\n" + "\n".join(suggestions) + "\n\n"
+                "This often happens when blanks or low-quality samples are included. "
+                "Your mzML files have been kept so the next run will be faster."
+            )
+            return {"success": False, "message": msg, "no_features": True}
+        
         # Save to Workspace data/targets.csv
         # Backup existing targets.csv if present
         data_dir = os.path.join(wdir, "data")
@@ -466,20 +522,20 @@ def run_asari_workflow(wdir, params, set_progress=None):
 
     report_progress(100, "Done", "Workflow completed.")
     
-    # Cleanup mzML files in temp_dir as requested
-    # Keep the rest (results folder)
+    # Only cleanup mzML files on FULL SUCCESS (targets detected)
+    # This allows reuse if user needs to retry with different parameters
     try:
         if os.path.exists(temp_dir):
             mzml_files = [f for f in os.listdir(temp_dir) if f.lower().endswith(".mzml")]
             for f in mzml_files:
                 os.remove(os.path.join(temp_dir, f))
             if mzml_files:
-                    logger.info(f"Cleaned up {len(mzml_files)} intermediate .mzML files.")
+                logger.info(f"Cleaned up {len(mzml_files)} intermediate .mzML files (success with targets).")
     except Exception as cleanup_ex:
         logger.warning(f"Failed to cleanup intermediate files: {cleanup_ex}")
     
     return {
         "success": True, 
-        "message": f"Asari analysis completed successfully. Targets saved to {backup_path}",
+        "message": f"Asari analysis completed successfully. {len(df)} targets saved to {backup_path}",
         "result_path": backup_path
     }

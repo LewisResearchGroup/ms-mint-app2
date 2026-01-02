@@ -978,8 +978,33 @@ def _run_asari_analysis(ok_counts, wdir, multicores, mz_tol, mode, snr, min_heig
          import time
          return fac.AntdNotification(message="Asari Analysis", description=result['message'], type="success", placement="bottom"), False, status_alert, {'timestamp': time.time()}
     else:
-         status_alert = fac.AntdAlert(message=result['message'], type="error", showIcon=True, closable=True)
-         return fac.AntdNotification(message="Analysis failed", description=result['message'], type="error", placement="bottom"), True, status_alert, dash.no_update
+         # Check if this is the "no features" case - use warning style and skip notification
+         if result.get('no_features'):
+             # Build properly formatted HTML for the alert message
+             status_alert = fac.AntdAlert(
+                 message=html.Div([
+                     html.Strong("No features passed the current filter thresholds."),
+                     html.Br(), html.Br(),
+                     html.Span("Suggestions:"),
+                     html.Ul([
+                         html.Li("Lower Detection Rate to 50% or less"),
+                         html.Li("Lower Signal/Noise Ratio to 5-10"),
+                         html.Li("Lower Min Peak Height to 10,000-50,000"),
+                         html.Li("Lower cSelectivity to 0.5-0.7"),
+                     ], style={'marginTop': '5px', 'marginBottom': '5px', 'paddingLeft': '20px'}),
+                     html.Span("This often happens when blanks or low-quality samples are included."),
+                     html.Br(),
+                     html.Span("Your mzML files have been kept so the next run will be faster.", style={'fontStyle': 'italic'}),
+                 ]),
+                 type="warning",
+                 showIcon=True,
+                 closable=True
+             )
+             # No notification popup - all info is in the modal
+             return dash.no_update, True, status_alert, dash.no_update
+         else:
+             status_alert = fac.AntdAlert(message=result['message'], type="error", showIcon=True, closable=True)
+             return fac.AntdNotification(message="Analysis failed", description=result['message'], type="error", placement="bottom"), True, status_alert, dash.no_update
 
 
 def callbacks(app, fsc=None, cache=None):
