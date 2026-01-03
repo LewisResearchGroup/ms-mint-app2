@@ -1046,6 +1046,17 @@ def process_ms_files(wdir, set_progress, selected_files, n_cpus):
         f"Completed MS file processing. Success: {total_processed}, "
         f"Failed: {len(failed_files)}. Total time: {elapsed:0.2f}s."
     )
+    
+    # Clean up the workspace's temp folder
+    workspace_temp = Path(wdir) / "data" / "temp"
+    if workspace_temp.exists():
+        try:
+            import shutil
+            shutil.rmtree(workspace_temp, ignore_errors=True)
+            logger.info(f"Cleaned up temp folder: {workspace_temp}")
+        except Exception as e:
+            logger.warning(f"Failed to clean up temp folder: {e}")
+    
     return total_processed, failed_files, duplicates_count
 
 
