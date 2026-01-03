@@ -283,8 +283,8 @@ def run_asari_workflow(wdir, params, set_progress=None):
         for line in process.stdout:
             line = line.strip()
             if line:
-                # Log to terminal
-                print(f"[ASARI] {line}") 
+                # Log to terminal and workspace log
+                logger.info(f"[ASARI] {line}") 
                 logs.append(line)
                 
                 # Update progress based on keywords

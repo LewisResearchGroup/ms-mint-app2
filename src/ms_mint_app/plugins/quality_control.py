@@ -34,7 +34,8 @@ class QualityControlPlugin(PluginInterface):
     def __init__(self):
         self._label = _label
         self._order = 8
-        print(f'Initiated {_label} plugin')
+        import logging
+        logging.info(f'Initiated {_label} plugin')
 
     def layout(self):
         return _layout

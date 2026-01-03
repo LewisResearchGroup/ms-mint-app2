@@ -685,6 +685,15 @@ def callbacks(app, fsc, cache):
 
                 # Avoid bumping last_activity just for rendering the preview table
                 with duckdb_connection(_path, register_activity=False) as conn:
+                    if conn is None:
+                        # Database is locked - return placeholder
+                        return fac.AntdFlex(
+                            [
+                                path_info,
+                                fac.AntdText("Database busy...", type='secondary')
+                            ],
+                            wrap=True
+                        )
                     summary = conn.execute("""
                                            SELECT * FROM (
                                                SELECT 'samples' AS table_name, COUNT(*) AS rows FROM samples

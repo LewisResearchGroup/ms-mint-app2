@@ -48,7 +48,7 @@ def _update_workspace_activity(mint_root: Path, workspace_id: str, retries: int 
             if "TransactionContext Error: Conflict on update!" in message:
                 time.sleep(delay_s * (attempt + 1))
                 continue
-            print(f"Error updating workspace activity: {e}")
+            logger.error(f"Error updating workspace activity: {e}")
             return
 
 
@@ -89,7 +89,7 @@ def duckdb_connection(workspace_path: Path | str, register_activity=True, n_cpus
             logger.info(f"DuckDB memory_limit set to {ram}GB (verified: {actual_limit})")
         _create_tables(con)
     except Exception as e:
-        print(f"Error connecting to DuckDB: {e}")
+        logger.error(f"Error connecting to DuckDB: {e}")
         yield None
         return
     try:
@@ -102,7 +102,7 @@ def duckdb_connection(workspace_path: Path | str, register_activity=True, n_cpus
                     mint_root = workspace_path.parent.parent
                     _update_workspace_activity(mint_root, workspace_id)
                 except Exception as e:
-                    print(f"Error updating workspace activity: {e}")
+                    logger.error(f"Error updating workspace activity: {e}")
             if n_cpus:
                 con.execute("RESET threads")
             if ram:
@@ -122,7 +122,7 @@ def duckdb_connection_mint(mint_path: Path, workspace=None):
         con = duckdb.connect(database=db_file, read_only=False)
         _create_workspace_tables(con)
     except Exception as e:
-        print(f"Error connecting to DuckDB: {e}")
+        logger.error(f"Error connecting to DuckDB: {e}")
         yield None
         return
     try:
@@ -554,17 +554,17 @@ def compute_and_insert_chromatograms_from_ms_data(con: duckdb.DuckDBPyConnection
 
     # Informational logging
     if ms1_total > 0:
-        print(f"MS1: {ms1_existing} existing, {ms1_missing} missing (total: {ms1_total})")
+        logger.info(f"MS1: {ms1_existing} existing, {ms1_missing} missing (total: {ms1_total})")
     if ms2_total > 0:
-        print(f"MS2: {ms2_existing} existing, {ms2_missing} missing (total: {ms2_total})")
+        logger.info(f"MS2: {ms2_existing} existing, {ms2_missing} missing (total: {ms2_total})")
 
     if not process_ms1 and not process_ms2:
-        print("No chromatograms to process.")
+        logger.info("No chromatograms to process.")
         return
 
     # Remove existing chromatograms if recomputation is requested
     if recompute_ms1 and ms1_existing > 0:
-        print(f"Deleting {ms1_existing} existing MS1 chromatograms for recalculation...")
+        logger.info(f"Deleting {ms1_existing} existing MS1 chromatograms for recalculation...")
         con.execute("""
                     DELETE
                     FROM chromatograms
@@ -587,7 +587,7 @@ def compute_and_insert_chromatograms_from_ms_data(con: duckdb.DuckDBPyConnection
         ms1_to_compute = ms1_missing
 
     if recompute_ms2 and ms2_existing > 0:
-        print(f"Deleting {ms2_existing} existing MS2 chromatograms for recalculation...")
+        logger.info(f"Deleting {ms2_existing} existing MS2 chromatograms for recalculation...")
         con.execute("""
                     DELETE
                     FROM chromatograms
@@ -613,7 +613,7 @@ def compute_and_insert_chromatograms_from_ms_data(con: duckdb.DuckDBPyConnection
     ms1_weight = ms1_to_compute / total_to_compute if process_ms1 else 0
     ms2_weight = ms2_to_compute / total_to_compute if process_ms2 else 0
 
-    print(f"Computing {ms1_to_compute} MS1 and {ms2_to_compute} MS2 chromatograms...")
+    logger.info(f"Computing {ms1_to_compute} MS1 and {ms2_to_compute} MS2 chromatograms...")
 
     query_ms1 = """
                 INSERT INTO chromatograms (peak_label, ms_file_label, scan_time, intensity, ms_type)
@@ -740,14 +740,14 @@ def compute_and_insert_chromatograms_from_ms_data(con: duckdb.DuckDBPyConnection
                     accumulated_progress[0] = total_progress
                     if set_progress:
                         set_progress(round(total_progress, 1))
-                    print(f"Progress: {total_progress:.1f}%")
+                    logger.info(f"Progress: {total_progress:.1f}%")
 
                 time.sleep(0.05)
 
             except (duckdb.InvalidInputException, duckdb.ConnectionException):
                 break
             except Exception as e:
-                print(f"Progress monitoring error: {e}")
+                logger.error(f"Progress monitoring error: {e}")
                 break
 
     # Start monitoring
@@ -758,7 +758,7 @@ def compute_and_insert_chromatograms_from_ms_data(con: duckdb.DuckDBPyConnection
     try:
         # Run MS1
         if process_ms1:
-            print("Processing MS1 chromatograms...")
+            logger.info("Processing MS1 chromatograms...")
             current_query_type[0] = 'ms1'
             con.execute(query_ms1, [for_optimization, recompute_ms1])
             accumulated_progress[0] = ms1_weight * 100
@@ -767,21 +767,21 @@ def compute_and_insert_chromatograms_from_ms_data(con: duckdb.DuckDBPyConnection
 
         # Run MS2
         if process_ms2:
-            print("Processing MS2 chromatograms...")
+            logger.info("Processing MS2 chromatograms...")
             current_query_type[0] = 'ms2'
             con.execute(query_ms2, [for_optimization, recompute_ms2])
             accumulated_progress[0] = 100.0
             if set_progress:
                 set_progress(100.0)
 
-        print("Chromatograms computed and inserted into DuckDB.")
+        logger.info("Chromatograms computed and inserted into DuckDB.")
 
     finally:
         stop_monitoring[0] = True
         if set_progress:
             progress_thread.join(timeout=0.5)
 
-    print("Chromatograms computed and inserted into DuckDB.")
+    logger.info("Chromatograms computed and inserted into DuckDB.")
 
 
 
@@ -1542,23 +1542,21 @@ def compute_results_in_batches(wdir: str,
             current_id += batch_size
 
         # Commit final
-        print("\n[Final commit + checkpoint]...", end='', flush=True)
+        logger.info("Final commit + checkpoint...")
         flush_start = time.time()
         conn.execute("COMMIT")
         conn.execute("CHECKPOINT")
-        print(f" {time.time() - flush_start:.2f}s")
+        logger.info(f"Checkpoint completed in {time.time() - flush_start:.2f}s")
 
     # Clean up
     with duckdb_connection(wdir, n_cpus=n_cpus, ram=ram) as conn:
         conn.execute("DROP TABLE IF EXISTS pending_result_pairs")
 
-    print(f"\n{'=' * 60}")
-    print(f"Summary:")
-    print(f"  Total pairs: {total_count:,}")
-    print(f"  Processed: {processed:,}")
-    print(f"  Failed: {failed:,}")
-    print(f"  Batches: {batches:,}")
-    print(f"{'=' * 60}")
+    logger.info(
+        f"Results computation complete. "
+        f"Total pairs: {total_count:,}, Processed: {processed:,}, "
+        f"Failed: {failed:,}, Batches: {batches:,}"
+    )
 
     return {
         'total_pairs': total_count,
@@ -1573,7 +1571,7 @@ def compute_peak_properties(con: duckdb.DuckDBPyConnection,
                             bookmarked=False
                             ):
     if recompute:
-        print("Deleting existing results for recalculation...")
+        logger.info("Deleting existing results for recalculation...")
         con.execute("DELETE FROM results")
 
     query = """
@@ -1709,13 +1707,13 @@ def compute_peak_properties(con: duckdb.DuckDBPyConnection,
                     accumulated_progress[0] = total_progress
                     if set_progress:
                         set_progress(round(total_progress, 1))
-                    print(f"Progress: {total_progress:.1f}%")
+                    logger.info(f"Progress: {total_progress:.1f}%")
                 time.sleep(0.05)
 
             except (duckdb.InvalidInputException, duckdb.ConnectionException):
                 break
             except Exception as e:
-                print(f"Progress monitoring error: {e}")
+                logger.error(f"Progress monitoring error: {e}")
                 break
 
     # Start monitoring
@@ -1725,20 +1723,20 @@ def compute_peak_properties(con: duckdb.DuckDBPyConnection,
 
     try:
         # Run MS1
-        print("Processing MS1 chromatograms...")
+        logger.info("Processing MS1 chromatograms...")
         con.execute(query, [bookmarked, recompute])
         accumulated_progress[0] = 100
         if set_progress:
             set_progress(round(accumulated_progress[0], 1))
 
-        print("Chromatograms computed and inserted into DuckDB.")
+        logger.info("Chromatograms computed and inserted into DuckDB.")
 
     finally:
         stop_monitoring[0] = True
         if set_progress:
             progress_thread.join(timeout=0.5)
 
-    print("Peak properties computed and inserted into DuckDB.")
+    logger.info("Peak properties computed and inserted into DuckDB.")
 
 
 def create_pivot(conn, rows=None, cols=None, value='peak_area', table='results'):
@@ -1850,4 +1848,4 @@ def compute_and_insert_chromatograms_iteratively(con: duckdb.DuckDBPyConnection,
     if set_progress and n_total > 0:
         set_progress(100)
 
-    print("Iterative chromatogram computation complete.")
+    logger.info("Iterative chromatogram computation complete.")

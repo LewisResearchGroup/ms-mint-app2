@@ -15,7 +15,7 @@ def make_dirs():
     cachedir = os.path.join(tmpdir, ".cache")
     os.makedirs(tmpdir, exist_ok=True)
     os.makedirs(cachedir, exist_ok=True)
-    print("MAKEDIRS:", tmpdir, cachedir)
+    logging.info(f"MAKEDIRS: {tmpdir}, {cachedir}")
     return Path(tmpdir), Path(cachedir)
 
 

@@ -22,6 +22,8 @@ from scipy.ndimage import binary_opening
 from .duckdb_manager import duckdb_connection
 from .sample_metadata import GROUP_COLUMNS
 
+logger = logging.getLogger(__name__)
+
 _RT_SECONDS = re.compile(
     r"^P(?:T(?:(?P<h>\d+(?:\.\d+)?)H)?(?:(?P<m>\d+(?:\.\d+)?)M)?(?:(?P<s>\d+(?:\.\d+)?)S)?)$",
     re.I
@@ -322,7 +324,7 @@ def convert_mzxml_to_parquet_fast_batches(
             parquet_writer.close()
 
     if not wrote_data:
-        print(f"Warning: No valid data found in {file_path}")
+        logger.warning(f"No valid data found in {file_path}")
         return 0, file_path, file_stem, 1, "Unknown", None
 
     if ms_level is None:
@@ -487,7 +489,7 @@ def convert_mzml_to_parquet_fast_batches(
             parquet_writer.close()
 
     if not wrote_data:
-        print(f"Warning: No valid data found in {file_path}")
+        logger.warning(f"No valid data found in {file_path}")
         return 0, file_path, file_stem, 1, "Unknown", None
 
     if ms_level is None:
@@ -843,7 +845,7 @@ def process_ms_files(wdir, set_progress, selected_files, n_cpus):
     import time
 
     start_time = time.perf_counter()
-    print(f"Starting MS file processing for {n_total} file(s).")
+    logger.info(f"Starting MS file processing for {n_total} file(s).")
 
     # set progress to 1 to the user feedback
     _send_progress(1)
@@ -862,7 +864,7 @@ def process_ms_files(wdir, set_progress, selected_files, n_cpus):
         duplicates_count = int(duplicates.shape[0])
         _send_progress(round(duplicates.shape[0] / n_total * 100, 1))
         logging.info("Found %d duplicates: %s", duplicates.shape[0], duplicates.tolist())
-        print(f"Skipped {duplicates.shape[0]} duplicate file(s): {', '.join(duplicates.tolist())}")
+        logger.info(f"Skipped {duplicates.shape[0]} duplicate file(s): {', '.join(duplicates.tolist())}")
 
     if len(files_name) - len(duplicates) > 0:
         total_to_process = len(files_name) - len(duplicates)
@@ -894,7 +896,7 @@ def process_ms_files(wdir, set_progress, selected_files, n_cpus):
                         total_processed += 1
                         done_count = total_processed + len(failed_files) + duplicates_count
                         _send_progress(round(done_count / n_total * 100, 1))
-                        print(f"Failed: {Path(futures_name[future]).name} ({e})")
+                        logger.error(f"Failed: {Path(futures_name[future]).name} ({e})")
                         continue
 
                     _file_path, _ms_file_label, _ms_level, _polarity, _parquet_df = result
@@ -905,7 +907,7 @@ def process_ms_files(wdir, set_progress, selected_files, n_cpus):
                         total_processed += 1
                         done_count = total_processed + len(failed_files) + duplicates_count
                         _send_progress(round(done_count / n_total * 100, 1))
-                        print(f"Failed (no data): {Path(_file_path).name}")
+                        logger.warning(f"Failed (no data): {Path(_file_path).name}")
                         continue
 
                     suffix = Path(_file_path).suffix.lower()
@@ -935,7 +937,7 @@ def process_ms_files(wdir, set_progress, selected_files, n_cpus):
                         )
                         done_count = total_processed + len(failed_files) + duplicates_count
                         _send_progress(round(done_count / n_total * 100, 1), detail)
-                        print(detail)
+                        logger.info(detail)
                         batch_ms['ms1'] = []
                         batch_ms_data['ms1'] = []
                         batch_start = time.time()  # Reset timer for next batch
@@ -954,7 +956,7 @@ def process_ms_files(wdir, set_progress, selected_files, n_cpus):
                         )
                         done_count = total_processed + len(failed_files) + duplicates_count
                         _send_progress(round(done_count / n_total * 100, 1), detail)
-                        print(detail)
+                        logger.info(detail)
                         batch_ms['ms2'] = []
                         batch_ms_data['ms2'] = []
                         batch_start = time.time()  # Reset timer for next batch
@@ -973,7 +975,7 @@ def process_ms_files(wdir, set_progress, selected_files, n_cpus):
                     )
                     done_count = total_processed + len(failed_files) + duplicates_count
                     _send_progress(round(done_count / n_total * 100, 1), detail)
-                    print(detail)
+                    logger.info(detail)
                     batch_ms['ms1'] = []
                     batch_ms_data['ms1'] = []
 
@@ -991,13 +993,13 @@ def process_ms_files(wdir, set_progress, selected_files, n_cpus):
                     )
                     done_count = total_processed + len(failed_files) + duplicates_count
                     _send_progress(round(done_count / n_total * 100, 1), detail)
-                    print(detail)
+                    logger.info(detail)
                     batch_ms['ms2'] = []
                     batch_ms_data['ms2'] = []
 
     _send_progress(round(100, 1))
     elapsed = time.perf_counter() - start_time
-    print(
+    logger.info(
         f"Completed MS file processing. Success: {total_processed}, "
         f"Failed: {len(failed_files)}. Total time: {elapsed:0.2f}s."
     )

@@ -639,6 +639,9 @@ def _ms_files_table(section_context, processing_output, processed_action, pagina
         current = pagination['current']
 
         with duckdb_connection(wdir) as conn:
+            if conn is None:
+                # Database is locked (e.g., processing was just cancelled)
+                raise PreventUpdate
             schema = conn.execute("DESCRIBE samples").pl()
         column_types = {r["column_name"]: r["column_type"] for r in schema.to_dicts()}
         where_sql, params = build_where_and_params(filter_, filterOptions)
