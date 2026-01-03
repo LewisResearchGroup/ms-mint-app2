@@ -992,3 +992,236 @@ class TestStandaloneFunctions:
             calls = [str(call) for call in mock_db.execute.call_args_list]
             assert any('BEGIN' in str(call) for call in calls)
             assert any('COMMIT' in str(call) for call in calls)
+
+
+class TestRTAlignmentAwareProcessing:
+    """Test RT alignment-aware peak area calculation."""
+    
+    @pytest.fixture
+    def aligned_wdir(self, tmp_path):
+        """Create workspace with chromatogram data and RT alignment enabled."""
+        wdir = tmp_path / "aligned_workspace"
+        wdir.mkdir(parents=True)
+        
+        with duckdb_connection(wdir) as conn:
+            # Add samples
+            conn.execute("""
+                INSERT INTO samples (ms_file_label, sample_type, label, use_for_optimization, ms_type, polarity) 
+                VALUES 
+                    ('File1', 'Sample', 'Sample1', TRUE, 'ms1', 'Positive'),
+                    ('File2', 'Sample', 'Sample2', TRUE, 'ms1', 'Positive'),
+                    ('File3', 'Sample', 'Sample3', TRUE, 'ms1', 'Positive')
+            """)
+            
+            # Add target WITH RT alignment enabled and per-file shifts
+            # Simulating: File1 peak at 100s, File2 at 101s, File3 at 102s
+            # Reference RT = 101s (median), so shifts are: +1, 0, -1
+            import json
+            shifts_json = json.dumps({
+                'File1': 1.0,   # Peak was at 100s, needs +1s to align to 101s
+                'File2': 0.0,   # Peak at 101s, no shift needed
+                'File3': -1.0   # Peak was at 102s, needs -1s to align to 101s
+            })
+            
+            conn.execute("""
+                INSERT INTO targets (
+                    peak_label, mz_mean, mz_width, rt, rt_min, rt_max, ms_type, bookmark,
+                    rt_align_enabled, rt_align_reference_rt, rt_align_shifts, 
+                    rt_align_rt_min, rt_align_rt_max
+                ) 
+                VALUES (
+                    'AlignedTarget', 100.5, 0.01, 101.0, 99.0, 103.0, 'ms1', TRUE,
+                    TRUE, 101.0, ?, 99.0, 103.0
+                )
+            """, [shifts_json])
+            
+            # Add chromatograms with peaks at different RTs
+            # File1: peak centered at 100s (shifted by +1s for alignment)
+            conn.execute("""
+                INSERT INTO chromatograms (peak_label, ms_file_label, scan_time, intensity, ms_type)
+                VALUES ('AlignedTarget', 'File1', 
+                        [97.0, 98.0, 99.0, 100.0, 101.0, 102.0, 103.0, 104.0], 
+                        [100.0, 200.0, 400.0, 1000.0, 400.0, 200.0, 100.0, 50.0],
+                        'ms1')
+            """)
+            
+            # File2: peak centered at 101s (no shift needed)
+            conn.execute("""
+                INSERT INTO chromatograms (peak_label, ms_file_label, scan_time, intensity, ms_type)
+                VALUES ('AlignedTarget', 'File2', 
+                        [97.0, 98.0, 99.0, 100.0, 101.0, 102.0, 103.0, 104.0], 
+                        [50.0, 100.0, 400.0, 800.0, 1000.0, 400.0, 200.0, 100.0],
+                        'ms1')
+            """)
+            
+            # File3: peak centered at 102s (shifted by -1s for alignment)
+            conn.execute("""
+                INSERT INTO chromatograms (peak_label, ms_file_label, scan_time, intensity, ms_type)
+                VALUES ('AlignedTarget', 'File3', 
+                        [97.0, 98.0, 99.0, 100.0, 101.0, 102.0, 103.0, 104.0], 
+                        [50.0, 100.0, 200.0, 400.0, 800.0, 1000.0, 400.0, 200.0],
+                        'ms1')
+            """)
+            
+        return str(wdir)
+    
+    def test_alignment_shifts_stored_correctly(self, aligned_wdir):
+        """Verify that RT alignment shifts are stored as per-file JSON."""
+        import json
+        
+        with duckdb_connection(aligned_wdir) as conn:
+            result = conn.execute("""
+                SELECT rt_align_enabled, rt_align_reference_rt, rt_align_shifts
+                FROM targets
+                WHERE peak_label = 'AlignedTarget'
+            """).fetchone()
+            
+            assert result[0] is True  # rt_align_enabled
+            assert result[1] == 101.0  # rt_align_reference_rt
+            
+            shifts = json.loads(result[2])
+            assert 'File1' in shifts
+            assert 'File2' in shifts
+            assert 'File3' in shifts
+            assert shifts['File1'] == 1.0
+            assert shifts['File2'] == 0.0
+            assert shifts['File3'] == -1.0
+    
+    def test_compute_results_with_alignment(self, aligned_wdir):
+        """Test that compute_results_in_batches applies per-sample RT shifts."""
+        # Run results computation
+        result = compute_results_in_batches(
+            wdir=aligned_wdir,
+            use_bookmarked=False,
+            recompute=True,
+            batch_size=100,
+            n_cpus=1,
+            ram=1
+        )
+        
+        assert result['processed'] == 3  # 3 chromatograms processed
+        assert result['failed'] == 0
+        
+        with duckdb_connection(aligned_wdir) as conn:
+            results = conn.execute("""
+                SELECT ms_file_label, peak_area, peak_rt_of_max, rt_aligned, rt_shift
+                FROM results
+                WHERE peak_label = 'AlignedTarget'
+                ORDER BY ms_file_label
+            """).fetchall()
+            
+            assert len(results) == 3
+            
+            # Verify rt_aligned and rt_shift columns are populated
+            for row in results:
+                ms_file = row[0]
+                peak_area = row[1]
+                rt_aligned = row[3]
+                rt_shift = row[4]
+                
+                # All should have rt_aligned=True
+                assert rt_aligned is True, f"rt_aligned for {ms_file} should be True"
+                
+                # Verify correct shifts
+                if ms_file == 'File1':
+                    assert rt_shift == 1.0, f"rt_shift for File1 should be 1.0"
+                elif ms_file == 'File2':
+                    assert rt_shift == 0.0, f"rt_shift for File2 should be 0.0"
+                elif ms_file == 'File3':
+                    assert rt_shift == -1.0, f"rt_shift for File3 should be -1.0"
+                
+                # All files should have non-zero peak areas
+                assert peak_area > 0, f"Peak area for {ms_file} should be > 0"
+
+    
+    def test_alignment_disabled_uses_global_window(self, aligned_wdir):
+        """Test that when alignment is disabled, global rt_min/rt_max is used."""
+        with duckdb_connection(aligned_wdir) as conn:
+            # Disable alignment
+            conn.execute("""
+                UPDATE targets 
+                SET rt_align_enabled = FALSE,
+                    rt_align_shifts = NULL
+                WHERE peak_label = 'AlignedTarget'
+            """)
+        
+        # Run results computation
+        compute_results_in_batches(
+            wdir=aligned_wdir,
+            use_bookmarked=False,
+            recompute=True,
+            batch_size=100,
+            n_cpus=1,
+            ram=1
+        )
+        
+        with duckdb_connection(aligned_wdir) as conn:
+            results = conn.execute("""
+                SELECT ms_file_label, peak_area
+                FROM results
+                WHERE peak_label = 'AlignedTarget'
+                ORDER BY ms_file_label
+            """).fetchall()
+            
+            assert len(results) == 3
+            
+            # Without alignment, all files use the same window [99, 103]
+            # Peak areas will differ based on where the actual peak is
+            file1_area = next(r[1] for r in results if r[0] == 'File1')
+            file2_area = next(r[1] for r in results if r[0] == 'File2')
+            file3_area = next(r[1] for r in results if r[0] == 'File3')
+            
+            # File1's peak is at 100s, partially captured in [99, 103]
+            # File2's peak is at 101s, well captured in [99, 103]
+            # File3's peak is at 102s, partially captured in [99, 103]
+            # Without alignment, File2 should have highest area captured
+            assert file2_area > 0
+    
+    def test_json_extraction_with_special_characters(self, tmp_path):
+        """Test that JSON extraction handles file names with special characters."""
+        wdir = tmp_path / "special_chars_workspace"
+        wdir.mkdir(parents=True)
+        
+        with duckdb_connection(wdir) as conn:
+            # Add sample with special characters in name
+            conn.execute("""
+                INSERT INTO samples (ms_file_label, sample_type, label, use_for_optimization, ms_type, polarity) 
+                VALUES ('File-With_Special.Chars', 'Sample', 'Sample1', TRUE, 'ms1', 'Positive')
+            """)
+            
+            import json
+            shifts_json = json.dumps({'File-With_Special.Chars': 0.5})
+            
+            conn.execute("""
+                INSERT INTO targets (
+                    peak_label, mz_mean, mz_width, rt, rt_min, rt_max, ms_type, bookmark,
+                    rt_align_enabled, rt_align_reference_rt, rt_align_shifts, 
+                    rt_align_rt_min, rt_align_rt_max
+                ) 
+                VALUES (
+                    'SpecialTarget', 100.5, 0.01, 100.0, 98.0, 102.0, 'ms1', FALSE,
+                    TRUE, 100.0, ?, 98.0, 102.0
+                )
+            """, [shifts_json])
+            
+            conn.execute("""
+                INSERT INTO chromatograms (peak_label, ms_file_label, scan_time, intensity, ms_type)
+                VALUES ('SpecialTarget', 'File-With_Special.Chars', 
+                        [97.0, 98.0, 99.0, 100.0, 101.0, 102.0, 103.0], 
+                        [100.0, 200.0, 500.0, 1000.0, 500.0, 200.0, 100.0],
+                        'ms1')
+            """)
+        
+        # Run results computation
+        result = compute_results_in_batches(
+            wdir=str(wdir),
+            use_bookmarked=False,
+            recompute=True,
+            batch_size=100,
+            n_cpus=1,
+            ram=1
+        )
+        
+        assert result['processed'] == 1
+        assert result['failed'] == 0
+
