@@ -798,6 +798,9 @@ def _insert_ms_data(wdir, ms_type, batch_ms, batch_ms_data):
         columns=['ms_file_label', 'label', 'ms_type', 'polarity', 'file_type'],
     )
 
+    parquet_files_to_delete = batch_ms_data[ms_type].copy()
+    insert_success = False
+    
     with duckdb_connection(wdir) as conn:
         if conn is None:
             raise PreventUpdate
@@ -817,9 +820,20 @@ def _insert_ms_data(wdir, ms_type, batch_ms, batch_ms_data):
                          FROM read_parquet(?)
                          """,
                          [batch_ms_data[ms_type]])
+            insert_success = True
+                    
         except Exception as e:
             logging.error(f"DB error: {e}")
             failed_files.extend([{file_path: str(e)} for file_path in batch_ms_data[ms_type]])
+    
+    # Delete parquet files AFTER connection closes (files are released)
+    if insert_success:
+        for parquet_file in parquet_files_to_delete:
+            try:
+                os.remove(parquet_file)
+            except OSError:
+                pass  # File may already be deleted or locked
+                
     return len(batch_ms_data[ms_type]), failed_files
 
 
@@ -868,134 +882,163 @@ def process_ms_files(wdir, set_progress, selected_files, n_cpus):
 
     if len(files_name) - len(duplicates) > 0:
         total_to_process = len(files_name) - len(duplicates)
-        with tempfile.TemporaryDirectory() as tmpdir:
-            futures_name = {}
-            # ctx = multiprocessing.get_context('fork')
-            with concurrent.futures.ProcessPoolExecutor(max_workers=min(n_cpus, total_to_process), mp_context=None) as executor:
-                futures_name.update(
-                    {
+        # Use workspace's data/temp folder for intermediate parquet files
+        workspace_temp = Path(wdir) / "data" / "temp"
+        workspace_temp.mkdir(parents=True, exist_ok=True)
+        
+        # Filter out duplicates and create list of files to process
+        files_to_process = [
+            file_path for file_name, file_path in files_name.items()
+            if file_name not in duplicates.tolist()
+        ]
+        
+        # Chunked processing: submit files in chunks to limit temp folder size
+        chunk_size = 64  # Max files in-flight at once
+        batch_ms = {'ms1': [], 'ms2': []}
+        batch_ms_data = {'ms1': [], 'ms2': []}
+        batch_size = n_cpus
+        total_batches = (total_to_process + batch_size - 1) // batch_size
+        batch_num = 0
+        batch_start = time.time()
+        
+        with tempfile.TemporaryDirectory(dir=workspace_temp) as tmpdir:
+            # Process files in chunks
+            for chunk_start in range(0, len(files_to_process), chunk_size):
+                chunk_end = min(chunk_start + chunk_size, len(files_to_process))
+                chunk_files = files_to_process[chunk_start:chunk_end]
+                
+                with concurrent.futures.ProcessPoolExecutor(
+                    max_workers=min(n_cpus, len(chunk_files)), 
+                    mp_context=None
+                ) as executor:
+                    futures_name = {
                         executor.submit(
                             convert_ms_file_to_parquet_fast_batches, file_path, tmp_dir=tmpdir
                         ): file_path
-                        for file_name, file_path in files_name.items()
-                        if file_name not in duplicates.tolist()
+                        for file_path in chunk_files
                     }
-                )
-                batch_ms = {'ms1': [], 'ms2': []}
-                batch_ms_data = {'ms1': [], 'ms2': []}
-                batch_size = n_cpus
-                total_batches = (total_to_process + batch_size - 1) // batch_size
-                batch_num = 0
-                batch_start = time.time()  # Start timing the first batch
-
-                for future in concurrent.futures.as_completed(futures_name.keys()):
-                    try:
-                        result = future.result()
-                    except Exception as e:
-                        failed_files.append({futures_name[future]: str(e)})
-                        total_processed += 1
-                        done_count = total_processed + len(failed_files) + duplicates_count
-                        _send_progress(round(done_count / n_total * 100, 1))
-                        logger.error(f"Failed: {Path(futures_name[future]).name} ({e})")
-                        continue
-
-                    _file_path, _ms_file_label, _ms_level, _polarity, _parquet_df = result
                     
-                    if _parquet_df is None:
-                        # Conversion failed or file was empty
-                        failed_files.append({_file_path: "No valid data found or conversion failed"})
-                        total_processed += 1
-                        done_count = total_processed + len(failed_files) + duplicates_count
-                        _send_progress(round(done_count / n_total * 100, 1))
-                        logger.warning(f"Failed (no data): {Path(_file_path).name}")
-                        continue
+                    for future in concurrent.futures.as_completed(futures_name.keys()):
+                        try:
+                            result = future.result()
+                        except Exception as e:
+                            failed_files.append({futures_name[future]: str(e)})
+                            total_processed += 1
+                            done_count = total_processed + len(failed_files) + duplicates_count
+                            _send_progress(round(done_count / n_total * 100, 1))
+                            logger.error(f"Failed: {Path(futures_name[future]).name} ({e})")
+                            continue
 
-                    suffix = Path(_file_path).suffix.lower()
-                    if suffix == ".mzxml":
-                        file_type = "mzXML"
-                    elif suffix == ".mzml":
-                        file_type = "mzML"
-                    else:
-                        file_type = suffix.lstrip(".")
-                    batch_ms[f'ms{_ms_level}'].append(
-                        (_ms_file_label, _ms_file_label, f'ms{_ms_level}', _polarity, file_type)
-                    )
-                    batch_ms_data[f'ms{_ms_level}'].append(_parquet_df)
-                    # print(f"Parsed: {Path(_file_path).name} (ms{_ms_level})")
+                        _file_path, _ms_file_label, _ms_level, _polarity, _parquet_df = result
+                        
+                        if _parquet_df is None:
+                            failed_files.append({_file_path: "No valid data found or conversion failed"})
+                            total_processed += 1
+                            done_count = total_processed + len(failed_files) + duplicates_count
+                            _send_progress(round(done_count / n_total * 100, 1))
+                            logger.warning(f"Failed (no data): {Path(_file_path).name}")
+                            continue
 
-                    if len(batch_ms['ms1']) == batch_size:
-                        b_processed, b_failed = _insert_ms_data(wdir, 'ms1', batch_ms, batch_ms_data)
-                        batch_elapsed = time.time() - batch_start
-                        total_processed += b_processed
-                        failed_files.extend(b_failed)
-
-                        batch_num += 1
-                        detail = (
-                            f"Batch {batch_num}/{total_batches} | "
-                            f"Progress {total_processed:,}/{total_to_process:,} | "
-                            f"Time/batch {batch_elapsed:0.2f}s"
+                        suffix = Path(_file_path).suffix.lower()
+                        if suffix == ".mzxml":
+                            file_type = "mzXML"
+                        elif suffix == ".mzml":
+                            file_type = "mzML"
+                        else:
+                            file_type = suffix.lstrip(".")
+                        batch_ms[f'ms{_ms_level}'].append(
+                            (_ms_file_label, _ms_file_label, f'ms{_ms_level}', _polarity, file_type)
                         )
-                        done_count = total_processed + len(failed_files) + duplicates_count
-                        _send_progress(round(done_count / n_total * 100, 1), detail)
-                        logger.info(detail)
-                        batch_ms['ms1'] = []
-                        batch_ms_data['ms1'] = []
-                        batch_start = time.time()  # Reset timer for next batch
+                        batch_ms_data[f'ms{_ms_level}'].append(_parquet_df)
 
-                    elif len(batch_ms['ms2']) == batch_size:
-                        b_processed, b_failed = _insert_ms_data(wdir, 'ms2', batch_ms, batch_ms_data)
-                        batch_elapsed = time.time() - batch_start
-                        total_processed += b_processed
-                        failed_files.extend(b_failed)
+                        if len(batch_ms['ms1']) == batch_size:
+                            b_processed, b_failed = _insert_ms_data(wdir, 'ms1', batch_ms, batch_ms_data)
+                            batch_elapsed = time.time() - batch_start
+                            total_processed += b_processed
+                            failed_files.extend(b_failed)
 
-                        batch_num += 1
-                        detail = (
-                            f"Batch {batch_num}/{total_batches} | "
-                            f"Progress {total_processed:,}/{total_to_process:,} | "
-                            f"Time/batch {batch_elapsed:0.2f}s"
-                        )
-                        done_count = total_processed + len(failed_files) + duplicates_count
-                        _send_progress(round(done_count / n_total * 100, 1), detail)
-                        logger.info(detail)
-                        batch_ms['ms2'] = []
-                        batch_ms_data['ms2'] = []
-                        batch_start = time.time()  # Reset timer for next batch
+                            batch_num += 1
+                            detail = (
+                                f"Batch {batch_num}/{total_batches} | "
+                                f"Progress {total_processed:,}/{total_to_process:,} | "
+                                f"Time/batch {batch_elapsed:0.2f}s"
+                            )
+                            done_count = total_processed + len(failed_files) + duplicates_count
+                            _send_progress(round(done_count / n_total * 100, 1), detail)
+                            logger.info(detail)
+                            batch_ms['ms1'] = []
+                            batch_ms_data['ms1'] = []
+                            batch_start = time.time()
+                            
+                            # Periodic CHECKPOINT every 20 batches
+                            if batch_num % 20 == 0:
+                                with duckdb_connection(wdir) as conn:
+                                    if conn is not None:
+                                        conn.execute("CHECKPOINT")
+                                        logger.info(f"Checkpoint after batch {batch_num}")
 
-                if len(batch_ms['ms1']):
-                    b_processed, b_failed = _insert_ms_data(wdir, 'ms1', batch_ms, batch_ms_data)
-                    batch_elapsed = time.time() - batch_start
-                    total_processed += b_processed
-                    failed_files.extend(b_failed)
+                        elif len(batch_ms['ms2']) == batch_size:
+                            b_processed, b_failed = _insert_ms_data(wdir, 'ms2', batch_ms, batch_ms_data)
+                            batch_elapsed = time.time() - batch_start
+                            total_processed += b_processed
+                            failed_files.extend(b_failed)
 
-                    batch_num += 1
-                    detail = (
-                        f"Batch {batch_num}/{total_batches} | "
-                        f"Progress {total_processed:,}/{total_to_process:,} | "
-                        f"Time/batch {batch_elapsed:0.2f}s"
-                    )
-                    done_count = total_processed + len(failed_files) + duplicates_count
-                    _send_progress(round(done_count / n_total * 100, 1), detail)
-                    logger.info(detail)
-                    batch_ms['ms1'] = []
-                    batch_ms_data['ms1'] = []
+                            batch_num += 1
+                            detail = (
+                                f"Batch {batch_num}/{total_batches} | "
+                                f"Progress {total_processed:,}/{total_to_process:,} | "
+                                f"Time/batch {batch_elapsed:0.2f}s"
+                            )
+                            done_count = total_processed + len(failed_files) + duplicates_count
+                            _send_progress(round(done_count / n_total * 100, 1), detail)
+                            logger.info(detail)
+                            batch_ms['ms2'] = []
+                            batch_ms_data['ms2'] = []
+                            batch_start = time.time()
+                            
+                            # Periodic CHECKPOINT every 20 batches
+                            if batch_num % 20 == 0:
+                                with duckdb_connection(wdir) as conn:
+                                    if conn is not None:
+                                        conn.execute("CHECKPOINT")
+                                        logger.info(f"Checkpoint after batch {batch_num}")
+            
+            # Process remaining items in batches
+            if len(batch_ms['ms1']):
+                b_processed, b_failed = _insert_ms_data(wdir, 'ms1', batch_ms, batch_ms_data)
+                batch_elapsed = time.time() - batch_start
+                total_processed += b_processed
+                failed_files.extend(b_failed)
 
-                elif len(batch_ms['ms2']):
-                    b_processed, b_failed = _insert_ms_data(wdir, 'ms2', batch_ms, batch_ms_data)
-                    batch_elapsed = time.time() - batch_start
-                    total_processed += b_processed
-                    failed_files.extend(b_failed)
+                batch_num += 1
+                detail = (
+                    f"Batch {batch_num}/{total_batches} | "
+                    f"Progress {total_processed:,}/{total_to_process:,} | "
+                    f"Time/batch {batch_elapsed:0.2f}s"
+                )
+                done_count = total_processed + len(failed_files) + duplicates_count
+                _send_progress(round(done_count / n_total * 100, 1), detail)
+                logger.info(detail)
+                batch_ms['ms1'] = []
+                batch_ms_data['ms1'] = []
 
-                    batch_num += 1
-                    detail = (
-                        f"Batch {batch_num}/{total_batches} | "
-                        f"Progress {total_processed:,}/{total_to_process:,} | "
-                        f"Time/batch {batch_elapsed:0.2f}s"
-                    )
-                    done_count = total_processed + len(failed_files) + duplicates_count
-                    _send_progress(round(done_count / n_total * 100, 1), detail)
-                    logger.info(detail)
-                    batch_ms['ms2'] = []
-                    batch_ms_data['ms2'] = []
+            if len(batch_ms['ms2']):
+                b_processed, b_failed = _insert_ms_data(wdir, 'ms2', batch_ms, batch_ms_data)
+                batch_elapsed = time.time() - batch_start
+                total_processed += b_processed
+                failed_files.extend(b_failed)
+
+                batch_num += 1
+                detail = (
+                    f"Batch {batch_num}/{total_batches} | "
+                    f"Progress {total_processed:,}/{total_to_process:,} | "
+                    f"Time/batch {batch_elapsed:0.2f}s"
+                )
+                done_count = total_processed + len(failed_files) + duplicates_count
+                _send_progress(round(done_count / n_total * 100, 1), detail)
+                logger.info(detail)
+                batch_ms['ms2'] = []
+                batch_ms_data['ms2'] = []
 
     _send_progress(round(100, 1))
     elapsed = time.perf_counter() - start_time
