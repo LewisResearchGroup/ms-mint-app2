@@ -3622,9 +3622,13 @@ def callbacks(app, fsc, cache, cpu=None):
         State('target-nav-store', 'data'),
         State('slider-reference-data', 'data'),
         State('slider-data', 'data'),
+        State('target-note', 'value'),  # Current note text
+        State('chromatogram-view-modal', 'title'),  # Current target name
+        State('wdir', 'data'),
         prevent_initial_call=True
     )
-    def navigate_targets(prev_clicks, next_clicks, nav_store, reference_data, slider_data):
+    def navigate_targets(prev_clicks, next_clicks, nav_store, reference_data, slider_data, 
+                         current_note, current_target, wdir):
         """Handle Previous/Next button clicks with unsaved changes check."""
         if not nav_store or not nav_store.get('targets'):
             raise PreventUpdate
@@ -3646,7 +3650,18 @@ def callbacks(app, fsc, cache, cpu=None):
         else:
             raise PreventUpdate
         
-        # Check for unsaved changes
+        # Auto-save notes before navigating
+        if wdir and current_target:
+            try:
+                with duckdb_connection(wdir) as conn:
+                    if conn is not None:
+                        conn.execute("UPDATE targets SET notes = ? WHERE peak_label = ?",
+                                    (current_note or '', current_target))
+                        logger.debug(f"Auto-saved notes for '{current_target}' before navigation")
+            except Exception as e:
+                logger.warning(f"Failed to auto-save notes for '{current_target}': {e}")
+        
+        # Check for unsaved changes (RT-span changes)
         has_changes = False
         if reference_data and slider_data:
             reference_value = reference_data.get('value') if isinstance(reference_data, dict) else None
@@ -3669,12 +3684,26 @@ def callbacks(app, fsc, cache, cpu=None):
         Input('confirm-nav-modal', 'okCounts'),
         State('pending-nav-direction', 'data'),
         State('target-nav-store', 'data'),
+        State('target-note', 'value'),  # Current note text
+        State('chromatogram-view-modal', 'title'),  # Current target name
+        State('wdir', 'data'),
         prevent_initial_call=True
     )
-    def confirm_navigation(ok_counts, direction, nav_store):
+    def confirm_navigation(ok_counts, direction, nav_store, current_note, current_target, wdir):
         """Navigate after user confirms discarding unsaved changes."""
         if not ok_counts or not direction or not nav_store:
             raise PreventUpdate
+        
+        # Auto-save notes before navigating (even when discarding RT-span changes)
+        if wdir and current_target:
+            try:
+                with duckdb_connection(wdir) as conn:
+                    if conn is not None:
+                        conn.execute("UPDATE targets SET notes = ? WHERE peak_label = ?",
+                                    (current_note or '', current_target))
+                        logger.debug(f"Auto-saved notes for '{current_target}' on confirm navigation")
+            except Exception as e:
+                logger.warning(f"Failed to auto-save notes for '{current_target}': {e}")
         
         targets = nav_store['targets']
         current_index = nav_store['current_index']
