@@ -692,17 +692,30 @@ def _update_selection(explorer_instance, selectedRowKeys, nClicksCell, clear_cli
         tree_checks = list(marked)
 
     elif trigger_id == 'remove-marked-btn':
-        # Remove marked items
+        # Remove marked items - OPTIMIZED: pre-compute folder→files mapping once
         items_to_remove = set()
         selectedRowKeysToDelete = set()
+        
+        # Build folder→files mapping once (O(n) instead of O(n*m))
+        folder_to_files = {}
+        for f in selected_files:
+            folder = Path(f).parent.as_posix()
+            if folder not in folder_to_files:
+                folder_to_files[folder] = set()
+            folder_to_files[folder].add(f)
+        
+        # Known folders from the tree structure (no filesystem calls needed)
+        known_folders = set(folder_to_files.keys())
+        
         for item in marked:
             if item in (selectedRowKeys or []):
                 selectedRowKeysToDelete.add(item)
-            path = Path(item)
-            if path.is_dir() or item in [Path(f).parent.as_posix() for f in selected_files]:
-                # It's a folder, remove all its files
-                items_to_remove.update(f for f in selected_files if Path(f).parent.as_posix() == item)
-            else:
+            
+            # Check if this is a folder (in our known folders) or a file
+            if item in known_folders:
+                # It's a folder - remove all its files directly from the mapping
+                items_to_remove.update(folder_to_files[item])
+            elif item in selected_files:
                 # It's a file
                 items_to_remove.add(item)
 
