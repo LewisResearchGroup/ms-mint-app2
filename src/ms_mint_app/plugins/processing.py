@@ -1765,6 +1765,7 @@ def callbacks(app, fsc, cache):
         if not cancel_clicks:
             logger.debug("cancel_results_processing: PreventUpdate because cancel_clicks is None")
             raise PreventUpdate
+        logger.info("MINT processing cancelled by user.")
         return (
             {'action': 'processing', 'status': 'cancelled', 'timestamp': time.time()},
             {'display': 'none'},

@@ -3251,7 +3251,7 @@ def callbacks(app, fsc, cache, cpu=None):
                         placement="bottom",
                         showProgress=True,
                     ),
-                    False, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, 0, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update
+                    False, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, 0, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update
                 )
 
             ms_files = conn.execute("SELECT COUNT(*) FROM samples WHERE use_for_optimization = TRUE").fetchone()
@@ -3267,7 +3267,7 @@ def callbacks(app, fsc, cache, cpu=None):
                         placement="bottom",
                         showProgress=True,
                     ),
-                    False, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, 0, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update
+                    False, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, 0, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update
                 )
 
             chromatograms = conn.execute("SELECT COUNT(*) FROM chromatograms").fetchone()
@@ -3397,6 +3397,7 @@ def callbacks(app, fsc, cache, cpu=None):
         if not cancel_clicks:
             logger.debug("cancel_compute_chromatograms: No cancel clicks, preventing update")
             raise PreventUpdate
+        logger.info("Chromatogram computation cancelled by user.")
         return (
             {'action': 'processing', 'status': 'cancelled', 'timestamp': time.time()},
             {'display': 'none'},

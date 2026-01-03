@@ -36,19 +36,19 @@ def calculate_optimal_batch_size(ram_gb: int, total_pairs: int, n_cpus: int = No
     # RAM factor: 1000 pairs per 4GB
     ram_factor = max(ram_gb, 4) // 4
     
-    # CPU factor: scale up to 2x for more cores
-    # But cap effective CPUs at RAM (1GB per CPU minimum)
+    # CPU factor: modest scaling (max 1.5x boost)
+    # Based on benchmarks: larger batches have diminishing returns
     effective_cpus = min(n_cpus or 4, ram_gb)  # Cap CPUs at RAM GB
-    cpu_factor = min(effective_cpus / 4, 2.0)  # Max 2x boost from CPUs
+    cpu_factor = min(effective_cpus / 8 + 0.5, 1.5)  # Gentler scaling, max 1.5x
     
-    base_batch = 500
+    base_batch = 750  # Conservative base for good throughput
     optimal = int(base_batch * ram_factor * cpu_factor)
     
     # Ensure at least 10 batches for progress reporting
     if total_pairs > 0:
         optimal = min(optimal, max(total_pairs // 10, 500))
     
-    return min(max(optimal, 500), 10000)  # Clamp to [500, 10000]
+    return min(max(optimal, 500), 8000)  # Cap at 8000 (benchmarks show diminishing returns above 5000)
 
 
 def get_effective_cpus(n_cpus: int, ram_gb: int) -> int:
@@ -73,6 +73,8 @@ def _send_progress(set_progress, percent, stage: str = "", detail: str = ""):
 
     Supports custom stage/detail strings when the callback accepts them,
     and falls back to simple percent-only updates otherwise.
+    
+    IMPORTANT: Re-raises Cancelled/PreventUpdate exceptions for proper cancellation.
     """
     if not set_progress:
         return
@@ -81,10 +83,20 @@ def _send_progress(set_progress, percent, stage: str = "", detail: str = ""):
     except TypeError:
         try:
             set_progress(percent)
-        except Exception:
-            pass
-    except Exception:
-        pass
+        except (SystemExit, KeyboardInterrupt):
+            raise  # Always re-raise these
+        except Exception as e:
+            # Re-raise cancel-related exceptions
+            if 'Cancelled' in type(e).__name__ or 'PreventUpdate' in type(e).__name__:
+                raise
+            pass  # Suppress other exceptions
+    except (SystemExit, KeyboardInterrupt):
+        raise  # Always re-raise these
+    except Exception as e:
+        # Re-raise cancel-related exceptions (dash.exceptions.Cancelled)
+        if 'Cancelled' in type(e).__name__ or 'PreventUpdate' in type(e).__name__:
+            raise
+        pass  # Suppress other exceptions
 
 
 
@@ -1066,6 +1078,10 @@ def compute_chromatograms_in_batches(wdir: str,
             con.execute("DELETE FROM chromatograms WHERE ms_type = 'ms2'")
 
     with duckdb_connection(wdir, n_cpus=n_cpus, ram=ram) as conn:
+        # Ensure clean database state before processing (clears any accumulated WAL)
+        logger.info("Running CHECKPOINT to ensure clean database state...")
+        conn.execute("CHECKPOINT")
+        
         conn.execute("DROP TABLE IF EXISTS pending_pairs")
         try:
             count = conn.execute("SELECT COUNT(*) FROM ms_file_scans").fetchone()[0]
@@ -1091,6 +1107,10 @@ def compute_chromatograms_in_batches(wdir: str,
             logger.info(f"  Time elapsed: {elapsed:.2f}s")
 
     with duckdb_connection(wdir, n_cpus=n_cpus, ram=ram) as conn:
+        # Ensure clean database state before processing (clears any accumulated WAL)
+        logger.info("Running CHECKPOINT to ensure clean database state...")
+        conn.execute("CHECKPOINT")
+        
         logger.info("Getting pending pairs...")
         start_time = time.time()
         conn.execute(QUERY_CREATE_PENDING_PAIRS, [use_bookmarked, use_for_optimization])
@@ -1455,6 +1475,10 @@ def compute_results_in_batches(wdir: str,
 
     # Create pending pairs table
     with duckdb_connection(wdir, n_cpus=n_cpus, ram=ram) as conn:
+        # Ensure clean database state before processing (clears any accumulated WAL)
+        logger.info("Running CHECKPOINT to ensure clean database state...")
+        conn.execute("CHECKPOINT")
+        
         conn.execute("DROP TABLE IF EXISTS pending_result_pairs")
 
         logger.info("Getting pending pairs...")
