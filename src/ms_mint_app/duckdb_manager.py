@@ -336,12 +336,25 @@ def _create_tables(conn: duckdb.DuckDBPyConnection):
                      peak_rt_of_max    DOUBLE,
                      peak_median       DOUBLE,
                      peak_n_datapoints INT,
-
+                     rt_aligned        BOOLEAN,  -- TRUE if RT alignment was applied
+                     rt_shift          DOUBLE,   -- Shift value applied (0 if not aligned)
                      scan_time         DOUBLE[],
                      intensity         DOUBLE[],
                      PRIMARY KEY (ms_file_label, peak_label)
                  );
                  """)
+    
+    # Migration: Add rt_aligned and rt_shift columns to existing results tables
+    existing_cols = {
+        row[0] for row in conn.execute("DESCRIBE results").fetchall()
+    }
+    if 'rt_aligned' not in existing_cols:
+        conn.execute("ALTER TABLE results ADD COLUMN rt_aligned BOOLEAN")
+        logger.info("Migration: Added 'rt_aligned' column to results table")
+    if 'rt_shift' not in existing_cols:
+        conn.execute("ALTER TABLE results ADD COLUMN rt_shift DOUBLE")
+        logger.info("Migration: Added 'rt_shift' column to results table")
+
 
 
 def _create_workspace_tables(conn: duckdb.DuckDBPyConnection):
@@ -1418,6 +1431,7 @@ def compute_results_in_batches(wdir: str,
                                  """
 
     # Direct query - no intermediate CTE, streaming insert
+    # When rt_align_enabled=TRUE, applies per-sample RT shifts to the integration window
     QUERY_PROCESS_BATCH = """
         INSERT INTO results (
             peak_label,
@@ -1430,6 +1444,8 @@ def compute_results_in_batches(wdir: str,
             peak_rt_of_max,
             peak_median,
             peak_n_datapoints,
+            rt_aligned,
+            rt_shift,
             scan_time,
             intensity
         )
@@ -1437,31 +1453,57 @@ def compute_results_in_batches(wdir: str,
             SELECT peak_label, ms_file_label
             FROM pending_result_pairs
             WHERE pair_id BETWEEN ? AND ?
+        ),
+        -- Join chromatograms with targets and calculate per-sample shift
+        paired_data AS (
+            SELECT 
+                c.peak_label,
+                c.ms_file_label,
+                c.scan_time,
+                c.intensity,
+                t.rt_min,
+                t.rt_max,
+                COALESCE(t.rt_align_enabled, FALSE) AS rt_align_enabled,
+                -- Extract per-sample shift from JSON, default to 0.0 if not found
+                COALESCE(
+                    CASE 
+                        WHEN t.rt_align_enabled AND t.rt_align_shifts IS NOT NULL 
+                        THEN TRY_CAST(json_extract(t.rt_align_shifts, '$."' || c.ms_file_label || '"') AS DOUBLE)
+                        ELSE NULL
+                    END,
+                    0.0
+                ) AS sample_shift
+            FROM chromatograms c
+            JOIN batch_pairs bp ON c.peak_label = bp.peak_label AND c.ms_file_label = bp.ms_file_label
+            JOIN targets t ON c.peak_label = t.peak_label
         )
-        SELECT c.peak_label,
-               c.ms_file_label,
-               m.peak_area,
-               m.peak_area_top3,
-               m.peak_max,
-               m.peak_min,
-               m.peak_mean,
-               m.peak_rt_of_max,
-               m.peak_median,
-               m.peak_n_datapoints,
-               m.scan_time_list,
-               m.intensity_list
-                                            FROM chromatograms c
-                                                     JOIN batch_pairs bp
-                                                          ON c.peak_label = bp.peak_label
-                                                              AND c.ms_file_label = bp.ms_file_label
-        JOIN targets t ON c.peak_label = t.peak_label
+        SELECT 
+            pd.peak_label,
+            pd.ms_file_label,
+            m.peak_area,
+            m.peak_area_top3,
+            m.peak_max,
+            m.peak_min,
+            m.peak_mean,
+            m.peak_rt_of_max,
+            m.peak_median,
+            m.peak_n_datapoints,
+            pd.rt_align_enabled AS rt_aligned,
+            pd.sample_shift AS rt_shift,
+            m.scan_time_list,
+            m.intensity_list
+        FROM paired_data pd
         CROSS JOIN LATERAL compute_chromatogram_metrics(
-            c.scan_time, 
-            c.intensity, 
-            t.rt_min, 
-            t.rt_max
+            pd.scan_time, 
+            pd.intensity, 
+            -- Apply inverse shift: if peak was shifted by +X for visualization,
+            -- we need to look at [rt_min - X, rt_max - X] in original data
+            pd.rt_min - pd.sample_shift,
+            pd.rt_max - pd.sample_shift
         ) AS m;
                           """
+
+
 
     if recompute:
         logger.info("Deleting existing results for recalculation...")

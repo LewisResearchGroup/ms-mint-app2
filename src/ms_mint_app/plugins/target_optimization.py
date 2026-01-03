@@ -2068,7 +2068,8 @@ def callbacks(app, fsc, cache, cpu=None):
                     if rt_alignment_data and rt_alignment_data.get('enabled'):
                         # We have valid alignment data to save
                         import json
-                        shifts_json = json.dumps(rt_alignment_data.get('shifts_by_sample_type', {}))
+                        # Save per-file shifts for accurate processing (not sample-type averages)
+                        shifts_json = json.dumps(rt_alignment_data.get('shifts_per_file', {}))
                        
                         conn.execute("""
                             UPDATE targets 
@@ -2488,7 +2489,8 @@ def callbacks(app, fsc, cache, cpu=None):
             alignment_data = {
                 'enabled': True,
                 'reference_rt': reference_rt,
-                'shifts_by_sample_type': shifts_per_sample_type,
+                'shifts_by_sample_type': shifts_per_sample_type,  # For notes (human-readable)
+                'shifts_per_file': rt_alignment_shifts,  # For processing (per-file accuracy)
                 'rt_min': rt_min,
                 'rt_max': rt_max
             }
@@ -2525,11 +2527,13 @@ def callbacks(app, fsc, cache, cpu=None):
     )
     def lock_rt_span_when_aligning(rt_align_on):
         """Force RT span to Lock mode when RT alignment is ON"""
-        if not rt_align_on:
-            logger.debug("lock_rt_span_when_aligning: RT alignment is off, preventing update")
-            raise PreventUpdate
-        # logger.debug(f"Lock RT span callback: rt_align_on={rt_align_on}, setting Lock mode (checked={rt_align_on})")
-        return rt_align_on  # True = Lock mode, False = Edit mode
+        # TEMPORARILY DISABLED FOR TESTING
+        raise PreventUpdate
+        # if not rt_align_on:
+        #     logger.debug("lock_rt_span_when_aligning: RT alignment is off, preventing update")
+        #     raise PreventUpdate
+        # # logger.debug(f"Lock RT span callback: rt_align_on={rt_align_on}, setting Lock mode (checked={rt_align_on})")
+        # return rt_align_on  # True = Lock mode, False = Edit mode
 
 
     @app.callback(
@@ -2540,11 +2544,13 @@ def callbacks(app, fsc, cache, cpu=None):
     )
     def turn_off_alignment_when_editing(is_locked, rt_align_on):
         """Turn OFF RT alignment when user switches from Lock to Edit mode"""
-        # When switching to Edit mode (is_locked=False), turn off alignment
-        if not is_locked and rt_align_on:
-            logger.debug("RT span switched to Edit mode - turning OFF RT alignment")
-            return False
+        # TEMPORARILY DISABLED FOR TESTING
         raise PreventUpdate
+        # # When switching to Edit mode (is_locked=False), turn off alignment
+        # if not is_locked and rt_align_on:
+        #     logger.debug("RT span switched to Edit mode - turning OFF RT alignment")
+        #     return False
+        # raise PreventUpdate
 
 
     @app.callback(
