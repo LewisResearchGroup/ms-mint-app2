@@ -154,41 +154,73 @@ def iter_mzxml_fast(path: str | Path, *, decode_binary: bool = True) -> Iterator
             yield current
             root.clear()  # frees memory
 
-
-BATCH_SIZE_POINTS = 50_000_000
+BATCH_SIZE_POINTS = 500_000
 
 
 def _build_table_from_lists(lists_dict: Dict[str, List], ms_level: int) -> pa.Table:
     """Helper to convert the current lists into a pa.Table."""
-    if ms_level == 1:
-        arrays_dict = {
-            'ms_file_label': pa.array(lists_dict['labels'], type=pa.string()),
-            'scan_id': pa.array(lists_dict['scan_ids'], type=pa.int32()),
-            'mz': pa.array(lists_dict['mzs'], type=pa.float64()),
-            'intensity': pa.array(lists_dict['intensities'], type=pa.float64()),
-            'scan_time': pa.array(lists_dict['scan_times'], type=pa.float64()),
-        }
-    else:  # MS2
-        arrays_dict = {
-            'ms_file_label': pa.array(lists_dict['labels'], type=pa.string()),
-            'scan_id': pa.array(lists_dict['scan_ids'], type=pa.int32()),
-            'mz': pa.array(lists_dict['mzs'], type=pa.float64()),
-            'intensity': pa.array(lists_dict['intensities'], type=pa.float64()),
-            'scan_time': pa.array(lists_dict['scan_times'], type=pa.float64()),
-            'mz_precursor': pa.array(lists_dict['mz_precursors'], type=pa.float64()),
-            'filterLine': pa.array(lists_dict['filterLines'], type=pa.string()),
-            'filterLine_ELMAVEN': pa.array(lists_dict['filterLines_ELMAVEN'], type=pa.string()),
-        }
+    counts = lists_dict.get('counts') or []
+    if not counts:
+        return pa.Table.from_pydict({})
+
+    counts_arr = np.asarray(counts, dtype=np.int64)
+    labels = np.asarray(lists_dict['labels'], dtype=object)
+    scan_ids = np.asarray(lists_dict['scan_ids'], dtype=np.int32)
+    scan_times = np.asarray(lists_dict['scan_times'], dtype=np.float64)
+
+    labels_repeated = np.repeat(labels, counts_arr)
+    scan_ids_repeated = np.repeat(scan_ids, counts_arr)
+    scan_times_repeated = np.repeat(scan_times, counts_arr)
+
+    mz_arrays = [np.asarray(arr, dtype=np.float64) for arr in lists_dict['mzs']]
+    inten_arrays = [np.asarray(arr, dtype=np.float64) for arr in lists_dict['intensities']]
+    mz_concat = np.concatenate(mz_arrays) if mz_arrays else np.array([], dtype=np.float64)
+    inten_concat = np.concatenate(inten_arrays) if inten_arrays else np.array([], dtype=np.float64)
+
+    arrays_dict = {
+        'ms_file_label': pa.array(labels_repeated, type=pa.string()),
+        'scan_id': pa.array(scan_ids_repeated, type=pa.int32()),
+        'mz': pa.array(mz_concat, type=pa.float64()),
+        'intensity': pa.array(inten_concat, type=pa.float64()),
+        'scan_time': pa.array(scan_times_repeated, type=pa.float64()),
+    }
+
+    if ms_level == 2:
+        mz_precursors = np.asarray(lists_dict['mz_precursors'], dtype=np.float64)
+        filter_lines = np.asarray(lists_dict['filterLines'], dtype=object)
+        filter_lines_elm = np.asarray(lists_dict['filterLines_ELMAVEN'], dtype=object)
+
+        mz_prec_values = np.repeat(mz_precursors, counts_arr)
+        filter_line_values = np.repeat(filter_lines, counts_arr)
+        filter_line_elm_values = np.repeat(filter_lines_elm, counts_arr)
+
+        arrays_dict.update({
+            'mz_precursor': pa.array(mz_prec_values, type=pa.float64()),
+            'filterLine': pa.array(filter_line_values, type=pa.string()),
+            'filterLine_ELMAVEN': pa.array(filter_line_elm_values, type=pa.string()),
+        })
+
     return pa.Table.from_pydict(arrays_dict)
 
 
 def _init_lists() -> Dict[str, List]:
     """Helper to init/reset lists."""
     return {
-        'labels': [], 'scan_ids': [], 'scan_times': [],
-        'mzs': [], 'intensities': [],
-        'mz_precursors': [], 'filterLines': [], 'filterLines_ELMAVEN': []
+        'labels': [],
+        'scan_ids': [],
+        'scan_times': [],
+        'counts': [],
+        'mzs': [],
+        'intensities': [],
+        'mz_precursors': [],
+        'filterLines': [],
+        'filterLines_ELMAVEN': []
     }
+
+
+def _clear_lists(lists_dict: Dict[str, List]) -> None:
+    for values in lists_dict.values():
+        values.clear()
 
 
 def convert_mzxml_to_parquet_fast_batches(
@@ -196,21 +228,41 @@ def convert_mzxml_to_parquet_fast_batches(
         time_unit: str = "s",
         remove_original: bool = False,
         tmp_dir: Optional[str] = None,
+        batch_size_points: int = BATCH_SIZE_POINTS,
 ):
     file_path = Path(file_path)
     time_factor = 60.0 if time_unit == "min" else 1.0
     file_stem = file_path.stem
 
-    # --- START BATCH LOGIC ---
-    table_batches = []
     current_lists = _init_lists()
-    # --- END BATCH LOGIC ---
+    parquet_writer: Optional[pq.ParquetWriter] = None
+    wrote_data = False
+    if not tmp_dir:
+        tmp_dir = tempfile.mkdtemp()
+    tmp_fn = Path(tmp_dir, f"{file_stem}.parquet")
 
     ms_level = None
     polarity = None
     first_scan = True
 
-    total_points = 0  # Counter for batches
+    total_points = 0  # Counter within current batch
+
+    def flush_batch() -> None:
+        nonlocal current_lists, parquet_writer, total_points, wrote_data
+        if not current_lists['mzs']:
+            return
+        table = _build_table_from_lists(current_lists, ms_level or 1)
+        if parquet_writer is None:
+            parquet_writer = pq.ParquetWriter(
+                tmp_fn,
+                table.schema,
+                compression="snappy",
+            )
+        parquet_writer.write_table(table)
+        wrote_data = True
+        _clear_lists(current_lists)
+        total_points = 0
+
     try:
         for data in iter_mzxml_fast(file_path.as_posix(), decode_binary=True):
             mz_arr = data.get("m/z array")
@@ -229,11 +281,12 @@ def convert_mzxml_to_parquet_fast_batches(
             scan_id = int(data.get("num", 0))
             scan_time = float(data.get("retentionTime", 0.0)) * time_factor
 
-            current_lists['labels'].extend([file_stem] * n_points)
-            current_lists['scan_ids'].extend([scan_id] * n_points)
-            current_lists['scan_times'].extend([scan_time] * n_points)
-            current_lists['mzs'].extend(mz_arr)
-            current_lists['intensities'].extend(inten_arr)
+            current_lists['labels'].append(file_stem)
+            current_lists['scan_ids'].append(scan_id)
+            current_lists['scan_times'].append(scan_time)
+            current_lists['counts'].append(n_points)
+            current_lists['mzs'].append(np.asarray(mz_arr, dtype=np.float64))
+            current_lists['intensities'].append(np.asarray(inten_arr, dtype=np.float64))
 
             if ms_level == 2:
                 mz_prec = None
@@ -245,60 +298,32 @@ def convert_mzxml_to_parquet_fast_batches(
                         fline_elm = f"{polarity} {mz_prec:.3f} [{mz_arr[0]:.3f}]"
                 except (KeyError, IndexError, TypeError):
                     pass
-                current_lists['mz_precursors'].extend([mz_prec] * n_points)
-                current_lists['filterLines'].extend([fline] * n_points)
-                current_lists['filterLines_ELMAVEN'].extend([fline_elm] * n_points)
-            else:
-                current_lists['mz_precursors'].extend([None] * n_points)
-                current_lists['filterLines'].extend([None] * n_points)
-                current_lists['filterLines_ELMAVEN'].extend([None] * n_points)
+                current_lists['mz_precursors'].append(mz_prec if mz_prec is not None else np.nan)
+                current_lists['filterLines'].append(fline)
+                current_lists['filterLines_ELMAVEN'].append(fline_elm)
 
             # --- START BATCH LOGIC ---
-            # Check if current batch exceeded threshold
-            if total_points > BATCH_SIZE_POINTS:
-                table_batches.append(_build_table_from_lists(current_lists, ms_level))
-                # Reset lists and counter
-                current_lists = _init_lists()
-                total_points = 0
+            if total_points >= batch_size_points:
+                flush_batch()
             # --- END BATCH LOGIC ---
     except XMLSyntaxError as e:
         raise ValueError(f"Invalid XML in {file_path}: {str(e)}") from e
     except Exception as e:
         raise ValueError(f"Invalid XML in {file_path}: {e}") from e
+    else:
+        flush_batch()
+    finally:
+        if parquet_writer is not None:
+            parquet_writer.close()
 
-    # --- START BATCH LOGIC ---
-    # Add the last batch if there is anything left
-    if total_points > 0:
-        table_batches.append(_build_table_from_lists(current_lists, ms_level))
-
-    # If nothing was read (empty or invalid file)
-    if not table_batches:
+    if not wrote_data:
         print(f"Warning: No valid data found in {file_path}")
-        # Return with null values or handle as error
         return 0, file_path, file_stem, 1, "Unknown", None
 
-    table = pa.concat_tables(table_batches)
-
-    if ms_level is None: ms_level = 1
-    if polarity is None: polarity = "Unknown"
-
-    if not tmp_dir:
-        tmp_dir = tempfile.mkdtemp()
-    tmp_fn = Path(tmp_dir, f"{file_stem}.parquet")
-
-    # if ms_level == 1:
-    #     indices = pa.compute.sort_indices(table, sort_keys=[("mz", "ascending")])
-    #     table = pa.compute.take(table, indices)
-    # elif ms_level == 2:
-    #     indices = pa.compute.sort_indices(table, sort_keys=[("filterLine", "ascending")])
-    #     table = pa.compute.take(table, indices)
-    try:
-        pq.write_table(
-            table,
-            tmp_fn,
-        )
-    except Exception as e:
-        raise ValueError(f"Failed to write {tmp_fn}: {e}") from e
+    if ms_level is None:
+        ms_level = 1
+    if polarity is None:
+        polarity = "Unknown"
 
     if remove_original:
         try:
@@ -461,6 +486,7 @@ def convert_mzml_to_parquet_fast_batches(
             pass
 
     return file_path, file_stem, ms_level, polarity, tmp_fn.as_posix()
+
 
 
 def convert_ms_file_to_parquet_fast_batches(
@@ -827,7 +853,7 @@ def process_ms_files(wdir, set_progress, selected_files, n_cpus):
         with tempfile.TemporaryDirectory() as tmpdir:
             futures_name = {}
             # ctx = multiprocessing.get_context('fork')
-            with concurrent.futures.ProcessPoolExecutor(max_workers=n_cpus, mp_context=None) as executor:
+            with concurrent.futures.ProcessPoolExecutor(max_workers=min(n_cpus, total_to_process), mp_context=None) as executor:
                 futures_name.update(
                     {
                         executor.submit(
