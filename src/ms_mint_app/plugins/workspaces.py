@@ -297,7 +297,7 @@ def _create_workspace(okCounts, tmpdir, ws_name, ws_description):
         if key:
             ws_path = Path(tmpdir, 'workspaces', str(key[0]))
             ws_path.mkdir(parents=True, exist_ok=True)
-            logger.info(f"Created workspace: {ws_name} at {ws_path}")
+            # Note: "Created workspace" is logged after activation in _load_workspace_directories_and_tables
 
     return 'create', None, None, None
 
@@ -395,6 +395,7 @@ def _ws_activate(selectedRowKeys, tmpdir, ws_action):
             mint_conn.execute("UPDATE workspaces SET last_activity = NOW() WHERE key = ?", (ws_key,))
             name = mint_conn.execute("SELECT name FROM workspaces WHERE key = ?", (ws_key,)).fetchone()
             notification = dash.no_update
+            is_new_activation = False
         else:
             # Full activation switch
             mint_conn.execute("UPDATE workspaces SET active = false WHERE key != ?", (ws_key,))
@@ -402,11 +403,11 @@ def _ws_activate(selectedRowKeys, tmpdir, ws_action):
                 "UPDATE workspaces SET active = true, last_activity = NOW() WHERE key = ? RETURNING name",
                 (ws_key,)
             ).fetchone()
+            is_new_activation = True
             
             if name:
                 ws_name = name[0]
-                # Only log the explicit activation switch here
-                logger.info(f"Activated workspace: {ws_name} (key: {ws_key})")
+                # Note: Log message moved to after activate_workspace_logging
                 notification = fac.AntdNotification(message=f"Workspace '{ws_name}' activated",
                                                     type="success",
                                                     duration=3,
@@ -424,6 +425,14 @@ def _ws_activate(selectedRowKeys, tmpdir, ws_action):
 
     # This will now be silent if the handler is already attached (idempotent)
     activate_workspace_logging(wdir, workspace_name=ws_name)
+    
+    # Log activation AFTER the handler is switched so it goes to the correct workspace's log
+    if is_new_activation:
+        # Check if this is a newly created workspace (ws_action came from create)
+        if ws_action and ws_action.get('type') == 'create':
+            logger.info(f"Created and activated workspace: {ws_name} at {wdir}")
+        else:
+            logger.info(f"Switched to workspace: {ws_name} (key: {ws_key})")
 
     return notification, ws_name, wdir.as_posix(), wdir.as_posix()
 
