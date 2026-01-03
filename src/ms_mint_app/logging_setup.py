@@ -14,16 +14,18 @@ DATE_FORMAT = "%Y-%m-%d %H:%M:%S"
 def init_global_logging(level: int = logging.INFO) -> None:
     """
     Configure global logging:
-    - root logger set to 'level'
-    - always logs to the terminal (stdout)
+    - root logger set to DEBUG (to allow file handlers to capture everything)
+    - stream handler (console) filters to 'level'
     """
     root = logging.getLogger()
-    root.setLevel(level)
+    # Root must be DEBUG so that file handlers can capture all levels
+    root.setLevel(logging.DEBUG)
 
     # Avoid duplicating handlers if called more than once
     has_stream = any(isinstance(h, logging.StreamHandler) for h in root.handlers)
     if not has_stream:
         stream_handler = logging.StreamHandler()
+        stream_handler.setLevel(level)  # Console output filtered by --debug flag
         formatter = logging.Formatter(LOG_FORMAT, DATE_FORMAT)
         stream_handler.setFormatter(formatter)
         root.addHandler(stream_handler)
@@ -70,8 +72,9 @@ def activate_workspace_logging(workspace_dir: str | Path,
     formatter = logging.Formatter(LOG_FORMAT, DATE_FORMAT)
     file_handler.setFormatter(formatter)
 
-    if level is not None:
-        file_handler.setLevel(level)
+    # Always log DEBUG level to the workspace file for full diagnostics
+    # (Console output level is controlled separately by --debug flag)
+    file_handler.setLevel(logging.DEBUG)
 
     root.addHandler(file_handler)
     _WORKSPACE_HANDLER = file_handler
