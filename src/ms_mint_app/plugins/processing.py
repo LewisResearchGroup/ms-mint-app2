@@ -17,6 +17,7 @@ import logging
 from ..duckdb_manager import (
     build_order_by,
     build_where_and_params,
+    calculate_optimal_batch_size,
     compute_chromatograms_in_batches,
     compute_results_in_batches,
     create_pivot,
@@ -385,13 +386,17 @@ _layout = html.Div(
                                 fac.AntdFormItem(
                                     fac.AntdInputNumber(
                                         id='processing-chromatogram-compute-batch-size',
-                                        defaultValue=1000,
+                                        defaultValue=calculate_optimal_batch_size(
+                                            int(psutil.virtual_memory().available * 0.5 / (1024 ** 3)),
+                                            100000,  # Assume 100k pairs as default estimate
+                                            cpu_count() // 2
+                                        ),
                                         min=50,
                                         step=50,
                                     ),
                                     label='Batch Size:',
-                                    tooltip='Number of pairs to process in each batch. This will affect the memory '
-                                            'usage, progress and processing time.',
+                                    tooltip='Optimal pairs per batch based on RAM/CPU. '
+                                            'Higher values = faster but more memory.',
                                 ),
                             ],
                             layout='inline'
@@ -1773,6 +1778,7 @@ def callbacks(app, fsc, cache):
     @app.callback(
         Output("processing-chromatogram-compute-cpu-item", "help", allow_duplicate=True),
         Output("processing-chromatogram-compute-ram-item", "help", allow_duplicate=True),
+        Output("processing-chromatogram-compute-batch-size", "value"),
         Input("processing-chromatogram-compute-cpu", "value"),
         Input("processing-chromatogram-compute-ram", "value"),
         prevent_initial_call=True
@@ -1780,4 +1786,10 @@ def callbacks(app, fsc, cache):
     def update_processing_resource_help(cpu, ram):
         help_cpu = _get_cpu_help_text(cpu)
         help_ram = _get_ram_help_text(ram)
-        return help_cpu, help_ram
+        # Auto-calculate optimal batch size based on current CPU and RAM
+        optimal_batch = calculate_optimal_batch_size(
+            int(ram) if ram else 8,
+            100000,  # Estimate for total pairs
+            int(cpu) if cpu else 4
+        )
+        return help_cpu, help_ram, optimal_batch

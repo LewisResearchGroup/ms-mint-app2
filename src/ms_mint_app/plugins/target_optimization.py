@@ -14,7 +14,7 @@ from dash import html, dcc, Patch
 from dash.dependencies import Input, Output, State, ALL
 from dash.exceptions import PreventUpdate
 
-from ..duckdb_manager import duckdb_connection, compute_chromatograms_in_batches
+from ..duckdb_manager import duckdb_connection, compute_chromatograms_in_batches, calculate_optimal_batch_size
 from ..plugin_interface import PluginInterface
 from ..tools import sparsify_chrom, proportional_min1_selection
 from ..plugins.analysis_tools.trace_helper import generate_chromatogram_traces, calculate_rt_alignment, calculate_shifts_per_sample_type
@@ -527,13 +527,17 @@ _layout = fac.AntdLayout(
                                 fac.AntdFormItem(
                                     fac.AntdInputNumber(
                                         id='chromatogram-compute-batch-size',
-                                        defaultValue=1000,
+                                        defaultValue=calculate_optimal_batch_size(
+                                            int(psutil.virtual_memory().available * 0.5 / (1024 ** 3)),
+                                            100000,  # Assume 100k pairs as default estimate
+                                            cpu_count() // 2
+                                        ),
                                         min=50,
                                         step=50,
                                     ),
                                     label='Batch Size:',
-                                    tooltip='Number of pairs to process in each batch. This will affect the memory '
-                                            'usage, progress and processing time.',
+                                    tooltip='Optimal pairs per batch based on RAM/CPU. '
+                                            'Higher values = faster but more memory.',
                                 ),
                             ],
                             layout='inline'
@@ -3406,6 +3410,7 @@ def callbacks(app, fsc, cache, cpu=None):
     @app.callback(
         Output("chromatogram-compute-cpu-item", "help"),
         Output("chromatogram-compute-ram-item", "help"),
+        Output("chromatogram-compute-batch-size", "value"),
         Input("chromatogram-compute-cpu", "value"),
         Input("chromatogram-compute-ram", "value"),
         prevent_initial_call=True
@@ -3413,7 +3418,13 @@ def callbacks(app, fsc, cache, cpu=None):
     def update_resource_usage_help(cpu, ram):
         help_cpu = _get_cpu_help_text(cpu)
         help_ram = _get_ram_help_text(ram)
-        return help_cpu, help_ram
+        # Auto-calculate optimal batch size based on current CPU and RAM
+        optimal_batch = calculate_optimal_batch_size(
+            int(ram) if ram else 8,
+            100000,  # Estimate for total pairs
+            int(cpu) if cpu else 4
+        )
+        return help_cpu, help_ram, optimal_batch
 
     @app.callback(
         # only save the current values stored in slider-reference-data since this will shut all the actions

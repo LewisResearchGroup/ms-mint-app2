@@ -11,6 +11,62 @@ logger = logging.getLogger(__name__)
 from .sample_metadata import GROUP_COLUMNS
 
 
+def calculate_optimal_batch_size(ram_gb: int, total_pairs: int, n_cpus: int = None) -> int:
+    """
+    Calculate optimal batch size for chromatogram/results extraction based on resources.
+    
+    Formula:
+    - Base: 500 pairs
+    - RAM factor: scales by 4GB increments (1000 per 4GB)
+    - CPU factor: scales with cores (max 2x boost)
+    - Cap: 10000 (diminishing returns above this)
+    - Minimum: 500 (to avoid too many small batches)
+    - At least 10 batches for progress reporting
+    
+    Args:
+        ram_gb: Available RAM in GB for DuckDB
+        total_pairs: Total number of pairs to process
+        n_cpus: Number of CPUs allocated to DuckDB
+        
+    Returns:
+        Optimal batch size
+    """
+    ram_gb = ram_gb or 16  # Default to 16GB if not specified
+    
+    # RAM factor: 1000 pairs per 4GB
+    ram_factor = max(ram_gb, 4) // 4
+    
+    # CPU factor: scale up to 2x for more cores
+    # But cap effective CPUs at RAM (1GB per CPU minimum)
+    effective_cpus = min(n_cpus or 4, ram_gb)  # Cap CPUs at RAM GB
+    cpu_factor = min(effective_cpus / 4, 2.0)  # Max 2x boost from CPUs
+    
+    base_batch = 500
+    optimal = int(base_batch * ram_factor * cpu_factor)
+    
+    # Ensure at least 10 batches for progress reporting
+    if total_pairs > 0:
+        optimal = min(optimal, max(total_pairs // 10, 500))
+    
+    return min(max(optimal, 500), 10000)  # Clamp to [500, 10000]
+
+
+def get_effective_cpus(n_cpus: int, ram_gb: int) -> int:
+    """
+    Calculate effective CPUs, capped at RAM (1GB per CPU minimum).
+    
+    Args:
+        n_cpus: Requested number of CPUs
+        ram_gb: Available RAM in GB
+        
+    Returns:
+        Effective number of CPUs to use
+    """
+    if not n_cpus or not ram_gb:
+        return n_cpus or 4  # Default to 4 if not specified
+    return min(n_cpus, ram_gb)
+
+
 def _send_progress(set_progress, percent, stage: str = "", detail: str = ""):
     """
     Safely call the provided set_progress callback.
@@ -80,8 +136,13 @@ def duckdb_connection(workspace_path: Path | str, register_activity=True, n_cpus
         except Exception:
             pass  # temp_directory already set or can't be changed - not critical
         if n_cpus:
-            con.execute(f"SET threads = {n_cpus}", )
-            logger.debug(f"DuckDB threads set to {n_cpus}")
+            # Cap CPUs at RAM (1GB per CPU minimum to prevent resource imbalance)
+            effective_cpus = get_effective_cpus(n_cpus, ram) if ram else n_cpus
+            con.execute(f"SET threads = {effective_cpus}")
+            if effective_cpus != n_cpus:
+                logger.info(f"DuckDB threads capped at {effective_cpus} (requested {n_cpus}, RAM limit {ram}GB)")
+            else:
+                logger.debug(f"DuckDB threads set to {effective_cpus}")
         if ram:
             con.execute(f"SET memory_limit = '{ram}GB'")
             # Verify the setting was applied
@@ -789,7 +850,7 @@ def compute_and_insert_chromatograms_from_ms_data(con: duckdb.DuckDBPyConnection
 def compute_chromatograms_in_batches(wdir: str,
                                      # conn: duckdb.DuckDBPyConnection,
                                      use_for_optimization: bool,
-                                     batch_size: int = 1000,
+                                     batch_size: int = None,
                                      checkpoint_every: int = 10,
                                      set_progress=None,
                                      recompute_ms1=False,
@@ -1074,7 +1135,15 @@ def compute_chromatograms_in_batches(wdir: str,
 
 
         logger.info(f"{global_total_pairs:,} pending pairs ({elapsed:.2f}s)")
-        logger.info(f"Processing in batches of {batch_size}...")
+        
+        # Auto-calculate optimal batch size if not explicitly provided
+        if batch_size is None:
+            ram_gb = ram if ram else 16  # Default to 16GB if not specified
+            cpus = n_cpus if n_cpus else 4  # Default to 4 if not specified
+            batch_size = calculate_optimal_batch_size(ram_gb, global_total_pairs, cpus)
+            logger.info(f"Auto-calculated batch size: {batch_size} (based on {ram_gb}GB RAM, {cpus} CPUs, {global_total_pairs:,} pairs)")
+        else:
+            logger.info(f"Using specified batch size: {batch_size}")
 
         global_processed = 0  # accumulated counter
         global_stats: dict[str, dict] = {}
@@ -1225,7 +1294,7 @@ def compute_chromatograms_in_batches(wdir: str,
 def compute_results_in_batches(wdir: str,
                                use_bookmarked: bool = False,
                                recompute: bool = False,
-                               batch_size: int = 1000,
+                               batch_size: int = None,
                                checkpoint_every: int = 20,
                                set_progress=None,
                                n_cpus=None,
@@ -1408,7 +1477,15 @@ def compute_results_in_batches(wdir: str,
 
         total_count, min_id, max_id = total_pairs
         logger.info(f"{total_count:,} pending pairs ({elapsed:.2f}s)")
-        logger.info(f"Processing in batches of {batch_size}...")
+        
+        # Auto-calculate optimal batch size if not explicitly provided
+        if batch_size is None:
+            ram_gb = ram if ram else 16  # Default to 16GB if not specified
+            cpus = n_cpus if n_cpus else 4  # Default to 4 if not specified
+            batch_size = calculate_optimal_batch_size(ram_gb, total_count, cpus)
+            logger.info(f"Auto-calculated batch size: {batch_size} (based on {ram_gb}GB RAM, {cpus} CPUs, {total_count:,} pairs)")
+        else:
+            logger.info(f"Using specified batch size: {batch_size}")
         total_files = 0
         if set_progress:
             total_files = conn.execute("""
