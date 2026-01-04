@@ -108,7 +108,17 @@ def generate_chromatogram_traces(chrom_df, use_megatrace=False, rt_alignment_shi
         # ------------------------------------
         # NORMAL MODE: one trace per chromatogram
         # ------------------------------------
-        for i, row in enumerate(chrom_df.iter_rows(named=True)):
+        # First, count samples per sample_type to sort by group size
+        rows_list = list(chrom_df.iter_rows(named=True))
+        sample_type_counts = {}
+        for row in rows_list:
+            stype = row['sample_type']
+            sample_type_counts[stype] = sample_type_counts.get(stype, 0) + 1
+        
+        # Sort rows: larger sample_type groups first, so smaller groups are drawn last (on top)
+        rows_sorted = sorted(rows_list, key=lambda r: sample_type_counts.get(r['sample_type'], 0), reverse=True)
+        
+        for i, row in enumerate(rows_sorted):
 
             scan_time_sparse, intensity_sparse = sparsify_chrom(
                 row['scan_time_sliced'], row['intensity_sliced'], **sparsify_kwargs
@@ -194,8 +204,9 @@ def generate_chromatogram_traces(chrom_df, use_megatrace=False, rt_alignment_shi
             if row['intensity_max_in_range'] is not None:
                 y_max = max(y_max, row['intensity_max_in_range'])
 
-        # Construir traces
-        for stype, data in grouped.items():
+        # Construir traces - sort by count descending so smaller groups are drawn last (on top)
+        sorted_groups = sorted(grouped.items(), key=lambda x: x[1]['count'], reverse=True)
+        for stype, data in sorted_groups:
             # Flatten arrays
             x_flat = list(itertools.chain(*data['x']))
             y_flat = list(itertools.chain(*data['y']))

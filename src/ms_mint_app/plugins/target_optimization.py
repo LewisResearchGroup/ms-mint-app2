@@ -1829,7 +1829,17 @@ def callbacks(app, fsc, cache, cpu=None):
             traces = []
             y_max = 0.0
             y_min_pos = None
-            for i, row in enumerate(peak_data.iter_rows(named=True)):
+            # Count samples per sample_type to sort by group size
+            rows_list = list(peak_data.iter_rows(named=True))
+            sample_type_counts = {}
+            for row in rows_list:
+                stype = row.get('sample_type')
+                sample_type_counts[stype] = sample_type_counts.get(stype, 0) + 1
+            
+            # Sort rows: larger sample_type groups first, so smaller groups are drawn last (on top)
+            rows_sorted = sorted(rows_list, key=lambda r: sample_type_counts.get(r.get('sample_type'), 0), reverse=True)
+            
+            for i, row in enumerate(rows_sorted):
                 
                 scan_time = np.array(row['scan_time_sliced'])
                 intensity = np.array(row['intensity_sliced'])
