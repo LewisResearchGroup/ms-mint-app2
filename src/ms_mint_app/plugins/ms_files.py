@@ -196,14 +196,38 @@ _layout = html.Div(
                     fuc.FefferyHexColorPicker(
                         id='hex-color-picker', showAlpha=True
                     )
-                )
+                ),
+                fac.AntdFlex(
+                    [
+                        fac.AntdInput(
+                            id='hex-color-input',
+                            placeholder='#RRGGBB',
+                            style={'width': '120px', 'textAlign': 'center'},
+                            maxLength=7,
+                        ),
+                        html.Div(
+                            id='hex-color-preview',
+                            style={
+                                'width': '30px',
+                                'height': '30px',
+                                'borderRadius': '4px',
+                                'border': '1px solid #d9d9d9',
+                            }
+                        )
+                    ],
+                    gap='small',
+                    justify='center',
+                    align='center',
+                    style={'marginTop': '10px'}
+                ),
+                html.Div(id='hex-color-error', style={'color': 'red', 'fontSize': '12px', 'textAlign': 'center', 'marginTop': '5px'})
             ],
             id='color-picker-modal',
             renderFooter=True,
             width=300,
             styles={
                 'body': {
-                    'height': 230,
+                    'height': 280,
                     'alignItems': 'center',
                     'alignContent': 'end',
                 }
@@ -877,6 +901,9 @@ def callbacks(cls, app, fsc, cache, args_namespace):
     @app.callback(
         Output('color-picker-modal', 'visible'),
         Output('hex-color-picker', 'color'),
+        Output('hex-color-input', 'value'),
+        Output('hex-color-preview', 'style'),
+        Output('hex-color-error', 'children'),
         Input('ms-files-table', 'nClicksButton'),
         State('ms-files-table', 'clickedCustom'),
         prevent_initial_call=True
@@ -884,7 +911,78 @@ def callbacks(cls, app, fsc, cache, args_namespace):
     def open_color_picker(nClicksButton, clickedCustom):
         if not clickedCustom or 'color' not in clickedCustom:
             raise PreventUpdate
-        return True, clickedCustom['color']
+        color = clickedCustom['color']
+        preview_style = {
+            'width': '30px',
+            'height': '30px',
+            'borderRadius': '4px',
+            'border': '1px solid #d9d9d9',
+            'backgroundColor': color
+        }
+        return True, color, color, preview_style, ''
+
+    @app.callback(
+        Output('hex-color-input', 'value', allow_duplicate=True),
+        Output('hex-color-preview', 'style', allow_duplicate=True),
+        Input('hex-color-picker', 'color'),
+        prevent_initial_call=True
+    )
+    def sync_picker_to_input(color):
+        """Sync color picker selection to hex input field."""
+        if not color:
+            raise PreventUpdate
+        preview_style = {
+            'width': '30px',
+            'height': '30px',
+            'borderRadius': '4px',
+            'border': '1px solid #d9d9d9',
+            'backgroundColor': color
+        }
+        return color, preview_style
+
+    @app.callback(
+        Output('hex-color-picker', 'color', allow_duplicate=True),
+        Output('hex-color-preview', 'style', allow_duplicate=True),
+        Output('hex-color-error', 'children', allow_duplicate=True),
+        Input('hex-color-input', 'value'),
+        prevent_initial_call=True
+    )
+    def sync_input_to_picker(hex_value):
+        """Sync hex input to color picker with validation."""
+        import re
+        if hex_value is None:
+            raise PreventUpdate
+        
+        hex_value = hex_value.strip()
+        
+        # Add # if missing
+        if hex_value and not hex_value.startswith('#'):
+            hex_value = '#' + hex_value
+        
+        # Validate hex color format
+        if not hex_value:
+            raise PreventUpdate
+        
+        if not re.match(r'^#[0-9A-Fa-f]{6}$', hex_value):
+            # Invalid hex code
+            preview_style = {
+                'width': '30px',
+                'height': '30px',
+                'borderRadius': '4px',
+                'border': '1px solid #ff4d4f',
+                'backgroundColor': '#f5f5f5'
+            }
+            return dash.no_update, preview_style, 'Invalid hex code (use #RRGGBB)'
+        
+        # Valid hex code
+        preview_style = {
+            'width': '30px',
+            'height': '30px',
+            'borderRadius': '4px',
+            'border': '1px solid #d9d9d9',
+            'backgroundColor': hex_value
+        }
+        return hex_value, preview_style, ''
 
     @app.callback(
         Output('notifications-container', 'children', allow_duplicate=True),

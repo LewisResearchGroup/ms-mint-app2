@@ -204,7 +204,7 @@ def generate_chromatogram_traces(chrom_df, use_megatrace=False, rt_alignment_shi
             if row['intensity_max_in_range'] is not None:
                 y_max = max(y_max, row['intensity_max_in_range'])
 
-        # Construir traces - sort by count descending so smaller groups are drawn last (on top)
+        # Build traces - sort by count descending so smaller groups are drawn last (on top)
         sorted_groups = sorted(grouped.items(), key=lambda x: x[1]['count'], reverse=True)
         for stype, data in sorted_groups:
             # Flatten arrays
