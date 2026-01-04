@@ -1079,8 +1079,8 @@ def callbacks(cls, app, fsc, cache, args_namespace):
         Output("notifications-container", "children", allow_duplicate=True),
         Output("ms-table-action-store", "data", allow_duplicate=True),
 
-        Input("ms-files-table", "recentlyRowEdited"),
-        State("ms-files-table", "recentlyColumnEdited"),
+        Input("ms-files-table", "recentlyChangedRow"),
+        State("ms-files-table", "recentlyChangedColumn"),
         State("wdir", "data"),
         prevent_initial_call=True,
     )
