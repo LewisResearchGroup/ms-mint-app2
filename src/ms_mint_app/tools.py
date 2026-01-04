@@ -156,6 +156,186 @@ def iter_mzxml_fast(path: str | Path, *, decode_binary: bool = True) -> Iterator
             yield current
             root.clear()  # frees memory
 
+
+# =============================================================================
+# CV Param Accessions (controlled vocabulary for mzML parsing)
+# =============================================================================
+CV_32BIT_FLOAT = "MS:1000521"
+CV_64BIT_FLOAT = "MS:1000523"
+CV_ZLIB_COMPRESSION = "MS:1000574"
+CV_NO_COMPRESSION = "MS:1000576"
+CV_MZ_ARRAY = "MS:1000514"
+CV_INTENSITY_ARRAY = "MS:1000515"
+CV_MS_LEVEL = "MS:1000511"
+CV_POSITIVE_SCAN = "MS:1000130"
+CV_NEGATIVE_SCAN = "MS:1000129"
+CV_SCAN_START_TIME = "MS:1000016"
+
+
+def _decode_binary_mzml(
+    binary_text: str,
+    is_64bit: bool = True,
+    is_compressed: bool = True
+) -> np.ndarray:
+    """
+    Decode a mzML binary data array.
+
+    Args:
+        binary_text: Base64-encoded binary string
+        is_64bit: True for 64-bit float, False for 32-bit
+        is_compressed: True if zlib compressed
+
+    Returns:
+        numpy array of decoded values
+    """
+    if not binary_text or not binary_text.strip():
+        return np.array([], dtype=np.float64 if is_64bit else np.float32)
+
+    # Base64 decode
+    raw = base64.b64decode(binary_text.strip())
+
+    # Decompress if needed
+    if is_compressed:
+        raw = zlib.decompress(raw)
+
+    # Convert to numpy array
+    dtype = np.float64 if is_64bit else np.float32
+    return np.frombuffer(raw, dtype=dtype)
+
+
+def iter_mzml_fast(path: str | Path, *, decode_binary: bool = True) -> Iterator[Dict[str, Any]]:
+    """
+    Fast lxml-based iterator for mzML files.
+
+    Similar to iter_mzxml_fast but handles mzML-specific structure:
+    - Separate binaryDataArray elements for m/z and intensity
+    - CV terms for metadata (compression, precision, polarity, etc.)
+    - Always has namespace that must be stripped
+
+    ~2x faster than pyteomics-based iter_mzml_pyteomics.
+
+    Args:
+        path: Path to mzML file
+        decode_binary: If True, decode binary arrays to numpy arrays
+
+    Yields:
+        Dictionary with spectrum data (same format as iter_mzxml_fast)
+    """
+    from lxml import etree
+
+    path = Path(path)
+    NS = "{http://psi.hupo.org/ms/mzml}"
+
+    context = etree.iterparse(
+        path.as_posix(),
+        events=("start", "end"),
+        remove_comments=True,
+    )
+
+    # Get root for memory cleanup
+    _, root = next(context)
+
+    current: Dict[str, Any] = {}
+    binary_arrays: List[Dict[str, Any]] = []
+    current_binary: Dict[str, Any] = {}
+
+    for ev, elem in context:
+        # Strip namespace
+        tag = elem.tag
+        if tag.startswith(NS):
+            tag = tag[len(NS):]
+
+        if ev == "start" and tag == "spectrum":
+            # Start of new spectrum
+            attribs = elem.attrib
+            index = attribs.get("index", "0")
+            spec_id = attribs.get("id", "")
+            # Extract scan number from id like "controllerType=0 controllerNumber=1 scan=4"
+            scan_match = re.search(r'scan=(\d+)', spec_id)
+            scan_num = int(scan_match.group(1)) if scan_match else int(index) + 1
+
+            current = {
+                "num": scan_num,
+                "msLevel": 1,  # Default, will be updated from cvParam
+                "retentionTime": 0.0,
+                "polarity": None,
+                "filterLine": None,
+            }
+            binary_arrays = []
+
+        elif ev == "end" and tag == "cvParam":
+            # Parse CV parameters
+            accession = elem.get("accession", "")
+            value = elem.get("value", "")
+
+            if accession == CV_MS_LEVEL:
+                current["msLevel"] = int(value) if value else 1
+            elif accession == CV_POSITIVE_SCAN:
+                current["polarity"] = "Positive"
+            elif accession == CV_NEGATIVE_SCAN:
+                current["polarity"] = "Negative"
+            elif accession == CV_SCAN_START_TIME:
+                # Get scan time - check units
+                unit_name = elem.get("unitName", "second")
+                time_val = float(value) if value else 0.0
+                if unit_name == "minute":
+                    time_val *= 60.0
+                current["retentionTime"] = time_val
+            elif accession == CV_32BIT_FLOAT:
+                current_binary["is_64bit"] = False
+            elif accession == CV_64BIT_FLOAT:
+                current_binary["is_64bit"] = True
+            elif accession == CV_ZLIB_COMPRESSION:
+                current_binary["is_compressed"] = True
+            elif accession == CV_NO_COMPRESSION:
+                current_binary["is_compressed"] = False
+            elif accession == CV_MZ_ARRAY:
+                current_binary["type"] = "mz"
+            elif accession == CV_INTENSITY_ARRAY:
+                current_binary["type"] = "intensity"
+
+        elif ev == "start" and tag == "binaryDataArray":
+            # Reset for new binary array
+            current_binary = {
+                "is_64bit": True,
+                "is_compressed": False,
+                "type": None,
+                "data": None,
+            }
+
+        elif ev == "end" and tag == "binary":
+            # Store binary text
+            current_binary["data"] = elem.text
+
+        elif ev == "end" and tag == "binaryDataArray":
+            # Complete binary array - decode if requested
+            if decode_binary and current_binary.get("data"):
+                arr = _decode_binary_mzml(
+                    current_binary["data"],
+                    is_64bit=current_binary.get("is_64bit", True),
+                    is_compressed=current_binary.get("is_compressed", False),
+                )
+                current_binary["array"] = arr
+            binary_arrays.append(current_binary)
+            current_binary = {}
+
+        elif ev == "end" and tag == "spectrum":
+            # End of spectrum - assemble result
+            mz_array = np.array([], dtype=np.float64)
+            intensity_array = np.array([], dtype=np.float64)
+
+            for ba in binary_arrays:
+                if ba.get("type") == "mz" and "array" in ba:
+                    mz_array = ba["array"].astype(np.float64)
+                elif ba.get("type") == "intensity" and "array" in ba:
+                    intensity_array = ba["array"].astype(np.float64)
+
+            current["m/z array"] = mz_array
+            current["intensity array"] = intensity_array
+
+            yield current
+            root.clear()
+
 BATCH_SIZE_POINTS = 500_000
 
 
@@ -442,7 +622,7 @@ def convert_mzml_to_parquet_fast_batches(
         total_points = 0
 
     try:
-        for data in iter_mzml_pyteomics(file_path.as_posix()):
+        for data in iter_mzml_fast(file_path.as_posix()):
             mz_arr = data.get("m/z array")
             if mz_arr is None or len(mz_arr) == 0:
                 continue
