@@ -152,15 +152,22 @@ def generate_chromatogram_traces(chrom_df, use_megatrace=False, rt_alignment_shi
         # REDUCED MODE: one trace per sample_type
         # ------------------------------------
         grouped = {}
+        color_counts = {}  # Track color counts per sample_type
         for row in chrom_df.iter_rows(named=True):
             stype = row['sample_type']
             if stype not in grouped:
                 grouped[stype] = {
                     'x': [],
                     'y': [],
-                    'color': row['color'],
                     'count': 0
                 }
+                color_counts[stype] = {}
+            
+            # Count colors for this sample type
+            color = row['color']
+            if color not in color_counts[stype]:
+                color_counts[stype][color] = 0
+            color_counts[stype][color] += 1
 
             # Sparsify individually before joining (optional, to save more)
             st, ints = sparsify_chrom(
@@ -192,13 +199,20 @@ def generate_chromatogram_traces(chrom_df, use_megatrace=False, rt_alignment_shi
             # Flatten arrays
             x_flat = list(itertools.chain(*data['x']))
             y_flat = list(itertools.chain(*data['y']))
+            
+            # Get the most common color for this sample type
+            stype_colors = color_counts.get(stype, {})
+            if stype_colors:
+                most_common_color = max(stype_colors, key=stype_colors.get)
+            else:
+                most_common_color = None  # Fallback
 
             trace = {
                 'type': 'scattergl',
                 'mode': 'lines',
                 'x': x_flat,
                 'y': y_flat,
-                'line': {'color': data['color']},
+                'line': {'color': most_common_color},
                 'name': f"{stype} ({data['count']})",
                 'legendgroup': stype,
                 'hoverlabel': dict(namelength=-1),
