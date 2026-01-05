@@ -400,6 +400,8 @@ _layout = html.Div(
                     text='Updating table...',
                     size='small',
                     spinning=False,
+                    listenPropsMode='exclude',  # Only show spinner when explicitly set, not on data updates
+                    excludeProps=['ms-files-table.data'],  # Don't trigger spinner on data changes (e.g., Patch updates)
                 )
             ],
             id='ms-files-table-container',
@@ -552,43 +554,46 @@ def generate_colors(wdir, regenerate=False):
 
 
 
-def _set_color(okCounts, color, recentlyButtonClickedRow, data, wdir):
+def _save_color_to_db(okCounts, color, recentlyButtonClickedRow, wdir):
+    """Background callback to persist color change to database."""
     if recentlyButtonClickedRow is None or not okCounts or not wdir:
-        return dash.no_update, dash.no_update
+        return dash.no_update
 
-    previous_color = recentlyButtonClickedRow['color']['content']
+    previous_color = recentlyButtonClickedRow.get('color', {}).get('content', 'unknown')
+    ms_file_label = recentlyButtonClickedRow.get('ms_file_label')
+    
+    if not ms_file_label:
+        return dash.no_update
+    
     try:
         with duckdb_connection(wdir) as conn:
             conn.execute("UPDATE samples SET color = ? WHERE ms_file_label = ?",
-                         [color, recentlyButtonClickedRow['ms_file_label']])
-        ms_table_action_store = {'action': 'color-changed', 'status': 'success'}
+                         [color, ms_file_label])
         
-        logger.info(f"Changed color for {recentlyButtonClickedRow['ms_file_label']} from {previous_color} to {color}")
-
-        return (fac.AntdNotification(message='Color updated',
-                                     description=f'Color changed from {previous_color} to {color}',
-                                     type='success',
-                                     duration=3,
-                                     placement='bottom',
-                                     showProgress=True,
-                                     stack=True,
-                                     style=NOTIFICATION_COMPACT_STYLE
-                                     ),
-                ms_table_action_store
-                )
+        logger.info(f"Changed color for {ms_file_label} from {previous_color} to {color}")
+        
+        return fac.AntdNotification(
+            message='Color saved',
+            description=f'Color changed to {color}',
+            type='success',
+            duration=2,
+            placement='bottom',
+            showProgress=True,
+            stack=True,
+            style=NOTIFICATION_COMPACT_STYLE
+        )
     except Exception as e:
-        logger.error(f"DB error: {e}")
-
-        return (fac.AntdNotification(message='Failed to update color',
-                                     description=f'Error: {str(e)}',
-                                     type='error',
-                                     duration=3,
-                                     placement='bottom',
-                                     showProgress=True,
-                                     stack=True,
-                                     style=NOTIFICATION_COMPACT_STYLE
-                                     ),
-                dash.no_update)
+        logger.error(f"DB error saving color: {e}")
+        return fac.AntdNotification(
+            message='Failed to save color',
+            description=f'Error: {str(e)}',
+            type='error',
+            duration=3,
+            placement='bottom',
+            showProgress=True,
+            stack=True,
+            style=NOTIFICATION_COMPACT_STYLE
+        )
 
 
 def _genere_color_map(nClicks, clickedKey, wdir):
@@ -656,6 +661,16 @@ def _ms_files_table(section_context, processing_output, processed_action, pagina
         raise PreventUpdate
     if not wdir:
         raise PreventUpdate
+    
+    # Skip refresh if triggered by action store for certain actions (cell already updated visually)
+    ctx = dash.callback_context
+    if ctx.triggered:
+        trigger_id = ctx.triggered[0]['prop_id'].split('.')[0]
+        if trigger_id == 'ms-table-action-store':
+            trigger_value = ctx.triggered[0].get('value')
+            # Skip for empty/no_update (color change), or edit actions (cell updates handled locally)
+            if not trigger_value or trigger_value == {} or trigger_value.get('action') == 'edit':
+                raise PreventUpdate
 
     start_time = time.perf_counter()
     if pagination:
@@ -984,18 +999,62 @@ def callbacks(cls, app, fsc, cache, args_namespace):
         }
         return hex_value, preview_style, ''
 
-    @app.callback(
-        Output('notifications-container', 'children', allow_duplicate=True),
-        Output('ms-table-action-store', 'data', allow_duplicate=True),
+    # Clientside callback for INSTANT UI update (no server round-trip)
+    app.clientside_callback(
+        """
+        function(okCounts, color, recentlyButtonClickedRow, data) {
+            if (!okCounts || !color || !recentlyButtonClickedRow || !data) {
+                return window.dash_clientside.no_update;
+            }
+            
+            // Find the row index
+            const msFileLabel = recentlyButtonClickedRow.ms_file_label;
+            let rowIndex = -1;
+            for (let i = 0; i < data.length; i++) {
+                if (data[i].ms_file_label === msFileLabel) {
+                    rowIndex = i;
+                    break;
+                }
+            }
+            
+            if (rowIndex === -1) {
+                return window.dash_clientside.no_update;
+            }
+            
+            // Create updated data with only the color cell changed
+            const newData = [...data];
+            newData[rowIndex] = {
+                ...newData[rowIndex],
+                color: {
+                    content: color,
+                    variant: 'filled',
+                    custom: { color: color },
+                    style: { background: color, width: '70px' }
+                }
+            };
+            
+            return newData;
+        }
+        """,
+        Output('ms-files-table', 'data', allow_duplicate=True),
         Input('color-picker-modal', 'okCounts'),
         State('hex-color-picker', 'color'),
         State('ms-files-table', 'recentlyButtonClickedRow'),
         State('ms-files-table', 'data'),
+        prevent_initial_call=True
+    )
+
+    # Server callback for database persistence (runs in background after UI update)
+    @app.callback(
+        Output('notifications-container', 'children', allow_duplicate=True),
+        Input('color-picker-modal', 'okCounts'),
+        State('hex-color-picker', 'color'),
+        State('ms-files-table', 'recentlyButtonClickedRow'),
         State("wdir", "data"),
         prevent_initial_call=True
     )
-    def set_color(okCounts, color, recentlyButtonClickedRow, data, wdir):
-        return _set_color(okCounts, color, recentlyButtonClickedRow, data, wdir)
+    def save_color_to_db(okCounts, color, recentlyButtonClickedRow, wdir):
+        return _save_color_to_db(okCounts, color, recentlyButtonClickedRow, wdir)
 
     @app.callback(
         Output('notifications-container', 'children', allow_duplicate=True),

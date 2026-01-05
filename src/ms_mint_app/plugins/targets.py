@@ -412,6 +412,8 @@ _layout = html.Div(
                     ),
                     text='Loading data...',
                     size='small',
+                    listenPropsMode='exclude',  # Only show spinner when explicitly set
+                    excludeProps=['targets-table.data'],  # Don't trigger spinner on data changes
                 )
             ],
             id='targets-table-container',
@@ -632,6 +634,16 @@ def _targets_table(section_context, pagination, filter_, sorter, filterOptions, 
     if not wdir:
         logger.debug("_targets_table: PreventUpdate because wdir is not set")
         raise PreventUpdate
+    
+    # Skip refresh if triggered by action store for edit actions (cell already updated visually)
+    ctx = dash.callback_context
+    if ctx.triggered:
+        trigger_id = ctx.triggered[0]['prop_id'].split('.')[0]
+        if trigger_id == 'targets-action-store':
+            trigger_value = ctx.triggered[0].get('value')
+            # Skip for edit actions (cell updates are handled locally by AntdTable)
+            if trigger_value and trigger_value.get('action') == 'edit':
+                raise PreventUpdate
 
     if pagination:
         page_size = pagination['pageSize']
