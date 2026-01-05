@@ -163,14 +163,8 @@ Once the results are generated, there are several analyses you can perform. In t
 
 ![](quickstart/analysis-1.png)
 
-
-=== "Clustermap"
-    Clustered heatmap showing relationships between samples and targets. In this tab you can select different metrics (for example, peak_area, peak_top3), transformations (for example, z-score, log2), and groupings (for example, Sample type, Group 1, Group 2).
-
-    ![](quickstart/analysis-2.png)
-
 === "PCA"
-    Principal component analysis plot for sample-level patterns. Includes a score plot (PC1 to PC5) on the left side, cumulative variance (top right), and absolute loading values for a selected PC (bottom right).
+    Principal component analysis plot for sample-level patterns. Includes a score plot (PC1 to PC5) on the left side, cumulative variance (top right), and absolute loading values for a selected PC on the x-axis (bottom right).
 
     ![](quickstart/analysis-3.png)
 
@@ -179,6 +173,11 @@ Once the results are generated, there are several analyses you can perform. In t
     Distribution plots by group (for example, Sample type, Group 1, Group 2) to compare target values. Includes a hypothesis test result (t-test for two samples, ANOVA for more than two samples) on the top right corner.
 
     ![](quickstart/analysis-4.png)
+
+=== "Clustermap"
+    Clustered heatmap showing relationships between samples and targets. In this tab you can select different metrics (for example, peak_area, peak_top3), transformations (for example, z-score, log2), and groupings (for example, Sample type, Group 1, Group 2).
+
+    ![](quickstart/analysis-2.png)
 
 === "Scalir"
     Summary view for calculating concentrations.
