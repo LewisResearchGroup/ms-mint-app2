@@ -1844,10 +1844,10 @@ def callbacks(app, fsc, cache, cpu=None):
                 scan_time = np.array(row['scan_time_sliced'])
                 intensity = np.array(row['intensity_sliced'])
 
-                # Apply alignment shift if available
+                # Apply alignment shift if available (shifts are stored per-file in DB)
                 if rt_align_enabled and shifts_map:
-                    sample_type = row.get('sample_type')
-                    shift = shifts_map.get(sample_type, 0.0)
+                    ms_file_label = row.get('ms_file_label')
+                    shift = shifts_map.get(ms_file_label, 0.0)
                     if shift != 0:
                         scan_time = scan_time + shift
                 
@@ -2140,16 +2140,22 @@ def callbacks(app, fsc, cache, cpu=None):
                 conn.execute("UPDATE targets SET notes = ? WHERE peak_label = ?",
                              (final_note, target_clicked))
 
+            # Always refresh preview when RT alignment was changed
+            # Use a timestamp to trigger the chromatograms_preview callback
+            import time
+            refresh_signal = update_chromatograms or {'refresh': time.time()}
+
             # allow close if no slider data or no changes
             if (not slider_ref or not slider_data) or slider_ref.get('value') == slider_data.get('value'):
-                return False, None, update_chromatograms or dash.no_update
+                return False, None, refresh_signal
 
             # if it has changes, don't close it (handled via confirm modal)
             return dash.no_update, dash.no_update, dash.no_update
         elif trigger_id == 'confirm-unsave-modal':
-            # Close modal without saving changes
+            # Close modal without saving changes - but still refresh preview
             if close_without_save_clicks:
-                return False, None, update_chromatograms or dash.no_update
+                refresh_signal = update_chromatograms or {'refresh': time.time()}
+                return False, None, refresh_signal
 
         return dash.no_update, dash.no_update, dash.no_update
 
@@ -3668,10 +3674,12 @@ def callbacks(app, fsc, cache, cpu=None):
         State('target-note', 'value'),  # Current note text
         State('chromatogram-view-modal', 'title'),  # Current target name
         State('wdir', 'data'),
+        State('chromatogram-view-rt-align', 'checked'),  # RT alignment toggle state
+        State('rt-alignment-data', 'data'),  # RT alignment calculation data
         prevent_initial_call=True
     )
     def navigate_targets(prev_clicks, next_clicks, nav_store, reference_data, slider_data, 
-                         current_note, current_target, wdir):
+                         current_note, current_target, wdir, rt_align_toggle, rt_alignment_data):
         """Handle Previous/Next button clicks with unsaved changes check."""
         if not nav_store or not nav_store.get('targets'):
             raise PreventUpdate
@@ -3693,16 +3701,52 @@ def callbacks(app, fsc, cache, cpu=None):
         else:
             raise PreventUpdate
         
-        # Auto-save notes before navigating
+        # Auto-save notes and RT alignment before navigating
         if wdir and current_target:
             try:
                 with duckdb_connection(wdir) as conn:
                     if conn is not None:
+                        # Save notes
                         conn.execute("UPDATE targets SET notes = ? WHERE peak_label = ?",
                                     (current_note or '', current_target))
                         logger.debug(f"Auto-saved notes for '{current_target}' before navigation")
+                        
+                        # Save RT alignment state
+                        if rt_align_toggle:
+                            # Toggle is ON - save alignment data
+                            if rt_alignment_data and rt_alignment_data.get('enabled'):
+                                import json
+                                shifts_json = json.dumps(rt_alignment_data.get('shifts_per_file', {}))
+                                conn.execute("""
+                                    UPDATE targets 
+                                    SET rt_align_enabled = TRUE,
+                                        rt_align_reference_rt = ?,
+                                        rt_align_shifts = ?,
+                                        rt_align_rt_min = ?,
+                                        rt_align_rt_max = ?
+                                    WHERE peak_label = ?
+                                """, [
+                                    rt_alignment_data['reference_rt'],
+                                    shifts_json,
+                                    rt_alignment_data.get('rt_min'),
+                                    rt_alignment_data.get('rt_max'),
+                                    current_target
+                                ])
+                                logger.debug(f"Auto-saved RT alignment for '{current_target}' before navigation")
+                        else:
+                            # Toggle is OFF - clear alignment data
+                            conn.execute("""
+                                UPDATE targets 
+                                SET rt_align_enabled = FALSE,
+                                    rt_align_reference_rt = NULL,
+                                    rt_align_shifts = NULL,
+                                    rt_align_rt_min = NULL,
+                                    rt_align_rt_max = NULL
+                                WHERE peak_label = ?
+                            """, [current_target])
+                            logger.debug(f"Cleared RT alignment for '{current_target}' before navigation")
             except Exception as e:
-                logger.warning(f"Failed to auto-save notes for '{current_target}': {e}")
+                logger.warning(f"Failed to auto-save data for '{current_target}': {e}")
         
         # Check for unsaved changes (RT-span changes)
         has_changes = False
