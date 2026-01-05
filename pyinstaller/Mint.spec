@@ -54,6 +54,34 @@ datas_list = [
 if os.path.isdir(asari_env_dir):
     datas_list.append((asari_env_dir, 'asari_env'))
 
+# ============================================================================
+# MATPLOTLIB FONT CACHE - Startup Optimization
+# ============================================================================
+# Bundle pre-built matplotlib font cache to eliminate 5-second first-time delay.
+# The cache is platform-specific due to different system fonts.
+# 
+# To rebuild cache (when matplotlib is updated):
+#   cd pyinstaller
+#   python prebuild_matplotlib_cache.py
+#
+# This copies the prebuild_matplotlib_cache/matplotlib/ directory into assets/
+# during the build process.
+# ============================================================================
+
+import platform
+matplotlib_cache_src = os.path.join(SPECPATH, 'prebuild_matplotlib_cache', 'matplotlib')
+
+# Check if pre-built cache exists
+if os.path.isdir(matplotlib_cache_src):
+    # Bundle with platform identifier for cross-platform builds
+    system = platform.system().lower()
+    datas_list.append((matplotlib_cache_src, os.path.join('assets', f'matplotlib_cache_{system}')))
+    print(f"✓ Bundling matplotlib cache for {system} ({os.path.getsize(os.path.join(matplotlib_cache_src, 'fontlist-v390.json'))/1024:.1f} KB)")
+else:
+    print("⚠️  Matplotlib cache not found. Run 'python prebuild_matplotlib_cache.py' in pyinstaller/ to generate it.")
+    print("   Without cache, first-time users will experience ~5s startup delay.")
+
+
 # Platform-specific: PyOpenMS share directory and binaries
 if sys.platform == 'linux':
     # PyOpenMS share directory path for Linux
