@@ -7,8 +7,6 @@ from dash.dependencies import Input, Output, State
 import plotly.express as px
 
 import numpy as np
-import seaborn as sns
-import matplotlib.pyplot as plt 
 import contextlib
 
 # from ms_mint import Mint

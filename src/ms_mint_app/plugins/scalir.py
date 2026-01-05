@@ -13,7 +13,6 @@ import sys
 from pathlib import Path
 from typing import Iterable, Optional, Tuple
 
-import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
@@ -140,6 +139,9 @@ def plot_standard_curve(
     units: Optional[pd.DataFrame],
     output_dir: Path,
 ) -> Path:
+    # Lazy import matplotlib only when plotting is needed
+    import matplotlib.pyplot as plt
+    
     subset = frame[frame.peak_label == peak_label]
     if subset.empty:
         return output_dir / f"{slugify_label(peak_label)}_curve.png"
