@@ -31,4 +31,7 @@ analysis/*
 analyze_dependencies.py
 pyinstaller/asari_env/*
 !pyinstaller/asari_env/.gitkeep
+pyinstaller/build/*
+pyinstaller/dist/*
+pyinstaller/prebuild_matplotlib_cache/*
 tests/test_MS1/*

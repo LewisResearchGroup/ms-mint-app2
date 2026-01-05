@@ -2,7 +2,7 @@
 
 This guide covers the **complete process** for building MS-MINT frozen executables with optimized startup performance.
 
-## 📋 Prerequisites
+## Prerequisites
 
 Before building, ensure you have:
 - Python 3.10+ installed
@@ -12,7 +12,7 @@ Before building, ensure you have:
 
 ---
 
-## 🔨 Build Process (Step-by-Step)
+## Build Process (Step-by-Step)
 
 ### Step 1: Create Asari Environment
 
@@ -59,8 +59,8 @@ python prebuild_matplotlib_cache.py
 **Expected output:**
 ```
 ✓ Font cache built!
-💾 Total cache size: 158,332 bytes (0.15 MB)
-📌 Matplotlib version: 3.10.8
+Total cache size: 158,332 bytes (0.15 MB)
+Matplotlib version: 3.10.8
 ```
 
 **Platform-specific caches:**
@@ -103,7 +103,7 @@ Done!
 
 ---
 
-## 🪟 Platform-Specific Instructions
+## Platform-Specific Instructions
 
 ### Linux
 ```bash
@@ -137,7 +137,7 @@ pyinstaller Mint.spec               # Step 3
 
 ---
 
-## ✅ Verification
+## Verification
 
 After building, verify everything is bundled correctly:
 
@@ -175,7 +175,7 @@ time ./dist/Mint/Mint --no-browser
 
 ---
 
-## 🔄 When to Rebuild
+## When to Rebuild
 
 ### Rebuild Asari Environment When:
 - Asari package is updated
@@ -212,7 +212,7 @@ pyinstaller Mint.spec
 
 ---
 
-## 📊 Build Artifacts
+## Build Artifacts
 
 After successful build, you'll have:
 
@@ -235,7 +235,7 @@ pyinstaller/
 
 ---
 
-## 🎯 Expected Performance
+## Expected Performance
 
 ### Startup Time
 
@@ -255,7 +255,7 @@ pyinstaller/
 
 ---
 
-## 🐛 Troubleshooting
+## Troubleshooting
 
 ### "Asari environment not found"
 **Solution**: Run `python create_asari_env.py` before building
@@ -272,7 +272,7 @@ pyinstaller/
 
 ---
 
-## 📦 Distribution
+## Distribution
 
 ### Single Platform
 Distribute `dist/Mint/` directory with:
@@ -290,7 +290,7 @@ Each distribution is self-contained and optimized for its platform.
 
 ---
 
-## 📝 Summary Checklist
+## Summary Checklist
 
 Before building, ensure:
 - [ ] In `pyinstaller/` directory
@@ -308,7 +308,7 @@ pyinstaller Mint.spec
 
 ---
 
-## 🔗 Related Documentation
+## Related Documentation
 
 - **Asari Environment**: `create_asari_env.py` - Script documentation
 - **Cache Details**: `CROSS_PLATFORM_CACHE_GUIDE.md` - Technical details
