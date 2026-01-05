@@ -2870,11 +2870,26 @@ def callbacks(app, fsc, cache, cpu=None):
         if align_enabled and align_ref_rt is not None:
             try:
                 import json
-                shifts_dict = json.loads(align_shifts_json) if align_shifts_json else {}
+                shifts_per_file = json.loads(align_shifts_json) if align_shifts_json else {}
+                
+                # Calculate shifts_by_sample_type from per-file shifts (for notes display)
+                # We need to group by sample_type and calculate median
+                sample_type_shifts = {}
+                for row in chrom_df.iter_rows(named=True):
+                    sample_type = row['sample_type']
+                    ms_file_label = row['ms_file_label']
+                    shift = shifts_per_file.get(ms_file_label, 0.0)
+                    if sample_type not in sample_type_shifts:
+                        sample_type_shifts[sample_type] = []
+                    sample_type_shifts[sample_type].append(shift)
+                
+                shifts_by_sample_type = {st: float(np.median(shifts)) for st, shifts in sample_type_shifts.items()}
+                
                 rt_alignment_data_to_load = {
                     'enabled': True,
                     'reference_rt': align_ref_rt,
-                    'shifts_by_sample_type': shifts_dict,
+                    'shifts_by_sample_type': shifts_by_sample_type,  # For notes (human-readable)
+                    'shifts_per_file': shifts_per_file,  # For processing (per-file accuracy)
                     'rt_min': align_rt_min,
                     'rt_max': align_rt_max
                 }
