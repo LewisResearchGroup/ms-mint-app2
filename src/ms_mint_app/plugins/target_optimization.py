@@ -665,7 +665,7 @@ _layout = fac.AntdLayout(
                                                                 icon='antd-question-circle',
                                                                 style={'marginLeft': '5px', 'color': 'gray'}
                                                             ),
-                                                            title='Merge traces to improve performance'
+                                                            title='Merge traces to improve performance. Color by sample type only.'
                                                         )
                                                     ],
                                                     style={
@@ -813,7 +813,7 @@ _layout = fac.AntdLayout(
                                                                 icon='antd-question-circle',
                                                                 style={'marginLeft': '5px', 'color': 'gray'}
                                                             ),
-                                                            title='Align chromatograms by peak apex'
+                                                            title='Align chromatograms by peak apex within the RT span'
                                                         )
                                                     ],
                                                     style={

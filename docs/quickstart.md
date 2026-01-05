@@ -27,7 +27,7 @@ Now you have created your first workspace, but it is empty. You will need some i
 
 Some demo files are available for download on the `ms-mint` Google Drive. Download the files from [Google Drive](https://drive.google.com/drive/folders/1U4xMy5lfETk93sSVXPI79cCWyIMcAjeZ?usp=drive_link) and extract the archive.
 
-You will find two `csv` files and 8 `mzXML` files (4 EC + 4 CA).
+This is the directory tree of the demo files:
 
 ```
 .
@@ -53,10 +53,9 @@ You will find two `csv` files and 8 `mzXML` files (4 EC + 4 CA).
 4 directories, 15 files
 ```
 
-- A folder with 12 mass spectrometry (MS) files from microbial samples. We have four files for each _Escherichia coli_ (EC), _Candida albicans_ (CA), and _Staphylococcus aureus_ (SA).
-Each file belongs to one of four batches (B1-B4).
-- `metadata.csv` contains this information in tabular format. Submitting metadata is optional, but highly recommended to make downstream analysis smoother.
-- `targets.csv` contains the extraction lists. The identification of the metabolites has been done before, so we know where the metabolites appear in the MS data.
+- A folder (`ms-files`) with 12 mass spectrometry (MS) files from microbial samples. We have four files for each _Escherichia coli_ (EC), _Candida albicans_ (CA), and _Staphylococcus aureus_ (SA). Each file belongs to one of four batches (B1-B4).
+- A folder (`metadata`) with a `metadata.csv` file containing this information in tabular format. Submitting metadata is optional, but highly recommended to make downstream analysis smoother.
+- A folder (`targets`) with a `targets.csv` file containing the extraction lists. The identification of the metabolites has been done before, so we know where the metabolites appear in the MS data.
 
 ## 4. Upload LC-MS files
 
@@ -75,7 +74,7 @@ In the same way as before, click `LOAD METADATA` on the top left, navigate to th
 
 ![](quickstart/metadata-added.png)
 
-This file contains important information about your samples. Only `ms_file_label` and `sample_type`are essential; the remaining columns are optional but useful for grouping and plotting. If any of teh columns `use_for_optimization`, `use_for_processing`, `use_for_analysis` are left blank they will be assumed to be `TRUE`.
+This file contains important information about your samples. Only `ms_file_label` and `sample_type` are essential; the remaining columns are optional but useful for grouping and plotting. If any of the columns `use_for_optimization`, `use_for_processing`, `use_for_analysis` are left blank they will be assumed to be `TRUE`.
 
 | Column Name             | Description                                                       |
 |-------------------------|-------------------------------------------------------------------|
