@@ -400,8 +400,13 @@ _layout = html.Div(
                     text='Updating table...',
                     size='small',
                     spinning=False,
-                    listenPropsMode='exclude',  # Only show spinner when explicitly set, not on data updates
-                    excludeProps=['ms-files-table.data'],  # Don't trigger spinner on data changes (e.g., Patch updates)
+                    listenPropsMode='exclude',
+                    excludeProps=[
+                        'ms-files-table.data',
+                        'ms-files-table.pagination',
+                        'ms-files-table.selectedRowKeys',
+                        'ms-files-table.filterOptions',
+                    ],
                 )
             ],
             id='ms-files-table-container',
@@ -632,7 +637,7 @@ def _genere_color_map(nClicks, clickedKey, wdir):
                                  style=NOTIFICATION_COMPACT_STYLE
                                  )
     ms_table_action_store = {'action': 'color-changed', 'status': 'success'}
-    return notification, ms_table_action_store
+    return notification, ms_table_action_store, False  # spinning=False when done
 
 
 def _save_switch_changes(recentlySwitchDataIndex, recentlySwitchStatus, recentlySwitchRow, wdir):
@@ -1059,6 +1064,7 @@ def callbacks(cls, app, fsc, cache, args_namespace):
     @app.callback(
         Output('notifications-container', 'children', allow_duplicate=True),
         Output('ms-table-action-store', 'data', allow_duplicate=True),
+        Output('ms-files-table-spin', 'spinning', allow_duplicate=True),
 
         Input("ms-options", "nClicks"),
         State("ms-options", "clickedKey"),

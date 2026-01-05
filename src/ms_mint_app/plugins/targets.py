@@ -410,10 +410,16 @@ _layout = html.Div(
                         size='small',
                         mode='server-side',
                     ),
+                    id='targets-table-spin',
                     text='Loading data...',
                     size='small',
-                    listenPropsMode='exclude',  # Only show spinner when explicitly set
-                    excludeProps=['targets-table.data'],  # Don't trigger spinner on data changes
+                    listenPropsMode='exclude',
+                    excludeProps=[
+                        'targets-table.data',
+                        'targets-table.pagination',
+                        'targets-table.selectedRowKeys',
+                        'targets-table.filterOptions',
+                    ],
                 )
             ],
             id='targets-table-container',
