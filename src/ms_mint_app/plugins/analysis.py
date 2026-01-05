@@ -206,8 +206,24 @@ pca_tab = html.Div(
             style={'marginBottom': 10},
         ),
         fac.AntdSpin(
-            dcc.Graph(id='pca-graph', config=PLOTLY_HIGH_RES_CONFIG),
+            dcc.Graph(
+                id='pca-graph',
+                config=PLOTLY_HIGH_RES_CONFIG,
+                # Start with invisible figure to show only spinner during loading
+                figure={
+                    'data': [],
+                    'layout': {
+                        'xaxis': {'visible': False},
+                        'yaxis': {'visible': False},
+                        'paper_bgcolor': 'white',
+                        'plot_bgcolor': 'white',
+                        'margin': {'l': 0, 'r': 0, 't': 0, 'b': 0},
+                        'height': 700,  # Match final PCA plot height for proper spinner area
+                    }
+                },
+            ),
             text='Loading PCA...',
+            style={'minHeight': '20vh', 'width': '100%'},
         ),
     ]
 )
