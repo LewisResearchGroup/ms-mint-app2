@@ -435,7 +435,6 @@ _layout = html.Div(
         fac.AntdTabs(
             id='analysis-tabs',
             items=[
-                {'key': 'clustermap', 'label': 'Clustermap', 'children': clustermap_tab},
                 {'key': 'pca', 'label': 'PCA', 'children': pca_tab},
                 {
                     'key': 'raincloud',
@@ -481,10 +480,11 @@ _layout = html.Div(
                         ]
                     ),
                 },
+                {'key': 'clustermap', 'label': 'Clustermap', 'children': clustermap_tab},
                 {'key': 'scalir', 'label': 'SCALiR', 'children': scalir_tab},
             ],
             centered=True,
-            defaultActiveKey='clustermap',
+            defaultActiveKey='pca',
             style={'margin': '12px 0 0 0'},
             tabBarLeftExtraContent=fac.AntdSpace(
                 [
