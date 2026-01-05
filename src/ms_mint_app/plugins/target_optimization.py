@@ -151,10 +151,23 @@ _layout = fac.AntdLayout(
                             [
                                 fac.AntdFlex(
                                     [
-                                        fac.AntdTitle(
-                                            'Sample Type',
-                                            level=5,
-                                            style={'margin': '0'}
+                                        html.Div(
+                                            [
+                                                fac.AntdTitle(
+                                                    'Sample Type',
+                                                    level=5,
+                                                    style={'margin': '0'}
+                                                ),
+                                                fac.AntdTooltip(
+                                                    fac.AntdIcon(
+                                                        icon='antd-question-circle',
+                                                        style={'marginLeft': '5px', 'color': 'gray', 'fontSize': '14px'}
+                                                    ),
+                                                    title='All samples in this tree were chosen to optimize chromatogram parameters. A default number (50) of samples equally distributed accross sample types is selected for preview. Check boxes to include more samples in the preview.',
+                                                    placement='right'
+                                                )
+                                            ],
+                                            style={'display': 'flex', 'alignItems': 'center'}
                                         ),
                                         fac.AntdCompact(
                                             [
