@@ -2154,7 +2154,8 @@ def callbacks(app, fsc, cache, cpu=None):
         elif trigger_id == 'confirm-unsave-modal':
             # Close modal without saving changes - but still refresh preview
             if close_without_save_clicks:
-                refresh_signal = update_chromatograms or {'refresh': time.time()}
+                import time as time_module
+                refresh_signal = update_chromatograms or {'refresh': time_module.time()}
                 return False, None, refresh_signal
 
         return dash.no_update, dash.no_update, dash.no_update
