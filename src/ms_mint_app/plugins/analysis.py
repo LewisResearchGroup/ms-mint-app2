@@ -466,13 +466,17 @@ _layout = html.Div(
                                 wrap=True,
                                 style={'paddingBottom': '0.75rem'},
                             ),
-                            html.Div(
-                                id='violin-graphs',
-                                style={
-                                    'display': 'flex',
-                                    'flexDirection': 'column',
-                                    'gap': '24px',
-                                },
+                            fac.AntdSpin(
+                                html.Div(
+                                    id='violin-graphs',
+                                    style={
+                                        'display': 'flex',
+                                        'flexDirection': 'column',
+                                        'gap': '24px',
+                                    },
+                                ),
+                                text='Loading Violin...',
+                                style={'minHeight': '20vh', 'width': '100%'},
                             ),
                         ]
                     ),
