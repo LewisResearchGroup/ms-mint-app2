@@ -911,25 +911,16 @@ _layout = fac.AntdLayout(
                         fac.AntdSpace(
                             [
                                 fac.AntdAlert(
-                                    message="RT values have been changed. Save or reset the changes.",
-                                    type="warning",
+                                    message="RT values changed. Will save automatically on navigation or close. Reset to restore original.",
+                                    type="info",
                                     showIcon=True,
                                 ),
-                                fac.AntdSpace(
-                                    [
-                                        fac.AntdButton(
-                                            "Reset",
-                                            id="reset-btn",
-                                        ),
-                                        fac.AntdButton(
-                                            "Save",
-                                            id="save-btn",
-                                            type="primary",
-                                        ),
-                                    ],
-                                    addSplitLine=True,
-                                    size='small'
-                                )
+                                fac.AntdButton(
+                                    "Reset",
+                                    id="reset-btn",
+                                ),
+                                # Hidden placeholder for save-btn to avoid breaking callbacks
+                                html.Div(id="save-btn", style={"display": "none"}),
                             ],
                             align='center',
                             size=60,
@@ -2158,12 +2149,28 @@ def callbacks(app, fsc, cache, cpu=None):
             import time
             refresh_signal = update_chromatograms or {'refresh': time.time()}
 
-            # allow close if no slider data or no changes
-            if (not slider_ref or not slider_data) or slider_ref.get('value') == slider_data.get('value'):
-                return False, None, refresh_signal
-
-            # if it has changes, don't close it (handled via confirm modal)
-            return dash.no_update, dash.no_update, dash.no_update
+            # Auto-save RT-span if changed (no more confirmation modal)
+            if slider_data and slider_ref:
+                slider_value = slider_data.get('value') if isinstance(slider_data, dict) else None
+                reference_value = slider_ref.get('value') if isinstance(slider_ref, dict) else None
+                
+                if slider_value and isinstance(slider_value, dict):
+                    # Check if values changed
+                    if reference_value is None or slider_value != reference_value:
+                        rt_min = slider_value.get('rt_min')
+                        rt_max = slider_value.get('rt_max')
+                        rt = slider_value.get('rt', (rt_min + rt_max) / 2 if rt_min and rt_max else None)
+                        
+                        if rt_min is not None and rt_max is not None:
+                            conn.execute("""
+                                UPDATE targets 
+                                SET rt_min = ?, rt_max = ?, rt = ?
+                                WHERE peak_label = ?
+                            """, [rt_min, rt_max, rt, target_clicked])
+                            logger.info(f"Auto-saved RT-span for '{target_clicked}' on close: [{rt_min:.2f}, {rt_max:.2f}]")
+            
+            # Always close the modal
+            return False, None, refresh_signal
         elif trigger_id == 'confirm-unsave-modal':
             # Close modal without saving changes - but still refresh preview
             if close_without_save_clicks:
@@ -2182,20 +2189,9 @@ def callbacks(app, fsc, cache, cpu=None):
         prevent_initial_call=True
     )
     def show_confirm_modal(close_clicks, reference_data, slider_data):
-        if not close_clicks:
-            logger.debug("show_confirm_modal: No close clicks, preventing update")
-            raise PreventUpdate
-
-        if not reference_data or not slider_data:
-            return False
-
-        reference_value = reference_data.get('value') if isinstance(reference_data, dict) else None
-        slider_value = slider_data.get('value') if isinstance(slider_data, dict) else None
-        if reference_value is None or slider_value is None:
-            return False
-
-        has_changes = slider_value != reference_value
-        return bool(has_changes)
+        # No longer showing confirmation modal - we auto-save instead
+        # This callback is kept for compatibility but always returns False
+        return False
 
     ############# VIEW MODAL END #######################################
 
@@ -3725,6 +3721,22 @@ def callbacks(app, fsc, cache, cpu=None):
                                     (current_note or '', current_target))
                         logger.debug(f"Auto-saved notes for '{current_target}' before navigation")
                         
+                        # Auto-save RT-span if changed
+                        if slider_data:
+                            slider_value = slider_data.get('value') if isinstance(slider_data, dict) else None
+                            if slider_value and isinstance(slider_value, dict):
+                                rt_min = slider_value.get('rt_min')
+                                rt_max = slider_value.get('rt_max')
+                                rt = slider_value.get('rt', (rt_min + rt_max) / 2 if rt_min is not None and rt_max is not None else None)
+                                
+                                if rt_min is not None and rt_max is not None:
+                                    conn.execute("""
+                                        UPDATE targets 
+                                        SET rt_min = ?, rt_max = ?, rt = ?
+                                        WHERE peak_label = ?
+                                    """, [rt_min, rt_max, rt, current_target])
+                                    logger.info(f"Auto-saved RT-span for '{current_target}': [{rt_min:.2f}, {rt_max:.2f}]")
+                        
                         # Save RT alignment state
                         if rt_align_toggle:
                             # Toggle is ON - save alignment data
@@ -3762,21 +3774,9 @@ def callbacks(app, fsc, cache, cpu=None):
             except Exception as e:
                 logger.warning(f"Failed to auto-save data for '{current_target}': {e}")
         
-        # Check for unsaved changes (RT-span changes)
-        has_changes = False
-        if reference_data and slider_data:
-            reference_value = reference_data.get('value') if isinstance(reference_data, dict) else None
-            slider_value = slider_data.get('value') if isinstance(slider_data, dict) else None
-            if reference_value is not None and slider_value is not None:
-                has_changes = slider_value != reference_value
-        
-        if has_changes:
-            # Store pending direction and show confirmation modal
-            return direction, True, dash.no_update
-        else:
-            # No unsaved changes - navigate directly
-            new_target = targets[new_index]
-            return None, False, new_target
+        # Navigate directly (no more confirmation modal)
+        new_target = targets[new_index]
+        return None, False, new_target
 
     @app.callback(
         Output('target-preview-clicked', 'data', allow_duplicate=True),
@@ -3843,6 +3843,113 @@ def callbacks(app, fsc, cache, cpu=None):
         new_page = (current_index // page_size) + 1
         
         return new_page
+
+    @app.callback(
+        Output('notifications-container', 'children', allow_duplicate=True),
+        
+        Input('chromatogram-view-modal', 'visible'),
+        State('slider-data', 'data'),
+        State('slider-reference-data', 'data'),
+        State('target-note', 'value'),
+        State('chromatogram-view-modal', 'title'),  # Current target name
+        State('chromatogram-view-rt-align', 'checked'),
+        State('rt-alignment-data', 'data'),
+        State('wdir', 'data'),
+        prevent_initial_call=True
+    )
+    def auto_save_on_modal_close(modal_visible, slider_data, reference_data, 
+                                   current_note, current_target, rt_align_toggle, 
+                                   rt_alignment_data, wdir):
+        """Auto-save RT-span, notes, and RT alignment when modal closes."""
+        # Only trigger when modal is being closed (visible becomes False)
+        if modal_visible:
+            raise PreventUpdate
+        
+        if not wdir or not current_target:
+            raise PreventUpdate
+        
+        saved_items = []
+        
+        try:
+            with duckdb_connection(wdir) as conn:
+                if conn is None:
+                    raise PreventUpdate
+                
+                # Auto-save RT-span if changed
+                if slider_data and reference_data:
+                    slider_value = slider_data.get('value') if isinstance(slider_data, dict) else None
+                    reference_value = reference_data.get('value') if isinstance(reference_data, dict) else None
+                    
+                    if slider_value and isinstance(slider_value, dict):
+                        # Check if values changed
+                        if reference_value is None or slider_value != reference_value:
+                            rt_min = slider_value.get('rt_min')
+                            rt_max = slider_value.get('rt_max')
+                            rt = slider_value.get('rt', (rt_min + rt_max) / 2 if rt_min and rt_max else None)
+                            
+                            if rt_min is not None and rt_max is not None:
+                                conn.execute("""
+                                    UPDATE targets 
+                                    SET rt_min = ?, rt_max = ?, rt = ?
+                                    WHERE peak_label = ?
+                                """, [rt_min, rt_max, rt, current_target])
+                                logger.info(f"Auto-saved RT-span for '{current_target}' on modal close")
+                                saved_items.append("RT-span")
+
+                
+                # Save notes
+                conn.execute("UPDATE targets SET notes = ? WHERE peak_label = ?",
+                            (current_note or '', current_target))
+                
+                # Save RT alignment state
+                if rt_align_toggle:
+                    if rt_alignment_data and rt_alignment_data.get('enabled'):
+                        import json
+                        shifts_json = json.dumps(rt_alignment_data.get('shifts_per_file', {}))
+                        conn.execute("""
+                            UPDATE targets 
+                            SET rt_align_enabled = TRUE,
+                                rt_align_reference_rt = ?,
+                                rt_align_shifts = ?,
+                                rt_align_rt_min = ?,
+                                rt_align_rt_max = ?
+                            WHERE peak_label = ?
+                        """, [
+                            rt_alignment_data['reference_rt'],
+                            shifts_json,
+                            rt_alignment_data.get('rt_min'),
+                            rt_alignment_data.get('rt_max'),
+                            current_target
+                        ])
+                        saved_items.append("RT alignment")
+                else:
+                    conn.execute("""
+                        UPDATE targets 
+                        SET rt_align_enabled = FALSE,
+                            rt_align_reference_rt = NULL,
+                            rt_align_shifts = NULL,
+                            rt_align_rt_min = NULL,
+                            rt_align_rt_max = NULL
+                        WHERE peak_label = ?
+                    """, [current_target])
+                
+                logger.debug(f"Auto-saved data for '{current_target}' on modal close")
+        
+        except Exception as e:
+            logger.warning(f"Failed to auto-save data for '{current_target}' on modal close: {e}")
+            return dash.no_update
+        
+        # Only show notification if RT-span was changed
+        if saved_items:
+            return fac.AntdNotification(
+                message="Changes auto-saved",
+                description=f"Saved: {', '.join(saved_items)} for {current_target}",
+                type="success",
+                duration=2,
+                placement="bottom"
+            )
+        
+        return dash.no_update
 
     # Clientside callback to handle arrow key navigation
     # This simulates clicking the prev/next buttons when arrow keys are pressed
