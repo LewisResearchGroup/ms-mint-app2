@@ -943,11 +943,10 @@ def get_targets_v2(files_path):
                         target['mz_width'] = 10.0  # ppm
                         logging.debug(f"Target '{target['peak_label']}': Using default mz_width=10.0 ppm")
 
-                    # Polarity: Default to Positive if not provided
+                    # Polarity: Optional field (not used in processing, just metadata)
+                    # Normalize if provided, otherwise leave as NULL
                     pol = target.get('polarity')
-                    if pd.isna(pol):
-                        target['polarity'] = 'Positive'
-                    else:
+                    if not pd.isna(pol):
                         pol_str = str(pol)
                         target['polarity'] = (
                             pol_str
@@ -956,12 +955,23 @@ def get_targets_v2(files_path):
                             .replace('-', 'Negative')
                             .replace('negative', 'Negative')
                         )
+                    # If polarity is NaN, it stays NULL - that's fine
                     
-                    # MS Type: Default to ms1 if not provided
-                    if 'filterLine' in target:
-                        target['ms_type'] = 'ms2' if target['filterLine'] else 'ms1'
-                    else:
-                        target['ms_type'] = 'ms1'
+                    # MS Type: Derive from filterLine (source of truth)
+                    # MS2 targets MUST have filterLine, MS1 targets don't
+                    has_filter = 'filterLine' in target and not pd.isna(target.get('filterLine')) and target['filterLine']
+                    derived_ms_type = 'ms2' if has_filter else 'ms1'
+                    
+                    # Validate if user provided ms_type
+                    user_ms_type = target.get('ms_type')
+                    if not pd.isna(user_ms_type) and str(user_ms_type).lower() != derived_ms_type:
+                        logging.warning(
+                            f"Target '{target['peak_label']}': User-provided ms_type='{user_ms_type}' "
+                            f"contradicts filterLine presence. Using '{derived_ms_type}' "
+                            f"(filterLine {'present' if has_filter else 'absent'})."
+                        )
+                    
+                    target['ms_type'] = derived_ms_type
 
                     valid_targets.append(target)
 
