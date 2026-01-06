@@ -399,11 +399,11 @@ class FileExplorer:
                 style = {'display': 'block'}
             elif prop_data['type'] == "metadata":
                 title = "Load Metadata"
-                file_extensions = [".csv"]
+                file_extensions = [".csv", ".tsv", ".txt", ".xls", ".xlsx"]
                 style = {'display': 'none'}
             else:
                 title = "Load Targets"
-                file_extensions = [".csv"]
+                file_extensions = [".csv", ".tsv", ".txt", ".xls", ".xlsx"]
                 style = {'display': 'none'}
 
             processing_type_store = {'type': prop_data['type'], 'extensions': file_extensions}

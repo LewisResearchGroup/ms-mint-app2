@@ -84,6 +84,90 @@ def read_tabular_file(file_path: str | Path, dtype: dict = None, nrows: int = No
         )
 
 
+# Column mappings for external software formats
+# Maps external column names (lowercase) to MINT column names
+COLUMN_MAPPINGS = {
+    # EL-MAVEN / Maven
+    'compoundid': 'peak_label',
+    'compound': 'peak_label',
+    'compoundname': 'peak_label',
+    'medmz': 'mz_mean',
+    'medrt': 'rt',
+    'expectedrt': 'rt',
+    
+    # MZmine
+    'row m/z': 'mz_mean',
+    'row retention time': 'rt',
+    'compound name': 'peak_label',
+    
+    # Generic alternatives
+    'name': 'peak_label',
+    'target': 'peak_label',
+    'target_name': 'peak_label',
+    'precursor_mz': 'mz_mean',
+    'precursormz': 'mz_mean',
+    'retention_time': 'rt',
+    'retentiontime': 'rt',
+    'rtmin': 'rt_min',
+    'rtmax': 'rt_max',
+}
+
+
+def normalize_column_names(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Normalize column names from external software formats to MINT format.
+    
+    Supports automatic detection and mapping of columns from:
+    - EL-MAVEN (compoundId, medMz, medRt) - RT is in minutes, converted to seconds
+    - MZmine (row m/z, row retention time)
+    - Generic alternatives (name, mz, rt, etc.)
+    
+    Args:
+        df: DataFrame with potentially non-standard column names
+    
+    Returns:
+        DataFrame with normalized column names and units
+    """
+    new_columns = {}
+    mapped_info = []
+    needs_rt_conversion = False
+    
+    for col in df.columns:
+        col_lower = str(col).lower().strip()
+        
+        # Check if this column needs mapping
+        if col_lower in COLUMN_MAPPINGS:
+            mint_col = COLUMN_MAPPINGS[col_lower]
+            # Only map if the target column doesn't already exist
+            if mint_col not in df.columns and mint_col not in new_columns.values():
+                new_columns[col] = mint_col
+                mapped_info.append(f"'{col}' → '{mint_col}'")
+                
+                # EL-MAVEN medRt is in minutes - needs conversion to seconds
+                if col_lower == 'medrt':
+                    needs_rt_conversion = True
+    
+    if mapped_info:
+        # Detect source format based on mapped columns
+        if needs_rt_conversion:
+            logging.info(f"Detected EL-MAVEN format file")
+        logging.info(f"Auto-mapped columns: {', '.join(mapped_info)}")
+        df = df.rename(columns=new_columns)
+    
+    # Convert RT from minutes to seconds for EL-MAVEN files
+    if needs_rt_conversion and 'rt' in df.columns:
+        df['rt'] = df['rt'] * 60.0
+        logging.info("Converted RT from minutes to seconds (EL-MAVEN uses minutes)")
+        
+        # Also convert rt_min and rt_max if they were mapped
+        if 'rt_min' in df.columns:
+            df['rt_min'] = df['rt_min'] * 60.0
+        if 'rt_max' in df.columns:
+            df['rt_max'] = df['rt_max'] * 60.0
+    
+    return df
+
+
 _RT_SECONDS = re.compile(
     r"^P(?:T(?:(?P<h>\d+(?:\.\d+)?)H)?(?:(?P<m>\d+(?:\.\d+)?)M)?(?:(?P<s>\d+(?:\.\d+)?)S)?)$",
     re.I
@@ -853,6 +937,9 @@ def get_targets_v2(files_path):
 
         try:
             df = read_tabular_file(file_path, dtype=ref_cols)
+            
+            # Normalize column names from external formats (EL-MAVEN, MZmine, etc.)
+            df = normalize_column_names(df)
 
             if missing_required := required_cols - set(df.columns):
                 raise ValueError(f"Missing required columns: {missing_required}")
