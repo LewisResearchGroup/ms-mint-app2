@@ -24,6 +24,66 @@ from .sample_metadata import GROUP_COLUMNS
 
 logger = logging.getLogger(__name__)
 
+# Supported file extensions for tabular data
+SUPPORTED_TABULAR_EXTENSIONS = {'.csv', '.tsv', '.txt', '.xls', '.xlsx'}
+
+
+def read_tabular_file(file_path: str | Path, dtype: dict = None, nrows: int = None) -> pd.DataFrame:
+    """
+    Read a tabular file into a DataFrame, supporting multiple formats:
+    - CSV (.csv)
+    - TSV (.tsv, .txt with tab separator)
+    - Excel (.xls, .xlsx)
+    
+    Args:
+        file_path: Path to the file
+        dtype: Optional dict of column dtypes
+        nrows: Optional number of rows to read (for preview)
+    
+    Returns:
+        pd.DataFrame with file contents
+    
+    Raises:
+        ValueError: If file extension is not supported
+    """
+    file_path = Path(file_path)
+    ext = file_path.suffix.lower()
+    
+    read_kwargs = {}
+    if dtype:
+        read_kwargs['dtype'] = dtype
+    if nrows is not None:
+        read_kwargs['nrows'] = nrows
+    
+    if ext == '.csv':
+        return pd.read_csv(file_path, **read_kwargs)
+    
+    elif ext == '.tsv':
+        return pd.read_csv(file_path, sep='\t', **read_kwargs)
+    
+    elif ext == '.txt':
+        # Try to auto-detect delimiter (tab or comma)
+        with open(file_path, 'r') as f:
+            first_line = f.readline()
+        sep = '\t' if '\t' in first_line else ','
+        return pd.read_csv(file_path, sep=sep, **read_kwargs)
+    
+    elif ext in ('.xls', '.xlsx'):
+        # Excel files - read first sheet by default
+        # Note: nrows works differently for Excel - need to filter after
+        excel_kwargs = {k: v for k, v in read_kwargs.items() if k != 'nrows'}
+        df = pd.read_excel(file_path, **excel_kwargs)
+        if nrows is not None:
+            df = df.head(nrows)
+        return df
+    
+    else:
+        raise ValueError(
+            f"Unsupported file format: '{ext}'. "
+            f"Supported formats: CSV (.csv), TSV (.tsv), TXT (.txt), Excel (.xls, .xlsx)"
+        )
+
+
 _RT_SECONDS = re.compile(
     r"^P(?:T(?:(?P<h>\d+(?:\.\d+)?)H)?(?:(?P<m>\d+(?:\.\d+)?)M)?(?:(?P<s>\d+(?:\.\d+)?)S)?)$",
     re.I
@@ -728,9 +788,9 @@ def get_metadata(files_path):
     dfs = []
     for file_path in files_path:
         try:
-            preview = pd.read_csv(file_path, nrows=0)
+            preview = read_tabular_file(file_path, nrows=0)
             dtype_map = {col: ref_cols[col] for col in preview.columns if col in ref_cols}
-            df = pd.read_csv(file_path, dtype=dtype_map)
+            df = read_tabular_file(file_path, dtype=dtype_map)
             if 'use_for_optimization' in df.columns:
                 df['use_for_optimization'] = df['use_for_optimization'].fillna(True)
             if 'use_for_processing' in df.columns:
@@ -792,7 +852,7 @@ def get_targets_v2(files_path):
         file_name = Path(file_path).name
 
         try:
-            df = pd.read_csv(file_path, dtype=ref_cols)
+            df = read_tabular_file(file_path, dtype=ref_cols)
 
             if missing_required := required_cols - set(df.columns):
                 raise ValueError(f"Missing required columns: {missing_required}")
@@ -1001,7 +1061,7 @@ def get_targets_v2(files_path):
             logging.error(f"Failed to process file {file_path}: {str(e)}")
 
             try:
-                df_count = pd.read_csv(file_path, usecols=[0])  # Read only first column to count rows
+                df_count = read_tabular_file(file_path)  # Read file to count rows
                 file_target_count = len(df_count)
                 targets_failed += file_target_count
                 targets_processed += file_target_count
