@@ -773,7 +773,9 @@ def get_targets_v2(files_path):
         "notes": 'string',
         "rt_auto_adjusted": 'boolean',
     }
-    required_cols = {"peak_label", "rt_min", "rt_max"}
+    # Only peak_label is strictly required - RT values are smartly derived
+    # from various combinations of rt, rt_min, rt_max (at least one required)
+    required_cols = {"peak_label"}
 
     failed_files = {}
     failed_targets = []
@@ -805,16 +807,101 @@ def get_targets_v2(files_path):
                     if pd.isna(target.get('peak_label')) or target.get('peak_label') == '':
                         raise ValueError("peak_label is empty or null")
 
+                    # ================================================================
+                    # SMART RT VALUE DERIVATION
+                    # ================================================================
+                    # Automatically derive missing RT values based on what's provided
+                    # Supports various input formats from different tools
+                    
+                    has_rt = not pd.isna(target.get('rt'))
                     has_rt_min = not pd.isna(target.get('rt_min'))
                     has_rt_max = not pd.isna(target.get('rt_max'))
-
-                    if not has_rt_min or not has_rt_max:
+                    
+                    DEFAULT_RT_WINDOW = 1.0  # seconds
+                    
+                    # Reject if no RT information provided at all
+                    if not any([has_rt, has_rt_min, has_rt_max]):
                         raise ValueError(
-                            f"Target '{target['peak_label']}' must have both 'rt_min' and 'rt_max' defined"
+                            f"Target '{target['peak_label']}' must have at least one of: rt, rt_min, or rt_max"
                         )
-
-                    if pd.isna(target.get('rt')):
+                    
+                    # Scenario 1: Have RT bounds, derive center
+                    if has_rt_min and has_rt_max and not has_rt:
                         target['rt'] = (target['rt_min'] + target['rt_max']) / 2
+                        logging.debug(
+                            f"Target '{target['peak_label']}': Derived rt={target['rt']:.2f} "
+                            f"from rt_min={target['rt_min']:.2f} and rt_max={target['rt_max']:.2f}"
+                        )
+                    
+                    # Scenario 2: Have RT only, derive bounds
+                    elif has_rt and not has_rt_min and not has_rt_max:
+                        target['rt_min'] = target['rt'] - DEFAULT_RT_WINDOW
+                        target['rt_max'] = target['rt'] + DEFAULT_RT_WINDOW
+                        logging.debug(
+                            f"Target '{target['peak_label']}': Derived rt_min={target['rt_min']:.2f} "
+                            f"and rt_max={target['rt_max']:.2f} from rt={target['rt']:.2f} (±{DEFAULT_RT_WINDOW}s)"
+                        )
+                    
+                    # Scenario 3a: Have RT and rt_min, derive rt_max (symmetric window)
+                    elif has_rt and has_rt_min and not has_rt_max:
+                        window = abs(target['rt'] - target['rt_min'])
+                        target['rt_max'] = target['rt'] + window
+                        logging.debug(
+                            f"Target '{target['peak_label']}': Derived rt_max={target['rt_max']:.2f} "
+                            f"from rt={target['rt']:.2f} and rt_min={target['rt_min']:.2f} (window={window:.2f}s)"
+                        )
+                    
+                    # Scenario 3b: Have RT and rt_max, derive rt_min (symmetric window)
+                    elif has_rt and has_rt_max and not has_rt_min:
+                        window = abs(target['rt_max'] - target['rt'])
+                        target['rt_min'] = target['rt'] - window
+                        logging.debug(
+                            f"Target '{target['peak_label']}': Derived rt_min={target['rt_min']:.2f} "
+                            f"from rt={target['rt']:.2f} and rt_max={target['rt_max']:.2f} (window={window:.2f}s)"
+                        )
+                    
+                    # Unsupported combination (e.g., only rt_min or only rt_max)
+                    else:
+                        # Build helpful error message showing what was provided
+                        provided = []
+                        if has_rt:
+                            provided.append(f"rt={target.get('rt'):.2f}")
+                        if has_rt_min:
+                            provided.append(f"rt_min={target.get('rt_min'):.2f}")
+                        if has_rt_max:
+                            provided.append(f"rt_max={target.get('rt_max'):.2f}")
+                        
+                        raise ValueError(
+                            f"Target '{target['peak_label']}': Cannot derive RT values from the provided data. "
+                            f"You provided: {', '.join(provided)}. "
+                            f"Valid combinations: (1) 'rt' only, (2) 'rt_min' AND 'rt_max', "
+                            f"(3) 'rt' + 'rt_min', or (4) 'rt' + 'rt_max'. "
+                            f"Providing only 'rt_min' or only 'rt_max' is not supported."
+                        )
+                    
+                    # At this point all RT values should be populated
+                    # Now validate and adjust if needed
+                    
+                    # Validate rt_min < rt_max
+                    if target['rt_min'] >= target['rt_max']:
+                        raise ValueError(
+                            f"Target '{target['peak_label']}': rt_min ({target['rt_min']:.2f}) "
+                            f"must be less than rt_max ({target['rt_max']:.2f})"
+                        )
+                    
+                    # Validate non-negative values
+                    if target['rt_min'] < 0:
+                        raise ValueError(
+                            f"Target '{target['peak_label']}': rt_min cannot be negative ({target['rt_min']:.2f})"
+                        )
+                    
+                    # Warn if window is suspiciously large
+                    window_size = target['rt_max'] - target['rt_min']
+                    if window_size > 10.0:
+                        logging.warning(
+                            f"Target '{target['peak_label']}': Large RT window ({window_size:.1f}s). "
+                            f"Please verify rt_min and rt_max values."
+                        )
 
                     # check if RT-unit is seconds or minutes
                     if 'rt_unit' in target:
@@ -847,6 +934,16 @@ def get_targets_v2(files_path):
                             )
 
 
+                    # ================================================================
+                    # DEFAULT VALUES
+                    # ================================================================
+                    
+                    # MZ Width: Default to 10 ppm if not provided
+                    if pd.isna(target.get('mz_width')):
+                        target['mz_width'] = 10.0  # ppm
+                        logging.debug(f"Target '{target['peak_label']}': Using default mz_width=10.0 ppm")
+
+                    # Polarity: Default to Positive if not provided
                     pol = target.get('polarity')
                     if pd.isna(pol):
                         target['polarity'] = 'Positive'
@@ -859,6 +956,8 @@ def get_targets_v2(files_path):
                             .replace('-', 'Negative')
                             .replace('negative', 'Negative')
                         )
+                    
+                    # MS Type: Default to ms1 if not provided
                     if 'filterLine' in target:
                         target['ms_type'] = 'ms2' if target['filterLine'] else 'ms1'
                     else:

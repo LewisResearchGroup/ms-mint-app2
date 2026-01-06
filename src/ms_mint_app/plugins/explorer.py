@@ -827,7 +827,24 @@ def _background_processing(set_progress, okCounts, processing_type, selected_fil
         description = f"Skipped {duplicates_count} duplicates."
         mss_type = "info"
     elif failed_files or failed_targets_count:
-        description = f"Failed to process {len(failed_files)} items."
+        # Build informative error message showing actual validation errors
+        if failed_files:
+            # Get the first failed file's error message
+            first_error = next(iter(failed_files.values()))
+            # Extract key info from error message
+            if "No valid targets found" in first_error:
+                lines = first_error.strip().split('\n')
+                description = f"Failed to process {len(failed_files)} file(s). {lines[0]}"
+                # Add targets failed count if available  
+                for line in lines:
+                    if "Targets failed:" in line:
+                        description += f" {line.strip()}"
+                        break
+            else:
+                # Generic file error - show first 100 chars
+                description = f"Failed to process {len(failed_files)} file(s). Error: {first_error[:100]}"
+        else:
+            description = f"Failed to process {failed_targets_count} target(s)."
         mss_type = "error"
     else:
         description = "No items processed."
