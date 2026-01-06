@@ -63,6 +63,44 @@ home_path = Path.home()
 
 logger = logging.getLogger(__name__)
 
+# Patterns for detecting sample types from filenames
+# Each entry: (patterns_list, color, sample_type_label)
+# Patterns are case-insensitive and match substrings
+SAMPLE_TYPE_PATTERNS = [
+    # Blanks - quality control samples with no analyte (solvent/matrix only)
+    (['blank', 'blk', 'solvent', 'diluent', 'mobilephase', 'reagent', 
+      'matrix', 'background', 'zero', 'blanco', 'blanc'], '#2B2D42', 'Blank'),
+    # Standards - reference samples for calibration
+    (['std', 'standard', 'stnd', 'calibr', 'calibrant', 'cal', 'ref', 'reference',
+      'stock', 'workingstandard', 'primarystandard', 'secondarystandard'], '#33BBEE', 'Standard'),
+    # QC - quality control samples for system monitoring
+    (['qc', 'qualitycontrol', 'control', 'check', 'pool', 'pqc', 
+      'system suitability', 'sst', 'verification', 'crm'], '#CC3311', 'QC'),
+]
+# Default color for regular samples: #BBBBBB (set in database schema)
+
+
+
+def detect_sample_color(filename: str) -> tuple[str | None, str | None]:
+    """
+    Detect sample type from filename and return appropriate color.
+    
+    Args:
+        filename: The MS file label/name to analyze
+    
+    Returns:
+        Tuple of (color, sample_type) if pattern matched, (None, None) otherwise
+    """
+    filename_lower = filename.lower()
+    
+    for patterns, color, sample_type in SAMPLE_TYPE_PATTERNS:
+        for pattern in patterns:
+            if pattern in filename_lower:
+                return color, sample_type
+    
+    return None, None
+
+
 
 class MsFilesPlugin(PluginInterface):
     def __init__(self):
@@ -513,7 +551,7 @@ def generate_colors(wdir, regenerate=False):
             valid = ms_colors[
                 ms_colors["color"].notna()
                 & (ms_colors["color"].str.strip() != "")
-                & (ms_colors["color"].str.strip() != "#bbbbbb")
+                & (ms_colors["color"].str.strip() != "#BBBBBB")
             ].copy()
             valid["sample_key"] = valid["sample_type"].fillna(valid["ms_file_label"])
             assigned_colors = (

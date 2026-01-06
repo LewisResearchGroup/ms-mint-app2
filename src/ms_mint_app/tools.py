@@ -1253,6 +1253,18 @@ def _insert_ms_data(wdir, ms_type, batch_ms, batch_ms_data):
                 "INSERT INTO samples(ms_file_label, label, ms_type, polarity, file_type) "
                 "SELECT ms_file_label, label, ms_type, polarity, file_type FROM pldf"
             )
+            
+            # Auto-detect sample type from filename and assign colors
+            from .plugins.ms_files import detect_sample_color
+            for file_label in pldf['ms_file_label'].to_list():
+                color, sample_type = detect_sample_color(file_label)
+                if color:
+                    conn.execute(
+                        "UPDATE samples SET color = ?, sample_type = ? WHERE ms_file_label = ?",
+                        [color, sample_type, file_label]
+                    )
+                    logging.debug(f"Auto-detected '{file_label}' as {sample_type}, assigned color {color}")
+            
             ms_data_table = f'{ms_type}_data'
             extra_columns = ['mz_precursor', 'filterLine', 'filterLine_ELMAVEN']
             select_columns = ['ms_file_label', 'scan_id', 'mz', 'intensity', 'scan_time']
