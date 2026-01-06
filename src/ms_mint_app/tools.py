@@ -825,8 +825,16 @@ def get_targets_v2(files_path):
                             f"Target '{target['peak_label']}' must have at least one of: rt, rt_min, or rt_max"
                         )
                     
+                    # Scenario 0: All three values provided - just validate, no derivation needed
+                    if has_rt and has_rt_min and has_rt_max:
+                        logging.debug(
+                            f"Target '{target['peak_label']}': All RT values provided "
+                            f"(rt={target['rt']:.2f}, rt_min={target['rt_min']:.2f}, rt_max={target['rt_max']:.2f})"
+                        )
+                        # Continue to validation below
+                    
                     # Scenario 1: Have RT bounds, derive center
-                    if has_rt_min and has_rt_max and not has_rt:
+                    elif has_rt_min and has_rt_max and not has_rt:
                         target['rt'] = (target['rt_min'] + target['rt_max']) / 2
                         logging.debug(
                             f"Target '{target['peak_label']}': Derived rt={target['rt']:.2f} "
