@@ -33,6 +33,48 @@ from .scalir import (
 _label = "Analysis"
 
 logger = logging.getLogger(__name__)
+
+
+def load_persisted_scalir_results(wdir: str) -> dict | None:
+    """
+    Load persisted SCALiR results from workspace if they exist.
+    
+    Returns:
+        Dictionary with results data if files exist, None otherwise
+    """
+    output_dir = Path(wdir) / "analysis" / "scalir"
+    train_frame_path = output_dir / "train_frame.csv"
+    params_path = output_dir / "standard_curve_parameters.csv"
+    concentrations_path = output_dir / "concentrations.csv"
+    units_path = output_dir / "units.csv"
+    plots_dir = output_dir / "plots"
+    
+    # Check if essential files exist
+    if not train_frame_path.exists() or not params_path.exists():
+        return None
+    
+    try:
+        train_frame = pd.read_csv(train_frame_path)
+        params = pd.read_csv(params_path)
+        units = pd.read_csv(units_path) if units_path.exists() else None
+        
+        # Get list of metabolites from params
+        common = params['peak_label'].tolist() if 'peak_label' in params.columns else []
+        
+        return {
+            "train_frame": train_frame.to_json(orient="split"),
+            "units": units.to_json(orient="split") if units is not None else None,
+            "params": params.to_json(orient="split"),
+            "plot_dir": str(plots_dir),
+            "common": common,
+            "generated_all_plots": plots_dir.exists() and any(plots_dir.iterdir()) if plots_dir.exists() else False,
+            "concentrations_path": str(concentrations_path),
+            "params_path": str(params_path),
+        }
+    except Exception as e:
+        logger.warning(f"Failed to load persisted SCALiR results: {e}")
+        return None
+
 PCA_COMPONENT_OPTIONS = [
     {'label': f'PC{i}', 'value': f'PC{i}'}
     for i in range(1, 6)
@@ -670,15 +712,15 @@ def _plot_curve_fig(frame: pd.DataFrame, peak_label: str, units: pd.DataFrame = 
             ticks="outside",
         ),
         legend=dict(orientation="h", y=1.08, x=0),
-        margin=dict(l=60, r=20, t=60, b=60),
+        margin=dict(l=60, r=20, t=90, b=60),
         template="plotly_white",
     )
     if params_text:
         fig.add_annotation(
             xref="paper",
             yref="paper",
-            x=0.02,
-            y=0.98,
+            x=0.03,
+            y=0.97,
             xanchor="left",
             yanchor="top",
             text=params_text,
@@ -1293,10 +1335,18 @@ def run_scalir(n_clicks, standards_contents, standards_filename, intensity, slop
     params_path = output_dir / "standard_curve_parameters.csv"
     concentrations.to_csv(concentrations_path, index=False)
     params.to_csv(params_path, index=False)
+    
+    # Save train_frame and units for persistence across restarts
     try:
         train_frame = training_plot_frame(estimator, x_train, y_train, params)
+        train_frame_path = output_dir / "train_frame.csv"
+        train_frame.to_csv(train_frame_path, index=False)
     except Exception:
         train_frame = pd.DataFrame()
+    
+    if units_filtered is not None:
+        units_path = output_dir / "units.csv"
+        units_filtered.to_csv(units_path, index=False)
     if generate_plots and not train_frame.empty:
         for label in common:
             plot_standard_curve(train_frame, label, units_filtered, plots_dir)
@@ -1423,6 +1473,91 @@ def callbacks(app, fsc, cache):
         Output('scalir-plot-graphs', 'children', allow_duplicate=True),
         Output('scalir-plot-graphs', 'style', allow_duplicate=True),
         Output('scalir-results-store', 'data', allow_duplicate=True),
+        Input('analysis-tabs', 'activeKey'),
+        Input('section-context', 'data'),
+        State('wdir', 'data'),
+        State('scalir-results-store', 'data'),
+        prevent_initial_call=True,
+    )
+    def load_scalir_on_tab_open(active_tab, section_context, wdir, current_store):
+        """Load persisted SCALiR results when the tab is opened."""
+        if active_tab != 'scalir':
+            raise PreventUpdate
+        if not section_context or section_context.get('page') != 'Analysis':
+            raise PreventUpdate
+        if not wdir:
+            raise PreventUpdate
+            
+        # Don't reload if we already have results in the store
+        if current_store and current_store.get('train_frame'):
+            raise PreventUpdate
+        
+        # Try to load persisted results
+        persisted = load_persisted_scalir_results(wdir)
+        if not persisted:
+            raise PreventUpdate
+        
+        logger.info("Loaded persisted SCALiR results from workspace")
+        
+        # Rebuild UI from persisted data
+        common = persisted.get('common', [])
+        # Sort alphabetically for consistent ordering
+        common_sorted = sorted(common)
+        metabolite_options = [{'label': label, 'value': label} for label in common_sorted]
+        first_label = common_sorted[0] if common_sorted else None
+        initial_selection = [first_label] if first_label else []
+        
+        # Generate initial plots for the selected metabolite
+        plots = []
+        if persisted.get('train_frame') and initial_selection:
+            train_frame = pd.read_json(StringIO(persisted['train_frame']), orient='split')
+            units_df = pd.read_json(StringIO(persisted['units']), orient='split') if persisted.get('units') else None
+            params_df = pd.read_json(StringIO(persisted['params']), orient='split') if persisted.get('params') else None
+            
+            for lbl in initial_selection:
+                plots.append(
+                    dcc.Graph(
+                        figure=_plot_curve_fig(train_frame, lbl, units_df, params_df),
+                        style={
+                            'flex': '0 0 calc(33.333% - 12px)',
+                            'minWidth': '320px',
+                            'maxWidth': '520px',
+                            'minHeight': '320px',
+                        },
+                        config=PLOTLY_HIGH_RES_CONFIG,
+                    )
+                )
+        
+        plot_style = {
+            'display': 'flex' if plots else 'none',
+            'flexWrap': 'wrap',
+            'gap': '16px',
+            'paddingTop': '8px',
+            'justifyContent': 'flex-start',
+        }
+        
+        status_text = f"Loaded {len(common)} metabolites from previous analysis."
+        
+        return (
+            status_text,
+            f"Concentrations: {persisted.get('concentrations_path', '')}",
+            f"Curve parameters: {persisted.get('params_path', '')}",
+            metabolite_options,
+            initial_selection,
+            plots,
+            plot_style,
+            persisted,
+        )
+
+    @app.callback(
+        Output('scalir-status-text', 'children', allow_duplicate=True),
+        Output('scalir-conc-path', 'children', allow_duplicate=True),
+        Output('scalir-params-path', 'children', allow_duplicate=True),
+        Output('scalir-metabolite-select', 'options', allow_duplicate=True),
+        Output('scalir-metabolite-select', 'value', allow_duplicate=True),
+        Output('scalir-plot-graphs', 'children', allow_duplicate=True),
+        Output('scalir-plot-graphs', 'style', allow_duplicate=True),
+        Output('scalir-results-store', 'data', allow_duplicate=True),
         Output('scalir-standards-upload', 'contents', allow_duplicate=True),
         Output('scalir-standards-upload', 'filename', allow_duplicate=True),
         Output('scalir-standards-note', 'children', allow_duplicate=True),
@@ -1531,7 +1666,11 @@ def callbacks(app, fsc, cache):
         prevent_initial_call=True,
     )
     def update_scalir_plot(selected_labels, store_data):
-        if not store_data or not selected_labels:
+        # If no selection, hide plots
+        if not selected_labels:
+            return [], {'display': 'none'}, ""
+        
+        if not store_data:
             raise PreventUpdate
 
         train_frame_json = store_data.get("train_frame")
