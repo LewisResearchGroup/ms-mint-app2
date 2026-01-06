@@ -3537,19 +3537,78 @@ def callbacks(app, fsc, cache, cpu=None):
         Output('notifications-container', 'children', allow_duplicate=True),
         Output('drop-chromatogram', 'data'),
         Output('delete-targets-modal', 'visible', allow_duplicate=True),
-        Output('chromatogram-view-modal', 'visible', allow_duplicate=True),
+        Output('target-preview-clicked', 'data', allow_duplicate=True),
 
         Input('delete-targets-modal', 'okCounts'),
         State('delete-target-clicked', 'children'),
+        State('target-nav-store', 'data'),
         State("wdir", "data"),
         prevent_initial_call=True
     )
-    def delete_targets_chromatograms(okCounts, target, wdir):
+    def delete_targets_chromatograms(okCounts, target, nav_store, wdir):
         if not okCounts:
             logger.debug("delete_targets_chromatograms: Delete not confirmed, preventing update")
             raise PreventUpdate
         
-        return _delete_target_logic(target, wdir)
+        # Delete the target
+        with duckdb_connection(wdir) as conn:
+            if conn is None:
+                logger.error(f"delete_target_logic: Could not connect to database for target '{target}'")
+                return (fac.AntdNotification(
+                            message="Database connection failed",
+                            description="Could not connect to the database.",
+                            type="error",
+                            duration=4,
+                            placement='bottom'
+                        ),
+                        dash.no_update,
+                        False,
+                        dash.no_update)
+            try:
+                conn.execute("BEGIN")
+                conn.execute("DELETE FROM chromatograms WHERE peak_label = ?", [target])
+                conn.execute("DELETE FROM targets WHERE peak_label = ?", [target])
+                conn.execute("DELETE FROM results WHERE peak_label = ?", [target])
+                conn.execute("COMMIT")
+                logger.info(f"Deleted target '{target}' and associated chromatograms/results.")
+            except Exception as e:
+                conn.execute("ROLLBACK")
+                logger.error(f"Failed to delete target '{target}'", exc_info=True)
+                return (fac.AntdNotification(
+                            message="Failed to delete target",
+                            description=f"Error: {e}",
+                            type="error",
+                            duration=4,
+                            placement='bottom'
+                        ),
+                        dash.no_update,
+                        False,
+                        dash.no_update)
+        
+        # Navigate to next target instead of closing modal
+        next_target = None
+        if nav_store and nav_store.get('targets'):
+            targets = nav_store['targets']
+            current_index = nav_store.get('current_index', 0)
+            
+            # Remove deleted target from list
+            if target in targets:
+                targets.remove(target)
+            
+            # Navigate to next target (or previous if deleted was last)
+            if targets:
+                new_index = min(current_index, len(targets) - 1)
+                next_target = targets[new_index]
+                logger.debug(f"After deletion, navigating to target '{next_target}' (index {new_index})")
+        
+        notification = fac.AntdNotification(
+            message=f"Target '{target}' deleted",
+            type="success",
+            duration=3,
+            placement='bottom'
+        )
+        
+        return (notification, True, False, next_target)
 
     @app.callback(
         Output('notifications-container', 'children', allow_duplicate=True),
