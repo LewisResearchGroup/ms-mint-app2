@@ -796,8 +796,7 @@ def _background_processing(set_progress, okCounts, processing_type, selected_fil
     logger.info(f"Processing finished. Processed: {total_processed}, Failed: {len(failed_files)}, Duplicates: {duplicates_count}")
     if failed_files:
         logger.warning(f"Failed files: {failed_files}")
-    if failed_targets:
-        logger.warning(f"Failed targets: {failed_targets}")
+    # Note: Individual target failures are already logged in tools.py, no need to log again here
 
     if total_processed:
         details = []

@@ -5,7 +5,7 @@ This guide covers the **complete process** for building MS-MINT frozen executabl
 ## Prerequisites
 
 Before building, ensure you have:
-- Python 3.10+ installed
+- Python 3.12+ installed
 - PyInstaller installed: `pip install pyinstaller`
 - All project dependencies installed: `pip install -e .`
 - Matplotlib 3.10.8+: `pip install 'matplotlib>=3.10.8'`
