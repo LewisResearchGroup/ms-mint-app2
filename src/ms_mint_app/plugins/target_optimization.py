@@ -302,15 +302,15 @@ _layout = fac.AntdLayout(
                                                         [
                                                             fac.AntdInputNumber(
                                                                 id='chromatogram-graph-width',
-                                                                value=DEFAULT_GRAPH_WIDTH,
-                                                                defaultValue=DEFAULT_GRAPH_WIDTH,
+                                                                value=350,  # Matches defaultPageSize=9
+                                                                defaultValue=350,
                                                                 min=180,
                                                                 max=1400
                                                             ),
                                                             fac.AntdInputNumber(
                                                                 id='chromatogram-graph-height',
-                                                                value=DEFAULT_GRAPH_HEIGHT,
-                                                                defaultValue=DEFAULT_GRAPH_HEIGHT,
+                                                                value=220,  # Matches defaultPageSize=9
+                                                                defaultValue=220,
                                                                 min=100,
                                                                 max=700
                                                             ),
@@ -386,7 +386,7 @@ _layout = fac.AntdLayout(
                                                                         )
                                                                     ),
                                                                     style={
-                                                                        'height': '180px', 'width': '250px',
+                                                                        'height': '220px', 'width': '350px',
                                                                         'margin': '0 0 14px 0',
                                                                     },
                                                                     config={
@@ -1023,6 +1023,8 @@ _layout = fac.AntdLayout(
         ),
         dcc.Store(id='keyboard-nav-trigger', data={'key': None, 'timestamp': 0}),
         dcc.Store(id='spinner-start-time', data=None),  # Track when spinner started
+        dcc.Store(id='chromatogram-container-width', data=None),  # Container width for auto-sizing
+        dcc.Interval(id='container-width-interval', interval=300, n_intervals=0, max_intervals=1),  # One-time trigger
         dcc.Interval(id='spinner-timeout-interval', interval=1000, disabled=True),  # Check every second
         # Clientside keyboard listener for arrow key navigation
         html.Div(
@@ -1377,6 +1379,22 @@ def callbacks(app, fsc, cache, cpu=None):
         prevent_initial_call=True,
     )
 
+    # Clientside callback to detect container width for smart auto-sizing
+    app.clientside_callback(
+        """(n_intervals, sidebar_collapsed) => {
+            const container = document.getElementById('chromatogram-preview');
+            if (container) {
+                return Math.floor(container.getBoundingClientRect().width);
+            }
+            // Fallback estimate
+            const sidebarWidth = sidebar_collapsed ? 0 : 300;
+            return Math.floor(window.innerWidth - sidebarWidth - 350);
+        }""",
+        Output('chromatogram-container-width', 'data'),
+        Input('container-width-interval', 'n_intervals'),
+        Input('optimization-sidebar', 'collapsed'),
+    )
+
     @app.callback(
         Output('optimization-tour', 'current'),
         Output('optimization-tour', 'open'),
@@ -1474,13 +1492,16 @@ def callbacks(app, fsc, cache, cpu=None):
         Output('chromatogram-graph-height', 'value'),
         Input('chromatogram-graph-button', 'nClicks'),
         Input('chromatogram-preview-pagination', 'pageSize'),
+        Input('chromatogram-container-width', 'data'),
         State('chromatogram-graph-width', 'value'),
         State('chromatogram-graph-height', 'value'),
         prevent_initial_call=True
     )
-    def set_chromatogram_graph_size(nClicks, page_size, width, height):
+    def set_chromatogram_graph_size(nClicks, page_size, container_width, width, height):
         """
-        Auto-tune preview plot size based on cards per page, while still allowing manual overrides.
+        Auto-tune preview plot size based on container width and cards per page.
+        Calculates optimal dimensions to achieve exact grid layout.
+        Falls back to hard-coded defaults if container width unavailable.
         """
         ctx = dash.callback_context
         if not ctx.triggered:
@@ -1489,22 +1510,52 @@ def callbacks(app, fsc, cache, cpu=None):
 
         trigger = ctx.triggered[0]['prop_id'].split('.')[0]
 
-        def autosize(ps, w, h):
-            if ps == 4:
-                return 500, 350
-            if ps == 9:
-                return 350, 220
-            if ps in (20, 50):
-                return DEFAULT_GRAPH_WIDTH, DEFAULT_GRAPH_HEIGHT
-            return w, h
+        def calculate_optimal_size(ps, cont_width):
+            """
+            Calculate exact plot width for desired grid layout.
+            Width is auto-calculated based on container; height uses fixed values per page size.
+            """
+            # Determine columns and fixed height based on page size
+            if ps <= 4:
+                cols = 2
+                fixed_height = 350
+            elif ps <= 9:
+                cols = 3
+                fixed_height = 220
+            elif ps <= 20:
+                cols = 5
+                fixed_height = 180
+            else:
+                cols = 7
+                fixed_height = 180
+
+            # Default fallback widths (for when container width is not yet available)
+            default_widths = {4: 500, 9: 350, 20: 250, 50: 250}
+            
+            if not cont_width or cont_width < 400:
+                # Use fallback defaults
+                return default_widths.get(ps, DEFAULT_GRAPH_WIDTH), fixed_height
+
+            # Calculate exact width to fit exactly 'cols' columns
+            gap = 12  # Gap between cards from AntdSpace
+            card_extras = 22  # Card padding, border, margins
+            
+            # Solve for plot_width
+            available = cont_width - (cols - 1) * gap - 40  # 40 for container padding
+            plot_width = (available // cols) - card_extras
+            
+            # Safety bounds
+            plot_width = max(200, min(600, plot_width))
+            
+            return int(plot_width), fixed_height
 
         width = width or DEFAULT_GRAPH_WIDTH
         height = height or DEFAULT_GRAPH_HEIGHT
 
-        if trigger == 'chromatogram-preview-pagination':
-            width, height = autosize(page_size, width, height)
+        if trigger in ('chromatogram-preview-pagination', 'chromatogram-container-width'):
+            width, height = calculate_optimal_size(page_size or 9, container_width)
         elif trigger != 'chromatogram-graph-button':
-            logger.debug("set_chromatogram_graph_size: Update not triggered by graph button, preventing update")
+            logger.debug("set_chromatogram_graph_size: Update not triggered by valid input, preventing update")
             raise PreventUpdate
 
         return ([{
