@@ -12,7 +12,7 @@ from dash import html, dcc
 from dash.dependencies import Input, Output, State
 from dash.exceptions import PreventUpdate
 
-from ..duckdb_manager import duckdb_connection_mint, duckdb_connection
+from ..duckdb_manager import duckdb_connection_mint, duckdb_connection, validate_mint_database, import_database_as_workspace
 from ..logging_setup import activate_workspace_logging, deactivate_workspace_logging
 from ..plugin_interface import PluginInterface
 
@@ -92,11 +92,18 @@ _layout = html.Div(
                 sortOptions={'sortDataIndexes': ['name', 'last_activity', 'created_at']},
                 footer=[
                     fac.AntdFlex([
-                        fac.AntdTooltip(
-                            fac.AntdButton('Create Workspace', id='ws-create', icon=fac.AntdIcon(icon='antd-plus')),
-                            title="Create a new, empty workspace.",
-                            placement="top"
-                        ),
+                        fac.AntdSpace([
+                            fac.AntdTooltip(
+                                fac.AntdButton('Create Workspace', id='ws-create', icon=fac.AntdIcon(icon='antd-plus')),
+                                title="Create a new, empty workspace.",
+                                placement="top"
+                            ),
+                            fac.AntdTooltip(
+                                fac.AntdButton('Import Database', id='ws-import-db', icon=fac.AntdIcon(icon='antd-import')),
+                                title="Import an existing MINT database file as a new workspace.",
+                                placement="top"
+                            ),
+                        ]),
                         fac.AntdTooltip(
                             fac.AntdButton('Delete Workspace', id='ws-delete', danger=True, icon=fac.AntdIcon(icon='antd-minus')),
                             title="Permanently delete the selected workspace and all its data.",
@@ -179,6 +186,55 @@ _layout = html.Div(
             renderFooter=True,
             okText='Save & Reload',
             locale='en-us',
+        ),
+        # -----------------------------------
+
+        # --- Import Database Modal ---
+        fac.AntdModal(
+            [
+                fac.AntdAlert(
+                    message="Import an existing MINT database file to create a new workspace. This allows you to share data between machines or collaborate with colleagues.",
+                    type="info",
+                    showIcon=True,
+                    style={"marginBottom": "15px"}
+                ),
+                fac.AntdForm(
+                    [
+                        fac.AntdFormItem(
+                            fac.AntdInput(
+                                id='ws-import-db-path',
+                                placeholder='/path/to/database.db or workspace_mint.db',
+                                value=None,
+                                addonAfter=fac.AntdTooltip(
+                                    fac.AntdIcon(icon='antd-folder-open', style={'cursor': 'help'}),
+                                    title="Enter the full path to the .db file you want to import"
+                                )
+                            ),
+                            label='Database Path:',
+                            hasFeedback=True,
+                            id='ws-import-db-path-form-item'
+                        ),
+                        fac.AntdFormItem(
+                            fac.AntdInput(id='ws-import-db-name', placeholder='Workspace name', value=None),
+                            label='Workspace Name:',
+                            hasFeedback=True,
+                            id='ws-import-db-name-form-item'
+                        ),
+                    ],
+                ),
+                html.Div(
+                    id='ws-import-db-stats',
+                    style={'marginTop': '10px'}
+                )
+            ],
+            title='Import Database',
+            id='ws-import-db-modal',
+            renderFooter=True,
+            okText='Import',
+            locale='en-us',
+            okButtonProps={
+                'disabled': True
+            }
         ),
         # -----------------------------------
 
@@ -817,3 +873,147 @@ def callbacks(app, fsc, cache):
         if p.parent.name == "User":
             return str(p.parent.parent)
         return str(p)
+
+    # --- Import Database Callbacks ---
+    
+    @app.callback(
+        Output("ws-import-db-modal", "visible"),
+        Input("ws-import-db", "nClicks"),
+        prevent_initial_call=True
+    )
+    def open_import_db_modal(nClicks):
+        if nClicks is None:
+            raise PreventUpdate
+        return True
+
+    @app.callback(
+        Output('ws-import-db-path-form-item', 'validateStatus'),
+        Output('ws-import-db-path-form-item', 'help'),
+        Output('ws-import-db-stats', 'children'),
+        Output('ws-import-db-name', 'value'),
+
+        Input('ws-import-db-path', 'value'),
+        prevent_initial_call=True
+    )
+    def validate_import_db_path(db_path):
+        """Validate database path and show stats if valid."""
+        if not db_path or not db_path.strip():
+            return None, None, None, dash.no_update
+        
+        db_path = db_path.strip()
+        is_valid, error_msg, stats = validate_mint_database(db_path)
+        
+        if not is_valid:
+            return 'error', error_msg, None, dash.no_update
+        
+        # Generate stats display
+        stats_items = []
+        for table, count in stats.items():
+            stats_items.append(
+                fac.AntdTag(content=f"{table}: {count:,} rows", color='blue')
+            )
+        
+        stats_display = fac.AntdSpace(stats_items, wrap=True)
+        
+        # Suggest workspace name from filename
+        suggested_name = Path(db_path).stem.replace('workspace_mint', 'imported').replace('.', '_')
+        # Ensure valid name pattern
+        suggested_name = ''.join(c if c.isalnum() or c == '_' else '_' for c in suggested_name)[:30]
+        
+        return 'success', 'Valid MINT database', stats_display, suggested_name
+
+    @app.callback(
+        Output('ws-import-db-name-form-item', 'validateStatus'),
+        Output('ws-import-db-name-form-item', 'help'),
+        Output('ws-import-db-modal', 'okButtonProps'),
+
+        Input('ws-import-db-name', 'value'),
+        Input('ws-import-db-path-form-item', 'validateStatus'),
+        State("tmpdir", "data"),
+        prevent_initial_call=True
+    )
+    def validate_import_db_name(ws_name, path_status, tmpdir):
+        """Validate workspace name and enable/disable OK button."""
+        if not ws_name or not tmpdir:
+            return None, None, {'disabled': True}
+        
+        # Check if path is valid first
+        if path_status != 'success':
+            return None, None, {'disabled': True}
+        
+        # Check name pattern
+        if not pattern.match(ws_name):
+            return 'error', 'Name can only contain: a-z, A-Z, 0-9 and _', {'disabled': True}
+        
+        # Check if name already exists
+        with duckdb_connection_mint(tmpdir) as mint_conn:
+            if mint_conn is None:
+                return 'error', 'Cannot connect to database', {'disabled': True}
+            
+            existing = mint_conn.execute(
+                "SELECT COUNT(*) FROM workspaces WHERE name = ?", 
+                (ws_name,)
+            ).fetchone()[0]
+            
+            if existing > 0:
+                return 'error', 'Workspace name already exists', {'disabled': True}
+        
+        return 'success', None, {'disabled': False}
+
+    @app.callback(
+        Output('notifications-container', 'children', allow_duplicate=True),
+        Output('ws-action-store', 'data', allow_duplicate=True),
+        Output('ws-import-db-modal', 'visible', allow_duplicate=True),
+        Output('ws-import-db-path', 'value'),
+        Output('ws-import-db-name', 'value', allow_duplicate=True),
+        Output('ws-import-db-stats', 'children', allow_duplicate=True),
+
+        Input('ws-import-db-modal', 'okCounts'),
+        State('ws-import-db-path', 'value'),
+        State('ws-import-db-name', 'value'),
+        State("tmpdir", "data"),
+        prevent_initial_call=True
+    )
+    def import_database(okCounts, db_path, ws_name, tmpdir):
+        """Import database and create new workspace."""
+        if not okCounts:
+            raise PreventUpdate
+        
+        if not db_path or not ws_name or not tmpdir:
+            return fac.AntdNotification(
+                message="Invalid import parameters",
+                type="error",
+                duration=4,
+                placement='bottom',
+            ), dash.no_update, True, dash.no_update, dash.no_update, dash.no_update
+        
+        success, error_msg, workspace_key = import_database_as_workspace(
+            db_path.strip(),
+            ws_name.strip(),
+            tmpdir
+        )
+        
+        if not success:
+            return fac.AntdNotification(
+                message="Import failed",
+                description=error_msg,
+                type="error",
+                duration=5,
+                placement='bottom',
+            ), dash.no_update, True, dash.no_update, dash.no_update, dash.no_update
+        
+        logger.info(f"Successfully imported database from {db_path} as workspace '{ws_name}'")
+        
+        return (
+            fac.AntdNotification(
+                message=f"Workspace '{ws_name}' imported successfully",
+                type="success",
+                duration=4,
+                placement='bottom',
+            ),
+            {'type': 'import', 'key': workspace_key},
+            False,  # Close modal
+            None,   # Clear path input
+            None,   # Clear name input
+            None,   # Clear stats
+        )

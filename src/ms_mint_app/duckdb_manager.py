@@ -67,6 +67,198 @@ def get_effective_cpus(n_cpus: int, ram_gb: int) -> int:
     return min(n_cpus, ram_gb)
 
 
+# Required tables and their core columns for validation
+REQUIRED_TABLES = {
+    'samples': ['ms_file_label'],
+    'targets': ['peak_label', 'mz_mean', 'rt', 'rt_min', 'rt_max'],
+    'ms1_data': ['ms_file_label', 'scan_id', 'mz', 'intensity', 'scan_time'],
+    'chromatograms': ['peak_label', 'ms_file_label'],
+    'results': ['peak_label', 'ms_file_label', 'peak_area'],
+}
+
+
+def validate_mint_database(db_path: str) -> tuple[bool, str, dict]:
+    """
+    Validate that a DuckDB file is a valid MINT database.
+    
+    Args:
+        db_path: Path to the database file
+        
+    Returns:
+        (is_valid, error_message, stats_dict)
+        stats_dict contains row counts for each table when valid
+        
+    Checks:
+        - File exists and is readable
+        - Contains required tables
+        - Tables have expected core columns
+    """
+    import shutil
+    
+    db_path = Path(db_path)
+    stats = {}
+    
+    # Check file exists
+    if not db_path.exists():
+        return False, f"File not found: {db_path}", stats
+    
+    if not db_path.is_file():
+        return False, f"Not a file: {db_path}", stats
+    
+    # Check file extension
+    if db_path.suffix.lower() not in ['.db', '.duckdb']:
+        return False, f"Invalid file extension: {db_path.suffix}. Expected .db or .duckdb", stats
+    
+    # Try to open the database
+    con = None
+    try:
+        con = duckdb.connect(database=str(db_path), read_only=True)
+        
+        # Get list of tables
+        tables_result = con.execute("SHOW TABLES").fetchall()
+        existing_tables = {row[0] for row in tables_result}
+        
+        # Check required tables
+        missing_tables = []
+        for table in REQUIRED_TABLES:
+            if table not in existing_tables:
+                missing_tables.append(table)
+        
+        if missing_tables:
+            return False, f"Missing required tables: {', '.join(missing_tables)}", stats
+        
+        # Check columns for each required table
+        for table, required_cols in REQUIRED_TABLES.items():
+            cols_result = con.execute(f"DESCRIBE {table}").fetchall()
+            existing_cols = {row[0] for row in cols_result}
+            
+            missing_cols = [col for col in required_cols if col not in existing_cols]
+            if missing_cols:
+                return False, f"Table '{table}' missing columns: {', '.join(missing_cols)}", stats
+            
+            # Get row count
+            count = con.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
+            stats[table] = count
+        
+        # Check optional ms2_data table
+        if 'ms2_data' in existing_tables:
+            count = con.execute("SELECT COUNT(*) FROM ms2_data").fetchone()[0]
+            stats['ms2_data'] = count
+        
+        return True, "", stats
+        
+    except duckdb.IOException as e:
+        return False, f"Cannot read database file: {e}", stats
+    except duckdb.InvalidInputException as e:
+        return False, f"Invalid database file: {e}", stats
+    except Exception as e:
+        return False, f"Database validation error: {e}", stats
+    finally:
+        if con:
+            con.close()
+
+
+def import_database_as_workspace(
+    db_path: str, 
+    workspace_name: str, 
+    mint_root: Path
+) -> tuple[bool, str, str]:
+    """
+    Import a DuckDB file as a new workspace.
+    
+    Args:
+        db_path: Path to the source database file
+        workspace_name: Name for the new workspace
+        mint_root: Root directory for MINT data (e.g., /path/to/MINT/Local)
+        
+    Returns:
+        (success, error_message, workspace_key)
+        
+    Steps:
+        1. Validate database
+        2. Create workspace record in mint.db
+        3. Create workspace folder
+        4. Copy database to workspace folder
+    """
+    import shutil
+    import uuid
+    
+    db_path = Path(db_path)
+    mint_root = Path(mint_root)
+    
+    # Step 1: Validate the source database
+    is_valid, error_msg, stats = validate_mint_database(str(db_path))
+    if not is_valid:
+        return False, error_msg, ""
+    
+    # Step 2: Create workspace record
+    workspace_key = None
+    try:
+        with duckdb_connection_mint(mint_root) as mint_conn:
+            if mint_conn is None:
+                return False, "Cannot connect to MINT database", ""
+            
+            # Check if name already exists
+            existing = mint_conn.execute(
+                "SELECT COUNT(*) FROM workspaces WHERE name = ?", 
+                (workspace_name,)
+            ).fetchone()[0]
+            
+            if existing > 0:
+                return False, f"Workspace name '{workspace_name}' already exists", ""
+            
+            # Deactivate current active workspace
+            mint_conn.execute("UPDATE workspaces SET active = false WHERE active = true")
+            
+            # Insert new workspace
+            result = mint_conn.execute(
+                """INSERT INTO workspaces (name, description, active, created_at, last_activity) 
+                   VALUES (?, ?, true, NOW(), NOW()) RETURNING key""",
+                (workspace_name, f"Imported from {db_path.name}")
+            ).fetchone()
+            
+            if result:
+                workspace_key = str(result[0])
+            else:
+                return False, "Failed to create workspace record", ""
+                
+    except Exception as e:
+        logger.error(f"Error creating workspace record: {e}", exc_info=True)
+        return False, f"Failed to create workspace: {e}", ""
+    
+    # Step 3: Create workspace folder
+    workspace_path = mint_root / 'workspaces' / workspace_key
+    try:
+        workspace_path.mkdir(parents=True, exist_ok=True)
+    except Exception as e:
+        # Rollback: delete the workspace record
+        try:
+            with duckdb_connection_mint(mint_root) as mint_conn:
+                if mint_conn:
+                    mint_conn.execute("DELETE FROM workspaces WHERE key = ?", (workspace_key,))
+        except Exception:
+            pass
+        return False, f"Failed to create workspace folder: {e}", ""
+    
+    # Step 4: Copy database file
+    dest_db_path = workspace_path / 'workspace_mint.db'
+    try:
+        shutil.copy2(str(db_path), str(dest_db_path))
+        logger.info(f"Imported database from {db_path} to workspace {workspace_name} (key: {workspace_key})")
+    except Exception as e:
+        # Rollback: delete folder and workspace record
+        try:
+            shutil.rmtree(workspace_path, ignore_errors=True)
+            with duckdb_connection_mint(mint_root) as mint_conn:
+                if mint_conn:
+                    mint_conn.execute("DELETE FROM workspaces WHERE key = ?", (workspace_key,))
+        except Exception:
+            pass
+        return False, f"Failed to copy database file: {e}", ""
+    
+    return True, "", workspace_key
+
+
 def _send_progress(set_progress, percent, stage: str = "", detail: str = ""):
     """
     Safely call the provided set_progress callback.
