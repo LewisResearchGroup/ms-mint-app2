@@ -31,8 +31,9 @@ def get_asari_command():
     Otherwise, uses the system 'asari' command.
     
     Returns:
-        tuple: (command_list, is_bundled) where command_list is the base command
-               to run asari and is_bundled indicates if using bundled env.
+        tuple: (command_list, is_bundled, env_dict) where command_list is the base command
+               to run asari, is_bundled indicates if using bundled env, and env_dict
+               contains environment variables needed for the bundled Python to work.
     """
     if getattr(sys, 'frozen', False):
         # Running in PyInstaller frozen app
@@ -45,15 +46,32 @@ def get_asari_command():
         if sys.platform == 'win32':
             python_path = os.path.join(asari_env_path, 'Scripts', 'python.exe')
             scripts_dir = os.path.join(asari_env_path, 'Scripts')
+            lib_dir = os.path.join(asari_env_path, 'Lib')
+            site_packages = os.path.join(lib_dir, 'site-packages')
         else:
             python_path = os.path.join(asari_env_path, 'bin', 'python')
             scripts_dir = os.path.join(asari_env_path, 'bin')
+            # Find Python version directory (e.g., lib/python3.12)
+            lib_base = os.path.join(asari_env_path, 'lib')
+            py_dirs = [d for d in os.listdir(lib_base) if d.startswith('python')] if os.path.exists(lib_base) else []
+            if py_dirs:
+                lib_dir = os.path.join(lib_base, py_dirs[0])
+                site_packages = os.path.join(lib_dir, 'site-packages')
+            else:
+                lib_dir = lib_base
+                site_packages = os.path.join(lib_base, 'python3.12', 'site-packages')
+        
+        # Create environment variables to override hardcoded paths in the venv Python
+        # This is necessary because venv bakes the original Python location into the interpreter
+        bundled_env = os.environ.copy()
+        bundled_env['PYTHONHOME'] = asari_env_path
+        bundled_env['PYTHONPATH'] = site_packages
+        # Clear any user site that might interfere
+        bundled_env['PYTHONNOUSERSITE'] = '1'
         
         # Patch pyvenv.cfg with correct paths for this machine
-        # The file contains hardcoded paths from the build machine that break portability
         pyvenv_cfg = os.path.join(asari_env_path, 'pyvenv.cfg')
         try:
-            # Create a minimal pyvenv.cfg pointing to the current location
             cfg_content = f"""home = {scripts_dir}
 include-system-site-packages = false
 version = 3.12.0
@@ -66,15 +84,16 @@ version = 3.12.0
         
         if os.path.exists(python_path):
             logger.info(f"Using bundled Python for Asari at: {python_path}")
+            logger.info(f"PYTHONHOME set to: {asari_env_path}")
             # Call asari as a module: python -m asari
-            return ([python_path, "-m", "asari"], True)
+            return ([python_path, "-m", "asari"], True, bundled_env)
         else:
             logger.warning(f"Bundled Python not found at: {python_path}")
             # Fall back to system asari
-            return (["asari"], False)
+            return (["asari"], False, None)
     else:
         # Running in development mode - use system asari
-        return (["asari"], False)
+        return (["asari"], False, None)
 
 
 def export_ms1_from_db(conn, ms_file_label, output_path, polarity_str):
@@ -147,9 +166,9 @@ def run_asari_workflow(wdir, params, set_progress=None):
     report_progress(0, "Initializing", "Checking requirements...")
     
     # 1. Check Asari availability
-    asari_base_cmd, is_bundled = get_asari_command()
+    asari_base_cmd, is_bundled, bundled_env = get_asari_command()
     try:
-        subprocess.run(asari_base_cmd + ["--help"], check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        subprocess.run(asari_base_cmd + ["--help"], check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=bundled_env)
         if is_bundled:
             logger.info("Using bundled Asari environment")
         else:
@@ -293,7 +312,8 @@ def run_asari_workflow(wdir, params, set_progress=None):
             stdout=subprocess.PIPE, 
             stderr=subprocess.STDOUT, # Merge stderr for simpler streaming
             text=True, 
-            bufsize=1
+            bufsize=1,
+            env=bundled_env  # Use bundled Python environment if in frozen app
         )
         
         # Monitor stdout
