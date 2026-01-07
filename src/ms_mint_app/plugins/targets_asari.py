@@ -38,17 +38,38 @@ def get_asari_command():
         # Running in PyInstaller frozen app
         # The bundled env is at: <_MEIPASS>/asari_env/ (inside _internal)
         meipass = getattr(sys, '_MEIPASS', os.path.dirname(sys.executable))
+        asari_env_path = os.path.join(meipass, 'asari_env')
         
+        # Use Python interpreter + module instead of asari.exe directly
+        # This avoids hardcoded paths in pip-installed scripts from build machine
         if sys.platform == 'win32':
-            asari_path = os.path.join(meipass, 'asari_env', 'Scripts', 'asari.exe')
+            python_path = os.path.join(asari_env_path, 'Scripts', 'python.exe')
+            scripts_dir = os.path.join(asari_env_path, 'Scripts')
         else:
-            asari_path = os.path.join(meipass, 'asari_env', 'bin', 'asari')
+            python_path = os.path.join(asari_env_path, 'bin', 'python')
+            scripts_dir = os.path.join(asari_env_path, 'bin')
         
-        if os.path.exists(asari_path):
-            logger.info(f"Using bundled Asari at: {asari_path}")
-            return ([asari_path], True)
+        # Patch pyvenv.cfg with correct paths for this machine
+        # The file contains hardcoded paths from the build machine that break portability
+        pyvenv_cfg = os.path.join(asari_env_path, 'pyvenv.cfg')
+        try:
+            # Create a minimal pyvenv.cfg pointing to the current location
+            cfg_content = f"""home = {scripts_dir}
+include-system-site-packages = false
+version = 3.12.0
+"""
+            with open(pyvenv_cfg, 'w') as f:
+                f.write(cfg_content)
+            logger.info(f"Patched pyvenv.cfg for portability: {pyvenv_cfg}")
+        except Exception as e:
+            logger.warning(f"Could not patch pyvenv.cfg: {e}")
+        
+        if os.path.exists(python_path):
+            logger.info(f"Using bundled Python for Asari at: {python_path}")
+            # Call asari as a module: python -m asari
+            return ([python_path, "-m", "asari"], True)
         else:
-            logger.warning(f"Bundled Asari not found at: {asari_path}")
+            logger.warning(f"Bundled Python not found at: {python_path}")
             # Fall back to system asari
             return (["asari"], False)
     else:
