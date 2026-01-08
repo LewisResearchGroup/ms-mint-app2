@@ -92,6 +92,7 @@ COLUMN_MAPPINGS = {
     'compound': 'peak_label',
     'compoundname': 'peak_label',
     'medmz': 'mz_mean',
+    'parent': 'mz_mean',
     'medrt': 'rt',
     'expectedrt': 'rt',
     
@@ -112,6 +113,15 @@ COLUMN_MAPPINGS = {
     'rtmax': 'rt_max',
 }
 
+# Priority order for target columns that can come from multiple source columns.
+# When multiple source columns are present, the first one found in this list wins.
+# Keys are MINT target column names, values are lists of source column names in priority order.
+PRIORITY_MAPPINGS = {
+    'mz_mean': ['medmz', 'parent', 'row m/z', 'precursor_mz', 'precursormz'],
+    'peak_label': ['compoundid', 'compound', 'compoundname', 'compound name', 'name', 'target', 'target_name'],
+    'rt': ['medrt', 'expectedrt', 'row retention time', 'retention_time', 'retentiontime'],
+}
+
 
 def normalize_column_names(df: pd.DataFrame) -> pd.DataFrame:
     """
@@ -121,6 +131,10 @@ def normalize_column_names(df: pd.DataFrame) -> pd.DataFrame:
     - EL-MAVEN (compoundId, medMz, medRt) - RT is in minutes, converted to seconds
     - MZmine (row m/z, row retention time)
     - Generic alternatives (name, mz, rt, etc.)
+    
+    When multiple source columns could map to the same target (e.g., 'medmz' and 
+    'parent' both mapping to 'mz_mean'), the PRIORITY_MAPPINGS determines which 
+    source column takes precedence.
     
     Args:
         df: DataFrame with potentially non-standard column names
@@ -132,20 +146,47 @@ def normalize_column_names(df: pd.DataFrame) -> pd.DataFrame:
     mapped_info = []
     needs_rt_conversion = False
     
+    # Build a set of available columns (lowercase) for quick lookup
+    available_cols_lower = {str(col).lower().strip(): col for col in df.columns}
+    
+    # First pass: determine which source columns to use for priority-based targets
+    # This ensures we pick the highest-priority source when multiple are present
+    priority_selected = {}  # mint_col -> source_col_lower
+    for mint_col, priority_sources in PRIORITY_MAPPINGS.items():
+        if mint_col in df.columns:
+            # Target already exists in original form, skip
+            continue
+        for source_lower in priority_sources:
+            if source_lower in available_cols_lower:
+                priority_selected[mint_col] = source_lower
+                break  # Use the first (highest priority) match
+    
     for col in df.columns:
         col_lower = str(col).lower().strip()
         
         # Check if this column needs mapping
         if col_lower in COLUMN_MAPPINGS:
             mint_col = COLUMN_MAPPINGS[col_lower]
-            # Only map if the target column doesn't already exist
-            if mint_col not in df.columns and mint_col not in new_columns.values():
-                new_columns[col] = mint_col
-                mapped_info.append(f"'{col}' → '{mint_col}'")
-                
-                # EL-MAVEN medRt is in minutes - needs conversion to seconds
-                if col_lower == 'medrt':
-                    needs_rt_conversion = True
+            
+            # Skip if target column already exists in original DataFrame
+            if mint_col in df.columns:
+                continue
+            
+            # Skip if we already mapped another column to this target
+            if mint_col in new_columns.values():
+                continue
+            
+            # For priority-based columns, only use if this is the selected source
+            if mint_col in priority_selected:
+                if col_lower != priority_selected[mint_col]:
+                    continue  # Not the priority source, skip
+            
+            new_columns[col] = mint_col
+            mapped_info.append(f"'{col}' → '{mint_col}'")
+            
+            # EL-MAVEN medRt is in minutes - needs conversion to seconds
+            if col_lower == 'medrt':
+                needs_rt_conversion = True
     
     if mapped_info:
         # Detect source format based on mapped columns
