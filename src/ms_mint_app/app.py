@@ -71,6 +71,13 @@ def _build_layout(*, plugins, file_explorer, initial_page_children=None, initial
             dcc.Location(id="url", refresh=False),
             dcc.Store(id="tmpdir", data=str(TMPDIR)),
             dcc.Store(id="wdir"),
+            dcc.Store(id="workspace-status", data={
+                'ms_files_count': 0,
+                'targets_count': 0,
+                'chromatograms_count': 0,
+                'selected_targets_count': 0,
+                'optimization_samples_count': 0
+            }),
             dcc.Store(id='section-context', data=initial_section_context),
             dcc.Interval(id="progress-interval", n_intervals=0, interval=20000, disabled=False),
 

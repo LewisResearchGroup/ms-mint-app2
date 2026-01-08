@@ -33,8 +33,8 @@ def calculate_optimal_batch_size(ram_gb: int, total_pairs: int, n_cpus: int = No
     """
     ram_gb = ram_gb or 16  # Default to 16GB if not specified
     
-    # RAM factor: 1000 pairs per 4GB
-    ram_factor = max(ram_gb, 4) // 4
+    # RAM factor: 1000 pairs per 4GB (using float division for smooth scaling)
+    ram_factor = max(ram_gb, 4) / 4
     
     # CPU factor: modest scaling (max 1.5x boost)
     # Based on benchmarks: larger batches have diminishing returns

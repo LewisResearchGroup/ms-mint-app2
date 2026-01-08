@@ -134,7 +134,7 @@ _layout = fac.AntdLayout(
                             type='text',
                             icon=fac.AntdIcon(
                                 id='optimization-sidebar-collapse-icon',
-                                icon='antd-left',
+                                icon='antd-right',  # Start with right arrow (collapsed)
                                 style={'fontSize': '14px'}, ),
                             shape='default',
                             style={
@@ -349,6 +349,7 @@ _layout = fac.AntdLayout(
                     ],
                     id='optimization-sidebar',
                     collapsible=True,
+                    collapsed=True,  # Start collapsed - managed by clientside callback
                     collapsedWidth=0,
                     width=300,
                     trigger=None,
@@ -464,13 +465,14 @@ _layout = fac.AntdLayout(
                                     id='chromatogram-preview-spin',
                                 ),
                             ],
-                            id='chromatogram-preview-container'
+                            id='chromatogram-preview-container',
+                            style={'display': 'none'}  # Hidden by default, shown when chromatograms exist
                         ),
                         fac.AntdEmpty(
                             id='chromatogram-preview-empty',
                             description="No chromatograms to preview.",
                             locale='en-us',
-                            style={"display": "none"}
+                            style={"display": "block"}  # Shown by default when no chromatograms
                         ),
                     ],
                     className='ant-layout-content css-1v28nim',
@@ -488,7 +490,7 @@ _layout = fac.AntdLayout(
                 fac.AntdFlex(
                     [
                         fac.AntdDivider('Recompute Chromatograms'),
-                        fac.AntdForm(
+                        fac.AntdFlex(
                             [
                                 fac.AntdFormItem(
                                     fac.AntdCheckbox(
@@ -504,15 +506,15 @@ _layout = fac.AntdLayout(
                                     ),
                                 ),
                             ],
-                            layout='inline'
+                            gap='large'
                         ),
                         fac.AntdDivider('Configuration'),
-                        fac.AntdForm(
+                        fac.AntdFlex(
                             [
                                 fac.AntdFormItem(
                                     fac.AntdInputNumber(
                                         id='chromatogram-compute-cpu',
-                                        defaultValue=cpu_count() // 2,
+                                        value=cpu_count() // 2,
                                         min=1,
                                         max=cpu_count() - 2,
                                     ),
@@ -540,11 +542,7 @@ _layout = fac.AntdLayout(
                                 fac.AntdFormItem(
                                     fac.AntdInputNumber(
                                         id='chromatogram-compute-batch-size',
-                                        defaultValue=calculate_optimal_batch_size(
-                                            int(psutil.virtual_memory().available * 0.5 / (1024 ** 3)),
-                                            100000,  # Assume 100k pairs as default estimate
-                                            cpu_count() // 2
-                                        ),
+                                        placeholder='Calculating...',
                                         min=50,
                                         step=50,
                                     ),
@@ -553,7 +551,7 @@ _layout = fac.AntdLayout(
                                             'Higher values = faster but more memory.',
                                 ),
                             ],
-                            layout='inline'
+                            gap='large'
                         ),
 
                         fac.AntdDivider(),
@@ -611,13 +609,15 @@ _layout = fac.AntdLayout(
             title='Compute chromatograms',
             width=900,
             renderFooter=True,
+            forceRender=True,
+
             locale='en-us',
             confirmAutoSpin=True,
             loadingOkText='Generating Chromatograms...',
             okClickClose=False,
             closable=False,
             maskClosable=False,
-            destroyOnClose=True,
+            destroyOnClose=False,
             okText="Generate",
             centered=True,
             styles={'body': {'height': "50vh"}},
@@ -1101,11 +1101,17 @@ def layout():
     return _layout
 
 
-def _update_sample_type_tree(section_context, mark_action, expand_action, collapse_action, selection_ms_type, wdir, prop_id):
+def _update_sample_type_tree(section_context, mark_action, expand_action, collapse_action, selection_ms_type, wdir, prop_id, workspace_status=None):
     if not section_context or section_context.get('page') != 'Optimization':
         raise PreventUpdate
     if not wdir:
         return [], [], [], {'display': 'none'}, {'display': 'block'}
+
+    # INSTANT EARLY CHECK: Skip loading tree if no chromatograms exist (using cached status)
+    if workspace_status and workspace_status.get('chromatograms_count', 0) == 0:
+        return [], [], [], {'display': 'none'}, {'display': 'block'}
+
+
 
     with duckdb_connection(wdir) as conn:
         if conn is None:
@@ -1128,6 +1134,7 @@ def _update_sample_type_tree(section_context, mark_action, expand_action, collap
                           """, [selection_ms_type, selection_ms_type]).pl()
 
         if df.is_empty():
+            # Chromatograms exist but no samples marked - still expand sidebar to show empty message
             return [], [], [], {'display': 'none'}, {'display': 'block'}
 
         if prop_id == 'mark-tree-action':
@@ -1368,17 +1375,103 @@ def _calc_y_range_numpy(data, x_left, x_right, is_log=False):
 
 def callbacks(app, fsc, cache, cpu=None):
     app.clientside_callback(
-        """(nClicks, collapsed) => {
-            return [!collapsed, collapsed ? 'antd-left' : 'antd-right'];
+        """(nClicks, status, collapsed) => {
+            const ctx = window.dash_clientside.callback_context;
+            const trigger = ctx.triggered && ctx.triggered.length ? ctx.triggered[0].prop_id : '';
+            
+            // Auto-state logic based on workspace status
+            if (trigger.includes('workspace-status') || (!trigger && status)) {
+                if (!status) return window.dash_clientside.no_update;
+                const count = status.chromatograms_count || 0;
+                
+                // State 1: No Chroms -> Collapsed (True). State 2: Chroms -> Expanded (False).
+                const targetCollapsed = (count === 0);
+                
+                // Only update if state actually changes? No, enforce it to ensure consistency.
+                return [targetCollapsed, targetCollapsed ? 'antd-right' : 'antd-left'];
+            }
+            
+            // Manual toggle logic
+            if (trigger.includes('optimization-sidebar-collapse')) {
+                 const newCollapsed = !collapsed;
+                 return [newCollapsed, newCollapsed ? 'antd-right' : 'antd-left'];
+            }
+            
+            return window.dash_clientside.no_update;
         }""",
         Output('optimization-sidebar', 'collapsed'),
         Output('optimization-sidebar-collapse-icon', 'icon'),
-
+        
         Input('optimization-sidebar-collapse', 'nClicks'),
+        Input('workspace-status', 'data'),
         State('optimization-sidebar', 'collapsed'),
+        prevent_initial_call=False,
+    )
+
+    # INSTANT modal open - bypasses callback queue for immediate response
+    # decoupled from workspace-status to ensure 0ms latency even during page load
+    app.clientside_callback(
+        """(nClicks) => {
+            if (!nClicks) return window.dash_clientside.no_update;
+            return true;
+        }""",
+        Output('compute-chromatogram-modal', 'visible', allow_duplicate=True),
+        Input('compute-chromatograms-btn', 'nClicks'),
         prevent_initial_call=True,
     )
 
+    # Lazy Content Update - Populates modal fields when it becomes visible
+    # This runs asynchronously after the modal is already shown
+    app.clientside_callback(
+        """(visible, status) => {
+            if (!visible || !status) return window.dash_clientside.no_update;
+            
+            const { 
+                chromatograms_count, selected_targets_count, optimization_samples_count,
+                chroms_ms1_count, chroms_ms2_count,
+                n_cpus, default_cpus, ram_avail, default_ram 
+            } = status;
+            
+            const batch_size = status.batch_size;
+
+            const warningStyle = chromatograms_count > 0 ? {'display': 'flex'} : {'display': 'none'};
+            const warningMessage = chromatograms_count > 0 ? `There are already computed ${chromatograms_count} chromatograms` : "";
+            const infoMessage = `Ready to compute chromatograms for ${selected_targets_count} targets and ${optimization_samples_count} samples.`;
+            
+            const ramHelp = `Selected ${default_ram}GB / ${ram_avail}GB available RAM`;
+            const cpuHelp = `Selected ${default_cpus} / ${n_cpus} cpus`;
+            
+            const recomputeMs1 = (chroms_ms1_count || 0) > 0;
+            const recomputeMs2 = (chroms_ms2_count || 0) > 0;
+
+            return [
+                warningStyle, warningMessage, infoMessage,
+                ram_avail, default_cpus, default_ram,
+                (batch_size || 1000),
+                ramHelp, cpuHelp,
+                recomputeMs1, recomputeMs2,
+                0, "", ""
+            ];
+        }""",
+        Output('chromatogram-warning', 'style', allow_duplicate=True),
+        Output('chromatogram-warning', 'message', allow_duplicate=True),
+        Output('chromatogram-targets-info', 'message', allow_duplicate=True),
+        Output('chromatogram-compute-ram', 'max', allow_duplicate=True),
+        Output('chromatogram-compute-cpu', 'value', allow_duplicate=True),
+        Output('chromatogram-compute-ram', 'value', allow_duplicate=True),
+        Output('chromatogram-compute-batch-size', 'value', allow_duplicate=True),
+        Output('chromatogram-compute-ram-item', 'help', allow_duplicate=True),
+        Output('chromatogram-compute-cpu-item', 'help', allow_duplicate=True),
+        Output("chromatograms-recompute-ms1", "checked", allow_duplicate=True),
+        Output("chromatograms-recompute-ms2", "checked", allow_duplicate=True),
+        Output("chromatogram-processing-progress", "percent", allow_duplicate=True),
+        Output("chromatogram-processing-stage", "children", allow_duplicate=True),
+        Output("chromatogram-processing-detail", "children", allow_duplicate=True),
+        
+        Input('compute-chromatogram-modal', 'visible'),
+        Input('workspace-status', 'data'),
+        prevent_initial_call=True,
+    )
     # Clientside callback to detect container width for smart auto-sizing
     app.clientside_callback(
         """(n_intervals, sidebar_collapsed) => {
@@ -1394,6 +1487,68 @@ def callbacks(app, fsc, cache, cpu=None):
         Input('container-width-interval', 'n_intervals'),
         Input('optimization-sidebar', 'collapsed'),
     )
+
+    # Update workspace-status store when chromatograms are computed/deleted
+    @app.callback(
+        Output('workspace-status', 'data', allow_duplicate=True),
+        Input('chromatograms', 'data'),
+        State('wdir', 'data'),
+        prevent_initial_call=True
+    )
+    def update_workspace_status_on_chromatograms(chromatograms_trigger, wdir):
+        """Keep workspace-status in sync when chromatograms change."""
+        if not wdir:
+            raise PreventUpdate
+        
+        workspace_status = {
+            'ms_files_count': 0,
+            'targets_count': 0,
+            'chromatograms_count': 0,
+            'selected_targets_count': 0,
+            'optimization_samples_count': 0
+        }
+        
+        with duckdb_connection(wdir) as conn:
+            if conn is not None:
+                counts = conn.execute("""
+                    SELECT 
+                        (SELECT COUNT(*) FROM samples) as ms_files,
+                        (SELECT COUNT(*) FROM targets) as targets,
+                        (SELECT COUNT(*) FROM chromatograms) as chroms,
+                        (SELECT COUNT(*) FROM chromatograms WHERE ms_type = 'ms1') as chroms_ms1,
+                        (SELECT COUNT(*) FROM chromatograms WHERE ms_type = 'ms2') as chroms_ms2,
+                        (SELECT COUNT(*) FROM targets WHERE peak_selection = TRUE) as selected_targets,
+                        (SELECT COUNT(*) FROM samples WHERE use_for_optimization = TRUE) as opt_samples
+                """).fetchone()
+                if counts:
+                    n_cpus = cpu_count()
+                    default_cpus = max(1, n_cpus // 2)
+                    ram_avail = psutil.virtual_memory().available / (1024 ** 3)
+                    default_ram = round(min(float(default_cpus), ram_avail), 1)
+
+                    batch_size = calculate_optimal_batch_size(
+                        default_ram,
+                        max((counts[1] or 0) * (counts[6] or 0), 100000),
+                        default_cpus
+                    )
+
+                    workspace_status = {
+                        'ms_files_count': counts[0] or 0,
+                        'targets_count': counts[1] or 0,
+                        'chromatograms_count': counts[2] or 0,
+                        'chroms_ms1_count': counts[3] or 0,
+                        'chroms_ms2_count': counts[4] or 0,
+                        'selected_targets_count': counts[5] or 0,
+                        'optimization_samples_count': counts[6] or 0,
+                        'n_cpus': n_cpus,
+                        'default_cpus': default_cpus,
+                        'ram_avail': round(ram_avail, 1),
+                        'default_ram': default_ram,
+                        'batch_size': batch_size
+                    }
+        
+        logger.info(f"workspace-status updated (chromatograms changed): {workspace_status}")
+        return workspace_status
 
     @app.callback(
         Output('optimization-tour', 'current'),
@@ -1473,15 +1628,16 @@ def callbacks(app, fsc, cache, cpu=None):
         Input('expand-tree-action', 'nClicks'),
         Input('collapse-tree-action', 'nClicks'),
         Input('chromatogram-preview-filter-ms-type', 'value'),
+        Input('workspace-status', 'data'),
         State('wdir', 'data'),
         prevent_initial_call=True
     )
-    def update_sample_type_tree(section_context, mark_action, expand_action, collapse_action, selection_ms_type, wdir):
+    def update_sample_type_tree(section_context, mark_action, expand_action, collapse_action, selection_ms_type, workspace_status, wdir):
         ctx = dash.callback_context
         # Handle cases where ctx might be empty during tests if not mocked
         prop_id = ctx.triggered[0]['prop_id'].split('.')[0] if ctx.triggered else None
 
-        return _update_sample_type_tree(section_context, mark_action, expand_action, collapse_action, selection_ms_type, wdir, prop_id)
+        return _update_sample_type_tree(section_context, mark_action, expand_action, collapse_action, selection_ms_type, wdir, prop_id, workspace_status)
 
     ############# TREE END #######################################
 
@@ -1645,11 +1801,12 @@ def callbacks(app, fsc, cache, cpu=None):
         State('chromatogram-preview-log-y', 'checked'),
         State('chromatograms-dummy-output', 'children'),
         State('wdir', 'data'),
+        State('workspace-status', 'data'),
         prevent_initial_call=True
     )
     def chromatograms_preview(chromatograms, current_page, page_size, checkedkeys, selection_bookmark,
                               selection_ms_type, targets_order, dropped_target, selected_targets,
-                              log_scale, preview_y_range, wdir):
+                              log_scale, preview_y_range, wdir, workspace_status):
 
         ctx = dash.callback_context
         if 'targets-select' in ctx.triggered[0]['prop_id'] and selected_targets:
@@ -1657,6 +1814,19 @@ def callbacks(app, fsc, cache, cpu=None):
         if not wdir:
             logger.debug("chromatograms_preview: No workspace directory, preventing update")
             raise PreventUpdate
+
+        # INSTANT EARLY CHECK: Use cached workspace-status to skip DB entirely when no chromatograms
+        if workspace_status and workspace_status.get('chromatograms_count', 0) == 0:
+            logger.debug("chromatograms_preview: No chromatograms (from workspace-status cache), returning empty")
+            return (
+                [None] * MAX_NUM_CARDS,  # data-target
+                [dash.no_update] * MAX_NUM_CARDS,  # figures
+                [0] * MAX_NUM_CARDS,  # bookmark values
+                0,  # total
+                1,  # current page
+                dash.no_update,  # dummy
+                []  # targets options
+            )
 
         page_size = page_size or 1
         start_idx = (current_page - 1) * page_size
@@ -1666,6 +1836,7 @@ def callbacks(app, fsc, cache, cpu=None):
             if conn is None:
                 # If the DB is locked/unavailable, keep current preview as-is
                 raise PreventUpdate
+            
             all_targets = conn.execute("""
                                        SELECT peak_label
                                        from targets t
@@ -2042,6 +2213,8 @@ def callbacks(app, fsc, cache, cpu=None):
         Output({'type': 'target-card-preview', 'index': ALL}, 'className'),
         Output('chromatogram-preview-container', 'style'),
         Output('chromatogram-preview-empty', 'style'),
+        Output('optimization-sidebar', 'collapsed', allow_duplicate=True),
+        Output('optimization-sidebar-collapse-icon', 'icon', allow_duplicate=True),
 
         Input({'type': 'graph', 'index': ALL}, 'figure'),
         State({'type': 'target-card-preview', 'index': ALL}, 'className'),
@@ -2065,7 +2238,12 @@ def callbacks(app, fsc, cache, cpu=None):
 
         show_empty = {'display': 'block'} if visible_fig == 0 else {'display': 'none'}
         show_space = {'display': 'none'} if visible_fig == 0 else {'display': 'block'}
-        return cards_classes, show_space, show_empty
+        
+        # Collapse sidebar when no chromatograms, expand when there are chromatograms
+        sidebar_collapsed = visible_fig == 0
+        sidebar_icon = 'antd-right' if sidebar_collapsed else 'antd-left'
+        
+        return cards_classes, show_space, show_empty, sidebar_collapsed, sidebar_icon
 
     ############# PREVIEW END #######################################
 
@@ -3310,126 +3488,57 @@ def callbacks(app, fsc, cache, cpu=None):
     ############# VIEW END #######################################
 
     ############# COMPUTE CHROMATOGRAM BEGIN #####################################
+
+
     @app.callback(
         Output("notifications-container", "children", allow_duplicate=True),
-        Output("compute-chromatogram-modal", "visible"),
-        Output("chromatogram-warning", "style"),
-        Output("chromatogram-warning", "message"),
-        Output("chromatogram-targets-info", "message"),
-        Output("chromatogram-compute-ram", "max"),
-        Output("chromatogram-compute-ram-item", "help", allow_duplicate=True),
-        Output("chromatogram-compute-cpu-item", "help", allow_duplicate=True),
-        Output("chromatogram-processing-progress", "percent", allow_duplicate=True),
-        Output("chromatogram-processing-stage", "children", allow_duplicate=True),
-        Output("chromatogram-processing-detail", "children", allow_duplicate=True),
-        Output("chromatogram-compute-cpu", "value"),
-        Output("chromatogram-compute-ram", "value"),
-        Output("chromatograms-recompute-ms1", "checked"),
-        Output("chromatograms-recompute-ms2", "checked"),
-
         Input("compute-chromatograms-btn", "nClicks"),
-        State('chromatogram-compute-ram', 'value'),
         State('wdir', 'data'),
         prevent_initial_call=True
     )
-    def open_compute_chromatogram_modal(nClicks, ram_value, wdir):
+    def check_requirements_server(nClicks, wdir):
         if not nClicks:
-            logger.debug("open_compute_chromatogram_modal: No button clicks, preventing update")
             raise PreventUpdate
+        
+        if not wdir:
+             return fac.AntdNotification(
+                message="Workspace required",
+                description="Please select or create a workspace.",
+                type="error",
+                duration=4,
+                placement="bottom",
+                showProgress=True,
+            )
 
-        computed_chromatograms = 0
-        selected_targets = 0
-        # check if some chromatogram was computed
         with duckdb_connection(wdir) as conn:
             if conn is None:
-                return (
-                    fac.AntdNotification(
-                        message="Workspace required",
-                        description="Please select or create a workspace.",
-                        type="error",
-                        duration=4,
-                        placement="bottom",
-                        showProgress=True,
-                    ),
-                    False, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, 0, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update
+                 return fac.AntdNotification(
+                    message="Database Error",
+                    description="Could not connect to workspace database.",
+                    type="error",
+                    duration=4,
+                )
+            
+            counts = conn.execute("""
+                SELECT 
+                    (SELECT COUNT(*) FROM samples WHERE use_for_optimization = TRUE) as opt_samples,
+                    (SELECT COUNT(*) FROM targets) as targets
+            """).fetchone()
+            
+            opt_samples_count = counts[0] or 0
+            targets_count = counts[1] or 0
+
+            if opt_samples_count == 0 or targets_count == 0:
+                return fac.AntdNotification(
+                    message="Requirements not met",
+                    description="At least one MS-file and one target are required.",
+                    type="warning",
+                    duration=4,
+                    placement="bottom",
+                    showProgress=True,
                 )
 
-            ms_files = conn.execute("SELECT COUNT(*) FROM samples WHERE use_for_optimization = TRUE").fetchone()
-            targets = conn.execute("SELECT COUNT(*) FROM targets").fetchone()
-
-            if not ms_files or ms_files[0] == 0 or not targets or targets[0] == 0:
-                return (
-                    fac.AntdNotification(
-                        message="Requirements not met",
-                        description="At least one MS-file and one target are required.",
-                        type="warning",
-                        duration=4,
-                        placement="bottom",
-                        showProgress=True,
-                    ),
-                    False, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, 0, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update
-                )
-
-            chromatograms = conn.execute("SELECT COUNT(*) FROM chromatograms").fetchone()
-            if chromatograms:
-                computed_chromatograms = chromatograms[0]
-
-            targets = conn.execute("SELECT COUNT(*) FROM targets WHERE peak_selection = TRUE").fetchone()
-            if targets:
-                selected_targets = targets[0]
-
-            chromatograms_ms1 = conn.execute("SELECT COUNT(*) FROM chromatograms WHERE ms_type='ms1'").fetchone()
-            if chromatograms_ms1:
-                computed_chromatograms_ms1 = chromatograms_ms1[0]
-            else:
-                computed_chromatograms_ms1 = 0
-
-            chromatograms_ms2 = conn.execute("SELECT COUNT(*) FROM chromatograms WHERE ms_type='ms2'").fetchone()
-            if chromatograms_ms2:
-                computed_chromatograms_ms2 = chromatograms_ms2[0]
-            else:
-                computed_chromatograms_ms2 = 0
-
-        warning_style = {'display': 'flex'} if computed_chromatograms else {'display': 'none'}
-        warning_message = f"There are already computed {computed_chromatograms} chromatograms" if computed_chromatograms else ""
-
-        ram_max = round(psutil.virtual_memory().available / (1024 ** 3), 1)
-
-        # Smart Default CPU/RAM
-        n_cpus_total = cpu_count()
-        default_cpus = max(1, n_cpus_total // 2)
-        
-        available_ram_gb = psutil.virtual_memory().available / (1024 ** 3)
-        # Set RAM equal to CPUs (as GB), limited by available RAM
-        default_ram = min(float(default_cpus), available_ram_gb)
-        default_ram = round(default_ram, 1)
-
-        help_ram = _get_ram_help_text(default_ram)
-
-        recompute_ms1 = computed_chromatograms_ms1 > 0
-        recompute_ms2 = computed_chromatograms_ms2 > 0
-
-        info_message = f"Ready to compute chromatograms for {selected_targets} targets and {ms_files[0]} samples."
-
-        help_cpu = _get_cpu_help_text(default_cpus)
-
-        return (
-            dash.no_update,
-            True,
-            warning_style, 
-            warning_message, 
-            info_message, 
-            ram_max, 
-            help_ram, 
-            help_cpu,
-            0, 
-            "", 
-            "", 
-            default_cpus, 
-            default_ram, 
-            recompute_ms1, 
-            recompute_ms2
-        )
+        return dash.no_update
 
 
     @app.callback(
@@ -3511,7 +3620,7 @@ def callbacks(app, fsc, cache, cpu=None):
     @app.callback(
         Output("chromatogram-compute-cpu-item", "help"),
         Output("chromatogram-compute-ram-item", "help"),
-        Output("chromatogram-compute-batch-size", "value"),
+        Output("chromatogram-compute-batch-size", "value", allow_duplicate=True),
         Input("chromatogram-compute-cpu", "value"),
         Input("chromatogram-compute-ram", "value"),
         prevent_initial_call=True
@@ -3521,7 +3630,7 @@ def callbacks(app, fsc, cache, cpu=None):
         help_ram = _get_ram_help_text(ram)
         # Auto-calculate optimal batch size based on current CPU and RAM
         optimal_batch = calculate_optimal_batch_size(
-            int(ram) if ram else 8,
+            float(ram) if ram else 8.0,
             100000,  # Estimate for total pairs
             int(cpu) if cpu else 4
         )
