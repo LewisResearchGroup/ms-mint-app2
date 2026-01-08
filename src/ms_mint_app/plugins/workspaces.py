@@ -2,6 +2,8 @@ import re
 import shutil
 import json
 import os
+import psutil
+from multiprocessing import cpu_count
 import logging
 from pathlib import Path
 
@@ -857,6 +859,7 @@ def callbacks(app, fsc, cache):
         Output("ws-wdir-name-text", "children"),
         Output("ws-wdir-name", "text"),
         Output("wdir", "data"),
+        Output("workspace-status", "data"),
 
         Input("ws-table", "selectedRowKeys"),
         State("tmpdir", "data"),
@@ -864,7 +867,53 @@ def callbacks(app, fsc, cache):
         prevent_initial_call=True
     )
     def ws_activate(selectedRowKeys, tmpdir, ws_action):
-        return _ws_activate(selectedRowKeys, tmpdir, ws_action)
+        notification, ws_name, wdir_path, wdir_path2 = _ws_activate(selectedRowKeys, tmpdir, ws_action)
+        
+        # Populate workspace status store with counts from the activated workspace
+        workspace_status = {
+            'ms_files_count': 0,
+            'targets_count': 0,
+            'chromatograms_count': 0,
+            'selected_targets_count': 0,
+            'optimization_samples_count': 0
+        }
+        
+        if wdir_path:
+            from ..duckdb_manager import duckdb_connection
+            with duckdb_connection(wdir_path) as conn:
+                if conn is not None:
+                    counts = conn.execute("""
+                        SELECT 
+                            (SELECT COUNT(*) FROM samples) as ms_files,
+                            (SELECT COUNT(*) FROM targets) as targets,
+                            (SELECT COUNT(*) FROM chromatograms) as chroms,
+                            (SELECT COUNT(*) FROM chromatograms WHERE ms_type = 'ms1') as chroms_ms1,
+                            (SELECT COUNT(*) FROM chromatograms WHERE ms_type = 'ms2') as chroms_ms2,
+                            (SELECT COUNT(*) FROM targets WHERE peak_selection = TRUE) as selected_targets,
+                            (SELECT COUNT(*) FROM samples WHERE use_for_optimization = TRUE) as opt_samples
+                    """).fetchone()
+                    if counts:
+                        n_cpus = cpu_count()
+                        default_cpus = max(1, n_cpus // 2)
+                        ram_avail = psutil.virtual_memory().available / (1024 ** 3)
+                        default_ram = round(min(float(default_cpus), ram_avail), 1)
+
+                        workspace_status = {
+                            'ms_files_count': counts[0] or 0,
+                            'targets_count': counts[1] or 0,
+                            'chromatograms_count': counts[2] or 0,
+                            'chroms_ms1_count': counts[3] or 0,
+                            'chroms_ms2_count': counts[4] or 0,
+                            'selected_targets_count': counts[5] or 0,
+                            'optimization_samples_count': counts[6] or 0,
+                            'n_cpus': n_cpus,
+                            'default_cpus': default_cpus,
+                            'ram_avail': round(ram_avail, 1),
+                            'default_ram': default_ram
+                        }
+                        logger.info(f"workspace-status populated: {workspace_status}")
+        
+        return notification, ws_name, wdir_path, wdir_path2, workspace_status
 
     @app.callback(
         Output("notifications-container", "children", allow_duplicate=True),
