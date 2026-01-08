@@ -470,15 +470,22 @@ _layout = fac.AntdLayout(
                         ),
                         fac.AntdEmpty(
                             id='chromatogram-preview-empty',
-                            description="No chromatograms to preview.",
+                            description=fac.AntdFlex(
+                                [
+                                    fac.AntdText('No Chromatograms to preview', strong=True, style={'fontSize': '16px'}),
+                                    fac.AntdText('Click "Compute Chromatograms" to generate the chromatograms', type='secondary'),
+                                ],
+                                vertical=True,
+                                align='center',
+                                gap='small',
+                            ),
                             locale='en-us',
-                            style={"display": "block"}  # Shown by default when no chromatograms
+                            style={"display": "block", 'marginTop': '100px'}  # Shown by default when no chromatograms
                         ),
                     ],
                     className='ant-layout-content css-1v28nim',
                     style={'background': 'white',
                            # 'height': 'calc(100vh - 64px - 4rem)', 'overflowY': 'auto'
-                           'alignContent': 'center'
                            }
                 ),
             ],
