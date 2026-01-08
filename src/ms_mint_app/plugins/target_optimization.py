@@ -2195,30 +2195,32 @@ def callbacks(app, fsc, cache, cpu=None):
                 conn.execute("UPDATE targets SET notes = ? WHERE peak_label = ?",
                              (final_note, target_clicked))
 
+                # Auto-save RT-span if changed (no more confirmation modal)
+                # This must be inside the 'with' block to have valid connection
+                if slider_data and slider_ref:
+                    slider_value = slider_data.get('value') if isinstance(slider_data, dict) else None
+                    reference_value = slider_ref.get('value') if isinstance(slider_ref, dict) else None
+                    
+                    if slider_value and isinstance(slider_value, dict):
+                        # Check if values changed
+                        if reference_value is None or slider_value != reference_value:
+                            rt_min = slider_value.get('rt_min')
+                            rt_max = slider_value.get('rt_max')
+                            rt = slider_value.get('rt', (rt_min + rt_max) / 2 if rt_min and rt_max else None)
+                            
+                            if rt_min is not None and rt_max is not None:
+                                conn.execute("""
+                                    UPDATE targets 
+                                    SET rt_min = ?, rt_max = ?, rt = ?
+                                    WHERE peak_label = ?
+                                """, [rt_min, rt_max, rt, target_clicked])
+                                logger.info(f"Auto-saved RT-span for '{target_clicked}' on close: [{rt_min:.2f}, {rt_max:.2f}]")
+
             # Always refresh preview when RT alignment was changed
             # Use a timestamp to trigger the chromatograms_preview callback
             import time
             refresh_signal = update_chromatograms or {'refresh': time.time()}
 
-            # Auto-save RT-span if changed (no more confirmation modal)
-            if slider_data and slider_ref:
-                slider_value = slider_data.get('value') if isinstance(slider_data, dict) else None
-                reference_value = slider_ref.get('value') if isinstance(slider_ref, dict) else None
-                
-                if slider_value and isinstance(slider_value, dict):
-                    # Check if values changed
-                    if reference_value is None or slider_value != reference_value:
-                        rt_min = slider_value.get('rt_min')
-                        rt_max = slider_value.get('rt_max')
-                        rt = slider_value.get('rt', (rt_min + rt_max) / 2 if rt_min and rt_max else None)
-                        
-                        if rt_min is not None and rt_max is not None:
-                            conn.execute("""
-                                UPDATE targets 
-                                SET rt_min = ?, rt_max = ?, rt = ?
-                                WHERE peak_label = ?
-                            """, [rt_min, rt_max, rt, target_clicked])
-                            logger.info(f"Auto-saved RT-span for '{target_clicked}' on close: [{rt_min:.2f}, {rt_max:.2f}]")
             
             # Always close the modal
             return False, None, refresh_signal
