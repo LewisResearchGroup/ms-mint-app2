@@ -1005,7 +1005,7 @@ def get_targets_v2(files_path):
                     has_rt_min = not pd.isna(target.get('rt_min'))
                     has_rt_max = not pd.isna(target.get('rt_max'))
                     
-                    DEFAULT_RT_WINDOW = 1.0  # seconds
+                    DEFAULT_RT_WINDOW = 5.0  # seconds
                     
                     # Reject if no RT information provided at all
                     if not any([has_rt, has_rt_min, has_rt_max]):
