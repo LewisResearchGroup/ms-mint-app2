@@ -476,26 +476,45 @@ _layout = html.Div(
             id='ms-files-table-container',
             style={'paddingTop': '1rem', 'display': 'none'},
         ),
+        # Tour for empty workspace (no files loaded) - simplified
         fac.AntdTour(
             locale='en-us',
             steps=[
                 {
                     'title': 'Welcome',
-                    'description': 'This tutorial shows how to load, review, and export MS files.',
+                    'description': 'This tutorial shows how to get started with MS files.',
                 },
                 {
                     'title': 'Load raw files',
-                    'description': 'Click “Load MS-Files” to browse and add raw data files to this workspace.',
+                    'description': 'Click "Load MS-Files" to browse and add raw data files (mzML, mzXML) to this workspace.',
                     'targetSelector': "[id='{\"action\":\"file-explorer\",\"type\":\"ms-files\"}']"
                 },
                 {
                     'title': 'Use the metadata template',
-                    'description': 'Download the metadata template if you need the expected column names.',
+                    'description': 'Download the metadata template if you need the expected column names for annotating your files.',
                     'targetSelector': '#download-ms-template-btn'
+                },
+            ],
+            id='ms-files-tour-empty',
+            open=False,
+            current=0,
+        ),
+        # Tour for populated workspace (files loaded) - full tour
+        fac.AntdTour(
+            locale='en-us',
+            steps=[
+                {
+                    'title': 'Welcome',
+                    'description': 'This tutorial shows how to manage, review, and export your MS files.',
+                },
+                {
+                    'title': 'Load more files',
+                    'description': 'Click "Load MS-Files" to add more raw data files to this workspace.',
+                    'targetSelector': "[id='{\"action\":\"file-explorer\",\"type\":\"ms-files\"}']"
                 },
                 {
                     'title': 'Add metadata',
-                    'description': '(Optional) Use “Load Metadata” to import a CSV with sample info (labels, types, etc.).',
+                    'description': 'Use "Load Metadata" to import a CSV with sample info (labels, types, etc.).',
                     'targetSelector': "[id='{\"action\":\"file-explorer\",\"type\":\"metadata\"}']"
                 },
                 {
@@ -513,8 +532,13 @@ _layout = html.Div(
                     'description': 'Download the current table (with server-side filters) for backup or sharing.',
                     'targetSelector': '#download-ms-files-btn'
                 },
+                {
+                    'title': 'Use the metadata template',
+                    'description': 'Download the metadata template if you need the expected column names.',
+                    'targetSelector': '#download-ms-template-btn'
+                },
             ],
-            id='ms-files-tour',
+            id='ms-files-tour-full',
             open=False,
             current=0,
         ),
@@ -1341,13 +1365,22 @@ def callbacks(cls, app, fsc, cache, args_namespace):
         return _save_table_on_edit(row_edited, column_edited, wdir)
 
     @app.callback(
-        Output('ms-files-tour', 'current'),
-        Output('ms-files-tour', 'open'),
+        Output('ms-files-tour-empty', 'current'),
+        Output('ms-files-tour-empty', 'open'),
+        Output('ms-files-tour-full', 'current'),
+        Output('ms-files-tour-full', 'open'),
         Input('ms-files-tour-icon', 'nClicks'),
+        State('workspace-status', 'data'),
         prevent_initial_call=True,
     )
-    def ms_files_tour(n_clicks):
-        return 0, True
+    def ms_files_tour(n_clicks, workspace_status):
+        has_files = workspace_status and (workspace_status.get('ms_files_count', 0) or 0) > 0
+        if has_files:
+            # Open full tour, keep empty tour closed
+            return 0, False, 0, True
+        else:
+            # Open empty tour, keep full tour closed
+            return 0, True, 0, False
 
     @app.callback(
         Output('ms-files-tour-hint', 'open'),
