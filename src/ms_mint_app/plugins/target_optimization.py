@@ -1038,40 +1038,59 @@ _layout = fac.AntdLayout(
             style={'position': 'absolute', 'width': 0, 'height': 0, 'overflow': 'hidden'},
             tabIndex=-1
         ),
+        # Tour for empty state (no chromatograms) - simplified
         fac.AntdTour(
             locale='en-us',
             steps=[
                 {
                     'title': 'Welcome',
-                    'description': 'Follow this tutorial to compute chromatograms and tune targets.',
+                    'description': 'This tutorial shows how to compute and view chromatograms.',
                 },
                 {
                     'title': 'Compute chromatograms',
-                    'description': 'Extract chromatograms for the selected targets/files.',
+                    'description': 'Click to extract chromatograms for your files and targets.',
+                    'targetSelector': '#compute-chromatograms-btn'
+                },
+            ],
+            id='optimization-tour-empty',
+            open=False,
+            current=0,
+        ),
+        # Tour for populated state (chromatograms exist) - full tour
+        fac.AntdTour(
+            locale='en-us',
+            steps=[
+                {
+                    'title': 'Welcome',
+                    'description': 'This tutorial shows how to optimize your targets.',
+                },
+                {
+                    'title': 'Recompute',
+                    'description': 'Click to re-compute chromatograms if needed.',
                     'targetSelector': '#compute-chromatograms-btn'
                 },
                 {
-                    'title': 'Review cards',
-                    'description': 'Scroll the cards below to inspect chromatograms and edit target bounds directly.',
-                    'targetSelector': '#chromatogram-preview-container'
-                },
-                {
                     'title': 'Select samples',
-                    'description': 'Choose which samples are plotted in the cards for quick comparison.',
+                    'description': 'Choose which samples to display in the preview cards.',
                     'targetSelector': '#sample-selection'
                 },
                 {
                     'title': 'Select targets',
-                    'description': 'Filter which targets appear in the optimization cards.',
+                    'description': 'Filter to show specific targets.',
                     'targetSelector': '#targets-select'
                 },
                 {
+                    'title': 'Review cards',
+                    'description': 'Inspect chromatograms, bookmark, or delete targets.',
+                    'targetSelector': '#chromatogram-preview-container'
+                },
+                {
                     'title': 'Tune options',
-                    'description': 'Adjust MS type, target ordering, log scale, and plot sizing to aid review.',
+                    'description': 'Adjust plot settings like MS type, sorting, and log scale.',
                     'targetSelector': '#sidebar-options'
                 },
             ],
-            id='optimization-tour',
+            id='optimization-tour-full',
             open=False,
             current=0,
         ),
@@ -1559,13 +1578,22 @@ def callbacks(app, fsc, cache, cpu=None):
         return workspace_status
 
     @app.callback(
-        Output('optimization-tour', 'current'),
-        Output('optimization-tour', 'open'),
+        Output('optimization-tour-empty', 'current'),
+        Output('optimization-tour-empty', 'open'),
+        Output('optimization-tour-full', 'current'),
+        Output('optimization-tour-full', 'open'),
         Input('optimization-tour-icon', 'nClicks'),
+        State('workspace-status', 'data'),
         prevent_initial_call=True,
     )
-    def optimization_tour_open(n_clicks):
-        return 0, True
+    def optimization_tour_open(n_clicks, workspace_status):
+        has_chromatograms = workspace_status and (workspace_status.get('chromatograms_count', 0) or 0) > 0
+        if has_chromatograms:
+            # Open full tour, keep empty tour closed
+            return 0, False, 0, True
+        else:
+            # Open empty tour, keep full tour closed
+            return 0, True, 0, False
 
     @app.callback(
         Output('optimization-tour-hint', 'open'),
