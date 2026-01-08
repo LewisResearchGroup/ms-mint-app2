@@ -60,7 +60,7 @@ def downsample_for_preview(scan_time, intensity, max_points=100):
     return scan_time[indices], intensity[indices]
 
 
-MAX_NUM_CARDS = 50
+MAX_NUM_CARDS = 20  # Support up to 20 cards/page while keeping load time reasonable
 DEFAULT_GRAPH_WIDTH = 250
 DEFAULT_GRAPH_HEIGHT = 180
 
@@ -609,7 +609,6 @@ _layout = fac.AntdLayout(
             title='Compute chromatograms',
             width=900,
             renderFooter=True,
-            forceRender=True,
 
             locale='en-us',
             confirmAutoSpin=True,
@@ -1140,12 +1139,14 @@ def _update_sample_type_tree(section_context, mark_action, expand_action, collap
         if prop_id == 'mark-tree-action':
             # logger.debug(f"{df['checked_keys'].to_list() = }")
             checked_keys = [v for value in df['checked_keys'].to_list() for v in value]
-        elif prop_id == 'section-context':
+        elif prop_id in ['section-context', 'workspace-status']:
+            # Initialize with proportional selection (max 50 samples) when section loads or after chromatograms are computed
             quotas, checked_keys = proportional_min1_selection(df, 'sample_type', 'checked_keys', 50, 12345)
         else:
             checked_keys = dash.no_update
 
-        if prop_id in ['section-context', 'chromatogram-preview-filter-ms-type']:
+        # Rebuild tree data when section loads, MS type filter changes, or workspace-status updates (e.g. after computing chromatograms)
+        if prop_id in ['section-context', 'chromatogram-preview-filter-ms-type', 'workspace-status']:
             tree_data = [
                 {
                     'title': row['sample_type'],
@@ -1816,7 +1817,11 @@ def callbacks(app, fsc, cache, cpu=None):
             raise PreventUpdate
 
         # INSTANT EARLY CHECK: Use cached workspace-status to skip DB entirely when no chromatograms
-        if workspace_status and workspace_status.get('chromatograms_count', 0) == 0:
+        # BUT: Skip this check if chromatograms just updated (workspace_status might be stale due to race condition)
+        triggered_prop = ctx.triggered[0]['prop_id'] if ctx.triggered else ''
+        chroms_just_updated = 'chromatograms.data' in triggered_prop
+        
+        if not chroms_just_updated and workspace_status and workspace_status.get('chromatograms_count', 0) == 0:
             logger.debug("chromatograms_preview: No chromatograms (from workspace-status cache), returning empty")
             return (
                 [None] * MAX_NUM_CARDS,  # data-target
@@ -1836,7 +1841,6 @@ def callbacks(app, fsc, cache, cpu=None):
             if conn is None:
                 # If the DB is locked/unavailable, keep current preview as-is
                 raise PreventUpdate
-            
             all_targets = conn.execute("""
                                        SELECT peak_label
                                        from targets t
@@ -1901,7 +1905,10 @@ def callbacks(app, fsc, cache, cpu=None):
                                     SELECT ms_file_label, color, label, sample_type
                                     FROM samples
                                     WHERE use_for_optimization = TRUE
-                                      AND ms_file_label IN (SELECT unnest(?::VARCHAR[]))
+                                      AND (
+                                        (SELECT COUNT(*) FROM unnest(?::VARCHAR[])) = 0
+                                        OR ms_file_label IN (SELECT unnest(?::VARCHAR[]))
+                                      )
                                 ),
                                 picked_targets AS (
                                     SELECT 
@@ -2022,10 +2029,11 @@ def callbacks(app, fsc, cache, cpu=None):
                                 ORDER BY CASE WHEN ? = 'mz_mean' THEN mz_mean END,
                                         peak_label;
                                 """
-            df = conn.execute(query, [checkedkeys, selection_ms_type, selection_ms_type,
-                                      selection_bookmark, selection_bookmark,
-                                      selected_targets, selected_targets,
-                                      targets_order, page_size, start_idx, targets_order]
+            df = conn.execute(query, [checkedkeys, checkedkeys,  # picked_samples: COUNT and IN
+                                      selection_ms_type, selection_ms_type,  # picked_targets: ms_type filter
+                                      selection_bookmark, selection_bookmark,  # picked_targets: bookmark filter
+                                      selected_targets, selected_targets,  # picked_targets: specific targets
+                                      targets_order, page_size, start_idx, targets_order]  # ordering and pagination
                               ).pl()
 
         titles = []
@@ -2242,7 +2250,6 @@ def callbacks(app, fsc, cache, cpu=None):
         # Collapse sidebar when no chromatograms, expand when there are chromatograms
         sidebar_collapsed = visible_fig == 0
         sidebar_icon = 'antd-right' if sidebar_collapsed else 'antd-left'
-        
         return cards_classes, show_space, show_empty, sidebar_collapsed, sidebar_icon
 
     ############# PREVIEW END #######################################
