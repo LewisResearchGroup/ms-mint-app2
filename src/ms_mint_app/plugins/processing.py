@@ -84,36 +84,41 @@ _layout = html.Div(
                     ],
                     align='center',
                 ),
-                fac.AntdFlex(
-                    [
-                        fac.AntdTooltip(
-                            fac.AntdButton(
-                                'Download Results',
-                                id='processing-download-btn',
-                                icon=fac.AntdIcon(icon='antd-download'),
-                                iconPosition='end',
-                                style={'textTransform': 'uppercase'},
+                # Conditionally visible: Download Results and Options (only when results exist)
+                html.Div(
+                    fac.AntdFlex(
+                        [
+                            fac.AntdTooltip(
+                                fac.AntdButton(
+                                    'Download Results',
+                                    id='processing-download-btn',
+                                    icon=fac.AntdIcon(icon='antd-download'),
+                                    iconPosition='end',
+                                    style={'textTransform': 'uppercase'},
+                                ),
+                                title="Download the complete results table as a CSV file.",
+                                placement="bottom"
                             ),
-                            title="Download the complete results table as a CSV file.",
-                            placement="bottom"
-                        ),
-                        fac.AntdDropdown(
-                            id='processing-options',
-                            title='Options',
-                            buttonMode=True,
-                            arrow=True,
-                            menuItems=[
-                                {'title': fac.AntdText('Delete selected', strong=True, type='warning'),
-                                 'key': 'processing-delete-selected'},
-                                {'title': fac.AntdText('Clear table', strong=True, type='danger'),
-                                 'key': 'processing-delete-all'},
-                            ],
-                            buttonProps={'style': {'textTransform': 'uppercase'}},
-                        ),
-                    ],
-                    id='processing-options-wrapper',
-                    align='center',
-                    gap='small',
+                            fac.AntdDropdown(
+                                id='processing-options',
+                                title='Options',
+                                buttonMode=True,
+                                arrow=True,
+                                menuItems=[
+                                    {'title': fac.AntdText('Delete selected', strong=True, type='warning'),
+                                     'key': 'processing-delete-selected'},
+                                    {'title': fac.AntdText('Clear table', strong=True, type='danger'),
+                                     'key': 'processing-delete-all'},
+                                ],
+                                buttonProps={'style': {'textTransform': 'uppercase'}},
+                            ),
+                        ],
+                        id='processing-options-wrapper',
+                        align='center',
+                        gap='small',
+                    ),
+                    id='processing-data-actions-wrapper',
+                    style={'display': 'none'},
                 ),
             ],
             justify="space-between",
@@ -334,7 +339,25 @@ _layout = html.Div(
                 )
             ],
             id='results-table-container',
-            style={'paddingTop': '1rem'},
+            style={'paddingTop': '1rem', 'display': 'none'},
+        ),
+        # Empty state placeholder - shown when no results
+        html.Div(
+            fac.AntdEmpty(
+                description=fac.AntdFlex(
+                    [
+                        fac.AntdText('No Results available', strong=True, style={'fontSize': '16px'}),
+                        fac.AntdText('Click "Run MINT" to process the MS files', type='secondary'),
+                    ],
+                    vertical=True,
+                    align='center',
+                    gap='small',
+                ),
+                locale='en-us',
+                style={'marginTop': '100px'},
+            ),
+            id='processing-empty-state',
+            style={'display': 'block'},
         ),
         html.Div(id="processing-notifications-container"),
         fac.AntdModal(
@@ -606,35 +629,54 @@ _layout = html.Div(
             width=700,
             locale='en-us',
         ),
+        # Tour for empty state (no results yet) - simplified
         fac.AntdTour(
             locale='en-us',
             steps=[
                 {
                     'title': 'Welcome',
-                    'description': 'This tutorial walks through running MINT, selecting targets, and reviewing results.',
+                    'description': 'This tutorial shows how to get started with processing.',
                 },
                 {
-                    'title': 'Run processing',
-                    'description': 'Click “Run MINT” to compute chromatograms and results for the selected workspace.',
+                    'title': 'Run MINT',
+                    'description': 'Click "Run MINT" to compute chromatograms and results for your MS files and targets.',
+                    'targetSelector': '#processing-btn'
+                },
+            ],
+            id='processing-tour-empty',
+            open=False,
+            current=0,
+        ),
+        # Tour for populated state (results exist) - full tour
+        fac.AntdTour(
+            locale='en-us',
+            steps=[
+                {
+                    'title': 'Welcome',
+                    'description': 'This tutorial shows how to review and export your results.',
+                },
+                {
+                    'title': 'Run more processing',
+                    'description': 'Click "Run MINT" to recompute or compute additional targets.',
                     'targetSelector': '#processing-btn'
                 },
                 {
                     'title': 'Pick targets',
-                    'description': 'Choose one or more targets to show in the results table after running MINT.',
+                    'description': 'Choose one or more targets to show in the results table.',
                     'targetSelector': '#processing-peak-select'
                 },
                 {
                     'title': 'Review results',
-                    'description': 'Filter/sort results.',
+                    'description': 'Filter and sort results in the table.',
                     'targetSelector': '#results-table-container'
                 },
                 {
                     'title': 'Export or clean up',
-                    'description': 'Download all results/dense matrices or delete selected/all rows from the options.',
+                    'description': 'Download results or delete rows from the options.',
                     'targetSelector': '#processing-options-wrapper'
                 },
             ],
-            id='processing-tour',
+            id='processing-tour-full',
             open=False,
             current=0,
         ),
@@ -1026,6 +1068,30 @@ def _delete_all_results(wdir: str) -> tuple:
 
 
 def callbacks(app, fsc, cache):
+    # Clientside callback to toggle processing UI visibility based on workspace-status
+    # This runs in the browser for instant UI updates without server roundtrips
+    app.clientside_callback(
+        """(status) => {
+            if (!status) {
+                return [{'display': 'none'}, {'paddingTop': '1rem', 'display': 'none'}, {'display': 'block'}];
+            }
+            const hasResults = (status.chromatograms_count || 0) > 0;
+            const showStyle = hasResults ? 'block' : 'none';
+            const hideStyle = hasResults ? 'none' : 'block';
+            return [
+                {'display': showStyle},
+                {'paddingTop': '1rem', 'display': showStyle},
+                {'display': hideStyle}
+            ];
+        }""",
+        [
+            Output('processing-data-actions-wrapper', 'style'),
+            Output('results-table-container', 'style'),
+            Output('processing-empty-state', 'style'),
+        ],
+        Input('workspace-status', 'data'),
+    )
+
     @app.callback(
         Output("processing-notifications-container", "children"),
         Input('section-context', 'data'),
@@ -1507,13 +1573,22 @@ def callbacks(app, fsc, cache):
             return _download_dense_matrix(wdir, ws_name, d_dm_rows, d_dm_cols, d_dm_value)
 
     @app.callback(
-        Output('processing-tour', 'current'),
-        Output('processing-tour', 'open'),
+        Output('processing-tour-empty', 'current'),
+        Output('processing-tour-empty', 'open'),
+        Output('processing-tour-full', 'current'),
+        Output('processing-tour-full', 'open'),
         Input('processing-tour-icon', 'nClicks'),
+        State('workspace-status', 'data'),
         prevent_initial_call=True,
     )
-    def processing_tour_open(n_clicks):
-        return 0, True
+    def processing_tour_open(n_clicks, workspace_status):
+        has_results = workspace_status and (workspace_status.get('chromatograms_count', 0) or 0) > 0
+        if has_results:
+            # Open full tour, keep empty tour closed
+            return 0, False, 0, True
+        else:
+            # Open empty tour, keep full tour closed
+            return 0, True, 0, False
 
     @app.callback(
         Output('processing-tour-hint', 'open'),

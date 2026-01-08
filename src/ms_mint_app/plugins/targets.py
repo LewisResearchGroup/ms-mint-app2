@@ -439,7 +439,7 @@ _layout = html.Div(
             fac.AntdEmpty(
                 description=fac.AntdFlex(
                     [
-                        fac.AntdText('No targets loaded', strong=True, style={'fontSize': '16px'}),
+                        fac.AntdText('No Targets loaded', strong=True, style={'fontSize': '16px'}),
                         fac.AntdText('Click "Load Targets" to import your data or', type='secondary'),
                         fac.AntdText('"Auto-Generate" to populate the table with features detected using Asari', type='secondary'),
                     ],
