@@ -121,6 +121,7 @@ _layout = html.Div(
                 ),
                 fac.AntdFlex(
                     [
+                        # Always visible: Download Template
                         fac.AntdTooltip(
                             fac.AntdButton(
                                 'Download template',
@@ -132,31 +133,39 @@ _layout = html.Div(
                             title="Download a blank CSV template for targets",
                             placement="bottom"
                         ),
-                        fac.AntdTooltip(
-                            fac.AntdButton(
-                                'Download targets',
-                                id='download-target-list-btn',
-                                icon=fac.AntdIcon(icon='antd-download'),
-                                iconPosition='end',
-                                style={'textTransform': 'uppercase'},
-                            ),
-                            title="Download the current target list as a CSV file",
-                            placement="bottom"
-                        ),
+                        # Conditionally visible: Download Targets and Options (only when targets exist)
                         html.Div(
-                            fac.AntdDropdown(
-                                id='targets-options',
-                                title='Options',
-                                buttonMode=True,
-                                arrow=True,
-                                menuItems=[
-                                    {'title': fac.AntdText('Delete selected', strong=True, type='warning'),
-                                     'key': 'delete-selected'},
-                                    {'title': fac.AntdText('Clear table', strong=True, type='danger'), 'key': 'delete-all'},
-                                ],
-                                buttonProps={'style': {'textTransform': 'uppercase'}},
-                            ),
-                            id='targets-options-wrapper',
+                            [
+                                fac.AntdTooltip(
+                                    fac.AntdButton(
+                                        'Download targets',
+                                        id='download-target-list-btn',
+                                        icon=fac.AntdIcon(icon='antd-download'),
+                                        iconPosition='end',
+                                        style={'textTransform': 'uppercase'},
+                                    ),
+                                    title="Download the current target list as a CSV file",
+                                    placement="bottom"
+                                ),
+                                html.Div(
+                                    fac.AntdDropdown(
+                                        id='targets-options',
+                                        title='Options',
+                                        buttonMode=True,
+                                        arrow=True,
+                                        menuItems=[
+                                            {'title': fac.AntdText('Delete selected', strong=True, type='warning'),
+                                             'key': 'delete-selected'},
+                                            {'title': fac.AntdText('Clear table', strong=True, type='danger'), 'key': 'delete-all'},
+                                        ],
+                                        buttonProps={'style': {'textTransform': 'uppercase'}},
+                                    ),
+                                    id='targets-options-wrapper',
+                                ),
+                            ],
+                            id='targets-data-actions-wrapper',
+                            style={'display': 'none', 'gap': '8px'},
+                            className='ant-flex',
                         ),
                     ],
                     align='center',
@@ -423,7 +432,26 @@ _layout = html.Div(
                 )
             ],
             id='targets-table-container',
-            style={'paddingTop': '1rem'},
+            style={'paddingTop': '1rem', 'display': 'none'},
+        ),
+        # Empty state placeholder - shown when no targets
+        html.Div(
+            fac.AntdEmpty(
+                description=fac.AntdFlex(
+                    [
+                        fac.AntdText('No targets loaded', strong=True, style={'fontSize': '16px'}),
+                        fac.AntdText('Click "Load Targets" to import your data or', type='secondary'),
+                        fac.AntdText('"Auto-Generate" to populate the table with features detected using Asari', type='secondary'),
+                    ],
+                    vertical=True,
+                    align='center',
+                    gap='small',
+                ),
+                locale='en-us',
+                style={'marginTop': '100px'},
+            ),
+            id='targets-empty-state',
+            style={'display': 'block'},
         ),
         html.Div(id="targets-notifications-container"),
 
@@ -562,27 +590,51 @@ _layout = html.Div(
             centered=True,
             styles={'body': {'minHeight': '400px', 'display': 'flex', 'flexDirection': 'column', 'justifyContent': 'center'}},
         ),
+        # Tour for empty workspace (no targets loaded) - simplified
         fac.AntdTour(
             locale='en-us',
             steps=[
                 {
                     'title': 'Welcome',
-                    'description': 'Follow this tutorial to load, review, and export targets.',
+                    'description': 'This tutorial shows how to get started with targets.',
                 },
                 {
                     'title': 'Load targets',
-                    'description': 'Click “Load Targets” to import your target list (CSV).',
+                    'description': 'Click "Load Targets" to import your target list (CSV).',
                     'targetSelector': "[id='{\"action\":\"file-explorer\",\"type\":\"targets\"}']"
                 },
                 {
                     'title': 'Auto-Generate',
-                    'description': 'Automatically generate targets from your data using the Asari algorithm.',
+                    'description': 'Or auto-detect targets from your MS data using the Asari algorithm.',
                     'targetSelector': '#asari-open-modal-btn'
                 },
                 {
                     'title': 'Use the template',
                     'description': 'Download the template if you need the expected columns and examples.',
                     'targetSelector': '#download-target-template-btn'
+                },
+            ],
+            id='targets-tour-empty',
+            open=False,
+            current=0,
+        ),
+        # Tour for populated workspace (targets loaded) - full tour
+        fac.AntdTour(
+            locale='en-us',
+            steps=[
+                {
+                    'title': 'Welcome',
+                    'description': 'This tutorial shows how to manage, review, and export targets.',
+                },
+                {
+                    'title': 'Load more targets',
+                    'description': 'Click "Load Targets" to add more targets from a CSV file.',
+                    'targetSelector': "[id='{\"action\":\"file-explorer\",\"type\":\"targets\"}']"
+                },
+                {
+                    'title': 'Auto-Generate',
+                    'description': 'Auto-detect additional targets from your MS data using Asari.',
+                    'targetSelector': '#asari-open-modal-btn'
                 },
                 {
                     'title': 'Review and edit',
@@ -599,8 +651,13 @@ _layout = html.Div(
                     'description': 'Download the current target table (server-side filters applied) for review or sharing.',
                     'targetSelector': '#download-target-list-btn'
                 },
+                {
+                    'title': 'Get the template',
+                    'description': 'Download the template if you need the expected columns and examples.',
+                    'targetSelector': '#download-target-template-btn'
+                },
             ],
-            id='targets-tour',
+            id='targets-tour-full',
             open=False,
             current=0,
         ),
@@ -1026,6 +1083,31 @@ def _run_asari_analysis(ok_counts, wdir, multicores, mz_tol, mode, snr, min_heig
 
 
 def callbacks(app, fsc=None, cache=None):
+    # Clientside callback to toggle targets UI visibility based on workspace-status
+    # This runs in the browser for instant UI updates without server roundtrips
+    app.clientside_callback(
+        """(status) => {
+            if (!status) {
+                return [{'display': 'none'}, {'paddingTop': '1rem', 'display': 'none'}, {'display': 'block'}];
+            }
+            const hasTargets = (status.targets_count || 0) > 0;
+            const showStyle = hasTargets ? 'block' : 'none';
+            const hideStyle = hasTargets ? 'none' : 'block';
+            const flexStyle = hasTargets ? 'flex' : 'none';
+            return [
+                {'display': flexStyle, 'gap': '8px'},
+                {'paddingTop': '1rem', 'display': showStyle},
+                {'display': hideStyle}
+            ];
+        }""",
+        [
+            Output('targets-data-actions-wrapper', 'style'),
+            Output('targets-table-container', 'style'),
+            Output('targets-empty-state', 'style'),
+        ],
+        Input('workspace-status', 'data'),
+    )
+
     @app.callback(
         Output("targets-table", "data"),
         Output("targets-table", "selectedRowKeys"),
@@ -1196,14 +1278,23 @@ def callbacks(app, fsc=None, cache=None):
         return dcc.send_data_frame(df.to_csv, filename, index=False)
 
     @app.callback(
-        Output('targets-tour', 'current'),
-        Output('targets-tour', 'open'),
+        Output('targets-tour-empty', 'current'),
+        Output('targets-tour-empty', 'open'),
+        Output('targets-tour-full', 'current'),
+        Output('targets-tour-full', 'open'),
         Input('targets-tour-icon', 'nClicks'),
+        State('workspace-status', 'data'),
         prevent_initial_call=True,
     )
-    def targets_tour(n_clicks):
+    def targets_tour(n_clicks, workspace_status):
         logger.debug(f"Tour clicked: {n_clicks}")
-        return 0, True
+        has_targets = workspace_status and (workspace_status.get('targets_count', 0) or 0) > 0
+        if has_targets:
+            # Open full tour, keep empty tour closed
+            return 0, False, 0, True
+        else:
+            # Open empty tour, keep full tour closed
+            return 0, True, 0, False
 
     @app.callback(
         Output('targets-tour-hint', 'open'),
