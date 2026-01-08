@@ -136,36 +136,35 @@ _layout = html.Div(
                             icon='pi-info',
                             style={"cursor": "pointer", 'paddingLeft': '10px'},
                         ),
-                        fac.AntdSpace(
-                            [
-                                fac.AntdTooltip(
-                                    fac.AntdButton(
-                                        'Load MS-Files',
-                                        id={
-                                            'action': 'file-explorer',
-                                            'type': 'ms-files',
-                                        },
-                                        style={'textTransform': 'uppercase', "margin": "0 10px"},
-                                    ),
-                                    title="Import MS files (mzML, mzXML) or ZIP archives containing them.",
-                                    placement="bottom"
+                        # Always visible: Load MS-Files button
+                        fac.AntdTooltip(
+                            fac.AntdButton(
+                                'Load MS-Files',
+                                id={
+                                    'action': 'file-explorer',
+                                    'type': 'ms-files',
+                                },
+                                style={'textTransform': 'uppercase', "margin": "0 10px"},
+                            ),
+                            title="Import MS files (mzML, mzXML) or ZIP archives containing them.",
+                            placement="bottom"
+                        ),
+                        # Conditionally visible: Load Metadata button (only when files exist)
+                        html.Div(
+                            fac.AntdTooltip(
+                                fac.AntdButton(
+                                    'Load Metadata',
+                                    id={
+                                        'action': 'file-explorer',
+                                        'type': 'metadata',
+                                    },
+                                    style={'textTransform': 'uppercase', "margin": "0 10px"},
                                 ),
-                                fac.AntdTooltip(
-                                    fac.AntdButton(
-                                        'Load Metadata',
-                                        id={
-                                            'action': 'file-explorer',
-                                            'type': 'metadata',
-                                        },
-                                        style={'textTransform': 'uppercase', "margin": "0 10px"},
-                                    ),
-                                    title="Import a metadata file (CSV) to annotate your MS files.",
-                                    placement="bottom"
-                                ),
-                            ],
-                            addSplitLine=False,
-                            size="small",
-                            style={"margin": "0 10px"},
+                                title="Import a metadata file (CSV) to annotate your MS files.",
+                                placement="bottom"
+                            ),
+                            id='ms-files-load-metadata-wrapper',
+                            style={'display': 'none'},
                         ),
                     ],
                     align='center',
@@ -183,33 +182,41 @@ _layout = html.Div(
                             title="Download a blank CSV template for file metadata.",
                             placement="bottom"
                         ),
-                        fac.AntdTooltip(
-                            fac.AntdButton(
-                                'Download MS-files',
-                                id='download-ms-files-btn',
-                                icon=fac.AntdIcon(icon='antd-download'),
-                                iconPosition='end',
-                                style={'textTransform': 'uppercase', "margin": "0 10px"},
-                            ),
-                            title="Download the currently loaded MS-files list as a CSV.",
-                            placement="bottom"
-                        ),
+                        # Conditionally visible: Download MS-Files and Options (only when files exist)
                         html.Div(
-                            fac.AntdDropdown(
-                                id='ms-options',
-                                title='Options',
-                                buttonMode=True,
-                                arrow=True,
-                                menuItems=[
-                                    {'title': 'Generate colors', 'icon': 'antd-highlight', 'key': 'generate-colors'},
-                                    {'isDivider': True},
-                                    {'title': fac.AntdText('Delete selected', strong=True, type='warning'),
-                                     'key': 'delete-selected'},
-                                    {'title': fac.AntdText('Clear table', strong=True, type='danger'), 'key': 'delete-all'},
-                                ],
-                                buttonProps={'style': {'textTransform': 'uppercase'}},
-                            ),
-                            id='ms-options-wrapper',
+                            [
+                                fac.AntdTooltip(
+                                    fac.AntdButton(
+                                        'Download MS-files',
+                                        id='download-ms-files-btn',
+                                        icon=fac.AntdIcon(icon='antd-download'),
+                                        iconPosition='end',
+                                        style={'textTransform': 'uppercase', "margin": "0 10px"},
+                                    ),
+                                    title="Download the currently loaded MS-files list as a CSV.",
+                                    placement="bottom"
+                                ),
+                                html.Div(
+                                    fac.AntdDropdown(
+                                        id='ms-options',
+                                        title='Options',
+                                        buttonMode=True,
+                                        arrow=True,
+                                        menuItems=[
+                                            {'title': 'Generate colors', 'icon': 'antd-highlight', 'key': 'generate-colors'},
+                                            {'isDivider': True},
+                                            {'title': fac.AntdText('Delete selected', strong=True, type='warning'),
+                                             'key': 'delete-selected'},
+                                            {'title': fac.AntdText('Clear table', strong=True, type='danger'), 'key': 'delete-all'},
+                                        ],
+                                        buttonProps={'style': {'textTransform': 'uppercase'}},
+                                    ),
+                                    id='ms-options-wrapper',
+                                ),
+                            ],
+                            id='ms-files-data-actions-wrapper',
+                            style={'display': 'none', 'gap': '8px'},
+                            className='ant-flex',
                         ),
                     ],
                     align='center',
@@ -272,6 +279,25 @@ _layout = html.Div(
             },
             locale='en-us',
         ),
+        # Empty state placeholder - shown when no MS files
+        html.Div(
+            fac.AntdEmpty(
+                description=fac.AntdFlex(
+                    [
+                        fac.AntdText('No MS files loaded', strong=True, style={'fontSize': '16px'}),
+                        fac.AntdText('Click "Load MS-Files" to import your data', type='secondary'),
+                    ],
+                    vertical=True,
+                    align='center',
+                    gap='small',
+                ),
+                locale='en-us',
+                style={'marginTop': '100px'},
+            ),
+            id='ms-files-empty-state',
+            style={'display': 'block'},
+        ),
+        # Conditionally visible: Table container (only when files exist)
         html.Div(
             [
                 fac.AntdSpin(
@@ -448,7 +474,7 @@ _layout = html.Div(
                 )
             ],
             id='ms-files-table-container',
-            style={'paddingTop': '1rem'},
+            style={'paddingTop': '1rem', 'display': 'none'},
         ),
         fac.AntdTour(
             locale='en-us',
@@ -954,8 +980,34 @@ def _save_table_on_edit(row_edited, column_edited, wdir):
                                     style=NOTIFICATION_COMPACT_STYLE
                                     ), ms_table_action_store
 
-
 def callbacks(cls, app, fsc, cache, args_namespace):
+    # Clientside callback to toggle data-dependent UI visibility based on workspace-status
+    # This runs in the browser for instant UI updates without server roundtrips
+    app.clientside_callback(
+        """(status) => {
+            if (!status) {
+                return [{'display': 'none'}, {'display': 'none'}, {'paddingTop': '1rem', 'display': 'none'}, {'display': 'block'}];
+            }
+            const hasFiles = (status.ms_files_count || 0) > 0;
+            const showStyle = hasFiles ? 'block' : 'none';
+            const hideStyle = hasFiles ? 'none' : 'block';
+            const flexStyle = hasFiles ? 'flex' : 'none';
+            return [
+                {'display': showStyle},
+                {'display': flexStyle, 'gap': '8px'},
+                {'paddingTop': '1rem', 'display': showStyle},
+                {'display': hideStyle}
+            ];
+        }""",
+        [
+            Output('ms-files-load-metadata-wrapper', 'style'),
+            Output('ms-files-data-actions-wrapper', 'style'),
+            Output('ms-files-table-container', 'style'),
+            Output('ms-files-empty-state', 'style'),
+        ],
+        Input('workspace-status', 'data'),
+    )
+
     @app.callback(
         Output('color-picker-modal', 'visible'),
         Output('hex-color-picker', 'color'),

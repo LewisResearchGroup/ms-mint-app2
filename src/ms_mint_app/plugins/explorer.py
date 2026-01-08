@@ -513,6 +513,7 @@ class FileExplorer:
             Output('notifications-container', "children", allow_duplicate=True),
             Output('processed-action-store', 'data', allow_duplicate=True),
             Output('selection-modal', 'visible', allow_duplicate=True),
+            Output('workspace-status', 'data', allow_duplicate=True),
 
             Input('selection-modal', 'okCounts'),
             State('processing-type-store', 'data'),
@@ -857,5 +858,50 @@ def _background_processing(set_progress, okCounts, processing_type, selected_fil
                                         style={"maxWidth": 420, "width": "420px"})
     processed_action_store = {'action': 'processing', 'status': 'success'}
 
-    return notification, processed_action_store, False
+    # Update workspace-status with current counts after processing
+    workspace_status = {
+        'ms_files_count': 0,
+        'targets_count': 0,
+        'chromatograms_count': 0,
+        'selected_targets_count': 0,
+        'optimization_samples_count': 0
+    }
+    if wdir:
+        from ..duckdb_manager import duckdb_connection
+        with duckdb_connection(wdir) as conn:
+            if conn is not None:
+                counts = conn.execute("""
+                    SELECT 
+                        (SELECT COUNT(*) FROM samples) as ms_files,
+                        (SELECT COUNT(*) FROM targets) as targets,
+                        (SELECT COUNT(*) FROM chromatograms) as chroms,
+                        (SELECT COUNT(*) FROM chromatograms WHERE ms_type = 'ms1') as chroms_ms1,
+                        (SELECT COUNT(*) FROM chromatograms WHERE ms_type = 'ms2') as chroms_ms2,
+                        (SELECT COUNT(*) FROM targets WHERE peak_selection = TRUE) as selected_targets,
+                        (SELECT COUNT(*) FROM samples WHERE use_for_optimization = TRUE) as opt_samples
+                """).fetchone()
+                if counts:
+                    import psutil
+                    from multiprocessing import cpu_count
+                    n_cpus = cpu_count()
+                    default_cpus = max(1, n_cpus // 2)
+                    ram_avail = psutil.virtual_memory().available / (1024 ** 3)
+                    default_ram = round(min(float(default_cpus), ram_avail), 1)
+
+                    workspace_status = {
+                        'ms_files_count': counts[0] or 0,
+                        'targets_count': counts[1] or 0,
+                        'chromatograms_count': counts[2] or 0,
+                        'chroms_ms1_count': counts[3] or 0,
+                        'chroms_ms2_count': counts[4] or 0,
+                        'selected_targets_count': counts[5] or 0,
+                        'optimization_samples_count': counts[6] or 0,
+                        'n_cpus': n_cpus,
+                        'default_cpus': default_cpus,
+                        'ram_avail': round(ram_avail, 1),
+                        'default_ram': default_ram
+                    }
+                    logger.info(f"workspace-status updated after processing: {workspace_status}")
+
+    return notification, processed_action_store, False, workspace_status
 
