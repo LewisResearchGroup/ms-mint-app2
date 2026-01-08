@@ -2252,10 +2252,28 @@ def callbacks(app, fsc, cache, cpu=None):
         logger.debug(f"Preview refreshed in {time.perf_counter() - t1:.4f}s")
         return titles, figures, bookmarks, len(all_targets), current_page, "", targets_select_options
 
+    app.clientside_callback(
+        """(status) => {
+            if (!status) {
+                return [{'display': 'none'}, {'display': 'block', 'marginTop': '100px'}];
+            }
+            const hasChromatograms = (status.chromatograms_count || 0) > 0;
+            const containerStyle = hasChromatograms ? {'display': 'block'} : {'display': 'none'};
+            const emptyStyle = hasChromatograms ? {'display': 'none'} : {'display': 'block', 'marginTop': '100px'};
+            return [containerStyle, emptyStyle];
+        }""",
+        [
+            Output('chromatogram-preview-container', 'style', allow_duplicate=True),
+            Output('chromatogram-preview-empty', 'style', allow_duplicate=True),
+        ],
+        Input('workspace-status', 'data'),
+        prevent_initial_call='initial_duplicate'
+    )
+
     @app.callback(
         Output({'type': 'target-card-preview', 'index': ALL}, 'className'),
-        Output('chromatogram-preview-container', 'style'),
-        Output('chromatogram-preview-empty', 'style'),
+        Output('chromatogram-preview-container', 'style', allow_duplicate=True),
+        Output('chromatogram-preview-empty', 'style', allow_duplicate=True),
         Output('optimization-sidebar', 'collapsed', allow_duplicate=True),
         Output('optimization-sidebar-collapse-icon', 'icon', allow_duplicate=True),
 
