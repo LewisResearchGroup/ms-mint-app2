@@ -1075,7 +1075,7 @@ def callbacks(app, fsc, cache):
             if (!status) {
                 return [{'display': 'none'}, {'paddingTop': '1rem', 'display': 'none'}, {'display': 'block'}];
             }
-            const hasResults = (status.chromatograms_count || 0) > 0;
+            const hasResults = (status.results_count || 0) > 0;
             const showStyle = hasResults ? 'block' : 'none';
             const hideStyle = hasResults ? 'none' : 'block';
             return [
@@ -1730,6 +1730,7 @@ def callbacks(app, fsc, cache):
     @app.callback(
         Output('results-action-store', 'data'),
         Output('processing-modal', 'visible', allow_duplicate=True),
+        Output('workspace-status', 'data', allow_duplicate=True),
 
         Input('processing-modal', 'okCounts'),
         State('processing-recompute', 'checked'),
@@ -1823,7 +1824,51 @@ def callbacks(app, fsc, cache):
              logger.error("Processing failed during computation", exc_info=True)
              raise
 
-        return {'action': 'processing', 'status': 'completed', 'timestamp': time.time()}, False
+        # Update workspace-status with current counts including results
+        workspace_status = {
+            'ms_files_count': 0,
+            'targets_count': 0,
+            'chromatograms_count': 0,
+            'selected_targets_count': 0,
+            'optimization_samples_count': 0,
+            'results_count': 0
+        }
+        with duckdb_connection(wdir) as conn:
+            if conn is not None:
+                counts = conn.execute("""
+                    SELECT 
+                        (SELECT COUNT(*) FROM samples) as ms_files,
+                        (SELECT COUNT(*) FROM targets) as targets,
+                        (SELECT COUNT(*) FROM chromatograms) as chroms,
+                        (SELECT COUNT(*) FROM chromatograms WHERE ms_type = 'ms1') as chroms_ms1,
+                        (SELECT COUNT(*) FROM chromatograms WHERE ms_type = 'ms2') as chroms_ms2,
+                        (SELECT COUNT(*) FROM targets WHERE peak_selection = TRUE) as selected_targets,
+                        (SELECT COUNT(*) FROM samples WHERE use_for_optimization = TRUE) as opt_samples,
+                        (SELECT COUNT(*) FROM results) as results
+                """).fetchone()
+                if counts:
+                    n_cpus_count = cpu_count()
+                    default_cpus = max(1, n_cpus_count // 2)
+                    ram_avail = psutil.virtual_memory().available / (1024 ** 3)
+                    default_ram = round(min(float(default_cpus), ram_avail), 1)
+
+                    workspace_status = {
+                        'ms_files_count': counts[0] or 0,
+                        'targets_count': counts[1] or 0,
+                        'chromatograms_count': counts[2] or 0,
+                        'chroms_ms1_count': counts[3] or 0,
+                        'chroms_ms2_count': counts[4] or 0,
+                        'selected_targets_count': counts[5] or 0,
+                        'optimization_samples_count': counts[6] or 0,
+                        'results_count': counts[7] or 0,
+                        'n_cpus': n_cpus_count,
+                        'default_cpus': default_cpus,
+                        'ram_avail': round(ram_avail, 1),
+                        'default_ram': default_ram
+                    }
+        logger.info(f"workspace-status updated after processing: {workspace_status}")
+
+        return {'action': 'processing', 'status': 'completed', 'timestamp': time.time()}, False, workspace_status
 
     @app.callback(
         Output('results-action-store', 'data', allow_duplicate=True),

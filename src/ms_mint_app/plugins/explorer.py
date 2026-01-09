@@ -864,7 +864,8 @@ def _background_processing(set_progress, okCounts, processing_type, selected_fil
         'targets_count': 0,
         'chromatograms_count': 0,
         'selected_targets_count': 0,
-        'optimization_samples_count': 0
+        'optimization_samples_count': 0,
+        'results_count': 0
     }
     if wdir:
         from ..duckdb_manager import duckdb_connection
@@ -878,7 +879,8 @@ def _background_processing(set_progress, okCounts, processing_type, selected_fil
                         (SELECT COUNT(*) FROM chromatograms WHERE ms_type = 'ms1') as chroms_ms1,
                         (SELECT COUNT(*) FROM chromatograms WHERE ms_type = 'ms2') as chroms_ms2,
                         (SELECT COUNT(*) FROM targets WHERE peak_selection = TRUE) as selected_targets,
-                        (SELECT COUNT(*) FROM samples WHERE use_for_optimization = TRUE) as opt_samples
+                        (SELECT COUNT(*) FROM samples WHERE use_for_optimization = TRUE) as opt_samples,
+                        (SELECT COUNT(*) FROM results) as results
                 """).fetchone()
                 if counts:
                     import psutil
@@ -896,6 +898,7 @@ def _background_processing(set_progress, okCounts, processing_type, selected_fil
                         'chroms_ms2_count': counts[4] or 0,
                         'selected_targets_count': counts[5] or 0,
                         'optimization_samples_count': counts[6] or 0,
+                        'results_count': counts[7] or 0,
                         'n_cpus': n_cpus,
                         'default_cpus': default_cpus,
                         'ram_avail': round(ram_avail, 1),
