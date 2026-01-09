@@ -56,7 +56,6 @@ dependencies = [
   "asari-metabolomics",
   "diskcache",
   "flask-caching",
-  "pyopenms",
 ]
 dynamic = ["version"]
 

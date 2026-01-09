@@ -388,6 +388,189 @@ def _decode_binary_mzml(
     return np.frombuffer(raw, dtype=dtype)
 
 
+def _encode_binary_mzml(
+    data: np.ndarray,
+    is_64bit: bool = True,
+    compress: bool = True
+) -> str:
+    """
+    Encode a numpy array to mzML binary format (base64 + optional zlib).
+
+    Args:
+        data: numpy array of m/z or intensity values
+        is_64bit: True for 64-bit float, False for 32-bit
+        compress: True to apply zlib compression
+
+    Returns:
+        Base64-encoded string
+    """
+    dtype = np.float64 if is_64bit else np.float32
+    arr = np.asarray(data, dtype=dtype)
+    raw = arr.tobytes()
+
+    if compress:
+        raw = zlib.compress(raw)
+
+    return base64.b64encode(raw).decode('ascii')
+
+
+def write_mzml_from_spectra(
+    spectra: List[Dict[str, Any]],
+    output_path: str | Path,
+    polarity: str = "Positive"
+) -> None:
+    """
+    Write spectra to an mzML file using pure lxml.
+
+    This is a lightweight mzML writer that produces files compatible with
+    Asari and other mzML readers. Uses zlib compression and 64-bit floats.
+
+    Args:
+        spectra: List of spectrum dicts with keys:
+            - scan_id: int (scan number)
+            - rt: float (retention time in seconds)
+            - mz_array: np.ndarray (m/z values)
+            - intensity_array: np.ndarray (intensity values)
+        output_path: Path to output mzML file
+        polarity: "Positive" or "Negative"
+
+    Example:
+        >>> spectra = [
+        ...     {"scan_id": 1, "rt": 0.5, "mz_array": np.array([100.0, 200.0]),
+        ...      "intensity_array": np.array([1000.0, 2000.0])}
+        ... ]
+        >>> write_mzml_from_spectra(spectra, "output.mzML", polarity="Positive")
+    """
+    from lxml import etree
+
+    output_path = Path(output_path)
+
+    # mzML namespace
+    NSMAP = {
+        None: "http://psi.hupo.org/ms/mzml",
+        "xsi": "http://www.w3.org/2001/XMLSchema-instance",
+    }
+
+    # Root element
+    root = etree.Element("mzML", nsmap=NSMAP)
+    root.set("{http://www.w3.org/2001/XMLSchema-instance}schemaLocation",
+             "http://psi.hupo.org/ms/mzml http://psidev.info/files/ms/mzML/xsd/mzML1.1.0.xsd")
+    root.set("version", "1.1.0")
+
+    # CV list (required by schema)
+    cv_list = etree.SubElement(root, "cvList", count="2")
+    etree.SubElement(cv_list, "cv", id="MS", fullName="Proteomics Standards Initiative Mass Spectrometry Ontology",
+                     version="4.1.0", URI="https://www.ebi.ac.uk/ols/ontologies/ms")
+    etree.SubElement(cv_list, "cv", id="UO", fullName="Unit Ontology",
+                     version="releases/2020-03-10", URI="http://obo.cvs.sourceforge.net/obo/obo/ontology/phenotype/unit.obo")
+
+    # File description (minimal)
+    file_desc = etree.SubElement(root, "fileDescription")
+    file_content = etree.SubElement(file_desc, "fileContent")
+    etree.SubElement(file_content, "cvParam", cvRef="MS", accession="MS:1000579",
+                     name="MS1 spectrum", value="")
+    etree.SubElement(file_content, "cvParam", cvRef="MS", accession="MS:1000580",
+                     name="MSn spectrum", value="")
+
+    # Software list (minimal)
+    soft_list = etree.SubElement(root, "softwareList", count="1")
+    software = etree.SubElement(soft_list, "software", id="ms-mint-app", version="1.0")
+    etree.SubElement(software, "cvParam", cvRef="MS", accession="MS:1000799",
+                     name="custom unreleased software tool", value="ms-mint-app")
+
+    # Instrument configuration (minimal, required by schema)
+    inst_list = etree.SubElement(root, "instrumentConfigurationList", count="1")
+    inst_config = etree.SubElement(inst_list, "instrumentConfiguration", id="IC1")
+    etree.SubElement(inst_config, "cvParam", cvRef="MS", accession="MS:1000031",
+                     name="instrument model", value="")
+
+    # Data processing (minimal)
+    dp_list = etree.SubElement(root, "dataProcessingList", count="1")
+    dp = etree.SubElement(dp_list, "dataProcessing", id="dp1")
+    pm = etree.SubElement(dp, "processingMethod", order="1", softwareRef="ms-mint-app")
+    etree.SubElement(pm, "cvParam", cvRef="MS", accession="MS:1000544",
+                     name="Conversion to mzML", value="")
+
+    # Run element
+    run = etree.SubElement(root, "run", id="run1", defaultInstrumentConfigurationRef="IC1")
+
+    # Spectrum list
+    spec_list = etree.SubElement(run, "spectrumList", count=str(len(spectra)),
+                                  defaultDataProcessingRef="dp1")
+
+    # Polarity CV param
+    polarity_cv = CV_POSITIVE_SCAN if polarity.lower().startswith("pos") else CV_NEGATIVE_SCAN
+    polarity_name = "positive scan" if polarity.lower().startswith("pos") else "negative scan"
+
+    for idx, spec_data in enumerate(spectra):
+        scan_id = spec_data.get("scan_id", idx + 1)
+        rt = spec_data.get("rt", 0.0)
+        mz_array = spec_data.get("mz_array", np.array([]))
+        intensity_array = spec_data.get("intensity_array", np.array([]))
+
+        # Ensure arrays are numpy arrays
+        mz_array = np.asarray(mz_array, dtype=np.float64)
+        intensity_array = np.asarray(intensity_array, dtype=np.float64)
+
+        # Spectrum element
+        spectrum = etree.SubElement(
+            spec_list, "spectrum",
+            index=str(idx),
+            id=f"controllerType=0 controllerNumber=1 scan={scan_id}",
+            defaultArrayLength=str(len(mz_array))
+        )
+
+        # CV params for spectrum
+        etree.SubElement(spectrum, "cvParam", cvRef="MS", accession=CV_MS_LEVEL,
+                         name="ms level", value="1")
+        etree.SubElement(spectrum, "cvParam", cvRef="MS", accession=polarity_cv,
+                         name=polarity_name, value="")
+        etree.SubElement(spectrum, "cvParam", cvRef="MS", accession="MS:1000127",
+                         name="centroid spectrum", value="")
+
+        # Scan list
+        scan_list = etree.SubElement(spectrum, "scanList", count="1")
+        etree.SubElement(scan_list, "cvParam", cvRef="MS", accession="MS:1000795",
+                         name="no combination", value="")
+        scan = etree.SubElement(scan_list, "scan")
+        etree.SubElement(scan, "cvParam", cvRef="MS", accession=CV_SCAN_START_TIME,
+                         name="scan start time", value=str(rt),
+                         unitCvRef="UO", unitAccession="UO:0000010", unitName="second")
+
+        # Binary data array list
+        binary_list = etree.SubElement(spectrum, "binaryDataArrayList", count="2")
+
+        # m/z array
+        mz_bda = etree.SubElement(binary_list, "binaryDataArray",
+                                   encodedLength=str(len(_encode_binary_mzml(mz_array))))
+        etree.SubElement(mz_bda, "cvParam", cvRef="MS", accession=CV_64BIT_FLOAT,
+                         name="64-bit float", value="")
+        etree.SubElement(mz_bda, "cvParam", cvRef="MS", accession=CV_ZLIB_COMPRESSION,
+                         name="zlib compression", value="")
+        etree.SubElement(mz_bda, "cvParam", cvRef="MS", accession=CV_MZ_ARRAY,
+                         name="m/z array", value="", unitCvRef="MS",
+                         unitAccession="MS:1000040", unitName="m/z")
+        mz_binary = etree.SubElement(mz_bda, "binary")
+        mz_binary.text = _encode_binary_mzml(mz_array)
+
+        # Intensity array
+        int_bda = etree.SubElement(binary_list, "binaryDataArray",
+                                    encodedLength=str(len(_encode_binary_mzml(intensity_array))))
+        etree.SubElement(int_bda, "cvParam", cvRef="MS", accession=CV_64BIT_FLOAT,
+                         name="64-bit float", value="")
+        etree.SubElement(int_bda, "cvParam", cvRef="MS", accession=CV_ZLIB_COMPRESSION,
+                         name="zlib compression", value="")
+        etree.SubElement(int_bda, "cvParam", cvRef="MS", accession=CV_INTENSITY_ARRAY,
+                         name="intensity array", value="", unitCvRef="MS",
+                         unitAccession="MS:1000131", unitName="number of detector counts")
+        int_binary = etree.SubElement(int_bda, "binary")
+        int_binary.text = _encode_binary_mzml(intensity_array)
+
+    # Write to file
+    tree = etree.ElementTree(root)
+    tree.write(str(output_path), xml_declaration=True, encoding="UTF-8", pretty_print=True)
+
+
 def iter_mzml_fast(path: str | Path, *, decode_binary: bool = True) -> Iterator[Dict[str, Any]]:
     """
     Fast lxml-based iterator for mzML files.

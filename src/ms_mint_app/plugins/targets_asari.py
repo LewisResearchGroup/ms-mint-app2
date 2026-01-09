@@ -9,14 +9,8 @@ import sys
 import platform
 from pathlib import Path
 
-# Try importing pyopenms
-try:
-    from pyopenms import MSExperiment, MSSpectrum, MzMLFile, IonSource
-    PYOPENMS_AVAILABLE = True
-except ImportError:
-    PYOPENMS_AVAILABLE = False
-
 from ..duckdb_manager import duckdb_connection
+from ..tools import write_mzml_from_spectra
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -98,12 +92,10 @@ version = 3.12.0
 
 def export_ms1_from_db(conn, ms_file_label, output_path, polarity_str):
     """
-    Exports MS1 data for a given file label from DuckDB to an mzML file
-    using pyopenms.
-    """
-    if not PYOPENMS_AVAILABLE:
-        raise ImportError("pyopenms is required for mzML export.")
+    Exports MS1 data for a given file label from DuckDB to an mzML file.
 
+    Uses pure lxml-based mzML writer (no pyopenms dependency).
+    """
     # Fetch data grouped by scan_id
     query = """
         SELECT scan_id, MAX(scan_time) as rt, LIST(mz) as mzs, LIST(intensity) as intensities
@@ -113,36 +105,26 @@ def export_ms1_from_db(conn, ms_file_label, output_path, polarity_str):
         ORDER BY scan_id
     """
     scans = conn.execute(query, [ms_file_label]).fetchall()
-    
+
+    # Determine polarity
     is_positive = polarity_str.lower().startswith('pos') or polarity_str == '+'
-    
-    exp = MSExperiment()
-    
+    polarity = "Positive" if is_positive else "Negative"
+
+    # Build spectra list for the writer
+    spectra = []
     for scan_id, rt, mzs, intensities in scans:
         if not mzs:
             continue
-            
-        spec = MSSpectrum()
-        spec.setRT(float(rt)) # Seconds
-        spec.setMSLevel(1)
-        
-        # Set peaks
-        mz_array = np.array(mzs, dtype=np.float64)
-        int_array = np.array(intensities, dtype=np.float32) # or float64
-        spec.set_peaks((mz_array, int_array))
-        
-        # Set Polarity
-        settings = spec.getInstrumentSettings()
-        if is_positive:
-            settings.setPolarity(IonSource.Polarity.POSITIVE)
-        else:
-            settings.setPolarity(IonSource.Polarity.NEGATIVE)
-        spec.setInstrumentSettings(settings)
-        
-        # Add to experiment
-        exp.addSpectrum(spec)
 
-    MzMLFile().store(output_path, exp)
+        spectra.append({
+            "scan_id": int(scan_id),
+            "rt": float(rt),  # Seconds
+            "mz_array": np.array(mzs, dtype=np.float64),
+            "intensity_array": np.array(intensities, dtype=np.float64),
+        })
+
+    # Write mzML using lxml-based writer
+    write_mzml_from_spectra(spectra, output_path, polarity=polarity)
 
 
 def run_asari_workflow(wdir, params, set_progress=None):
@@ -180,9 +162,6 @@ def run_asari_workflow(wdir, params, set_progress=None):
             return {"success": False, "message": "Asari executable not found. Please install it using 'pip install asari'."}
     except Exception as e:
          return {"success": False, "message": f"Error checking asari: {e}"}
-
-    if not PYOPENMS_AVAILABLE:
-        return {"success": False, "message": "pyopenms not found. Please install it to export data."}
 
     # 2. Export Files from DB to Temp Dir
     report_progress(5, "Preparing Data", "Connecting to database...")
