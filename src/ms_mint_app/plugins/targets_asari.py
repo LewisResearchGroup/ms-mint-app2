@@ -8,6 +8,7 @@ import time
 import sys
 import platform
 from pathlib import Path
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from ..duckdb_manager import duckdb_connection
 from ..tools import write_mzml_from_spectra
@@ -215,30 +216,61 @@ def run_asari_workflow(wdir, params, set_progress=None):
             
             skipped_count = 0
             exported_count = 0
-            for i, (label, polarity) in enumerate(samples):
-                report_progress(
-                    10 + int(30 * (i / total_files)), 
-                    "Exporting Data", 
-                    f"Processing {label} ({i+1}/{total_files})..."
-                )
-                
-                # Check if mzML already exists (from previous run)
+            failed_count = 0
+            
+            # Build list of files to export (excluding already existing ones)
+            export_tasks = []
+            for label, polarity in samples:
                 file_path = os.path.join(temp_dir, f"{label}.mzML")
                 if label in existing_mzml_files and os.path.exists(file_path):
                     skipped_count += 1
-                    continue  # Skip export, reuse existing file
-                
-                try:
-                    export_ms1_from_db(conn, label, file_path, polarity or "Positive")
-                    exported_count += 1
-                except Exception as ex:
-                    logger.error(f"Failed to export {label}: {ex}")
-                    logs.append(f"Failed to export {label}: {ex}")
-                    pass
+                else:
+                    export_tasks.append((label, file_path, polarity or "Positive"))
             
+            # Use same multicores setting as Asari for consistency
+            # Default to half of available CPUs if not specified
+            n_workers = int(params.get('multicores', max(1, (os.cpu_count() or 4) // 2)))
+            
+            if export_tasks:
+                logger.info(f"Exporting {len(export_tasks)} files in parallel with {n_workers} workers...")
+                
+                def export_worker(task):
+                    """Worker function for parallel export - each thread gets own DB connection."""
+                    label, file_path, polarity = task
+                    try:
+                        with duckdb_connection(wdir) as worker_conn:
+                            export_ms1_from_db(worker_conn, label, file_path, polarity)
+                        return (label, True, None)
+                    except Exception as ex:
+                        return (label, False, str(ex))
+                
+                with ThreadPoolExecutor(max_workers=n_workers) as executor:
+                    futures = {executor.submit(export_worker, task): task[0] for task in export_tasks}
+                    
+                    for i, future in enumerate(as_completed(futures)):
+                        label, success, error = future.result()
+                        if success:
+                            exported_count += 1
+                        else:
+                            failed_count += 1
+                            logger.error(f"Failed to export {label}: {error}")
+                            logs.append(f"Failed to export {label}: {error}")
+                        
+                        # Update progress
+                        progress_pct = 10 + int(30 * ((i + 1) / len(export_tasks)))
+                        report_progress(progress_pct, "Exporting Data", f"Exported {exported_count}/{len(export_tasks)} files...")
+            
+            summary_parts = []
             if skipped_count > 0:
-                logs.append(f"Reused {skipped_count} existing mzML files, exported {exported_count} new files")
-                logger.info(f"Reused {skipped_count} existing mzML files, exported {exported_count} new files")
+                summary_parts.append(f"reused {skipped_count} existing")
+            if exported_count > 0:
+                summary_parts.append(f"exported {exported_count} new")
+            if failed_count > 0:
+                summary_parts.append(f"{failed_count} failed")
+            if summary_parts:
+                summary = f"mzML files: {', '.join(summary_parts)}"
+                logs.append(summary)
+                logger.info(summary)
                 
     except Exception as e:
         logger.error(f"Error exporting data: {e}")

@@ -1005,33 +1005,33 @@ def _run_asari_analysis(ok_counts, wdir, multicores, mz_tol, mode, snr, min_heig
          raise PreventUpdate
          
     if not wdir:
-        return dash.no_update, True, fac.AntdAlert(message="No workspace selected.", type="error"), dash.no_update
+        return dash.no_update, True, fac.AntdAlert(message="No workspace selected.", type="error"), dash.no_update, dash.no_update
     
     activate_workspace_logging(wdir)
         
     # Validate inputs
     if multicores is None or multicores < 1:
-        return dash.no_update, True, fac.AntdAlert(message="Invalid CPU cores selected.", type="error"), dash.no_update
+        return dash.no_update, True, fac.AntdAlert(message="Invalid CPU cores selected.", type="error"), dash.no_update, dash.no_update
     if mz_tol is None or mz_tol < 1:
-        return dash.no_update, True, fac.AntdAlert(message="Invalid MZ Tolerance.", type="error"), dash.no_update
+        return dash.no_update, True, fac.AntdAlert(message="Invalid MZ Tolerance.", type="error"), dash.no_update, dash.no_update
     if snr is None or snr < 1:
-        return dash.no_update, True, fac.AntdAlert(message="Invalid Signal/Noise Ratio.", type="error"), dash.no_update
+        return dash.no_update, True, fac.AntdAlert(message="Invalid Signal/Noise Ratio.", type="error"), dash.no_update, dash.no_update
     if min_height is None or min_height < 0:
-        return dash.no_update, True, fac.AntdAlert(message="Invalid Min Peak Height.", type="error"), dash.no_update
+        return dash.no_update, True, fac.AntdAlert(message="Invalid Min Peak Height.", type="error"), dash.no_update, dash.no_update
     if min_points is None or min_points < 1:
-         return dash.no_update, True, fac.AntdAlert(message="Invalid Min Timepoints.", type="error"), dash.no_update
+         return dash.no_update, True, fac.AntdAlert(message="Invalid Min Timepoints.", type="error"), dash.no_update, dash.no_update
          
     # Gaussian Shape is optional
     if gaussian_shape is not None and (gaussian_shape < 0 or gaussian_shape > 1):
-         return dash.no_update, True, fac.AntdAlert(message="Invalid Gaussian Shape. Must be between 0 and 1.", type="error"), dash.no_update
+         return dash.no_update, True, fac.AntdAlert(message="Invalid Gaussian Shape. Must be between 0 and 1.", type="error"), dash.no_update, dash.no_update
 
     # cSelectivity is optional
     if cselectivity is not None and (cselectivity < 0 or cselectivity > 1):
-         return dash.no_update, True, fac.AntdAlert(message="Invalid cSelectivity. Must be between 0 and 1.", type="error"), dash.no_update
+         return dash.no_update, True, fac.AntdAlert(message="Invalid cSelectivity. Must be between 0 and 1.", type="error"), dash.no_update, dash.no_update
 
     # Detection Rate is optional
     if detection_rate is not None and (detection_rate < 0 or detection_rate > 100):
-         return dash.no_update, True, fac.AntdAlert(message="Invalid Detection Rate. Must be between 0% and 100%.", type="error"), dash.no_update
+         return dash.no_update, True, fac.AntdAlert(message="Invalid Detection Rate. Must be between 0% and 100%.", type="error"), dash.no_update, dash.no_update
         
     params = {
         'multicores': multicores,
@@ -1051,7 +1051,19 @@ def _run_asari_analysis(ok_counts, wdir, multicores, mz_tol, mode, snr, min_heig
     if result['success']:
          status_alert = fac.AntdAlert(message=result['message'], type="success", showIcon=True, closable=True)
          import time
-         return fac.AntdNotification(message="Asari Analysis", description=result['message'], type="success", placement="bottom"), False, status_alert, {'timestamp': time.time()}
+         
+         # Get updated targets count for workspace-status refresh
+         targets_count = 0
+         try:
+             with duckdb_connection(wdir) as conn:
+                 if conn:
+                     targets_count = conn.execute("SELECT COUNT(*) FROM targets").fetchone()[0]
+         except Exception:
+             pass
+         
+         # Return 5 values: notification, modal visible, status alert, targets-action-store, workspace-status
+         workspace_status = {'targets_count': targets_count, 'timestamp': time.time()}
+         return fac.AntdNotification(message="Asari Analysis", description=result['message'], type="success", placement="bottom"), False, status_alert, {'timestamp': time.time()}, workspace_status
     else:
          # Check if this is the "no features" case - use warning style and skip notification
          if result.get('no_features'):
@@ -1076,10 +1088,10 @@ def _run_asari_analysis(ok_counts, wdir, multicores, mz_tol, mode, snr, min_heig
                  closable=True
              )
              # No notification popup - all info is in the modal
-             return dash.no_update, True, status_alert, dash.no_update
+             return dash.no_update, True, status_alert, dash.no_update, dash.no_update
          else:
              status_alert = fac.AntdAlert(message=result['message'], type="error", showIcon=True, closable=True)
-             return fac.AntdNotification(message="Analysis failed", description=result['message'], type="error", placement="bottom"), True, status_alert, dash.no_update
+             return fac.AntdNotification(message="Analysis failed", description=result['message'], type="error", placement="bottom"), True, status_alert, dash.no_update, dash.no_update
 
 
 def callbacks(app, fsc=None, cache=None):
@@ -1431,6 +1443,7 @@ def callbacks(app, fsc=None, cache=None):
         Output("asari-modal", "visible", allow_duplicate=True),
         Output("asari-status-container", "children"),
         Output("targets-action-store", "data", allow_duplicate=True),
+        Output("workspace-status", "data", allow_duplicate=True),  # New: trigger UI refresh
         
         Input("asari-modal", "okCounts"),
         State("wdir", "data"),
