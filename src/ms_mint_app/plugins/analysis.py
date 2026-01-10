@@ -877,6 +877,15 @@ def show_tab_content(section_context, tab_key, x_comp, y_comp, violin_comp_check
         ordered_labels = [lbl for lbl in order_df if lbl in df.index]
         leftover_labels = [lbl for lbl in df.index if lbl not in ordered_labels]
         df = df.loc[ordered_labels + leftover_labels]
+        # Sort samples by group, then alphabetically within each group for clustermap display
+        if group_field and group_field in df.columns:
+            df = df.sort_values(by=[group_field, df.index.name or 'ms_file_label'], 
+                                key=lambda x: x.str.lower() if x.dtype == 'object' else x)
+            # Re-sort preserving group order but sorting index alphabetically within groups
+            df['_sort_group'] = df[group_field].fillna('')
+            df['_sort_index'] = df.index.str.lower()
+            df = df.sort_values(by=['_sort_group', '_sort_index'])
+            df = df.drop(columns=['_sort_group', '_sort_index'])
         group_series = df[group_field] if group_field else pd.Series(df.index, index=df.index, name='group')
         if isinstance(group_series, pd.Series):
             group_series = group_series.replace("", pd.NA)
@@ -969,7 +978,7 @@ def show_tab_content(section_context, tab_key, x_comp, y_comp, violin_comp_check
                              cbar_pos=(0.01, 0.95, 0.075, 0.01),
                              col_colors=sample_colors,
                              row_colors=['#ffffff'] * len(zdf.T.index),
-                            colors_ratio=(0.0015, 0.015)
+                             colors_ratio=(0.0015, 0.015)
                             )
         # Ensure white backgrounds across panels
         fig.fig.patch.set_facecolor('white')
@@ -997,7 +1006,7 @@ def show_tab_content(section_context, tab_key, x_comp, y_comp, violin_comp_check
                 fig.ax_heatmap.legend(
                     handles=handles,
                     title=group_label,
-                    bbox_to_anchor=(1.00, 1.075),
+                    bbox_to_anchor=(1.00, 1.085),
                     ncol=len(handles),
                     frameon=False,
                     alignment='right',
