@@ -320,20 +320,20 @@ _layout = html.Div(
                         [
                             fac.AntdFlex(
                                 [
-                                    fac.AntdText('Targets to display', strong=True),
+                                    fac.AntdText('Target to display', strong=True),
                                     fac.AntdSelect(
                                         id='violin-comp-checks',
-                                        mode='multiple',
+                                        # mode='multiple',  # Changed to single select
                                         options=[],
-                                        value=[],
+                                        value=None,
                                         allowClear=False,
-                                        maxTagCount=4,
+                                        # maxTagCount=4,
                                         optionFilterProp='label',
                                         optionFilterMode='case-insensitive',
-                                        style={'minWidth': '320px', 'maxWidth': '540px'},
+                                        style={'width': '320px'},
                                     ),
                                     fac.AntdText(
-                                        'Use the dropdown to limit the plots to specific compounds.',
+                                        'Click on individual samples to show the chromatogram.',
                                         type='secondary',
                                     ),
                                 ],
@@ -353,6 +353,21 @@ _layout = html.Div(
                                 ),
                                 text='Loading Violin...',
                                 style={'minHeight': '20vh', 'width': '100%'},
+                            ),
+                            html.Div(
+                                [
+                                    fac.AntdDivider("Chromatogram", style={'margin': '12px 0 12px 0'}),
+                                    fac.AntdSpin(
+                                        dcc.Graph(
+                                            id='violin-chromatogram',
+                                            config=PLOTLY_HIGH_RES_CONFIG,
+                                            style={'height': '400px'},
+                                        ),
+                                        text='Loading Chromatogram...',
+                                    ),
+                                ],
+                                id='violin-chromatogram-container',
+                                style={'display': 'none'}
                             ),
                         ]
                     ),
@@ -1029,7 +1044,7 @@ def show_tab_content(section_context, tab_key, x_comp, y_comp, violin_comp_check
         loadings_for_sort = None
         violin_options = compound_options
         # Default selection: highest absolute loading on PC1 (per current metric/norm).
-        default_violin = []
+        default_violin = None
         if violin_options:
             try:
                 pca_results = run_pca_samples_in_cols(
@@ -1039,26 +1054,40 @@ def show_tab_content(section_context, tab_key, x_comp, y_comp, violin_comp_check
                 loadings = pca_results.get('loadings')
                 if loadings is not None and 'PC1' in loadings.columns:
                     loadings_for_sort = loadings
-                    default_violin = [loadings['PC1'].abs().idxmax()]
+                    default_violin = loadings['PC1'].abs().idxmax()
             except Exception:
-                default_violin = [violin_options[0]['value']]
+                if violin_options:
+                    default_violin = violin_options[0]['value']
+        
+        if not default_violin and violin_options:
+             default_violin = violin_options[0]['value']
+
         if loadings_for_sort is not None and 'PC1' in loadings_for_sort.columns:
             pc1_sorted = loadings_for_sort['PC1'].abs().sort_values(ascending=False)
             option_map = {opt['value']: opt for opt in compound_options}
             violin_options = [option_map[val] for val in pc1_sorted.index if val in option_map]
+        
         from dash import callback_context
         triggered = callback_context.triggered[0]["prop_id"].split(".")[0] if callback_context.triggered else ""
         user_selected = triggered == 'violin-comp-checks'
-        if user_selected:
-            # Respect manual picks, but still fall back if empty.
-            selected_list = violin_comp_checks or default_violin or ([violin_options[0]['value']] if violin_options else [])
+        
+        selected_compound = None
+        if user_selected and violin_comp_checks:
+             # Handle potential legacy list value or single value
+             if isinstance(violin_comp_checks, list):
+                  selected_compound = violin_comp_checks[0] if violin_comp_checks else default_violin
+             else:
+                  selected_compound = violin_comp_checks
         else:
-            # Metric/norm/tab changes refresh to the current PC1 leader, ignoring stale state.
-            selected_list = default_violin or ([violin_options[0]['value']] if violin_options else [])
+             # Use current selection if valid and not triggering a reset, otherwise default
+             if violin_comp_checks and not isinstance(violin_comp_checks, list) and violin_comp_checks in violin_matrix.columns:
+                 selected_compound = violin_comp_checks
+             else:
+                 selected_compound = default_violin
+        
         graphs = []
-        for selected in selected_list:
-            if selected not in violin_matrix.columns:
-                continue
+        if selected_compound and selected_compound in violin_matrix.columns:
+            selected = selected_compound
             melt_df = violin_matrix[[selected]].join(group_series).reset_index().rename(columns={
                 'ms_file_label': 'Sample',
                 group_series.name: group_label,
@@ -1134,13 +1163,15 @@ def show_tab_content(section_context, tab_key, x_comp, y_comp, violin_comp_check
                 template='plotly_white',
                 paper_bgcolor='white',
                 plot_bgcolor='white',
+                clickmode='event+select'
             )
             graphs.append(dcc.Graph(
+                id='violin-plot-main',
                 figure=fig, 
                 style={'marginBottom': 20, 'width': '100%'},
                 config=PLOTLY_HIGH_RES_CONFIG
             ))
-        return dash.no_update, dash.no_update, graphs, violin_options, selected_list
+        return dash.no_update, dash.no_update, graphs, violin_options, selected_compound
     return dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update
 
 def callbacks(app, fsc, cache):
@@ -1270,3 +1301,135 @@ def callbacks(app, fsc, cache):
 
         # Otherwise, keep spinning until image src is set
         return bar_src is None
+
+    @app.callback(
+        Output('violin-chromatogram', 'figure'),
+        Output('violin-chromatogram-container', 'style'),
+        Input('violin-plot-main', 'clickData'),
+        Input('violin-comp-checks', 'value'),
+        State('analysis-grouping-select', 'value'),
+        State("wdir", "data"),
+        prevent_initial_call=True,
+    )
+    def update_chromatogram_on_click(clickData, peak_label, group_by_col, wdir):
+        ctx = dash.callback_context
+        if not ctx.triggered:
+            return dash.no_update, dash.no_update
+
+        trigger_id = ctx.triggered[0]['prop_id'].split('.')[0]
+
+        # If the compound selection changed, hide the chromatogram
+        if trigger_id == 'violin-comp-checks':
+            return go.Figure(), {'display': 'none'}
+
+        if not clickData or not wdir or not peak_label:
+            return dash.no_update, dash.no_update
+
+        try:
+            ms_file_label = clickData['points'][0]['customdata'][0]
+        except (KeyError, IndexError, TypeError):
+            return dash.no_update, dash.no_update
+
+        # Fetch data
+        with duckdb_connection(wdir) as conn:
+            if conn is None:
+                return dash.no_update, dash.no_update
+            
+            # 1. Get RT span info for the target
+            rt_info = conn.execute("SELECT rt_min, rt_max FROM targets WHERE peak_label = ?", [peak_label]).fetchone()
+            rt_min, rt_max = rt_info if rt_info else (None, None)
+
+            # 2. Identify neighbors if a grouping column is selected
+            neighbor_files = []
+            if group_by_col:
+                # Get the group value for the clicked sample
+                # Use query formatting for column name (safe as it comes from app options)
+                try:
+                    group_val_query = f'SELECT "{group_by_col}" FROM samples WHERE ms_file_label = ?'
+                    group_val = conn.execute(group_val_query, [ms_file_label]).fetchone()
+                    
+                    if group_val:
+                        group_val = group_val[0]
+                        # Fetch up to 10 random other samples from the same group
+                        neighbors_query = f"""
+                            SELECT ms_file_label, color 
+                            FROM samples 
+                            WHERE "{group_by_col}" = ? AND ms_file_label != ? 
+                            ORDER BY random() 
+                            LIMIT 10
+                        """
+                        neighbor_files = conn.execute(neighbors_query, [group_val, ms_file_label]).fetchall()
+                except Exception as e:
+                    logger.warning(f"Failed to fetch neighbors: {e}")
+                    pass
+
+            # 3. Fetch chromatograms
+            # We need the clicked sample + neighbors
+            files_to_fetch = [ms_file_label] + [n[0] for n in neighbor_files]
+            placeholders = ','.join(['?'] * len(files_to_fetch))
+            
+            chrom_query = f"""
+                SELECT c.ms_file_label, c.scan_time, c.intensity, s.color
+                FROM chromatograms c
+                JOIN samples s ON c.ms_file_label = s.ms_file_label
+                WHERE c.peak_label = ? AND c.ms_file_label IN ({placeholders})
+            """
+            
+            chrom_data = conn.execute(chrom_query, [peak_label] + files_to_fetch).fetchall()
+            
+            if not chrom_data:
+                fig = go.Figure()
+                fig.add_annotation(text="No chromatogram data found", showarrow=False)
+                return fig, {'display': 'block'}
+
+            # Organize data
+            # chrom_data: [(ms_file_label, scan_time, intensity, color), ...]
+            data_map = {row[0]: row for row in chrom_data}
+            
+            fig = go.Figure()
+
+            # Plot neighbors first (background)
+            for n_label, n_color in neighbor_files:
+                if n_label in data_map:
+                    _, scan_times, intensities, _ = data_map[n_label]
+                    fig.add_trace(go.Scatter(
+                        x=scan_times,
+                        y=intensities,
+                        mode='lines',
+                        name=n_label,
+                        line=dict(width=1, color=n_color),
+                        opacity=0.4,
+                        hoverinfo='skip' 
+                    ))
+
+            # Plot clicked sample (foreground)
+            if ms_file_label in data_map:
+                _, scan_times, intensities, main_color = data_map[ms_file_label]
+                fig.add_trace(go.Scatter(
+                    x=scan_times,
+                    y=intensities,
+                    mode='lines',
+                    name=ms_file_label,
+                    line=dict(width=2, color=main_color),
+                    fill='tozeroy',
+                    opacity=1.0
+                ))
+            
+            # Add RT span
+            if rt_min is not None and rt_max is not None:
+                fig.add_vrect(
+                    x0=rt_min, x1=rt_max,
+                    fillcolor="green", opacity=0.1,
+                    layer="below", line_width=0,
+                )
+            
+            fig.update_layout(
+                title=f"{peak_label} | {ms_file_label}",
+                xaxis_title="Scan Time (s)",
+                yaxis_title="Intensity",
+                template="plotly_white",
+                margin=dict(l=60, r=20, t=50, b=50),
+                height=400,
+                showlegend=False
+            )
+            return fig, {'display': 'block'}
