@@ -1,9 +1,0 @@
-
-services:
-  web:
-    build: .
-    command: Mint --no-browser --debug --host 0.0.0.0
-    volumes:
-      - .:/app/   
-    ports:
-      - "8000:8000"
