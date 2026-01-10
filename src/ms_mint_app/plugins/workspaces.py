@@ -298,6 +298,11 @@ _layout = html.Div(
                     'targetSelector': '#ws-create'
                 },
                 {
+                    'title': 'Import Database',
+                    'description': 'Import an existing MINT database file to create a new workspace.',
+                    'targetSelector': '#ws-import-db'
+                },
+                {
                     'title': 'Clean up',
                     'description': 'Delete the selected workspace (and its files/results) when you no longer need it.',
                     'targetSelector': '#ws-delete'
