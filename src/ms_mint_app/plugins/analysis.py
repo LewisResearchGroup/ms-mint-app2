@@ -12,7 +12,7 @@ import pandas as pd
 from dash import html, dcc
 from dash.dependencies import Input, Output, State
 from dash.exceptions import PreventUpdate
-from sklearn.decomposition import PCA
+from ..pca import SciPyPCA as PCA
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 from plotly import colors as plotly_colors
@@ -910,7 +910,7 @@ def show_tab_content(section_context, tab_key, x_comp, y_comp, violin_comp_check
         color_labels = group_series.reindex(df.index).fillna(missing_group_label)
         if df.empty or raw_numeric.empty:
             return None, invisible_fig, [], [], []
-        from sklearn.preprocessing import StandardScaler
+        from ..pca import StandardScaler
         scaler = StandardScaler()
         provided_norm = norm_value  # keep the user-provided value (None on first layout pass)
         norm_value = norm_value or TAB_DEFAULT_NORM.get(tab_key, 'zscore')
