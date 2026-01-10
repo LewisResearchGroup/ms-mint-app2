@@ -2080,9 +2080,9 @@ def create_pivot(conn, rows=None, cols=None, value='peak_area', table='results')
     """
 
     # Use fetchall() for faster list extraction (3.25x speedup vs DataFrame)
-    ordered_pl = [row[0] for row in conn.execute("""
+    ordered_pl = [row[0] for row in conn.execute(f"""
         SELECT DISTINCT r.peak_label
-        FROM results r
+        FROM {table} r
         JOIN targets t ON r.peak_label = t.peak_label
         ORDER BY t.ms_type
     """).fetchall()]
@@ -2098,7 +2098,7 @@ def create_pivot(conn, rows=None, cols=None, value='peak_area', table='results')
                 r.ms_file_label,
                 r.peak_label,
                 r.{value}
-            FROM results r
+            FROM {table} r
             JOIN samples s ON s.ms_file_label = r.ms_file_label
             WHERE s.use_for_analysis = TRUE
             ORDER BY s.ms_type, r.peak_label

@@ -42,7 +42,7 @@ def load_persisted_scalir_results(wdir: str) -> dict | None:
     Returns:
         Dictionary with results data if files exist, None otherwise
     """
-    output_dir = Path(wdir) / "analysis" / "scalir"
+    output_dir = Path(wdir) / "results" / "scalir"
     train_frame_path = output_dir / "train_frame.csv"
     params_path = output_dir / "standard_curve_parameters.csv"
     concentrations_path = output_dir / "concentrations.csv"
@@ -375,6 +375,7 @@ _layout = html.Div(
                                     {'label': 'Peak Max', 'value': 'peak_max'},
                                     {'label': 'Peak Mean', 'value': 'peak_mean'},
                                     {'label': 'Peak Median', 'value': 'peak_median'},
+                                    {'label': 'Concentration', 'value': 'scalir_conc'},
                                 ],
                                 value='peak_area',
                                 optionFilterProp='label',
@@ -445,6 +446,7 @@ allowed_metrics = {
     'peak_max',
     'peak_mean',
     'peak_median',
+    'scalir_conc',
 }
 
 
@@ -627,6 +629,44 @@ def _clean_numeric(numeric_df: pd.DataFrame) -> pd.DataFrame:
     return cleaned
 
 
+
+def _create_pivot_custom(conn, value='peak_area', table='results'):
+    """
+    Local implementation of create_pivot to ensure table parameter is respected.
+    """
+    # Get ordered peak labels
+    ordered_pl = [row[0] for row in conn.execute(f"""
+        SELECT DISTINCT r.peak_label
+        FROM {table} r
+        JOIN targets t ON r.peak_label = t.peak_label
+        ORDER BY t.ms_type
+    """).fetchall()]
+
+    group_cols_sql = ",\n                ".join([f"s.{col}" for col in GROUP_COLUMNS])
+
+    query = f"""
+        PIVOT (
+            SELECT
+                s.ms_type,
+                s.sample_type,
+                {group_cols_sql},
+                r.ms_file_label,
+                r.peak_label,
+                r.{value}
+            FROM {table} r
+            JOIN samples s ON s.ms_file_label = r.ms_file_label
+            WHERE s.use_for_analysis = TRUE
+            ORDER BY s.ms_type, r.peak_label
+        )
+        ON peak_label
+        USING FIRST({value})
+        ORDER BY ms_type
+    """
+    df = conn.execute(query).df()
+    meta_cols = ['ms_type', 'sample_type', *GROUP_COLUMNS, 'ms_file_label']
+    keep_cols = [col for col in meta_cols if col in df.columns] + ordered_pl
+    return df[keep_cols]
+
 def show_tab_content(section_context, tab_key, x_comp, y_comp, violin_comp_checks, metric_value, norm_value,
                     group_by, regen_clicks, fontsize_x, fontsize_y, wdir):
     if not section_context or section_context.get('page') != 'Analysis':
@@ -664,8 +704,36 @@ def show_tab_content(section_context, tab_key, x_comp, y_comp, violin_comp_check
         results_count = conn.execute("SELECT COUNT(*) FROM results").fetchone()[0]
         if results_count == 0:
             return None, invisible_fig, [], [], []
-        metric = metric_value if metric_value in allowed_metrics else 'peak_area'
-        df = create_pivot(conn, value=metric)
+        # Robust metric selection
+        metric = 'peak_area'
+        if metric_value == 'scalir_conc' or metric_value in allowed_metrics:
+            metric = metric_value
+        
+        logger.info(f"DEBUG: metric_value={metric_value}, metric={metric}")
+        
+        target_table = 'results'
+        if metric == 'scalir_conc':
+            scalir_path = Path(wdir) / "results" / "scalir" / "concentrations.csv"
+            if not scalir_path.exists():
+                return None, invisible_fig, [], [], []
+            try:
+                conn.execute(f"CREATE OR REPLACE TEMP VIEW scalir_temp_conc AS SELECT * FROM read_csv_auto('{scalir_path}')")
+                conn.execute("""
+                    CREATE OR REPLACE TEMP VIEW scalir_results_view AS 
+                    SELECT 
+                        r.ms_file_label, 
+                        r.peak_label, 
+                        s.pred_conc AS scalir_conc 
+                    FROM results r 
+                    LEFT JOIN scalir_temp_conc s 
+                    ON r.ms_file_label = CAST(s.ms_file AS VARCHAR) AND r.peak_label = s.peak_label
+                """)
+                target_table = 'scalir_results_view'
+            except Exception as e:
+                logger.error(f"Error preparing SCALiR data: {e}")
+                return None, invisible_fig, [], [], []
+
+        df = _create_pivot_custom(conn, value=metric, table=target_table)
         df.set_index('ms_file_label', inplace=True)
         group_field = selected_group if selected_group in df.columns else (
             'sample_type' if 'sample_type' in df.columns else None
@@ -996,12 +1064,13 @@ def show_tab_content(section_context, tab_key, x_comp, y_comp, violin_comp_check
                 group_series.name: group_label,
                 selected: 'Intensity',
             })
+            metric_label = 'Concentration' if metric == 'scalir_conc' else 'Intensity'
             if norm_value == 'none':
                 melt_df['PlotValue'] = melt_df['Intensity']
-                y_label = 'Intensity'
+                y_label = metric_label
             else:
                 melt_df['PlotValue'] = melt_df['Intensity']
-                y_label = 'Intensity'
+                y_label = metric_label
             fig = px.violin(
                 melt_df,
                 x=group_label,
