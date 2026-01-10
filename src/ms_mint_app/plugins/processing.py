@@ -1,9 +1,12 @@
 import math
+import base64
 from os import cpu_count
 from pathlib import Path
+from io import BytesIO, StringIO
 
 import dash
 import feffery_antd_components as fac
+import pandas as pd
 import psutil
 import time
 from dash import dcc
@@ -14,6 +17,14 @@ from dash.exceptions import PreventUpdate
 from .. import tools as T
 from ..logging_setup import activate_workspace_logging
 import logging
+from .scalir import (
+    intersect_peaks,
+    fit_estimator,
+    build_concentration_table,
+    training_plot_frame,
+    plot_standard_curve,
+    slugify_label,
+)
 from ..duckdb_manager import (
     build_order_by,
     build_where_and_params,
@@ -34,6 +45,66 @@ _label = "Processing"
 
 logger = logging.getLogger(__name__)
 
+RESULTS_TABLE_COLUMNS = [
+    {
+        'title': 'Target',
+        'dataIndex': 'peak_label',
+        'width': '260px',
+        'fixed': 'left'
+    },
+    {
+        'title': 'MS-File Label',
+        'dataIndex': 'ms_file_label',
+        'width': '260px',
+        'fixed': 'left'
+    },
+    {
+        'title': 'MS-Type',
+        'dataIndex': 'ms_type',
+        'width': '120px',
+    },
+    {
+        'title': 'peak_area',
+        'dataIndex': 'peak_area',
+        'width': '120px',
+    },
+    {
+        'title': 'peak_area_top3',
+        'dataIndex': 'peak_area_top3',
+        'width': '150px',
+    },
+    {
+        'title': 'peak_n_datapoints',
+        'dataIndex': 'peak_n_datapoints',
+        'width': '170px',
+    },
+    {
+        'title': 'peak_max',
+        'dataIndex': 'peak_max',
+        'width': '120px',
+    },
+    {
+        'title': 'peak_max',
+        'dataIndex': 'peak_max',
+        'width': '120px',
+    },
+    {
+        'title': 'peak_rt_of_max',
+        'dataIndex': 'peak_rt_of_max',
+        'width': '150px',
+    },
+    # NOTE: SCALiR columns (Concentration, In Range, Unit) are dynamically inserted here
+    # via the scalir_column_insert_index logic when concentrations.csv exists
+    {
+        'title': 'Intensity',
+        'dataIndex': 'intensity',
+        'width': '260px',
+        'renderOptions': {'renderType': 'mini-area'},
+    },
+]
+
+# Index where SCALiR columns should be inserted (before Intensity)
+SCALIR_COLUMN_INSERT_INDEX = -1  # Insert before last column (Intensity)
 
 class ProcessingPlugin(PluginInterface):
     def __init__(self):
@@ -74,6 +145,17 @@ _layout = html.Div(
                                         style={'textTransform': 'uppercase', "margin": "0 10px"},
                                     ),
                                     title="Calculate peak areas (integration) for all targets and MS-files.",
+                                    placement="bottom"
+                                ),
+                                fac.AntdTooltip(
+                                    fac.AntdButton(
+                                        'SCALiR',
+                                        id='scalir-modal-btn',
+                                        disabled=True,
+                                        style={'textTransform': 'uppercase'},
+                                    ),
+                                    id='scalir-btn-tooltip',
+                                    title="Run SCALiR calibration. Requires computed results.",
                                     placement="bottom"
                                 ),
                             ],
@@ -153,77 +235,7 @@ _layout = html.Div(
                     fac.AntdTable(
                         id='results-table',
                         containerId='results-table-container',
-                        columns=[
-                            {
-                                'title': 'Target',
-                                'dataIndex': 'peak_label',
-                                'width': '260px',
-                                'fixed': 'left'
-                            },
-                            {
-                                'title': 'MS-File Label',
-                                'dataIndex': 'ms_file_label',
-                                'width': '260px',
-                                'fixed': 'left'
-                            },
-                            {
-                                'title': 'MS-Type',
-                                'dataIndex': 'ms_type',
-                                'width': '120px',
-                            },
-                            {
-                                'title': 'peak_area',
-                                'dataIndex': 'peak_area',
-                                'width': '120px',
-                            },
-                            {
-                                'title': 'peak_area_top3',
-                                'dataIndex': 'peak_area_top3',
-                                'width': '150px',
-                            },
-                            {
-                                'title': 'peak_mean',
-                                'dataIndex': 'peak_mean',
-                                'width': '120px',
-                            },
-                            {
-                                'title': 'peak_median',
-                                'dataIndex': 'peak_median',
-                                'width': '130px',
-                            },
-                            {
-                                'title': 'peak_n_datapoints',
-                                'dataIndex': 'peak_n_datapoints',
-                                'width': '170px',
-                            },
-                            {
-                                'title': 'peak_min',
-                                'dataIndex': 'peak_min',
-                                'width': '120px',
-                            },
-                            {
-                                'title': 'peak_max',
-                                'dataIndex': 'peak_max',
-                                'width': '120px',
-                            },
-                            {
-                                'title': 'peak_rt_of_max',
-                                'dataIndex': 'peak_rt_of_max',
-                                'width': '150px',
-                            },
-                            {
-                                'title': 'total_intensity',
-                                'dataIndex': 'total_intensity',
-                                'width': '150px',
-                            },
-                            {
-                                'title': 'Intensity',
-                                'dataIndex': 'intensity',
-                                'width': '260px',
-                                'renderOptions': {'renderType': 'mini-area'},
-                            },
-
-                        ],
+                        columns=RESULTS_TABLE_COLUMNS,
                         titlePopoverInfo={
                             'ms_file_label': {
                                 'title': 'MS-File Label',
@@ -273,21 +285,9 @@ _layout = html.Div(
                                 'title': 'peak_area_top3',
                                 'content': 'Sum of the three highest intensity points.',
                             },
-                            'peak_mean': {
-                                'title': 'peak_mean',
-                                'content': 'Mean intensity across the peak.',
-                            },
-                            'peak_median': {
-                                'title': 'peak_median',
-                                'content': 'Median intensity across the peak.',
-                            },
                             'peak_n_datapoints': {
                                 'title': 'peak_n_datapoints',
                                 'content': 'Number of datapoints spanning the peak.',
-                            },
-                            'peak_min': {
-                                'title': 'peak_min',
-                                'content': 'Minimum intensity within the peak.',
                             },
                             'peak_max': {
                                 'title': 'peak_max',
@@ -297,13 +297,21 @@ _layout = html.Div(
                                 'title': 'peak_rt_of_max',
                                 'content': 'Retention time at maximum intensity.',
                             },
-                            'total_intensity': {
-                                'title': 'total_intensity',
-                                'content': 'Sum of all intensities in the peak window.',
+                            'scalir_conc': {
+                                'title': 'Concentration',
+                                'content': 'Predicted concentration from SCALiR calibration curve.',
+                            },
+                            'scalir_in_range': {
+                                'title': 'In Range',
+                                'content': 'Whether the value falls within the calibration range (1=yes, 0=no).',
+                            },
+                            'scalir_unit': {
+                                'title': 'Unit',
+                                'content': 'Concentration unit (e.g., μM, mM).',
                             },
                             'intensity': {
                                 'title': 'Intensity',
-                                'content': 'Mini-plot showing the chromatogram shape.',
+                                'content': 'Mini-plot showing the chromatograms',
                             },
                         },
                         filterOptions={
@@ -312,10 +320,14 @@ _layout = html.Div(
                             'sample_type': {'filterMode': 'checkbox'},
                             'ms_type': {'filterMode': 'checkbox',
                                         'filterCustomItems': ['MS1', 'MS2']},
+                            'scalir_conc': {'filterMode': 'keyword'},
+                            'scalir_in_range': {'filterMode': 'checkbox',
+                                                 'filterCustomItems': ['0', '1']},
+                            'scalir_unit': {'filterMode': 'checkbox'},
                         },
-                        sortOptions={'sortDataIndexes': ['peak_label', 'peak_area', 'peak_area_top3', 'peak_mean',
-                                                         'peak_median', 'peak_n_datapoints', 'peak_min', 'peak_max',
-                                                         'peak_rt_of_max', 'total_intensity']},
+                        sortOptions={'sortDataIndexes': ['peak_label', 'peak_area', 'peak_area_top3',
+                                                         'peak_n_datapoints', 'peak_max',
+                                                         'peak_rt_of_max', 'scalir_conc', 'scalir_in_range']},
                         pagination={
                             'position': 'bottomCenter',
                             'pageSize': 15,
@@ -629,6 +641,182 @@ _layout = html.Div(
             width=700,
             locale='en-us',
         ),
+        # SCALiR Modal - Standard Curve Calibration
+        fac.AntdModal(
+            [
+                fac.AntdSpace(
+                    [
+                        fac.AntdText("Params:", strong=True, style={'marginRight': 8}),
+                        fac.AntdSelect(
+                            id='scalir-intensity',
+                            options=[
+                                {'label': 'Peak Area', 'value': 'peak_area'},
+                                {'label': 'Peak Max', 'value': 'peak_max'},
+                            ],
+                            value='peak_area',
+                            style={'width': 160},
+                        ),
+                        fac.AntdSelect(
+                            id='scalir-slope-mode',
+                            options=[
+                                {'label': 'Fixed slope', 'value': 'fixed'},
+                                {'label': 'Constrained slope', 'value': 'interval'},
+                                {'label': 'Free slope', 'value': 'wide'},
+                            ],
+                            value='fixed',
+                            style={'width': 180},
+                        ),
+                        fac.AntdInputNumber(
+                            id='scalir-slope-low',
+                            value=0.85,
+                            min=0.1,
+                            max=5,
+                            step=0.01,
+                            placeholder='Slope low',
+                            style={'width': 110},
+                        ),
+                        fac.AntdInputNumber(
+                            id='scalir-slope-high',
+                            value=1.15,
+                            min=0.1,
+                            max=5,
+                            step=0.01,
+                            placeholder='Slope high',
+                            style={'width': 110},
+                        ),
+                        fac.AntdSwitch(
+                            id='scalir-generate-plots',
+                            checked=False,
+                            checkedChildren='Save plots',
+                            unCheckedChildren='Skip plots',
+                        ),
+                        fac.AntdTooltip(
+                            fac.AntdIcon(
+                                icon='antd-question-circle',
+                                style={'color': '#888', 'cursor': 'help'}
+                            ),
+                            title='Skipping plot generation speeds up the process significantly for large datasets.'
+                        ),
+                    ],
+                    wrap=True,
+                    size='small',
+                    style={'marginBottom': 12},
+                ),
+                html.Div(
+                    [
+                        fac.AntdSpace(
+                            [
+                                fac.AntdText(
+                                    'Standards file (CSV):',
+                                    strong=True,
+                                    style={'margin': 0, 'lineHeight': '32px'},
+                                ),
+                                html.Div(
+                                    [
+                                        dcc.Upload(
+                                            id='scalir-standards-upload',
+                                            children=fac.AntdButton(
+                                                'Select standards file',
+                                                icon=fac.AntdIcon(icon='antd-upload'),
+                                                type='default',
+                                                block=True,
+                                                style={
+                                                    'width': '180px',
+                                                    'height': '36px',
+                                                    'display': 'flex',
+                                                    'alignItems': 'center',
+                                                    'justifyContent': 'center',
+                                                    'gap': 6,
+                                                },
+                                            ),
+                                            style={'padding': 0},
+                                            multiple=False,
+                                        ),
+                                        fac.AntdText(
+                                            id='scalir-standards-note',
+                                            style={'color': '#555', 'fontSize': 12, 'lineHeight': '32px', 'marginLeft': 8},
+                                        ),
+                                    ],
+                                    style={'display': 'flex', 'alignItems': 'center', 'gap': '8px'},
+                                ),
+                            ],
+                            align='center',
+                            size='small',
+                            style={'width': '100%', 'marginTop': 4},
+                        ),
+                        # Hidden placeholders for callbacks (content removed from UI but needed for callback outputs)
+                        html.Div(id='scalir-status-text', style={'display': 'none'}),
+                        html.Div(id='scalir-conc-path', style={'display': 'none'}),
+                        html.Div(id='scalir-params-path', style={'display': 'none'}),
+                    ],
+                    style={'marginBottom': 12, 'padding': '0 0px'},
+                ),
+                fac.AntdSpace(
+                    [
+                        fac.AntdButton(
+                            'Run SCALiR',
+                            id='scalir-run-btn',
+                            type='primary',
+                            style={'minWidth': 110},
+                        ),
+                        fac.AntdButton(
+                            'Clear',
+                            id='scalir-reset-btn',
+                            type='default',
+                            danger=False,
+                        ),
+                    ],
+                    size='small',
+                    style={'marginBottom': 16},
+                ),
+                fac.AntdDivider('Results', style={'margin': '4px 0'}),
+                fac.AntdFlex(
+                    [
+                        fac.AntdSpace(
+                            [
+                                fac.AntdText(
+                                    'Dropdown to view specific compounds:',
+                                    strong=True,
+                                    style={'maxWidth': '280px', 'display': 'block'}
+                                ),
+                                fac.AntdSelect(
+                                    id='scalir-metabolite-select',
+                                    options=[],
+                                    value=None,
+                                    mode=None,  # Single-select mode
+                                    allowClear=True,
+                                    placeholder='Select a metabolite',
+                                    style={'width': 280},
+                                ),
+                            ],
+                            direction='vertical',
+                            size=4,
+                            style={'flexShrink': 0},
+                        ),
+                        html.Div(
+                            id='scalir-plot-graphs',
+                            style={
+                                'display': 'none',
+                                'flexGrow': 1,
+                                'minWidth': '350px',
+                            },
+                        ),
+                    ],
+                    gap='middle',
+                    align='flex-start',
+                    style={'marginBottom': 12},
+                ),
+                fac.AntdText(id='scalir-plot-path', style={'fontSize': 12, 'color': '#666'}),
+                dcc.Store(id='scalir-results-store'),
+            ],
+            id='scalir-modal',
+            title='SCALiR - Standard Curve Calibration',
+            width=950,
+            renderFooter=False,
+            locale='en-us',
+            centered=True,
+            styles={'body': {'minHeight': '520px'}},
+        ),
         # Tour for empty state (no results yet) - simplified
         fac.AntdTour(
             locale='en-us',
@@ -711,6 +899,34 @@ _layout = html.Div(
 
 def layout():
     return _layout
+
+
+# SCALiR constants and helper functions
+SCALIR_ALLOWED_METRICS = {
+    'peak_area',
+    'peak_area_top3',
+    'peak_max',
+    'peak_mean',
+    'peak_median',
+}
+
+
+def _parse_uploaded_standards(contents, filename):
+    """Parse an uploaded standards file (CSV or Excel)."""
+    if not contents or not filename:
+        raise ValueError("No standards file provided.")
+    if len(contents) > 15_000_000:
+        raise ValueError("Standards file is too large (limit: 15MB).")
+    content_type, content_string = contents.split(",", 1)
+    if content_type and "csv" not in content_type and "excel" not in content_type:
+        raise ValueError("Unsupported file type. Use CSV or Excel.")
+    decoded = base64.b64decode(content_string)
+    if filename.lower().endswith((".xls", ".xlsx")):
+        return pd.read_excel(BytesIO(decoded))
+    try:
+        return pd.read_csv(StringIO(decoded.decode("utf-8")))
+    except UnicodeDecodeError:
+        return pd.read_csv(BytesIO(decoded))
 
 
 def _build_delete_modal_content(clickedKey: str, selectedRows: list) -> tuple[bool, fac.AntdFlex]:
@@ -1116,6 +1332,7 @@ def callbacks(app, fsc, cache):
         Output("results-table", "data"),
         Output("results-table", "selectedRowKeys"),
         Output("results-table", "pagination"),
+        Output("results-table", "columns"),
 
         Input('section-context', 'data'),
         Input("results-action-store", "data"),
@@ -1205,6 +1422,7 @@ def callbacks(app, fsc, cache):
                     'pageSize': page_size,
                     'pageSizeOptions': page_size_options,
                 },
+                RESULTS_TABLE_COLUMNS,
             )
 
         with duckdb_connection(wdir) as conn:
@@ -1238,15 +1456,76 @@ def callbacks(app, fsc, cache):
                 )
             )
 
+            # Check for SCALiR concentrations and dynamically add columns
+            scalir_join = ""
+            scalir_select = ""
+            columns = RESULTS_TABLE_COLUMNS.copy()
+            
+            conc_file = Path(wdir) / "analysis" / "scalir" / "concentrations.csv"
+            if conc_file.exists():
+                try:
+                    conn.execute(f"CREATE OR REPLACE VIEW scalir_concentrations AS SELECT * FROM read_csv_auto('{conc_file}')")
+                    
+                    # Get available columns in the SCALiR results
+                    sc_desc = conn.execute("DESCRIBE scalir_concentrations").fetchall()
+                    sc_cols = [row[0] for row in sc_desc]
+                    
+                    # Build join condition
+                    join_conds = []
+                    # SCALiR stores ms_file_label in the 'ms_file' column (aliased in run_scalir)
+                    if 'ms_file' in sc_cols:
+                        join_conds.append("TRIM(CAST(sc.ms_file AS VARCHAR)) = TRIM(CAST(r.ms_file_label AS VARCHAR))")
+                    if 'peak_label' in sc_cols:
+                        join_conds.append("CAST(sc.peak_label AS VARCHAR) = CAST(r.peak_label AS VARCHAR)")
+
+                    if join_conds:
+                        scalir_join = f"LEFT JOIN scalir_concentrations sc ON ({' AND '.join(join_conds)})"
+                        
+                        fields_map = [
+                            ('pred_conc', 'Concentration', None, '175px', 'scalir_conc'),
+                            ('in_range', 'In Range', None, '150px', 'scalir_in_range'),
+                            ('unit', 'Unit', None, '100px', 'scalir_unit')
+                        ]
+                        
+                        select_fields = []
+                        scalir_cols_to_insert = []
+                        for field_name, title, render_type, width, alias in fields_map:
+                            if field_name in sc_cols:
+                                select_fields.append(f"sc.{field_name} AS {alias}")
+                                col_def = {
+                                    'title': title,
+                                    'dataIndex': alias,
+                                    'width': width
+                                }
+                                if render_type:
+                                    col_def['renderOptions'] = {'renderType': render_type}
+                                scalir_cols_to_insert.append(col_def)
+                        
+                        # Insert SCALiR columns before Intensity (last column)
+                        if scalir_cols_to_insert:
+                            insert_idx = len(columns) - 1  # Before the last column
+                            for col in scalir_cols_to_insert:
+                                columns.insert(insert_idx, col)
+                                insert_idx += 1
+                        
+                        if select_fields:
+                            scalir_select = ", " + ", ".join(select_fields)
+
+
+                except Exception as e:
+                    logger.warning(f"Failed to join SCALiR concentrations: {e}")
+
             filtered_sql = f"""
             WITH
             {f"target_order AS (SELECT * FROM (VALUES {order_values}) AS t(ord, target_peak_label))," if order_values else ""}
             filtered AS (
               SELECT r.*, UPPER(s.ms_type) AS ms_type, s.sample_type
+              {scalir_select}
               {", COALESCE(tord.ord, 1e9) AS __peak_order__" if order_values else ""}
               FROM results r
               LEFT JOIN samples s USING (ms_file_label)
               {f"LEFT JOIN target_order tord ON tord.target_peak_label = r.peak_label" if order_values else ""}
+              {scalir_join}
               {where_sql}
             )
             """
@@ -1287,26 +1566,13 @@ def callbacks(app, fsc, cache):
                 params_paged = order_params + params + [effective_page_size, (current - 1) * effective_page_size]
                 df = conn.execute(sql, params_paged).df()
 
-        data = [
-            {
-                'key': f'{row.peak_label}-{row.ms_file_label}',
-                'peak_label': row.peak_label,
-                'ms_file_label': row.ms_file_label,
-                'ms_type': getattr(row, 'ms_type', None),
-                'peak_area': row.peak_area,
-                'peak_area_top3': row.peak_area_top3,
-                'peak_mean': row.peak_mean,
-                'peak_median': row.peak_median,
-                'peak_n_datapoints': row.peak_n_datapoints,
-                'peak_min': row.peak_min,
-                'peak_max': row.peak_max,
-                'peak_rt_of_max': row.peak_rt_of_max,
-                'total_intensity': row.total_intensity,
-                'intensity': row.intensity,
-                'sample_type': getattr(row, 'sample_type', None),
-            }
-            for row in df.itertuples(index=False)
-        ]
+        # Generate key column and round concentration if present
+        df["key"] = df["peak_label"].astype(str) + "-" + df["ms_file_label"].astype(str)
+        if 'scalir_conc' in df.columns:
+            df['scalir_conc'] = df['scalir_conc'].round(4)
+        # Replace NaN with None for clean JSON serialization
+        df = df.where(pd.notnull(df), None)
+        data = df.to_dict('records')
 
         # If current page is empty but there are records, navigate to the last valid page
         if len(data) == 0 and number_records > 0:
@@ -1316,26 +1582,11 @@ def callbacks(app, fsc, cache):
             offset = (current - 1) * effective_page_size
             params_paged = order_params + params + [effective_page_size, offset]
             df = conn.execute(sql, params_paged).df()
-            data = [
-                {
-                    'key': f'{row.peak_label}-{row.ms_file_label}',
-                    'peak_label': row.peak_label,
-                    'ms_file_label': row.ms_file_label,
-                    'ms_type': getattr(row, 'ms_type', None),
-                    'peak_area': row.peak_area,
-                    'peak_area_top3': row.peak_area_top3,
-                    'peak_mean': row.peak_mean,
-                    'peak_median': row.peak_median,
-                    'peak_n_datapoints': row.peak_n_datapoints,
-                    'peak_min': row.peak_min,
-                    'peak_max': row.peak_max,
-                    'peak_rt_of_max': row.peak_rt_of_max,
-                    'total_intensity': row.total_intensity,
-                    'intensity': row.intensity,
-                    'sample_type': getattr(row, 'sample_type', None),
-                }
-                for row in df.itertuples(index=False)
-            ]
+            df["key"] = df["peak_label"].astype(str) + "-" + df["ms_file_label"].astype(str)
+            if 'scalir_conc' in df.columns:
+                df['scalir_conc'] = df['scalir_conc'].round(4)
+            df = df.where(pd.notnull(df), None)
+            data = df.to_dict('records')
 
         return [
             data,
@@ -1344,9 +1595,10 @@ def callbacks(app, fsc, cache):
                 **pagination,
                 'total': number_records,
                 'current': current,
-                'pageSize': page_size,
+                'pageSize': effective_page_size,
                 'pageSizeOptions': page_size_options,
             },
+            columns
         ]
 
     @app.callback(
@@ -1914,3 +2166,517 @@ def callbacks(app, fsc, cache):
             int(cpu) if cpu else 4
         )
         return help_cpu, help_ram, optimal_batch
+
+    # ====================
+    # SCALiR Callbacks
+    # ====================
+
+    # Toggle SCALiR button disabled state based on results existence
+    app.clientside_callback(
+        """(status) => {
+            if (!status) return true;
+            return (status.results_count || 0) === 0;
+        }""",
+        Output('scalir-modal-btn', 'disabled'),
+        Input('workspace-status', 'data'),
+    )
+
+    # Open SCALiR modal and load existing results if available
+    @app.callback(
+        Output('scalir-modal', 'visible'),
+        Output('scalir-status-text', 'children'),
+        Output('scalir-conc-path', 'children'),
+        Output('scalir-metabolite-select', 'options'),
+        Output('scalir-metabolite-select', 'value'),
+        Output('scalir-plot-graphs', 'children'),
+        Output('scalir-plot-graphs', 'style'),
+        Output('scalir-results-store', 'data'),
+        Input('scalir-modal-btn', 'nClicks'),
+        State('wdir', 'data'),
+        prevent_initial_call=True,
+    )
+    def open_scalir_modal(n_clicks, wdir):
+        if not n_clicks:
+            raise PreventUpdate
+        
+        # Default empty return (modal visible, everything else empty)
+        empty_ret = (
+            True, "", "", [], None, [], 
+            {'display': 'none', 'flexGrow': 1, 'minWidth': '350px'}, 
+            None
+        )
+
+        if not wdir:
+            return empty_ret
+
+        output_dir = Path(wdir) / "analysis" / "scalir"
+        train_frame_path = output_dir / "train_frame.csv"
+        params_path = output_dir / "standard_curve_parameters.csv"
+        
+        # If results don't exist, just open empty modal
+        if not train_frame_path.exists() or not params_path.exists():
+            return empty_ret
+
+        try:
+            train_frame = pd.read_csv(train_frame_path)
+            params = pd.read_csv(params_path)
+            
+            units_path = output_dir / "units.csv"
+            units_filtered = pd.read_csv(units_path) if units_path.exists() else None
+            concentrations_path = output_dir / "concentrations.csv"
+            
+            common = sorted(train_frame['peak_label'].unique())
+            metabolite_options = [{'label': label, 'value': label} for label in common]
+            first_label = common[0] if common else None
+
+            PLOTLY_HIGH_RES_CONFIG = {
+                'displayModeBar': False,
+                'displaylogo': False,
+            }
+
+            # Generate initial plot
+            plots = []
+            if first_label and not train_frame.empty:
+                fig = _plot_curve_fig(train_frame, first_label, units_filtered, params)
+                plots.append(
+                    dcc.Graph(
+                        figure=fig,
+                        style={'width': '100%', 'height': '450px'},
+                        config=PLOTLY_HIGH_RES_CONFIG,
+                    )
+                )
+            
+            plot_style = {
+                'display': 'block', 
+                'flexGrow': 1, 
+                'minWidth': '350px', 
+                'maxHeight': '400px', 
+                'overflowY': 'auto'
+            } if plots else {'display': 'none'}
+
+            store_data = {
+                "train_frame": train_frame.to_json(orient="split"),
+                "units": units_filtered.to_json(orient="split") if units_filtered is not None else None,
+                "params": params.to_json(orient="split"),
+                "plot_dir": str(output_dir / "plots"),
+                "common": common,
+                "generated_all_plots": True
+            }
+            
+            status_text = f"Loaded results for {len(common)} metabolites."
+            conc_text = f"Concentrations: {concentrations_path}" if concentrations_path.exists() else ""
+            
+            return (True, status_text, conc_text, metabolite_options, first_label, plots, plot_style, store_data)
+
+        except Exception as e:
+            logger.error(f"SCALiR: Failed to load existing results: {e}", exc_info=True)
+            return empty_ret
+
+    # Show standards filename
+    @app.callback(
+        Output('scalir-standards-note', 'children'),
+        Input('scalir-standards-upload', 'filename'),
+        prevent_initial_call=True,
+    )
+    def show_standards_filename(filename):
+        if filename:
+            return filename
+        return "No standards file selected."
+
+    # Run SCALiR
+    @app.callback(
+        Output('scalir-status-text', 'children', allow_duplicate=True),
+        Output('scalir-conc-path', 'children', allow_duplicate=True),
+        Output('scalir-metabolite-select', 'options', allow_duplicate=True),
+        Output('scalir-metabolite-select', 'value', allow_duplicate=True),
+        Output('scalir-plot-graphs', 'children', allow_duplicate=True),
+        Output('scalir-plot-graphs', 'style', allow_duplicate=True),
+        Output('scalir-results-store', 'data', allow_duplicate=True),
+        Input('scalir-run-btn', 'nClicks'),
+        State('scalir-standards-upload', 'contents'),
+        State('scalir-standards-upload', 'filename'),
+        State('scalir-intensity', 'value'),
+        State('scalir-slope-mode', 'value'),
+        State('scalir-slope-low', 'value'),
+        State('scalir-slope-high', 'value'),
+        State('scalir-generate-plots', 'checked'),
+        State('wdir', 'data'),
+        State('section-context', 'data'),
+        prevent_initial_call=True,
+    )
+    def run_scalir(n_clicks, standards_contents, standards_filename, intensity, slope_mode,
+                   slope_low, slope_high, generate_plots, wdir, section_context):
+        if not n_clicks:
+            raise PreventUpdate
+        if not section_context or section_context.get('page') != 'Processing':
+            raise PreventUpdate
+
+        import plotly.graph_objects as go
+        PLOTLY_HIGH_RES_CONFIG = {
+            'toImageButtonOptions': {
+                'format': 'png',
+                'scale': 4,
+                'height': None,
+                'width': None,
+            },
+            'displayModeBar': True,
+            'displaylogo': False,
+        }
+
+        hidden_style = {
+            'display': 'none',
+            'flexWrap': 'wrap',
+            'gap': '16px',
+            'paddingTop': '8px',
+            'justifyContent': 'flex-start',
+        }
+        if not wdir:
+            return ("No active workspace.", "", "", [], [], [], hidden_style, None)
+        try:
+            logger.info(f"SCALiR: Parsing standards file {standards_filename}...")
+            standards_df = _parse_uploaded_standards(standards_contents, standards_filename)
+        except Exception as exc:
+            logger.error(f"SCALiR: Failed to parse standards file: {exc}")
+            return (f"Upload a standards table (CSV). Error: {exc}", "", "", [], [], [], hidden_style, None)
+
+        with duckdb_connection(wdir) as conn:
+            if conn is None:
+                logger.error("SCALiR: Failed to connect to database.")
+                return ("Database connection failed.", "", "", [], [], [], hidden_style, None)
+            if intensity not in SCALIR_ALLOWED_METRICS:
+                intensity = 'peak_area'
+            try:
+                mint_df = conn.execute(f"""
+                    SELECT ms_file_label AS ms_file, peak_label, {intensity}
+                    FROM results
+                    WHERE {intensity} IS NOT NULL
+                """).df()
+            except Exception as exc:
+                logger.error(f"SCALiR: Could not load results from database: {exc}")
+                return (f"Could not load results: {exc}", "", "", [], [], [], hidden_style, None)
+
+        if mint_df.empty:
+            return ("No results found for calibration.", "", "", [], [], [], hidden_style, None)
+
+        units_df = None
+        if "unit" in standards_df.columns:
+            units_df = standards_df[["peak_label", "unit"]].copy()
+            standards_df = standards_df.drop(columns=["unit"])
+
+        try:
+            mint_filtered, standards_filtered, units_filtered, common = intersect_peaks(
+                mint_df, standards_df, units_df
+            )
+        except Exception as exc:
+            logger.error(f"SCALiR: Alignment failed: {exc}", exc_info=True)
+            return (f"Could not align standards with results: {exc}", "", "", [], [], [], hidden_style, None)
+
+        if not common:
+            return ("No overlapping peak_label values between results and standards.", "", "", [], [], [], hidden_style, None)
+
+        low = slope_low or 0.85
+        high = slope_high or 1.15
+        slope_interval = (min(low, high), max(low, high))
+
+        try:
+            logger.info(f"SCALiR: Before fit - mint_filtered: {len(mint_filtered)} rows, cols: {list(mint_filtered.columns)}")
+            logger.info(f"SCALiR: Before fit - standards_filtered: {len(standards_filtered)} rows, cols: {list(standards_filtered.columns)}")
+            estimator, std_results, x_train, y_train, params = fit_estimator(
+                mint_filtered, standards_filtered, intensity, slope_mode or "fixed", slope_interval
+            )
+            logger.info(f"SCALiR: After fit - std_results: {len(std_results)} rows, x_train: {len(x_train)} rows")
+            logger.info(f"SCALiR: Fitting completed. Metabolites: {len(common)}")
+            concentrations = build_concentration_table(
+                estimator, mint_filtered, intensity, units_filtered
+            )
+        except Exception as exc:
+            logger.error(f"SCALiR: Fitting failed: {exc}", exc_info=True)
+            return (f"Error fitting calibration: {exc}", "", "", [], [], [], hidden_style, None)
+
+        output_dir = Path(wdir) / "analysis" / "scalir"
+        plots_dir = output_dir / "plots"
+        output_dir.mkdir(parents=True, exist_ok=True)
+        if generate_plots:
+            plots_dir.mkdir(parents=True, exist_ok=True)
+
+        concentrations_path = output_dir / "concentrations.csv"
+        params_path = output_dir / "standard_curve_parameters.csv"
+        concentrations.to_csv(concentrations_path, index=False)
+        params.to_csv(params_path, index=False)
+
+        # Save train_frame and units for persistence
+        try:
+            logger.info(f"SCALiR: x_train has {len(x_train)} rows, columns: {list(x_train.columns)}")
+            if 'value' in x_train.columns:
+                logger.info(f"SCALiR: x_train.value stats - min: {x_train['value'].min()}, max: {x_train['value'].max()}, values > 0: {(x_train['value'] > 0).sum()}")
+            train_frame = training_plot_frame(estimator, x_train, y_train, params)
+            train_frame_path = output_dir / "train_frame.csv"
+            train_frame.to_csv(train_frame_path, index=False)
+            logger.info(f"SCALiR: train_frame has {len(train_frame)} rows, columns: {list(train_frame.columns)}")
+        except Exception as exc:
+            logger.error(f"SCALiR: Failed to build train_frame: {exc}", exc_info=True)
+            train_frame = pd.DataFrame()
+
+        if units_filtered is not None:
+            units_path = output_dir / "units.csv"
+            units_filtered.to_csv(units_path, index=False)
+
+        if generate_plots and not train_frame.empty:
+            for label in common:
+                plot_standard_curve(train_frame, label, units_filtered, plots_dir)
+
+        sorted_common = sorted(common)
+        metabolite_options = [{'label': label, 'value': label} for label in sorted_common]
+        first_label = sorted_common[0] if sorted_common else None
+        initial_selection = first_label  # Single value for single-select mode
+
+        PLOTLY_HIGH_RES_CONFIG = {
+            'displayModeBar': False,
+            'displaylogo': False,
+        }
+
+        # Generate initial plot for the first selected metabolite
+        plots = []
+        if first_label and not train_frame.empty:
+            fig = _plot_curve_fig(train_frame, first_label, units_filtered, params)
+            plots.append(
+                dcc.Graph(
+                    figure=fig,
+                    style={
+                        'width': '100%',
+                        'height': '450px',
+                    },
+                    config=PLOTLY_HIGH_RES_CONFIG,
+                )
+            )
+
+        plot_style = {
+            'display': 'block' if plots else 'none',
+            'flexGrow': 1,
+            'minWidth': '350px',
+            'maxHeight': '400px',
+            'overflowY': 'auto',
+        }
+
+        store_data = {
+            "train_frame": train_frame.to_json(orient="split") if not train_frame.empty else None,
+            "units": units_filtered.to_json(orient="split") if units_filtered is not None else None,
+            "params": params.to_json(orient="split") if not params.empty else None,
+            "plot_dir": str(plots_dir),
+            "common": common,
+            "generated_all_plots": bool(generate_plots),
+        }
+
+        status_text = f"Fitted {len(common)} metabolites with intensity '{intensity}'."
+        return (
+            status_text,
+            f"Concentrations: {concentrations_path}",
+            metabolite_options,
+            initial_selection,
+            plots,
+            plot_style,
+            store_data,
+        )
+
+    # Reset SCALiR modal
+    @app.callback(
+        Output('scalir-status-text', 'children', allow_duplicate=True),
+        Output('scalir-conc-path', 'children', allow_duplicate=True),
+        Output('scalir-metabolite-select', 'options', allow_duplicate=True),
+        Output('scalir-metabolite-select', 'value', allow_duplicate=True),
+        Output('scalir-plot-graphs', 'children', allow_duplicate=True),
+        Output('scalir-plot-graphs', 'style', allow_duplicate=True),
+        Output('scalir-results-store', 'data', allow_duplicate=True),
+        Output('scalir-standards-upload', 'contents', allow_duplicate=True),
+        Output('scalir-standards-upload', 'filename', allow_duplicate=True),
+        Output('scalir-standards-note', 'children', allow_duplicate=True),
+        Input('scalir-reset-btn', 'nClicks'),
+        prevent_initial_call=True,
+    )
+    def reset_scalir(n_clicks):
+        if not n_clicks:
+            raise PreventUpdate
+        return (
+            "",
+            "",
+            [],
+            None,  # Single value for single-select
+            [],
+            {
+                'display': 'none',
+                'flexGrow': 1,
+                'minWidth': '350px',
+            },
+            None,
+            None,
+            None,
+            "No standards file selected.",
+        )
+
+    # Update SCALiR plots based on metabolite selection
+    @app.callback(
+        Output('scalir-plot-graphs', 'children', allow_duplicate=True),
+        Output('scalir-plot-graphs', 'style', allow_duplicate=True),
+        Output('scalir-plot-path', 'children'),
+        Input('scalir-metabolite-select', 'value'),
+        State('scalir-results-store', 'data'),
+        prevent_initial_call=True,
+    )
+    def update_scalir_plot(selected_label, store_data):
+        import plotly.graph_objects as go
+        PLOTLY_HIGH_RES_CONFIG = {
+            'displayModeBar': False,
+            'displaylogo': False,
+        }
+
+        # If no selection, hide plots
+        if not selected_label:
+            return [], {'display': 'none'}, ""
+
+        if not store_data:
+            raise PreventUpdate
+
+        train_frame_json = store_data.get("train_frame")
+        if not train_frame_json:
+            raise PreventUpdate
+
+        train_frame = pd.read_json(StringIO(train_frame_json), orient="split")
+        units_json = store_data.get("units")
+        units_df = pd.read_json(StringIO(units_json), orient="split") if units_json else None
+        params_json = store_data.get("params")
+        params_df = pd.read_json(StringIO(params_json), orient="split") if params_json else None
+
+        # Single metabolite plot
+        fig = _plot_curve_fig(train_frame, selected_label, units_df, params_df)
+        plots = [
+            dcc.Graph(
+                figure=fig,
+                style={
+                    'width': '100%',
+                    'maxWidth': '500px',
+                    'height': '400px',
+                },
+                config=PLOTLY_HIGH_RES_CONFIG,
+            )
+        ]
+
+        plot_dir = Path(store_data.get("plot_dir", ""))
+        plot_path = ""
+        if selected_label and store_data.get("generated_all_plots") and plot_dir:
+            candidate = plot_dir / f"{slugify_label(selected_label)}_curve.png"
+            if candidate.exists():
+                plot_path = f"Plot saved at: {candidate}"
+
+        return plots, {
+            'display': 'block',
+            'flexGrow': 1,
+            'minWidth': '350px',
+        }, plot_path
+
+
+def _plot_curve_fig(frame: pd.DataFrame, peak_label: str, units: pd.DataFrame = None, params_df: pd.DataFrame = None):
+    """Generate a calibration curve plot for a given peak_label."""
+    import plotly.graph_objects as go
+
+    subset = frame[frame.peak_label == peak_label]
+    if subset.empty:
+        return go.Figure()
+
+    unit = None
+    if units is not None and "unit" in units.columns:
+        match = units[units.peak_label == peak_label]
+        if not match.empty:
+            unit = match.unit.iloc[0]
+
+    in_range = subset[subset.in_range == 1]
+    out_range = subset[subset.in_range != 1]
+
+    fig = go.Figure()
+
+    if not out_range.empty:
+        fig.add_trace(
+            go.Scatter(
+                x=out_range.true_conc,
+                y=out_range.value,
+                mode="markers",
+                marker=dict(color="#888888", size=10),
+                name="Outside range",
+            )
+        )
+    if not in_range.empty:
+        fig.add_trace(
+            go.Scatter(
+                x=in_range.true_conc,
+                y=in_range.value,
+                mode="markers",
+                marker=dict(color="#111111", size=10),
+                name="In range",
+            )
+        )
+        line_data = in_range.sort_values("pred_conc")
+        fig.add_trace(
+            go.Scatter(
+                x=line_data.pred_conc,
+                y=line_data.value,
+                mode="lines",
+                line=dict(color="#111111", width=2),
+                name="Fit",
+            )
+        )
+
+    xlabel = f"{peak_label} concentration"
+    if unit:
+        xlabel = f"{xlabel} ({unit})"
+    params_text = None
+    if params_df is not None and not params_df.empty:
+        try:
+            row = params_df[params_df.peak_label == peak_label].iloc[0]
+            slope = row.get('slope', None)
+            intercept = row.get('intercept', None)
+            lloq = row.get('LLOQ', None)
+            uloq = row.get('ULOQ', None)
+            params_text = (
+                f"slope={slope:.1f}<br>"
+                f"intercept={intercept:.0f}<br>"
+                f"LLOQ={lloq:.2g}<br>"
+                f"ULOQ={uloq:.2g}"
+            )
+        except Exception:
+            params_text = None
+    fig.update_layout(
+        xaxis=dict(
+            title=xlabel,
+            type="log",
+            ticks="outside",
+        ),
+        yaxis=dict(
+            title=f"Intensity (AU)",
+            type="log",
+            tickformat="~s",
+            tickmode="auto",
+            nticks=6,
+            ticks="outside",
+        ),
+        legend=dict(orientation="h", y=1.12, x=0),
+        margin=dict(l=60, r=20, t=50, b=60),
+        template="plotly_white",
+    )
+    if params_text:
+        fig.add_annotation(
+            xref="paper",
+            yref="paper",
+            x=0.03,
+            y=0.97,
+            xanchor="left",
+            yanchor="top",
+            text=params_text,
+            showarrow=False,
+            font=dict(size=12, color="#444"),
+            align="left",
+            bgcolor="rgba(255,255,255,0.8)",
+            bordercolor="rgba(0,0,0,0.1)",
+            borderpad=4,
+        )
+    fig.update_xaxes(showgrid=True)
+    fig.update_yaxes(showgrid=True)
+    return fig
