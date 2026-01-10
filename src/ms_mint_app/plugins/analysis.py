@@ -594,7 +594,7 @@ def _analysis_tour_steps(active_tab: str):
         },
         {
             'title': 'Tabs',
-            'description': 'Switch between Clustermap, PCA, Violin, and SCALiR views.',
+            'description': 'Switch between PCA, Violin, and Clustermap views.',
             'targetSelector': '#analysis-tabs',
         },
     ]

@@ -834,6 +834,11 @@ _layout = html.Div(
                     'description': 'Click "Run MINT" to compute chromatograms and results for your MS files and targets.',
                     'targetSelector': '#processing-btn'
                 },
+                {
+                    'title': 'Run SCALiR',
+                    'description': 'Click "SCALiR" to calibrate concentrations using standard curves.',
+                    'targetSelector': '#scalir-modal-btn'
+                },
             ],
             id='processing-tour-empty',
             open=False,
@@ -851,6 +856,11 @@ _layout = html.Div(
                     'title': 'Run more processing',
                     'description': 'Click "Run MINT" to recompute or compute additional targets.',
                     'targetSelector': '#processing-btn'
+                },
+                {
+                    'title': 'Run SCALiR',
+                    'description': 'Click "SCALiR" to calibrate concentrations using standard curves.',
+                    'targetSelector': '#scalir-modal-btn'
                 },
                 {
                     'title': 'Pick targets',
