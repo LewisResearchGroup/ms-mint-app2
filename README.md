@@ -6,46 +6,89 @@
 ![PyPI - Downloads](https://img.shields.io/pypi/dm/ms-mint-app)
 [![DOI](https://zenodo.org/badge/491654035.svg)](https://zenodo.org/doi/10.5281/zenodo.13121148)
 
-![](docs/image/MINT-logo.jpg)
- 
+<p align="center">
+  <img src="docs/image/MINT-logo.jpg" alt="MINT Logo" width="400">
+</p>
+
 # MINT (Metabolomics Integrator)
-The Metabolomics Integrator (MINT) is a post-processing tool for liquid chromatography-mass spectrometry (LCMS) based metabolomics. 
-Metabolomics is the study of all metabolites (small chemical compounds) in a biological sample e.g. from bacteria or a human blood sample. 
-The metabolites can be used to define biomarkers used in medicine to find treatments for diseases or for the development of diagnostic tests 
-or for the identification of pathogens such as methicillin resistant _Staphylococcus aureus_ (MRSA). 
-More information on how to install and run the program can be found in the [Documentation](https://LewisResearchGroup.github.io/ms-mint-app/) or check out the 
-[Tutorial](https:///LewisResearchGroup.github.io/ms-mint-app/quickstart/) to jump right into it.
 
-![Screenshot](https://lewisresearchgroup.github.io/ms-mint-app/image/hierarchical-clustering.png)
+A powerful post-processing tool for **LC-MS based metabolomics** that simplifies peak integration, quality control, and data analysis.
 
-## News
-Starting with version 1.0.0, we have updated the installation setup to use pyproject.toml. Additionally, the main script to start Mint has been changed from Mint.py to Mint. Furthermore, each release of the repository will now be assigned a DOI to facilitate citation of the software.
+## Key Features
 
-## Publications that used Mint
-1. Brown K, Thomson CA, Wacker S, Drikic M, Groves R, Fan V, et al. [Microbiota alters the metabolome in an age- and sex- dependent manner in mice.](https://pubmed.ncbi.nlm.nih.gov/36906623/) Nat Commun. 2023;14: 1348.
+- **Targeted Peak Integration** - Extract chromatograms and quantify peaks from mzML/mzXML files
+- **Interactive Visualization** - Explore chromatograms, heatmaps, and clustering results
+- **RT Optimization** - Fine-tune retention time windows with visual feedback
+- **Statistical Analysis** - Built-in tools including SCALiR for absolute quantification
+- **DuckDB Backend** - Fast, efficient storage for large datasets
+- **Desktop App** - Available as standalone Windows/Unix executable
 
-2. Ponce LF, Bishop SL, Wacker S, Groves RA, Lewis IA. [SCALiR: A Web Application for Automating Absolute Quantification of Mass Spectrometry-Based Metabolomics Data. Anal Chem.](https://pubs.acs.org/doi/10.1021/acs.analchem.3c04988) 2024;96: 6566–6574.
+<p align="center">
+  <img src="docs/quickstart/peak-preview.png" alt="Hierarchical Clustering" width="700">
+</p>
 
-## Installation
-You can find installation instructions [here](https://lewisresearchgroup.github.io/ms-mint-app/install/)
+## Quick Start
 
-## Contributions
-All contributions, bug reports, code reviews, bug fixes, documentation improvements, enhancements, and ideas are welcome. This includes recommendations for software architecture, code design, and efficiency improvements. 
+### Installation (pip)
 
-## Code standards
-The project follows PEP8 standard and uses Black and Flake8 to ensure a consistent code format throughout the project.
+```bash
+pip install ms-mint-app
+```
 
-## Get in touch
-To get in touch, please open a GitHub [issue](https://github.com/LewisResearchGroup/ms-mint-app/issues).
+### Run MINT
+
+```bash
+Mint
+```
+
+For detailed installation instructions (conda, Docker, standalone builds), see the [Installation Guide](https://lewisresearchgroup.github.io/ms-mint-app/install/).
+
+## Documentation
+
+- **[Full Documentation](https://LewisResearchGroup.github.io/ms-mint-app/)** - Complete user guide
+- **[Quick Start Tutorial](https://LewisResearchGroup.github.io/ms-mint-app/quickstart/)** - Get up and running in 5 minutes
+
+## What's New (v1.x)
+
+- **Modern Python packaging** - Now uses `pyproject.toml`
+- **Simplified launch** - Run with `Mint` command (previously `Mint.py`)
+- **DOI for citations** - Each release has a citable DOI
+- **Smart RT derivation** - Automatically calculates missing RT parameters
+- **Auto-save in optimization** - Changes saved automatically when navigating targets
+
+## Publications Using MINT
+
+1. Brown K, et al. [Microbiota alters the metabolome in an age- and sex-dependent manner in mice.](https://pubmed.ncbi.nlm.nih.gov/36906623/) *Nat Commun.* 2023;14: 1348.
+
+2. Ponce LF, et al. [SCALiR: A Web Application for Automating Absolute Quantification of Mass Spectrometry-Based Metabolomics Data.](https://pubs.acs.org/doi/10.1021/acs.analchem.3c06988) *Anal Chem.* 2024;96: 6566–6574.
+
+## Contributing
+
+All contributions are welcome! This includes:
+- Bug reports and fixes
+- Documentation improvements
+- Feature requests and enhancements
+- Code reviews
+
+Please open a [GitHub issue](https://github.com/LewisResearchGroup/ms-mint-app/issues) to get started.
+
+### Code Standards
+
+- Follows **PEP8** style guide
+- Formatted with **Black**
+- Linted with **Flake8**
 
 ## Acknowledgements
-This project would not be possible without the help of the open-source community. 
-The tools and resources provided by GitHub, Docker-Hub, the Python Package Index, as well the answers from dedicated users on [Stackoverflow](stackoverflow.com)
-and the [Plotly community](https://community.plotly.com/), as well as the free open-source packages used are the foundation of this project.
-Several people have made direct contributions to the codebase and we are extremely grateful for that. 
 
-- @rokm refactored the specfile for `Pyinstaller` to create a windows package. 
-- @bucknerns helped with the configuration of the `versioneer` file.
+This project builds on the amazing open-source community:
 
-Last but not least, we want to thank all the users and early adopters that drive the development with feature requests and bug reports.
+- **@rokm** - Refactored PyInstaller specfile for Windows packaging
+- **@bucknerns** - Helped configure versioneer
 
+Special thanks to [GitHub](https://github.com), [Docker Hub](https://hub.docker.com/), [PyPI](https://pypi.org/), [Stack Overflow](https://stackoverflow.com), and the [Plotly Community](https://community.plotly.com/) for their invaluable resources.
+
+## License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+---
