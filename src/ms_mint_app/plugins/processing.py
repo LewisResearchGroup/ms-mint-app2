@@ -745,7 +745,6 @@ _layout = html.Div(
                             style={'width': '100%', 'marginTop': 4},
                         ),
                         # Hidden placeholders for callbacks (content removed from UI but needed for callback outputs)
-                        html.Div(id='scalir-status-text', style={'display': 'none'}),
                         html.Div(id='scalir-conc-path', style={'display': 'none'}),
                         html.Div(id='scalir-params-path', style={'display': 'none'}),
                     ],
@@ -758,12 +757,17 @@ _layout = html.Div(
                             id='scalir-run-btn',
                             type='primary',
                             style={'minWidth': 110},
+                            autoSpin=True,
                         ),
                         fac.AntdButton(
                             'Clear',
                             id='scalir-reset-btn',
                             type='default',
                             danger=False,
+                        ),
+                        fac.AntdText(
+                            id='scalir-status-text',
+                            style={'marginLeft': 8},
                         ),
                     ],
                     size='small',
@@ -1379,8 +1383,23 @@ def callbacks(app, fsc, cache):
                         if conn is None:
                             logger.debug("results_table: PreventUpdate because database connection is None (backup)")
                             raise PreventUpdate
+                        backup_sql = "SELECT * EXCLUDE (total_intensity) FROM results"
+                        scalir_path = Path(wdir) / "results" / "scalir" / "concentrations.csv"
+                        if scalir_path.exists():
+                            try:
+                                conn.execute(f"CREATE OR REPLACE TEMP VIEW backup_scalir AS SELECT * FROM read_csv_auto('{scalir_path}')")
+                                backup_sql = """
+                                    SELECT r.* EXCLUDE (total_intensity), s.pred_conc, s.in_range, s.unit 
+                                    FROM results r 
+                                    LEFT JOIN backup_scalir s 
+                                    ON r.ms_file_label = CAST(s.ms_file AS VARCHAR) 
+                                    AND r.peak_label = s.peak_label
+                                """
+                            except Exception as e:
+                                logger.warning(f"Failed to include SCALiR in backup: {e}")
+
                         conn.execute(
-                            "COPY (SELECT * FROM results) TO ? (HEADER, DELIMITER ',')",
+                            f"COPY ({backup_sql}) TO ? (HEADER, DELIMITER ',')",
                             (str(backup_path),),
                         )
                     logger.debug(f"Auto-backed up results to {backup_path}")
@@ -1461,7 +1480,7 @@ def callbacks(app, fsc, cache):
             scalir_select = ""
             columns = RESULTS_TABLE_COLUMNS.copy()
             
-            conc_file = Path(wdir) / "analysis" / "scalir" / "concentrations.csv"
+            conc_file = Path(wdir) / "results" / "scalir" / "concentrations.csv"
             if conc_file.exists():
                 try:
                     conn.execute(f"CREATE OR REPLACE VIEW scalir_concentrations AS SELECT * FROM read_csv_auto('{conc_file}')")
@@ -2209,7 +2228,7 @@ def callbacks(app, fsc, cache):
         if not wdir:
             return empty_ret
 
-        output_dir = Path(wdir) / "analysis" / "scalir"
+        output_dir = Path(wdir) / "results" / "scalir"
         train_frame_path = output_dir / "train_frame.csv"
         params_path = output_dir / "standard_curve_parameters.csv"
         
@@ -2292,6 +2311,7 @@ def callbacks(app, fsc, cache):
         Output('scalir-plot-graphs', 'children', allow_duplicate=True),
         Output('scalir-plot-graphs', 'style', allow_duplicate=True),
         Output('scalir-results-store', 'data', allow_duplicate=True),
+        Output('scalir-run-btn', 'loading', allow_duplicate=True),
         Input('scalir-run-btn', 'nClicks'),
         State('scalir-standards-upload', 'contents'),
         State('scalir-standards-upload', 'filename'),
@@ -2331,18 +2351,18 @@ def callbacks(app, fsc, cache):
             'justifyContent': 'flex-start',
         }
         if not wdir:
-            return ("No active workspace.", "", "", [], [], [], hidden_style, None)
+            return ("No active workspace.", "", [], None, [], hidden_style, None, False)
         try:
             logger.info(f"SCALiR: Parsing standards file {standards_filename}...")
             standards_df = _parse_uploaded_standards(standards_contents, standards_filename)
         except Exception as exc:
             logger.error(f"SCALiR: Failed to parse standards file: {exc}")
-            return (f"Upload a standards table (CSV). Error: {exc}", "", "", [], [], [], hidden_style, None)
+            return (f"Upload a standards table (CSV). Error: {exc}", "", [], None, [], hidden_style, None, False)
 
         with duckdb_connection(wdir) as conn:
             if conn is None:
                 logger.error("SCALiR: Failed to connect to database.")
-                return ("Database connection failed.", "", "", [], [], [], hidden_style, None)
+                return ("Database connection failed.", "", [], None, [], hidden_style, None, False)
             if intensity not in SCALIR_ALLOWED_METRICS:
                 intensity = 'peak_area'
             try:
@@ -2353,10 +2373,10 @@ def callbacks(app, fsc, cache):
                 """).df()
             except Exception as exc:
                 logger.error(f"SCALiR: Could not load results from database: {exc}")
-                return (f"Could not load results: {exc}", "", "", [], [], [], hidden_style, None)
+                return (f"Could not load results: {exc}", "", [], None, [], hidden_style, None, False)
 
         if mint_df.empty:
-            return ("No results found for calibration.", "", "", [], [], [], hidden_style, None)
+            return ("No results found for calibration.", "", [], None, [], hidden_style, None, False)
 
         units_df = None
         if "unit" in standards_df.columns:
@@ -2369,10 +2389,10 @@ def callbacks(app, fsc, cache):
             )
         except Exception as exc:
             logger.error(f"SCALiR: Alignment failed: {exc}", exc_info=True)
-            return (f"Could not align standards with results: {exc}", "", "", [], [], [], hidden_style, None)
+            return (f"Could not align standards with results: {exc}", "", [], None, [], hidden_style, None, False)
 
         if not common:
-            return ("No overlapping peak_label values between results and standards.", "", "", [], [], [], hidden_style, None)
+            return ("No overlapping peak_label values between results and standards.", "", [], None, [], hidden_style, None, False)
 
         low = slope_low or 0.85
         high = slope_high or 1.15
@@ -2391,9 +2411,9 @@ def callbacks(app, fsc, cache):
             )
         except Exception as exc:
             logger.error(f"SCALiR: Fitting failed: {exc}", exc_info=True)
-            return (f"Error fitting calibration: {exc}", "", "", [], [], [], hidden_style, None)
+            return (f"Error fitting calibration: {exc}", "", [], None, [], hidden_style, None, False)
 
-        output_dir = Path(wdir) / "analysis" / "scalir"
+        output_dir = Path(wdir) / "results" / "scalir"
         plots_dir = output_dir / "plots"
         output_dir.mkdir(parents=True, exist_ok=True)
         if generate_plots:
@@ -2476,6 +2496,7 @@ def callbacks(app, fsc, cache):
             plots,
             plot_style,
             store_data,
+            False,
         )
 
     # Reset SCALiR modal
