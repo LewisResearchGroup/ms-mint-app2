@@ -36,3 +36,14 @@ pyinstaller/build/*
 pyinstaller/dist/*
 pyinstaller/prebuild_matplotlib_cache/*
 tests/test_MS1/*
+
+# Deployment / Installation files (kept locally, not in repo)
+Dockerfile
+docker-compose*.yml
+entrypoint.sh
+environment.yml
+app.json
+notes.md
+Makefile
+InnoSetup/
+flaskapp/
