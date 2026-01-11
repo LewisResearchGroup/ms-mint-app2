@@ -1350,6 +1350,7 @@ def callbacks(app, fsc, cache):
 
         Input('section-context', 'data'),
         Input("results-action-store", "data"),
+        Input('scalir-results-store', 'data'),
         Input('processing-peak-select', 'value'),
         Input('results-table', 'pagination'),
         Input('results-table', 'filter'),
@@ -1358,7 +1359,7 @@ def callbacks(app, fsc, cache):
         State("wdir", "data"),
         prevent_initial_call=True,
     )
-    def results_table(section_context, results_actions, selected_peaks,
+    def results_table(section_context, results_actions, scalir_data, selected_peaks,
                       pagination, filter_, sorter, filterOptions, wdir):
         if section_context and section_context['page'] != 'Processing':
             logger.debug(f"results_table: PreventUpdate because current page is {section_context.get('page')}")
