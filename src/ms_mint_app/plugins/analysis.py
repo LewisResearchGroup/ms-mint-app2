@@ -9,7 +9,7 @@ import feffery_utils_components as fuc
 from itertools import cycle
 import numpy as np
 import pandas as pd
-from dash import html, dcc
+from dash import html, dcc, ALL
 from dash.dependencies import Input, Output, State
 from dash.exceptions import PreventUpdate
 from ..pca import SciPyPCA as PCA
@@ -1166,7 +1166,7 @@ def show_tab_content(section_context, tab_key, x_comp, y_comp, violin_comp_check
                 clickmode='event+select'
             )
             graphs.append(dcc.Graph(
-                id='violin-plot-main',
+                id={'type': 'violin-plot', 'index': 'main'},
                 figure=fig, 
                 style={'marginBottom': 20, 'width': '100%'},
                 config=PLOTLY_HIGH_RES_CONFIG
@@ -1305,21 +1305,35 @@ def callbacks(app, fsc, cache):
     @app.callback(
         Output('violin-chromatogram', 'figure'),
         Output('violin-chromatogram-container', 'style'),
-        Input('violin-plot-main', 'clickData'),
+        Input({'type': 'violin-plot', 'index': ALL}, 'clickData'),
         Input('violin-comp-checks', 'value'),
-        State('analysis-grouping-select', 'value'),
+        Input('analysis-grouping-select', 'value'),
+        Input('analysis-metric-select', 'value'),
+        Input('analysis-normalization-select', 'value'),
         State("wdir", "data"),
         prevent_initial_call=True,
     )
-    def update_chromatogram_on_click(clickData, peak_label, group_by_col, wdir):
+    def update_chromatogram_on_click(clickData_list, peak_label, group_by_col, metric, normalization, wdir):
+        from dash import ALL
         ctx = dash.callback_context
         if not ctx.triggered:
             return dash.no_update, dash.no_update
 
+        # Extract clickData safely
+        clickData = clickData_list[0] if clickData_list else None
+
         trigger_id = ctx.triggered[0]['prop_id'].split('.')[0]
 
-        # If the compound selection changed, hide the chromatogram
-        if trigger_id == 'violin-comp-checks':
+        # Reset triggers
+        reset_triggers = [
+            'violin-comp-checks', 
+            'analysis-grouping-select', 
+            'analysis-metric-select', 
+            'analysis-normalization-select'
+        ]
+
+        # If parameters changed, hide the chromatogram
+        if trigger_id in reset_triggers:
             return go.Figure(), {'display': 'none'}
 
         if not clickData or not wdir or not peak_label:
@@ -1341,27 +1355,46 @@ def callbacks(app, fsc, cache):
 
             # 2. Identify neighbors if a grouping column is selected
             neighbor_files = []
+            group_val = None
+            
+            # Determine group label
+            group_label = GROUP_LABELS.get(group_by_col, group_by_col or 'Sample')
+
             if group_by_col:
                 # Get the group value for the clicked sample
-                # Use query formatting for column name (safe as it comes from app options)
                 try:
                     group_val_query = f'SELECT "{group_by_col}" FROM samples WHERE ms_file_label = ?'
-                    group_val = conn.execute(group_val_query, [ms_file_label]).fetchone()
+                    row = conn.execute(group_val_query, [ms_file_label]).fetchone()
                     
-                    if group_val:
-                        group_val = group_val[0]
+                    if row:
+                        group_val = row[0]
                         # Fetch up to 10 random other samples from the same group
-                        neighbors_query = f"""
-                            SELECT ms_file_label, color 
-                            FROM samples 
-                            WHERE "{group_by_col}" = ? AND ms_file_label != ? 
-                            ORDER BY random() 
-                            LIMIT 10
-                        """
-                        neighbor_files = conn.execute(neighbors_query, [group_val, ms_file_label]).fetchall()
+                        if group_val is None:
+                             neighbors_query = f"""
+                                SELECT ms_file_label, color 
+                                FROM samples 
+                                WHERE "{group_by_col}" IS NULL AND ms_file_label != ? 
+                                ORDER BY random() 
+                                LIMIT 10
+                            """
+                             neighbor_files = conn.execute(neighbors_query, [ms_file_label]).fetchall()
+                        else:
+                            neighbors_query = f"""
+                                SELECT ms_file_label, color 
+                                FROM samples 
+                                WHERE "{group_by_col}" = ? AND ms_file_label != ? 
+                                ORDER BY random() 
+                                LIMIT 10
+                            """
+                            neighbor_files = conn.execute(neighbors_query, [group_val, ms_file_label]).fetchall()
                 except Exception as e:
                     logger.warning(f"Failed to fetch neighbors: {e}")
                     pass
+
+            # Determine display value for legend
+            display_val = group_val
+            if group_by_col and not group_val:
+                 display_val = f"{group_label} (unset)"
 
             # 3. Fetch chromatograms
             # We need the clicked sample + neighbors
@@ -1389,31 +1422,64 @@ def callbacks(app, fsc, cache):
             fig = go.Figure()
 
             # Plot neighbors first (background)
+            # Plot neighbors first (background)
             for n_label, n_color in neighbor_files:
                 if n_label in data_map:
                     _, scan_times, intensities, _ = data_map[n_label]
+                    
+                    # Check for valid signal (skip flat lines)
+                    if len(intensities) > 0 and min(intensities) == max(intensities):
+                        continue
+
+                    # If grouping is active but value is missing, use the "unset" color (gray)
+                    if group_by_col and group_val is None:
+                        n_color = '#bbbbbb'
+
                     fig.add_trace(go.Scatter(
                         x=scan_times,
                         y=intensities,
                         mode='lines',
-                        name=n_label,
+                        name=str(display_val),
+                        legendgroup=str(display_val),
+                        showlegend=False,
                         line=dict(width=1, color=n_color),
                         opacity=0.4,
-                        hoverinfo='skip' 
+                        hovertemplate=f"<b>{n_label}</b><br>Scan Time: %{{x:.2f}}<br>Intensity: %{{y:.2e}}<extra>{display_val}</extra>"
                     ))
 
             # Plot clicked sample (foreground)
             if ms_file_label in data_map:
                 _, scan_times, intensities, main_color = data_map[ms_file_label]
-                fig.add_trace(go.Scatter(
-                    x=scan_times,
-                    y=intensities,
-                    mode='lines',
-                    name=ms_file_label,
-                    line=dict(width=2, color=main_color),
-                    fill='tozeroy',
-                    opacity=1.0
-                ))
+                
+                # Check for valid signal
+                is_flat = len(intensities) > 0 and min(intensities) == max(intensities)
+                
+                if is_flat:
+                     fig.add_annotation(
+                        text="Selected sample has no valid signal (flat line)",
+                        xref="paper", yref="paper",
+                        x=0.5, y=0.5,
+                        showarrow=False,
+                        font=dict(size=14, color="gray")
+                    )
+                else:
+                    # If grouping is active but value is missing, use the "unset" color (gray)
+                    if group_by_col and not group_val:
+                        main_color = '#bbbbbb'
+
+                    legend_name = str(display_val) if group_by_col else ms_file_label
+                    fig.add_trace(go.Scatter(
+                        x=scan_times,
+                        y=intensities,
+                        mode='lines',
+                        name=legend_name,
+                        legendgroup=legend_name,
+                        showlegend=True,
+                        hovertemplate=f"<b>{ms_file_label}</b><br>Scan Time: %{{x:.2f}}<br>Intensity: %{{y:.2e}}<extra>{legend_name}</extra>",
+                        line=dict(width=2, color=main_color),
+                        fill='tozeroy',
+                        opacity=1.0
+                    ))
             
             # Add RT span
             if rt_min is not None and rt_max is not None:
@@ -1422,7 +1488,7 @@ def callbacks(app, fsc, cache):
                     fillcolor="green", opacity=0.1,
                     layer="below", line_width=0,
                 )
-            
+
             fig.update_layout(
                 title=f"{peak_label} | {ms_file_label}",
                 xaxis_title="Scan Time (s)",
@@ -1430,6 +1496,10 @@ def callbacks(app, fsc, cache):
                 template="plotly_white",
                 margin=dict(l=60, r=20, t=50, b=50),
                 height=400,
-                showlegend=False
+                showlegend=True,
+                legend=dict(
+                    title=dict(text=f"{group_label}<br>", font=dict(size=14)),
+                    font=dict(size=12),
+                )
             )
             return fig, {'display': 'block'}
