@@ -356,7 +356,7 @@ _layout = html.Div(
                             ),
                             html.Div(
                                 [
-                                    fac.AntdDivider("Chromatogram", style={'margin': '12px 0 12px 0'}),
+                                    # fac.AntdDivider("Chromatogram", style={'margin': '12px 0 12px 0'}),
                                     fac.AntdSpin(
                                         dcc.Graph(
                                             id='violin-chromatogram',
