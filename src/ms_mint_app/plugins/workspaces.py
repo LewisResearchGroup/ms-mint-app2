@@ -66,7 +66,7 @@ _layout = html.Div(
                 ),
                 fac.AntdText("Loading...", id="ws-current-data-dir-text", style={"marginRight": "10px", "fontWeight": "bold"}),
                 fac.AntdTooltip(
-                    fac.AntdButton("Change Location", id="ws-change-data-dir-btn", size="small"),
+                    fac.AntdButton("Change directory", id="ws-change-data-dir-btn", size="small"),
                     title="Select a different folder on your computer to store your MINT workspaces and data.",
                     placement="bottom"
                 )

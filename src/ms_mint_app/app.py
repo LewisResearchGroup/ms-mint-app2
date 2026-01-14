@@ -137,6 +137,7 @@ def _build_layout(*, plugins, file_explorer, initial_page_children=None, initial
                                         justify='space-between',
                                         align='center',
                                         wrap=True,
+                                        style={'paddingLeft': '8px'},
                                     ),
                                     fac.AntdDivider(
                                         size='small'
@@ -153,7 +154,7 @@ def _build_layout(*, plugins, file_explorer, initial_page_children=None, initial
                                         ],
                                         justify='space-between',
                                         align='center',
-                                        style={'padding': '0 4px'},
+                                        style={'padding': '0 4px 0 8px'},
                                         id='active-workspace-container'
                                     ),
                                     fac.AntdDivider(
@@ -221,9 +222,11 @@ def _build_layout(*, plugins, file_explorer, initial_page_children=None, initial
                                                 ],
                                                 justify='space-between',
                                                 align='center',
+                                                wrap=False,
+                                                style={'whiteSpace': 'nowrap', 'overflow': 'hidden'},
                                             ),
                                         ],
-                                        style={'margin': '10px 4px'},
+                                        style={'margin': '10px 4px 10px 8px'},
                                         id='version-info',
                                     ),
                                 ],
