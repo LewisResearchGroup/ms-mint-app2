@@ -281,17 +281,32 @@ _layout = html.Div(
         ),
         # Empty state placeholder - shown when no MS files
         html.Div(
-            fac.AntdEmpty(
-                description=fac.AntdFlex(
-                    [
-                        fac.AntdText('No MS files loaded', strong=True, style={'fontSize': '16px'}),
-                        fac.AntdText('Click "Load MS-Files" to import your data', type='secondary'),
-                    ],
-                    vertical=True,
-                    align='center',
-                    gap='small',
-                ),
-                locale='en-us',
+            fac.AntdFlex(
+                [
+                    fac.AntdEmpty(
+                        description=fac.AntdFlex(
+                            [
+                                fac.AntdText('No MS files loaded', strong=True, style={'fontSize': '16px'}),
+                                fac.AntdText('Click "Load MS-Files" to import your data', type='secondary'),
+                            ],
+                            vertical=True,
+                            align='center',
+                            gap='small',
+                        ),
+                        locale='en-us',
+                    ),
+                    fac.AntdButton(
+                        'Load MS-Files',
+                        id={
+                            'action': 'file-explorer',
+                            'type': 'ms-files-empty',
+                        },
+                        size='large',
+                        style={'marginTop': '16px', 'textTransform': 'uppercase'},
+                    ),
+                ],
+                vertical=True,
+                align='center',
                 style={'marginTop': '100px'},
             ),
             id='ms-files-empty-state',

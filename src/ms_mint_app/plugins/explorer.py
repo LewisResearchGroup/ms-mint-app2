@@ -393,16 +393,25 @@ class FileExplorer:
             prop_id = ctx.triggered[0]['prop_id'].split('.')[0]
             prop_data = json.loads(prop_id)
 
-            if prop_data['type'] == "ms-files":
+            if prop_data['type'] in ("ms-files", "ms-files-empty"):
                 title = "Load MS Files"
                 file_extensions = [".mzXML", ".mzML"]
                 style = {'display': 'block'}
+                # Normalize type for downstream processing
+                prop_data['type'] = "ms-files"
             elif prop_data['type'] == "metadata":
                 title = "Load Metadata"
                 file_extensions = [".csv", ".tsv", ".txt", ".xls", ".xlsx"]
                 style = {'display': 'none'}
-            else:
+            elif prop_data['type'] in ("targets", "targets-empty"):
                 title = "Load Targets"
+                file_extensions = [".csv", ".tsv", ".txt", ".xls", ".xlsx"]
+                style = {'display': 'none'}
+                # Normalize type for downstream processing
+                prop_data['type'] = "targets"
+            else:
+                # Fallback for metadata
+                title = "Load Metadata"
                 file_extensions = [".csv", ".tsv", ".txt", ".xls", ".xlsx"]
                 style = {'display': 'none'}
 

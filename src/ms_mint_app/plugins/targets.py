@@ -109,7 +109,7 @@ _layout = html.Div(
                         ),
                         fac.AntdTooltip(
                             fac.AntdButton(
-                                'Auto-Generate',
+                                'Untargeted Analysis',
                                 id='asari-open-modal-btn',
                                 style={'textTransform': 'uppercase', "marginLeft": "20px"},
                             ),
@@ -436,18 +436,33 @@ _layout = html.Div(
         ),
         # Empty state placeholder - shown when no targets
         html.Div(
-            fac.AntdEmpty(
-                description=fac.AntdFlex(
-                    [
-                        fac.AntdText('No Targets loaded', strong=True, style={'fontSize': '16px'}),
-                        fac.AntdText('Click "Load Targets" to import your data or', type='secondary'),
-                        fac.AntdText('"Auto-Generate" to populate the table with features detected using Asari', type='secondary'),
-                    ],
-                    vertical=True,
-                    align='center',
-                    gap='small',
-                ),
-                locale='en-us',
+            fac.AntdFlex(
+                [
+                    fac.AntdEmpty(
+                        description=fac.AntdFlex(
+                            [
+                                fac.AntdText('No Targets loaded', strong=True, style={'fontSize': '16px'}),
+                                fac.AntdText('Click "Load Targets" to import your data or', type='secondary'),
+                                fac.AntdText('"Untargeted Analysis" to populate the table with features detected using Asari', type='secondary'),
+                            ],
+                            vertical=True,
+                            align='center',
+                            gap='small',
+                        ),
+                        locale='en-us',
+                    ),
+                    fac.AntdButton(
+                        'Load Targets',
+                        id={
+                            'action': 'file-explorer',
+                            'type': 'targets-empty',
+                        },
+                        size='large',
+                        style={'marginTop': '16px', 'textTransform': 'uppercase'},
+                    ),
+                ],
+                vertical=True,
+                align='center',
                 style={'marginTop': '100px'},
             ),
             id='targets-empty-state',
@@ -576,7 +591,7 @@ _layout = html.Div(
                     )
                 ], id='asari-progress-container', style={'display': 'none'})
             ],
-            title="Auto-Generate Targets (via Asari)",
+            title="Untargeted Analysis (via Asari)",
             id="asari-modal",
             visible=False,
             renderFooter=True,
@@ -604,7 +619,7 @@ _layout = html.Div(
                     'targetSelector': "[id='{\"action\":\"file-explorer\",\"type\":\"targets\"}']"
                 },
                 {
-                    'title': 'Auto-Generate',
+                    'title': 'Untargeted Analysis',
                     'description': 'Or auto-detect targets from your MS data using the Asari algorithm.',
                     'targetSelector': '#asari-open-modal-btn'
                 },
@@ -632,7 +647,7 @@ _layout = html.Div(
                     'targetSelector': "[id='{\"action\":\"file-explorer\",\"type\":\"targets\"}']"
                 },
                 {
-                    'title': 'Auto-Generate',
+                    'title': 'Untargeted Analysis',
                     'description': 'Auto-detect additional targets from your MS data using Asari.',
                     'targetSelector': '#asari-open-modal-btn'
                 },
@@ -1367,7 +1382,7 @@ def callbacks(app, fsc=None, cache=None):
                 if has_ms1_data:
                     return False, None  # Button enabled
                 else:
-                    return True, "Auto-Generate requires MS1 data (not available for MS2-only workflows)"
+                    return True, "Untargeted Analysis requires MS1 data (not available for MS2-only workflows)"
         except Exception:
             return False, None  # Default to enabled on error
 
