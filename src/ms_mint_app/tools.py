@@ -1746,9 +1746,17 @@ def process_metadata(wdir, set_progress, selected_files):
     set_progress(10)
     metadata_df, failed_files = get_metadata(file_list)
 
+    if metadata_df.empty:
+        set_progress(100)
+        return 0, failed_files
+
     with duckdb_connection(wdir) as conn:
         if conn is None:
             raise PreventUpdate
+        
+        # Explicitly register the dataframe to ensure DuckDB can see it
+        conn.register('metadata_df_source', metadata_df)
+        
         columns_to_update = {
             "use_for_optimization": "BOOLEAN",
             "use_for_processing": "BOOLEAN",
@@ -1760,22 +1768,31 @@ def process_metadata(wdir, set_progress, selected_files):
         }
         set_clauses = []
         for col, cast in columns_to_update.items():
+            # Only update if the column exists in the dataframe and is not all-null?
+            # Actually, using the dataframe's own columns is safer if we want to support partial updates better.
+            # But get_metadata fills missing cols with NaN, so we stick to the CASE WHEN logic.
+            # We assume NaN means "do not update/keep existing".
             set_clauses.append(f"""
                             {col} = CASE 
-                                WHEN metadata_df.{col} IS NOT NULL 
-                                THEN CAST(metadata_df.{col} AS {cast}) 
+                                WHEN metadata_df_source.{col} IS NOT NULL 
+                                THEN CAST(metadata_df_source.{col} AS {cast}) 
                                 ELSE samples.{col} 
                             END
                         """)
         set_clause = ", ".join(set_clauses)
+        
+        # Use the registered view name
         stmt = f"""
             UPDATE samples 
             SET {set_clause}
-            FROM metadata_df 
-            WHERE samples.ms_file_label = metadata_df.ms_file_label
+            FROM metadata_df_source 
+            WHERE samples.ms_file_label = metadata_df_source.ms_file_label
         """
         conn.execute(stmt)
-
+        
+        # Verify if any rows were updated? (DuckDB doesn't easily return affected rows here without another query, 
+        # but the operation should have succeeded)
+        
         # Import lazily to avoid circular dependency at module import time.
         from .plugins.ms_files import generate_colors
         generate_colors(wdir)
