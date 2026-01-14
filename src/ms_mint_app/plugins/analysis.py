@@ -107,6 +107,7 @@ PLOTLY_HIGH_RES_CONFIG = {
     },
     'displayModeBar': True,
     'displaylogo': False,
+    'responsive': True,
 }
 
 
@@ -311,6 +312,7 @@ pca_tab = html.Div(
             dcc.Graph(
                 id='pca-graph',
                 config=PLOTLY_HIGH_RES_CONFIG,
+                style={'height': 'calc(100vh - 200px)', 'minHeight': '400px'},
                 # Start with invisible figure to show only spinner during loading
                 figure={
                     'data': [],
@@ -320,7 +322,7 @@ pca_tab = html.Div(
                         'paper_bgcolor': 'white',
                         'plot_bgcolor': 'white',
                         'margin': {'l': 0, 'r': 0, 't': 0, 'b': 0},
-                        'height': 700,  # Match final PCA plot height for proper spinner area
+                        'autosize': True,
                     }
                 },
             ),
@@ -1078,7 +1080,7 @@ def show_tab_content(section_context, tab_key, x_comp, y_comp, violin_comp_check
                 if isinstance(ann.text, str) and ann.text.startswith("Loadings"):
                     ann.y = ann.y + 0.02
         fig.update_layout(
-            height=700,
+            autosize=True,
             margin=dict(l=160, r=200, t=70, b=60),
             legend_title_text=group_label,
             legend=dict(
