@@ -337,7 +337,7 @@ _layout = html.Div(
                         },
                         tableLayout='fixed',
                         maxWidth="calc(100vw - 250px - 4rem)",
-                        maxHeight="75vh",
+                        maxHeight="calc(100vh - 210px)",
                         locale='en-us',
                         showSorterTooltip=False,
                         rowSelectionType='checkbox',

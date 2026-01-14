@@ -454,7 +454,7 @@ _layout = html.Div(
                         },
                         tableLayout='fixed',
                         maxWidth="calc(100vw - 250px - 4rem)",
-                        maxHeight="calc(100vh - 140px - 2rem)",
+                        maxHeight="calc(100vh - 210px)",
                         locale='en-us',
                         rowSelectionType='checkbox',
                         size='small',
