@@ -468,19 +468,31 @@ _layout = fac.AntdLayout(
                             id='chromatogram-preview-container',
                             style={'display': 'none'}  # Hidden by default, shown when chromatograms exist
                         ),
-                        fac.AntdEmpty(
+                        fac.AntdFlex(
+                            [
+                                fac.AntdEmpty(
+                                    description=fac.AntdFlex(
+                                        [
+                                            fac.AntdText('No Chromatograms to preview', strong=True, style={'fontSize': '16px'}),
+                                            fac.AntdText('Click "Compute Chromatograms" to generate the chromatograms', type='secondary'),
+                                        ],
+                                        vertical=True,
+                                        align='center',
+                                        gap='small',
+                                    ),
+                                    locale='en-us',
+                                ),
+                                fac.AntdButton(
+                                    'Compute Chromatograms',
+                                    id='compute-chromatograms-empty-btn',
+                                    size='large',
+                                    style={'marginTop': '16px', 'textTransform': 'uppercase'},
+                                ),
+                            ],
                             id='chromatogram-preview-empty',
-                            description=fac.AntdFlex(
-                                [
-                                    fac.AntdText('No Chromatograms to preview', strong=True, style={'fontSize': '16px'}),
-                                    fac.AntdText('Click "Compute Chromatograms" to generate the chromatograms', type='secondary'),
-                                ],
-                                vertical=True,
-                                align='center',
-                                gap='small',
-                            ),
-                            locale='en-us',
-                            style={"display": "block", 'marginTop': '100px'}  # Shown by default when no chromatograms
+                            vertical=True,
+                            align='center',
+                            style={"display": "flex", 'marginTop': '100px'}  # Shown by default when no chromatograms
                         ),
                     ],
                     className='ant-layout-content css-1v28nim',
@@ -1435,6 +1447,23 @@ def callbacks(app, fsc, cache, cpu=None):
         prevent_initial_call=False,
     )
 
+    # Disable compute buttons when no targets or ms-files exist
+    app.clientside_callback(
+        """(status) => {
+            if (!status) return [true, true, "Load MS-Files and Targets first"];
+            const hasFiles = (status.ms_files_count || 0) > 0;
+            const hasTargets = (status.targets_count || 0) > 0;
+            const disabled = !(hasFiles && hasTargets);
+            const tooltip = disabled ? "Load MS-Files and Targets first" : "Calculate chromatograms from the MS files and Targets.";
+            return [disabled, disabled, tooltip];
+        }""",
+        Output('compute-chromatograms-btn', 'disabled'),
+        Output('compute-chromatograms-empty-btn', 'disabled'),
+        Output('compute-chromatograms-btn', 'title'),
+        Input('workspace-status', 'data'),
+        prevent_initial_call=False,
+    )
+
     # Single server-side callback: Opens modal AND populates all values atomically
     # This matches the robust Run Mint pattern - no race conditions possible
     @app.callback(
@@ -1455,12 +1484,13 @@ def callbacks(app, fsc, cache, cpu=None):
         Output("chromatogram-processing-detail", "children"),
         
         Input('compute-chromatograms-btn', 'nClicks'),
+        Input('compute-chromatograms-empty-btn', 'nClicks'),
         State('wdir', 'data'),
         prevent_initial_call=True,
     )
-    def open_compute_chromatograms_modal(nClicks, wdir):
+    def open_compute_chromatograms_modal(nClicks, nClicks_empty, wdir):
         """Open modal and populate all values in one atomic operation."""
-        if not nClicks:
+        if not nClicks and not nClicks_empty:
             raise PreventUpdate
         
         # Calculate system defaults
@@ -2313,7 +2343,7 @@ def callbacks(app, fsc, cache, cpu=None):
             }
             const hasChromatograms = (status.chromatograms_count || 0) > 0;
             const containerStyle = hasChromatograms ? {'display': 'block'} : {'display': 'none'};
-            const emptyStyle = hasChromatograms ? {'display': 'none'} : {'display': 'block', 'marginTop': '100px'};
+            const emptyStyle = hasChromatograms ? {'display': 'none'} : {'display': 'flex', 'marginTop': '100px'};
             return [containerStyle, emptyStyle];
         }""",
         [
@@ -2351,7 +2381,7 @@ def callbacks(app, fsc, cache, cpu=None):
                 cc.append('is-hidden') if 'is-hidden' not in cc else None
                 cards_classes.append(' '.join(cc))
 
-        show_empty = {'display': 'block'} if visible_fig == 0 else {'display': 'none'}
+        show_empty = {'display': 'flex', 'marginTop': '100px'} if visible_fig == 0 else {'display': 'none'}
         show_space = {'display': 'none'} if visible_fig == 0 else {'display': 'block'}
         
         # Collapse sidebar when no chromatograms, expand when there are chromatograms
