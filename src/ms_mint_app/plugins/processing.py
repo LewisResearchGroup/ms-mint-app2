@@ -393,9 +393,9 @@ _layout = html.Div(
                                 fac.AntdFormItem(
                                     fac.AntdInputNumber(
                                         id='processing-chromatogram-compute-cpu',
-                                        defaultValue=cpu_count() // 2,
+                                        defaultValue=max(1, cpu_count() // 2),
                                         min=1,
-                                        max=cpu_count() - 2,
+                                        max=cpu_count(),
                                     ),
                                     label='CPU:',
                                     hasFeedback=True,
@@ -424,7 +424,7 @@ _layout = html.Div(
                                         defaultValue=calculate_optimal_batch_size(
                                             int(psutil.virtual_memory().available * 0.5 / (1024 ** 3)),
                                             100000,  # Assume 100k pairs as default estimate
-                                            cpu_count() // 2
+                                            max(1, cpu_count() // 2)
                                         ),
                                         min=50,
                                         step=50,
@@ -2193,7 +2193,7 @@ def callbacks(app, fsc, cache):
         optimal_batch = calculate_optimal_batch_size(
             int(ram) if ram else 8,
             100000,  # Estimate for total pairs
-            int(cpu) if cpu else 4
+            int(cpu) if cpu else max(1, cpu_count() // 2)
         )
         return help_cpu, help_ram, optimal_batch
 
