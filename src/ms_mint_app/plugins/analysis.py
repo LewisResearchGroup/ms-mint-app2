@@ -133,6 +133,66 @@ def rocke_durbin(df: pd.DataFrame, c: float) -> pd.DataFrame:
     return pd.DataFrame(ef, index=df.index, columns=df.columns)
 
 
+def _calc_y_range_numpy(data, x_left, x_right, is_log=False):
+    """
+    Calculate the Y-axis range for the given x-range using NumPy for performance.
+    
+    Args:
+        data: List of trace dictionaries (from Plotly figure['data'])
+        x_left: Left bound of X-axis
+        x_right: Right bound of X-axis
+        is_log: Whether the Y-axis is in log scale
+        
+    Returns:
+        list: [y_min, y_max] or None if no valid data
+    """
+    import math
+    ys_all = []
+    if not data:
+        return None
+        
+    for trace in data:
+        xs = trace.get('x')
+        ys = trace.get('y')
+        
+        if xs is None or ys is None or len(xs) == 0:
+            continue
+            
+        try:
+            xs = np.array(xs, dtype=np.float64)
+            ys = np.array(ys, dtype=np.float64)
+        except Exception:
+            continue
+        
+        mask = (xs >= x_left) & (xs <= x_right)
+        ys_filtered = ys[mask]
+        
+        valid_mask = np.isfinite(ys_filtered)
+        ys_filtered = ys_filtered[valid_mask]
+        
+        if len(ys_filtered) > 0:
+            ys_all.append(ys_filtered)
+            
+    if not ys_all:
+        return None
+        
+    ys_concat = np.concatenate(ys_all)
+    
+    if len(ys_concat) == 0:
+        return None
+
+    if is_log:
+        pos_mask = ys_concat > 1
+        ys_pos = ys_concat[pos_mask]
+        if len(ys_pos) == 0:
+            return None
+        return [math.log10(np.min(ys_pos)), math.log10(np.max(ys_pos) * 1.05)]
+
+    y_min = np.min(ys_concat)
+    y_max = np.max(ys_concat)
+    y_min = 0 if y_min > 0 else y_min
+    return [y_min, y_max * 1.05]
+
 def run_pca_samples_in_cols(df: pd.DataFrame, n_components=None, random_state=0):
     """Run PCA with samples in rows and targets in columns."""
 
@@ -351,6 +411,8 @@ _layout = html.Div(
                                         'gap': '24px',
                                     },
                                 ),
+                                id='violin-spinner',
+                                spinning=True,
                                 text='Loading Violin...',
                                 style={'minHeight': '20vh', 'width': '100%'},
                             ),
@@ -1303,6 +1365,29 @@ def callbacks(app, fsc, cache):
         return bar_src is None
 
     @app.callback(
+        Output('violin-spinner', 'spinning'),
+        Input('analysis-tabs', 'activeKey'),
+        Input('violin-graphs', 'children'),
+        Input('analysis-metric-select', 'value'),
+        Input('analysis-normalization-select', 'value'),
+        Input('analysis-grouping-select', 'value'),
+        prevent_initial_call=True,
+    )
+    def toggle_violin_spinner(active_tab, violin_children, metric_value, norm_value, group_value):
+        from dash import callback_context
+
+        if active_tab != 'raincloud':
+            return False
+
+        trigger = callback_context.triggered[0]["prop_id"].split(".")[0] if callback_context.triggered else ""
+        # When user switches to raincloud tab or changes parameters, force spinner on
+        if trigger in ('analysis-tabs', 'analysis-metric-select', 'analysis-normalization-select', 'analysis-grouping-select'):
+            return True
+
+        # Otherwise, stop spinning once content is loaded
+        return not violin_children
+
+    @app.callback(
         Output('violin-chromatogram', 'figure'),
         Output('violin-chromatogram-container', 'style'),
         Input({'type': 'violin-plot', 'index': ALL}, 'clickData'),
@@ -1489,6 +1574,34 @@ def callbacks(app, fsc, cache):
                     layer="below", line_width=0,
                 )
 
+            # Set initial X-axis range to show RT span with padding (like optimization modal)
+            # Show one span width on each side of the RT span
+            x_range_min = None
+            x_range_max = None
+            if rt_min is not None and rt_max is not None:
+                span_width = rt_max - rt_min
+                # Use one span width as padding, or 30 seconds minimum
+                padding = max(span_width, 20)
+                x_range_min = rt_min - padding
+                x_range_max = rt_max + padding
+                
+                # Clamp to actual data range
+                all_x = []
+                for trace in fig.data:
+                    if hasattr(trace, 'x') and trace.x is not None:
+                        all_x.extend(trace.x)
+                if all_x:
+                    data_x_min = min(all_x)
+                    data_x_max = max(all_x)
+                    x_range_min = max(x_range_min, data_x_min)
+                    x_range_max = min(x_range_max, data_x_max)
+
+            # Calculate Y-axis range for the visible X range
+            y_range = None
+            if x_range_min is not None and x_range_max is not None:
+                traces_data = [{'x': list(t.x), 'y': list(t.y)} for t in fig.data if hasattr(t, 'x') and hasattr(t, 'y')]
+                y_range = _calc_y_range_numpy(traces_data, x_range_min, x_range_max, is_log=False)
+
             fig.update_layout(
                 title=f"{peak_label} | {ms_file_label}",
                 xaxis_title="Scan Time (s)",
@@ -1500,6 +1613,57 @@ def callbacks(app, fsc, cache):
                 legend=dict(
                     title=dict(text=f"{group_label}<br>", font=dict(size=14)),
                     font=dict(size=12),
-                )
+                ),
+                xaxis=dict(
+                    range=[x_range_min, x_range_max] if x_range_min is not None else None,
+                    autorange=x_range_min is None,
+                ),
+                yaxis=dict(
+                    range=y_range if y_range else None,
+                    autorange=y_range is None,
+                ),
             )
             return fig, {'display': 'block'}
+
+
+    @app.callback(
+        Output('violin-chromatogram', 'figure', allow_duplicate=True),
+        Input('violin-chromatogram', 'relayoutData'),
+        State('violin-chromatogram', 'figure'),
+        prevent_initial_call=True
+    )
+    def update_violin_chromatogram_zoom(relayout, figure_state):
+        """
+        When user zooms on X-axis, auto-fit Y-axis to visible data range.
+        This matches the behavior in the optimization modal chromatogram.
+        """
+        if not relayout or not figure_state:
+            raise PreventUpdate
+
+        # Check for X-axis zoom event
+        x_range = (relayout.get('xaxis.range[0]'), relayout.get('xaxis.range[1]'))
+        y_range = (relayout.get('yaxis.range[0]'), relayout.get('yaxis.range[1]'))
+        
+        # If user explicitly set Y range, respect it
+        if y_range[0] is not None and y_range[1] is not None:
+            raise PreventUpdate
+        
+        # Only act when X-axis zoom happens
+        if x_range[0] is None or x_range[1] is None:
+            raise PreventUpdate
+        
+        # Auto-fit Y-axis to visible data in the X range
+        from dash import Patch
+        fig_patch = Patch()
+        
+        traces = figure_state.get('data', [])
+        y_calc = _calc_y_range_numpy(traces, x_range[0], x_range[1], is_log=False)
+        
+        if y_calc:
+            fig_patch['layout']['xaxis']['range'] = [x_range[0], x_range[1]]
+            fig_patch['layout']['xaxis']['autorange'] = False
+            fig_patch['layout']['yaxis']['range'] = y_calc
+            fig_patch['layout']['yaxis']['autorange'] = False
+            return fig_patch
+        
+        raise PreventUpdate
