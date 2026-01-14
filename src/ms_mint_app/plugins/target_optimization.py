@@ -1435,70 +1435,105 @@ def callbacks(app, fsc, cache, cpu=None):
         prevent_initial_call=False,
     )
 
-    # INSTANT modal open - bypasses callback queue for immediate response
-    # decoupled from workspace-status to ensure 0ms latency even during page load
-    app.clientside_callback(
-        """(nClicks) => {
-            if (!nClicks) return window.dash_clientside.no_update;
-            return true;
-        }""",
+    # Single server-side callback: Opens modal AND populates all values atomically
+    # This matches the robust Run Mint pattern - no race conditions possible
+    @app.callback(
         Output('compute-chromatogram-modal', 'visible', allow_duplicate=True),
-        Input('compute-chromatograms-btn', 'nClicks'),
-        prevent_initial_call=True,
-    )
-
-    # Lazy Content Update - Populates modal fields when it becomes visible
-    # This runs asynchronously after the modal is already shown
-    app.clientside_callback(
-        """(visible, status) => {
-            if (!visible || !status) return window.dash_clientside.no_update;
-            
-            const { 
-                chromatograms_count, selected_targets_count, optimization_samples_count,
-                chroms_ms1_count, chroms_ms2_count,
-                n_cpus, default_cpus, ram_avail, default_ram 
-            } = status;
-            
-            const batch_size = status.batch_size;
-
-            const warningStyle = chromatograms_count > 0 ? {'display': 'flex'} : {'display': 'none'};
-            const warningMessage = chromatograms_count > 0 ? `There are already computed ${chromatograms_count} chromatograms` : "";
-            const infoMessage = `Ready to compute chromatograms for ${selected_targets_count} targets and ${optimization_samples_count} samples.`;
-            
-            const ramHelp = `Selected ${default_ram}GB / ${ram_avail}GB available RAM`;
-            const cpuHelp = `Selected ${default_cpus} / ${n_cpus} cpus`;
-            
-            const recomputeMs1 = (chroms_ms1_count || 0) > 0;
-            const recomputeMs2 = (chroms_ms2_count || 0) > 0;
-
-            return [
-                warningStyle, warningMessage, infoMessage,
-                ram_avail, default_cpus, default_ram,
-                (batch_size || 1000),
-                ramHelp, cpuHelp,
-                recomputeMs1, recomputeMs2,
-                0, "", ""
-            ];
-        }""",
-        Output('chromatogram-warning', 'style', allow_duplicate=True),
-        Output('chromatogram-warning', 'message', allow_duplicate=True),
-        Output('chromatogram-targets-info', 'message', allow_duplicate=True),
-        Output('chromatogram-compute-ram', 'max', allow_duplicate=True),
-        Output('chromatogram-compute-cpu', 'value', allow_duplicate=True),
-        Output('chromatogram-compute-ram', 'value', allow_duplicate=True),
+        Output('chromatogram-warning', 'style'),
+        Output('chromatogram-warning', 'message'),
+        Output('chromatogram-targets-info', 'message'),
+        Output('chromatogram-compute-ram', 'max'),
+        Output('chromatogram-compute-cpu', 'value'),
+        Output('chromatogram-compute-ram', 'value'),
         Output('chromatogram-compute-batch-size', 'value', allow_duplicate=True),
         Output('chromatogram-compute-ram-item', 'help', allow_duplicate=True),
         Output('chromatogram-compute-cpu-item', 'help', allow_duplicate=True),
-        Output("chromatograms-recompute-ms1", "checked", allow_duplicate=True),
-        Output("chromatograms-recompute-ms2", "checked", allow_duplicate=True),
-        Output("chromatogram-processing-progress", "percent", allow_duplicate=True),
-        Output("chromatogram-processing-stage", "children", allow_duplicate=True),
-        Output("chromatogram-processing-detail", "children", allow_duplicate=True),
+        Output("chromatograms-recompute-ms1", "checked"),
+        Output("chromatograms-recompute-ms2", "checked"),
+        Output("chromatogram-processing-progress", "percent"),
+        Output("chromatogram-processing-stage", "children"),
+        Output("chromatogram-processing-detail", "children"),
         
-        Input('compute-chromatogram-modal', 'visible'),
-        Input('workspace-status', 'data'),
+        Input('compute-chromatograms-btn', 'nClicks'),
+        State('wdir', 'data'),
         prevent_initial_call=True,
     )
+    def open_compute_chromatograms_modal(nClicks, wdir):
+        """Open modal and populate all values in one atomic operation."""
+        if not nClicks:
+            raise PreventUpdate
+        
+        # Calculate system defaults
+        n_cpus = cpu_count()
+        default_cpus = max(1, n_cpus // 2)
+        ram_avail = psutil.virtual_memory().available / (1024 ** 3)
+        default_ram = round(min(float(default_cpus), ram_avail), 1)
+        
+        # Default values if DB unavailable
+        chromatograms_count = 0
+        chroms_ms1_count = 0
+        chroms_ms2_count = 0
+        selected_targets_count = 0
+        optimization_samples_count = 0
+        batch_size = 1000
+        
+        # Query DB for current counts
+        if wdir:
+            try:
+                with duckdb_connection(wdir) as conn:
+                    if conn is not None:
+                        counts = conn.execute("""
+                            SELECT 
+                                (SELECT COUNT(*) FROM chromatograms) as chroms,
+                                (SELECT COUNT(*) FROM chromatograms WHERE ms_type = 'ms1') as chroms_ms1,
+                                (SELECT COUNT(*) FROM chromatograms WHERE ms_type = 'ms2') as chroms_ms2,
+                                (SELECT COUNT(*) FROM targets WHERE peak_selection = TRUE) as selected_targets,
+                                (SELECT COUNT(*) FROM samples WHERE use_for_optimization = TRUE) as opt_samples
+                        """).fetchone()
+                        if counts:
+                            chromatograms_count = counts[0] or 0
+                            chroms_ms1_count = counts[1] or 0
+                            chroms_ms2_count = counts[2] or 0
+                            selected_targets_count = counts[3] or 0
+                            optimization_samples_count = counts[4] or 0
+                            
+                            # Calculate optimal batch size
+                            batch_size = calculate_optimal_batch_size(
+                                default_ram,
+                                max(selected_targets_count * optimization_samples_count, 100000),
+                                default_cpus
+                            )
+            except Exception as e:
+                logger.warning(f"Could not query DB for modal defaults: {e}")
+        
+        # Calculate display values
+        warning_style = {'display': 'flex'} if chromatograms_count > 0 else {'display': 'none'}
+        warning_message = f"There are already computed {chromatograms_count} chromatograms" if chromatograms_count > 0 else ""
+        info_message = f"Ready to compute chromatograms for {selected_targets_count} targets and {optimization_samples_count} samples."
+        
+        help_cpu = f"Selected {default_cpus} / {n_cpus} cpus"
+        help_ram = f"Selected {default_ram}GB / {round(ram_avail, 1)}GB available RAM"
+        
+        recompute_ms1 = chroms_ms1_count > 0
+        recompute_ms2 = chroms_ms2_count > 0
+        
+        return (
+            True,  # visible
+            warning_style,
+            warning_message,
+            info_message,
+            round(ram_avail, 1),  # max RAM
+            default_cpus,
+            default_ram,
+            batch_size,
+            help_ram,
+            help_cpu,
+            recompute_ms1,
+            recompute_ms2,
+            0,  # progress percent
+            "",  # progress stage
+            ""   # progress detail
+        )
     # Clientside callback to detect container width for smart auto-sizing
     app.clientside_callback(
         """(n_intervals, sidebar_collapsed) => {
@@ -1527,55 +1562,71 @@ def callbacks(app, fsc, cache, cpu=None):
         if not wdir:
             raise PreventUpdate
         
+        # Calculate system defaults (safe to do without DB)
+        n_cpus = cpu_count()
+        default_cpus = max(1, n_cpus // 2)
+        ram_avail = psutil.virtual_memory().available / (1024 ** 3)
+        default_ram = round(min(float(default_cpus), ram_avail), 1)
+        
         workspace_status = {
             'ms_files_count': 0,
             'targets_count': 0,
             'chromatograms_count': 0,
             'selected_targets_count': 0,
             'optimization_samples_count': 0,
-            'results_count': 0
+            'results_count': 0,
+            'n_cpus': n_cpus,
+            'default_cpus': default_cpus,
+            'ram_avail': round(ram_avail, 1),
+            'default_ram': default_ram,
+            'batch_size': 1000  # Safe default
         }
         
-        with duckdb_connection(wdir) as conn:
-            if conn is not None:
-                counts = conn.execute("""
-                    SELECT 
-                        (SELECT COUNT(*) FROM samples) as ms_files,
-                        (SELECT COUNT(*) FROM targets) as targets,
-                        (SELECT COUNT(*) FROM chromatograms) as chroms,
-                        (SELECT COUNT(*) FROM chromatograms WHERE ms_type = 'ms1') as chroms_ms1,
-                        (SELECT COUNT(*) FROM chromatograms WHERE ms_type = 'ms2') as chroms_ms2,
-                        (SELECT COUNT(*) FROM targets WHERE peak_selection = TRUE) as selected_targets,
-                        (SELECT COUNT(*) FROM samples WHERE use_for_optimization = TRUE) as opt_samples,
-                        (SELECT COUNT(*) FROM results) as results
-                """).fetchone()
-                if counts:
-                    n_cpus = cpu_count()
-                    default_cpus = max(1, n_cpus // 2)
-                    ram_avail = psutil.virtual_memory().available / (1024 ** 3)
-                    default_ram = round(min(float(default_cpus), ram_avail), 1)
+        try:
+            with duckdb_connection(wdir) as conn:
+                if conn is not None:
+                    counts = conn.execute("""
+                        SELECT 
+                            (SELECT COUNT(*) FROM samples) as ms_files,
+                            (SELECT COUNT(*) FROM targets) as targets,
+                            (SELECT COUNT(*) FROM chromatograms) as chroms,
+                            (SELECT COUNT(*) FROM chromatograms WHERE ms_type = 'ms1') as chroms_ms1,
+                            (SELECT COUNT(*) FROM chromatograms WHERE ms_type = 'ms2') as chroms_ms2,
+                            (SELECT COUNT(*) FROM targets WHERE peak_selection = TRUE) as selected_targets,
+                            (SELECT COUNT(*) FROM samples WHERE use_for_optimization = TRUE) as opt_samples,
+                            (SELECT COUNT(*) FROM results) as results
+                    """).fetchone()
+                    if counts:
+                        # Update with DB-derived counts, preserving the defaults set above
+                        n_cpus = cpu_count()
+                        default_cpus = max(1, n_cpus // 2)
+                        ram_avail = psutil.virtual_memory().available / (1024 ** 3)
+                        default_ram = round(min(float(default_cpus), ram_avail), 1)
 
-                    batch_size = calculate_optimal_batch_size(
-                        default_ram,
-                        max((counts[1] or 0) * (counts[6] or 0), 100000),
-                        default_cpus
-                    )
+                        batch_size = calculate_optimal_batch_size(
+                            default_ram,
+                            max((counts[1] or 0) * (counts[6] or 0), 100000),
+                            default_cpus
+                        )
 
-                    workspace_status = {
-                        'ms_files_count': counts[0] or 0,
-                        'targets_count': counts[1] or 0,
-                        'chromatograms_count': counts[2] or 0,
-                        'chroms_ms1_count': counts[3] or 0,
-                        'chroms_ms2_count': counts[4] or 0,
-                        'selected_targets_count': counts[5] or 0,
-                        'optimization_samples_count': counts[6] or 0,
-                        'results_count': counts[7] or 0,
-                        'n_cpus': n_cpus,
-                        'default_cpus': default_cpus,
-                        'ram_avail': round(ram_avail, 1),
-                        'default_ram': default_ram,
-                        'batch_size': batch_size
-                    }
+                        workspace_status = {
+                            'ms_files_count': counts[0] or 0,
+                            'targets_count': counts[1] or 0,
+                            'chromatograms_count': counts[2] or 0,
+                            'chroms_ms1_count': counts[3] or 0,
+                            'chroms_ms2_count': counts[4] or 0,
+                            'selected_targets_count': counts[5] or 0,
+                            'optimization_samples_count': counts[6] or 0,
+                            'results_count': counts[7] or 0,
+                            'n_cpus': n_cpus,
+                            'default_cpus': default_cpus,
+                            'ram_avail': round(ram_avail, 1),
+                            'default_ram': default_ram,
+                            'batch_size': batch_size
+                        }
+        except Exception as e:
+            logger.warning(f"Could not update workspace status from DB: {e}")
+            # workspace_status already contains safe defaults from lines 1561-1573
         
         logger.info(f"workspace-status updated (chromatograms changed): {workspace_status}")
         return workspace_status
