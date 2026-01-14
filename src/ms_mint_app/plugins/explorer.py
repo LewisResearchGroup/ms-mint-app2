@@ -221,7 +221,7 @@ class FileExplorer:
                                         fac.AntdFormItem(
                                             fac.AntdInputNumber(
                                                 id='processing-cpu-input',
-                                                defaultValue=4,
+                                                defaultValue=max(1, psutil.cpu_count() // 2),
                                                 min=1,
                                                 max=psutil.cpu_count(),
                                                 size='small',
