@@ -287,32 +287,110 @@ clustermap_tab = html.Div([
 ], style={'height': 'calc(100vh - 156px)'})
 pca_tab = html.Div(
     [
-        fac.AntdSpace(
+        # First row: Metric, Transformations, Group by controls
+        fac.AntdFlex(
             [
-                html.Span("X axis:"),
-                fac.AntdSelect(
-                    id='pca-x-comp',
-                    options=PCA_COMPONENT_OPTIONS,
-                    value='PC1',
-                    allowClear=False,
-                    style={'width': 140},
+                fac.AntdSpace(
+                    [
+                        fac.AntdText("Metric:", style={'fontWeight': 500}),
+                        fac.AntdSelect(
+                            id='analysis-metric-select',
+                            options=[
+                                {'label': 'Peak Area', 'value': 'peak_area'},
+                                {'label': 'Peak Area (Top 3)', 'value': 'peak_area_top3'},
+                                {'label': 'Peak Max', 'value': 'peak_max'},
+                                {'label': 'Peak Mean', 'value': 'peak_mean'},
+                                {'label': 'Peak Median', 'value': 'peak_median'},
+                                {'label': 'Concentration', 'value': 'scalir_conc'},
+                            ],
+                            value='peak_area',
+                            optionFilterProp='label',
+                            optionFilterMode='case-insensitive',
+                            allowClear=False,
+                            style={'width': 180},
+                        ),
+                    ],
+                    align='center',
+                    size='small',
                 ),
-                html.Span("Y axis:"),
-                fac.AntdSelect(
-                    id='pca-y-comp',
-                    options=PCA_COMPONENT_OPTIONS,
-                    value='PC2',
-                    allowClear=False,
-                    style={'width': 140},
+                fac.AntdSpace(
+                    [
+                        fac.AntdText("Transformations:", style={'fontWeight': 500}),
+                        fac.AntdSelect(
+                            id='analysis-normalization-select',
+                            options=NORM_OPTIONS,
+                            value='zscore',
+                            optionFilterProp='label',
+                            optionFilterMode='case-insensitive',
+                            allowClear=False,
+                            style={'width': 160},
+                        ),
+                    ],
+                    align='center',
+                    size='small',
+                ),
+                fac.AntdSpace(
+                    [
+                        fac.AntdText("Group by:", style={'fontWeight': 500}),
+                        fac.AntdSelect(
+                            id='analysis-grouping-select',
+                            options=GROUP_SELECT_OPTIONS,
+                            value='sample_type',
+                            allowClear=False,
+                            style={'width': 160},
+                        ),
+                    ],
+                    align='center',
+                    size='small',
                 ),
             ],
-            style={'marginBottom': 10},
+            wrap=True,
+            gap='middle',
+            align='center',
+            id='analysis-metric-container',
+            style={'marginBottom': '12px'},
+        ),
+        # Second row: X axis and Y axis controls
+        fac.AntdFlex(
+            [
+                fac.AntdSpace(
+                    [
+                        html.Span("X axis:", style={'fontWeight': 500}),
+                        fac.AntdSelect(
+                            id='pca-x-comp',
+                            options=PCA_COMPONENT_OPTIONS,
+                            value='PC1',
+                            allowClear=False,
+                            style={'width': 100},
+                        ),
+                    ],
+                    align='center',
+                    size='small',
+                ),
+                fac.AntdSpace(
+                    [
+                        html.Span("Y axis:", style={'fontWeight': 500}),
+                        fac.AntdSelect(
+                            id='pca-y-comp',
+                            options=PCA_COMPONENT_OPTIONS,
+                            value='PC2',
+                            allowClear=False,
+                            style={'width': 100},
+                        ),
+                    ],
+                    align='center',
+                    size='small',
+                ),
+            ],
+            gap='middle',
+            align='center',
+            style={'marginBottom': '12px', 'marginTop': '12px'},
         ),
         fac.AntdSpin(
             dcc.Graph(
                 id='pca-graph',
                 config=PLOTLY_HIGH_RES_CONFIG,
-                style={'height': 'calc(100vh - 200px)', 'minHeight': '400px'},
+                style={'height': 'calc(100vh - 210px)', 'width': '100%', 'minHeight': '400px'},
                 # Start with invisible figure to show only spinner during loading
                 figure={
                     'data': [],
@@ -329,7 +407,8 @@ pca_tab = html.Div(
             text='Loading PCA...',
             style={'minHeight': '20vh', 'width': '100%'},
         ),
-    ]
+    ],
+    style={'height': '100%'},
 )
 
 # SCALiR tab has been moved to Processing plugin as a modal workflow
@@ -404,83 +483,16 @@ _layout = fac.AntdLayout(
             [
                 fac.AntdFlex(
                     [
-                        fac.AntdFlex(
-                            [
-                                fac.AntdTitle(
-                                    'Analysis', level=4, style={'margin': '0', 'whiteSpace': 'nowrap'}
-                                ),
-                                fac.AntdIcon(
-                                    id='analysis-tour-icon',
-                                    icon='pi-info',
-                                    style={"cursor": "pointer", 'paddingLeft': '10px'},
-                                ),
-                            ],
-                            align='center',
+                        fac.AntdTitle(
+                            'Analysis', level=4, style={'margin': '0', 'whiteSpace': 'nowrap'}
                         ),
-                        fac.AntdSpace(
-                            [
-                                fac.AntdSpace(
-                                    [
-                                        fac.AntdText("Metric:", style={'fontWeight': 500}),
-                                        fac.AntdSelect(
-                                            id='analysis-metric-select',
-                                            options=[
-                                                {'label': 'Peak Area', 'value': 'peak_area'},
-                                                {'label': 'Peak Area (Top 3)', 'value': 'peak_area_top3'},
-                                                {'label': 'Peak Max', 'value': 'peak_max'},
-                                                {'label': 'Peak Mean', 'value': 'peak_mean'},
-                                                {'label': 'Peak Median', 'value': 'peak_median'},
-                                                {'label': 'Concentration', 'value': 'scalir_conc'},
-                                            ],
-                                            value='peak_area',
-                                            optionFilterProp='label',
-                                            optionFilterMode='case-insensitive',
-                                            allowClear=False,
-                                            style={'width': 200},
-                                        ),
-                                    ],
-                                    align='center',
-                                    size='small',
-                                ),
-                                fac.AntdSpace(
-                                    [
-                                        fac.AntdText("Transformations:", style={'fontWeight': 500}),
-                                        fac.AntdSelect(
-                                            id='analysis-normalization-select',
-                                            options=NORM_OPTIONS,
-                                            value='zscore',
-                                            optionFilterProp='label',
-                                            optionFilterMode='case-insensitive',
-                                            allowClear=False,
-                                            style={'width': 180},
-                                        ),
-                                    ],
-                                    align='center',
-                                    size='small',
-                                ),
-                                fac.AntdSpace(
-                                    [
-                                        fac.AntdText("Group by:", style={'fontWeight': 500}),
-                                        fac.AntdSelect(
-                                            id='analysis-grouping-select',
-                                            options=GROUP_SELECT_OPTIONS,
-                                            value='sample_type',
-                                            allowClear=False,
-                                            style={'width': 180},
-                                        ),
-                                    ],
-                                    align='center',
-                                    size='small',
-                                ),
-                            ],
-                            size='middle',
-                            id='analysis-metric-container',
-                            style={'marginLeft': '24px'},
+                        fac.AntdIcon(
+                            id='analysis-tour-icon',
+                            icon='pi-info',
+                            style={"cursor": "pointer", 'paddingLeft': '10px'},
                         ),
                     ],
-                    justify='flex-start',
                     align='center',
-                    style={'width': '100%'},
                 ),
             ],
             style={'background': 'white', 'padding': '0px', 'lineHeight': '32px', 'height': '32px'}
@@ -1112,9 +1124,9 @@ def show_tab_content(section_context, tab_key, x_comp, y_comp, violin_comp_check
             cols=2,
             specs=[[{'rowspan': 2}, {}],
                    [None, {}]],
-            column_widths=[0.55, 0.45],
-            vertical_spacing=0.15,
-            horizontal_spacing=0.1,
+            column_widths=[0.6, 0.4],
+            vertical_spacing=0.12,
+            horizontal_spacing=0.08,
             subplot_titles=(
                 f"PCA ({x_axis} vs {y_axis})",
                 "Cummulative Variance",
@@ -1143,7 +1155,7 @@ def show_tab_content(section_context, tab_key, x_comp, y_comp, violin_comp_check
                     ann.y = ann.y + 0.02
         fig.update_layout(
             autosize=True,
-            margin=dict(l=160, r=200, t=70, b=60),
+            margin=dict(l=120, r=100, t=60, b=50),
             legend_title_text=group_label,
             legend=dict(
                 x=-0.05,
