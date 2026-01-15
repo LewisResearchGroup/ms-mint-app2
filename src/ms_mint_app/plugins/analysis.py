@@ -390,7 +390,7 @@ pca_tab = html.Div(
             dcc.Graph(
                 id='pca-graph',
                 config=PLOTLY_HIGH_RES_CONFIG,
-                style={'height': 'calc(100vh - 210px)', 'width': '100%', 'minHeight': '400px'},
+                style={'height': 'calc(100vh - 180px)', 'width': '100%', 'minHeight': '400px'},
                 # Start with invisible figure to show only spinner during loading
                 figure={
                     'data': [],
@@ -474,7 +474,7 @@ violin_content = html.Div(
 ANALYSIS_MENU_ITEMS = [
     {'component': 'Item', 'props': {'key': 'pca', 'title': 'PCA', 'icon': 'antd-dot-chart'}},
     {'component': 'Item', 'props': {'key': 'raincloud', 'title': 'Violin', 'icon': 'antd-bar-chart'}},
-    {'component': 'Item', 'props': {'key': 'clustermap', 'title': 'Clustermap', 'icon': 'antd-heat-map'}},
+    {'component': 'Item', 'props': {'key': 'clustermap', 'title': 'Clustermap', 'icon': 'antd-build'}},
 ]
 
 _layout = fac.AntdLayout(
@@ -501,6 +501,19 @@ _layout = fac.AntdLayout(
             [
                 fac.AntdSider(
                     [
+                        fac.AntdFlex(
+                            [
+                                fac.AntdMenu(
+                                    id='analysis-sidebar-menu',
+                                    menuItems=ANALYSIS_MENU_ITEMS,
+                                    mode='inline',
+                                    defaultSelectedKey='pca',
+                                    style={'border': 'none'},
+                                ),
+                            ],
+                            vertical=True,
+                            style={'height': '100%', 'paddingTop': '8px'}
+                        ),
                         fac.AntdButton(
                             id='analysis-sidebar-collapse',
                             type='text',
@@ -514,27 +527,10 @@ _layout = fac.AntdLayout(
                                 'position': 'absolute',
                                 'zIndex': 1,
                                 'right': -8,
+                                'bottom': 16,
                                 'boxShadow': '2px 2px 5px 1px rgba(0,0,0,0.5)',
                                 'background': 'white',
                             },
-                        ),
-                        fac.AntdFlex(
-                            [
-                                fac.AntdTitle(
-                                    'Analysis Type',
-                                    level=5,
-                                    style={'margin': '0 0 8px 0', 'padding': '0 16px'}
-                                ),
-                                fac.AntdMenu(
-                                    id='analysis-sidebar-menu',
-                                    menuItems=ANALYSIS_MENU_ITEMS,
-                                    mode='inline',
-                                    defaultSelectedKey='pca',
-                                    style={'border': 'none'},
-                                ),
-                            ],
-                            vertical=True,
-                            style={'height': '100%', 'paddingTop': '8px'}
                         ),
                     ],
                     id='analysis-sidebar',
@@ -543,7 +539,7 @@ _layout = fac.AntdLayout(
                     collapsedWidth=0,
                     width=180,
                     trigger=None,
-                    style={'height': '100%', 'background': '#fafafa'},
+                    style={'height': '100%', 'background': 'white'},
                     className="sidebar-mint"
                 ),
                 html.Div(
@@ -568,10 +564,10 @@ _layout = fac.AntdLayout(
                         ),
                     ],
                     className='ant-layout-content css-1v28nim',
-                    style={'background': 'white', 'overflow': 'auto', 'height': 'calc(100vh - 100px)'}
+                    style={'background': 'white', 'overflow': 'hidden', 'height': 'calc(100vh - 80px)'}
                 ),
             ],
-            style={'padding': '1rem 0', 'background': 'white'},
+            style={'height': 'calc(100vh - 100px)', 'background': 'white'},
         ),
         # Hidden store for maintaining tab state compatibility with callbacks
         dcc.Store(id='analysis-tabs', data={'activeKey': 'pca'}),
@@ -1166,7 +1162,7 @@ def show_tab_content(section_context, tab_key, x_comp, y_comp, violin_comp_check
                 title=dict(text=f'{group_label}<br>', font=dict(size=12)),
                 font=dict(size=11),
                 itemsizing='constant',
-                tracegroupgap=2,
+                tracegroupgap=7.5,
             ),
             xaxis_title_font=dict(size=16),
             yaxis_title_font=dict(size=16),
