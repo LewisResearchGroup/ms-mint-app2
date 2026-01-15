@@ -342,13 +342,26 @@ clustermap_tab = html.Div([
             # Right side: Clustermap image
             html.Div(
                 fac.AntdSpin(
-                    html.Img(id='bar-graph-matplotlib', style={
-                        'maxWidth': '100%',
-                        'maxHeight': 'calc(100vh - 200px)',
-                        'objectFit': 'contain',
-                        'display': 'block',
-                        'margin': '0 auto',
-                    }),
+                    html.Div(
+                        fac.AntdImage(
+                            id='bar-graph-matplotlib',
+                            preview={'mask': 'Click to Zoom'},
+                            locale='en-us',
+                            fallback='data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7',
+                            style={
+                                'maxWidth': '100%',
+                                'maxHeight': 'calc(100vh - 200px)',
+                                'objectFit': 'contain',
+                                'cursor': 'zoom-in',
+                            },
+                        ),
+                        style={
+                            'display': 'flex',
+                            'justifyContent': 'center',
+                            'alignItems': 'center',
+                            'width': '100%',
+                        },
+                    ),
                     id='clustermap-spinner',
                     spinning=True,
                     text='Loading clustermap...',
