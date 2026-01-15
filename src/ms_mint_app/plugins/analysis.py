@@ -96,6 +96,15 @@ GROUP_SELECT_OPTIONS = [
     for field in GROUPING_FIELDS
 ]
 
+METRIC_OPTIONS = [
+    {'label': 'Peak Area', 'value': 'peak_area'},
+    {'label': 'Peak Area (Top 3)', 'value': 'peak_area_top3'},
+    {'label': 'Peak Max', 'value': 'peak_max'},
+    {'label': 'Peak Mean', 'value': 'peak_mean'},
+    {'label': 'Peak Median', 'value': 'peak_median'},
+    {'label': 'Concentration', 'value': 'scalir_conc'},
+]
+
 # High-resolution export configuration for Plotly graphs
 # Scale of 4 provides ~300 DPI (default is 72 DPI)
 PLOTLY_HIGH_RES_CONFIG = {
@@ -528,22 +537,15 @@ _layout = fac.AntdLayout(
                             [
                                 fac.AntdSpace(
                                     [
-                                        fac.AntdText("Metric:", style={'fontWeight': 500}),
+                                        fac.AntdText("Metric:", style={'fontWeight': 500, 'marginLeft': '15px'}),
                                         fac.AntdSelect(
                                             id='analysis-metric-select',
-                                            options=[
-                                                {'label': 'Peak Area', 'value': 'peak_area'},
-                                                {'label': 'Peak Area (Top 3)', 'value': 'peak_area_top3'},
-                                                {'label': 'Peak Max', 'value': 'peak_max'},
-                                                {'label': 'Peak Mean', 'value': 'peak_mean'},
-                                                {'label': 'Peak Median', 'value': 'peak_median'},
-                                                {'label': 'Concentration', 'value': 'scalir_conc'},
-                                            ],
+                                            options=METRIC_OPTIONS,
                                             value='peak_area',
                                             optionFilterProp='label',
                                             optionFilterMode='case-insensitive',
                                             allowClear=False,
-                                            style={'width': 180},
+                                            style={'width': 160},
                                         ),
                                     ],
                                     align='center',
