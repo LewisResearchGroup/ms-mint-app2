@@ -241,7 +241,7 @@ clustermap_tab = html.Div([
             # Left side: Options panel
             html.Div(
                 [
-                    fac.AntdText("Settings", strong=True, style={'fontSize': '14px', 'marginBottom': '16px', 'display': 'block'}),
+                    fac.AntdText("Clustering", strong=True, style={'fontSize': '14px', 'marginBottom': '16px', 'display': 'block'}),
                     fac.AntdFlex(
                         [
                             fac.AntdSwitch(
@@ -266,10 +266,11 @@ clustermap_tab = html.Div([
                             fac.AntdText("Cluster Columns", style={'marginLeft': '8px'}),
                         ],
                         align='center',
-                        style={'marginBottom': '24px'},
+                        style={'marginBottom': '8px'},
                     ),
                     fac.AntdDivider(style={'margin': '16px 0'}),
-                    fac.AntdText("X-axis Font:", style={'fontWeight': 500, 'fontSize': '12px', 'display': 'block', 'marginBottom': '8px'}),
+                    fac.AntdText("Fontsize", strong=True, style={'fontSize': '14px', 'marginBottom': '16px', 'display': 'block'}),
+                    fac.AntdText("X-axis:", style={'fontWeight': 500, 'fontSize': '12px', 'display': 'block', 'marginBottom': '8px'}),
                     fac.AntdSlider(
                         id='clustermap-fontsize-x-slider',
                         min=0,
@@ -279,7 +280,7 @@ clustermap_tab = html.Div([
                         marks={0: '0', 10: '10', 20: '20'},
                         style={'width': '100%', 'marginBottom': '24px'},
                     ),
-                    fac.AntdText("Y-axis Font:", style={'fontWeight': 500, 'fontSize': '12px', 'display': 'block', 'marginBottom': '8px'}),
+                    fac.AntdText("Y-axis:", style={'fontWeight': 500, 'fontSize': '12px', 'display': 'block', 'marginBottom': '8px'}),
                     fac.AntdSlider(
                         id='clustermap-fontsize-y-slider',
                         min=0,
@@ -289,19 +290,45 @@ clustermap_tab = html.Div([
                         marks={0: '0', 10: '10', 20: '20'},
                         style={'width': '100%', 'marginBottom': '24px'},
                     ),
-                    fac.AntdDivider(style={'margin': '16px 0'}),
-                    fac.AntdButton(
-                        "Regenerate",
-                        id='clustermap-regenerate-btn',
-                        type='default',
-                        block=True,
+                    fac.AntdFlex(
+                        [
+                            fac.AntdButton(
+                                "Regenerate",
+                                id='clustermap-regenerate-btn',
+                                type='default',
+                                style={'flex': '1'},
+                            ),
+                            fac.AntdTooltip(
+                                fac.AntdIcon(
+                                    icon='antd-question-circle',
+                                    style={'marginLeft': '8px', 'color': 'gray', 'fontSize': '14px'}
+                                ),
+                                title='Regenerate the clustermap with current settings',
+                                placement='right'
+                            ),
+                        ],
+                        align='center',
                         style={'marginBottom': '16px'},
                     ),
-                    fac.AntdButton(
-                        "Save PNG",
-                        id='clustermap-save-png-btn',
-                        type='default',
-                        block=True,
+                    fac.AntdDivider(style={'margin': '16px 0'}),
+                    fac.AntdFlex(
+                        [
+                            fac.AntdButton(
+                                "Save PNG",
+                                id='clustermap-save-png-btn',
+                                type='default',
+                                style={'flex': '1'},
+                            ),
+                            fac.AntdTooltip(
+                                fac.AntdIcon(
+                                    icon='antd-question-circle',
+                                    style={'marginLeft': '8px', 'color': 'gray', 'fontSize': '14px'}
+                                ),
+                                title='Download the clustermap as a PNG image',
+                                placement='right'
+                            ),
+                        ],
+                        align='center',
                     ),
                     dcc.Download(id='clustermap-download'),
                 ],
