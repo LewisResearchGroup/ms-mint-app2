@@ -9,7 +9,7 @@ import feffery_utils_components as fuc
 from itertools import cycle
 import numpy as np
 import pandas as pd
-from dash import html, dcc, ALL
+from dash import html, dcc, ALL, MATCH
 from dash.dependencies import Input, Output, State
 from dash.exceptions import PreventUpdate
 from ..pca import SciPyPCA as PCA
@@ -426,33 +426,48 @@ violin_content = html.Div(
             wrap=True,
             style={'paddingBottom': '0.75rem'},
         ),
-        fac.AntdSpin(
-            html.Div(
-                id='violin-graphs',
-                style={
-                    'display': 'flex',
-                    'flexDirection': 'column',
-                    'gap': '24px',
-                },
-            ),
-            id='violin-spinner',
-            spinning=True,
-            text='Loading Violin...',
-            style={'minHeight': '20vh', 'width': '100%'},
-        ),
-        html.Div(
+        # Main content: violin plot on left, chromatogram on right
+        fac.AntdFlex(
             [
-                fac.AntdSpin(
-                    dcc.Graph(
-                        id='violin-chromatogram',
-                        config=PLOTLY_HIGH_RES_CONFIG,
-                        style={'height': '400px'},
+                # Violin plot container (left side - wider)
+                html.Div(
+                    fac.AntdSpin(
+                        html.Div(
+                            id='violin-graphs',
+                            style={
+                                'display': 'flex',
+                                'flexDirection': 'column',
+                                'gap': '24px',
+                            },
+                        ),
+                        id='violin-spinner',
+                        spinning=True,
+                        text='Loading Violin...',
+                        style={'minHeight': '300px', 'width': '100%'},
                     ),
-                    text='Loading Chromatogram...',
+                    style={'width': 'calc(65% - 6px)', 'height': '380px', 'overflowY': 'auto'},
+                ),
+                # Chromatogram container (right side - narrower)
+                html.Div(
+                    [
+                        fac.AntdSpin(
+                            dcc.Graph(
+                                id='violin-chromatogram',
+                                config=PLOTLY_HIGH_RES_CONFIG,
+                                style={'height': '350px', 'width': '100%'},
+                            ),
+                            text='Loading Chromatogram...',
+                        ),
+                    ],
+                    id='violin-chromatogram-container',
+                    style={'display': 'none', 'width': 'calc(33% - 6px)', 'height': '380px'}
                 ),
             ],
-            id='violin-chromatogram-container',
-            style={'display': 'none'}
+            gap='middle',
+            wrap=False,
+            justify='center',
+            align='center',
+            style={'width': '100%', 'height': 'calc(100vh - 250px)'},
         ),
     ],
     id='analysis-violin-content',
@@ -608,7 +623,7 @@ _layout = fac.AntdLayout(
                         ),
                     ],
                     className='ant-layout-content css-1v28nim',
-                    style={'background': 'white', 'overflow': 'hidden', 'height': 'calc(100vh - 80px)'}
+                    style={'background': 'white', 'overflowY': 'auto', 'height': 'calc(100vh - 80px)'}
                 ),
             ],
             style={'height': 'calc(100vh - 100px)', 'background': 'white'},
@@ -1389,12 +1404,12 @@ def show_tab_content(section_context, tab_key, x_comp, y_comp, violin_comp_check
                 template='plotly_white',
                 paper_bgcolor='white',
                 plot_bgcolor='white',
-                clickmode='event+select'
+                clickmode='event'
             )
             graphs.append(dcc.Graph(
                 id={'type': 'violin-plot', 'index': 'main'},
                 figure=fig, 
-                style={'marginBottom': 20, 'width': '100%'},
+                style={'height': '350px', 'width': '100%'},
                 config=PLOTLY_HIGH_RES_CONFIG
             ))
         return dash.no_update, dash.no_update, graphs, violin_options, selected_compound
@@ -1644,7 +1659,7 @@ def callbacks(app, fsc, cache):
 
         # If parameters changed, hide the chromatogram
         if trigger_id in reset_triggers:
-            return go.Figure(), {'display': 'none'}
+            return go.Figure(), {'display': 'none', 'width': 'calc(33% - 6px)', 'height': '380px'}
 
         if not clickData or not wdir or not peak_label:
             return dash.no_update, dash.no_update
@@ -1848,7 +1863,7 @@ def callbacks(app, fsc, cache):
                     autorange=y_range is None,
                 ),
             )
-            return fig, {'display': 'block'}
+            return fig, {'display': 'block', 'width': 'calc(33% - 6px)', 'height': '380px'}
 
 
     @app.callback(
@@ -1892,3 +1907,46 @@ def callbacks(app, fsc, cache):
             return fig_patch
         
         raise PreventUpdate
+
+    @app.callback(
+        Output({'type': 'violin-plot', 'index': MATCH}, 'figure'),
+        Input({'type': 'violin-plot', 'index': MATCH}, 'clickData'),
+        State({'type': 'violin-plot', 'index': MATCH}, 'figure'),
+        prevent_initial_call=True
+    )
+    def highlight_selected_point(clickData, fig_dict):
+        """Draw a red circle around the selected sample point."""
+        if not clickData:
+            raise PreventUpdate
+        
+        # Parse clickData
+        point = clickData['points'][0]
+        curve_number = point['curveNumber']
+        point_index = point['pointNumber']
+        
+        # Reconstruct figure
+        fig = go.Figure(fig_dict)
+        
+        # Clear any previous selection styling
+        for i, trace in enumerate(fig.data):
+            # Reset selectedpoints for all traces
+            if hasattr(trace, 'selectedpoints'):
+                trace.selectedpoints = None
+        
+        # Apply selection to the clicked trace/point
+        if curve_number < len(fig.data):
+            fig.data[curve_number].selectedpoints = [point_index]
+            
+            # Style selected point with red color and larger size, keep unselected fully visible
+            fig.data[curve_number].selected = dict(
+                marker=dict(
+                    color='red',
+                    size=14,
+                    opacity=1.0
+                )
+            )
+            fig.data[curve_number].unselected = dict(
+                marker=dict(opacity=1.0)  # Keep unselected points fully visible
+            )
+        
+        return fig
