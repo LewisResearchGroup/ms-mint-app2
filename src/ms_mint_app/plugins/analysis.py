@@ -319,21 +319,28 @@ clustermap_tab = html.Div([
                         'maxWidth': '100%',
                         'maxHeight': 'calc(100vh - 200px)',
                         'objectFit': 'contain',
+                        'display': 'block',
+                        'margin': '0 auto',
                     }),
                     id='clustermap-spinner',
                     spinning=True,
                     text='Loading clustermap...',
-                    style={'width': '100%', 'height': '100%', 'display': 'flex', 'justifyContent': 'center', 'alignItems': 'center'},
+                    style={
+                        'minHeight': 'calc(100vh - 250px)',
+                        'width': '100%',
+                        'display': 'flex',
+                        'alignItems': 'center',
+                        'justifyContent': 'center',
+                    },
                 ),
                 style={
                     'flex': '1',
-                    'overflow': 'hidden',
-                    'display': 'flex',
-                    'alignItems': 'center',
-                    'justifyContent': 'center',
+                    'width': '100%',
+                    'minHeight': 'calc(100vh - 200px)',
                 },
             ),
         ],
+        style={'height': '100%'},
     ),
 ], style={'height': '100%'})
 pca_tab = html.Div(
@@ -619,7 +626,7 @@ _layout = fac.AntdLayout(
                         html.Div(
                             clustermap_tab,
                             id='analysis-clustermap-container',
-                            style={'display': 'none', 'padding': '16px'}
+                            style={'display': 'none', 'padding': '16px', 'height': 'calc(100vh - 150px)'}
                         ),
                     ],
                     className='ant-layout-content css-1v28nim',
@@ -1490,7 +1497,12 @@ def callbacks(app, fsc, cache):
         
         pca_style = {'display': 'block', 'padding': '16px'} if active_key == 'pca' else {'display': 'none', 'padding': '16px'}
         violin_style = {'display': 'block', 'padding': '16px'} if active_key == 'raincloud' else {'display': 'none', 'padding': '16px'}
-        clustermap_style = {'display': 'block', 'padding': '16px'} if active_key == 'clustermap' else {'display': 'none', 'padding': '16px'}
+        # Clustermap needs explicit height for spinner centering to work on first access
+        clustermap_style = {
+            'display': 'block' if active_key == 'clustermap' else 'none',
+            'padding': '16px',
+            'height': 'calc(100vh - 150px)',  # Explicit height for flexbox centering
+        }
         
         # Sync to legacy analysis-tabs store for backward compatibility with other callbacks
         tabs_data = {'activeKey': active_key}
@@ -1570,7 +1582,7 @@ def callbacks(app, fsc, cache):
         Input('bar-graph-matplotlib', 'src'),
         Input('analysis-metric-select', 'value'),
         Input('analysis-normalization-select', 'value'),
-        prevent_initial_call=True,
+        prevent_initial_call=False,
     )
     def toggle_clustermap_spinner(active_tab, bar_src, metric_value, norm_value):
         from dash import callback_context

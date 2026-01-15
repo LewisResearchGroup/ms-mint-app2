@@ -44,3 +44,8 @@
     background: transparent !important;
     opacity: 1 !important;
 }
+
+/* Center spinner text */
+.ant-spin-text {
+    text-align: center !important;
+}

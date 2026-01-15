@@ -67,3 +67,18 @@
     background: transparent !important;
     opacity: 1 !important;
 }
+
+/* ==========================================================================
+   5. SPINNER TEXT CENTERING
+   ========================================================================== */
+
+/* Center spinner text lines relative to each other */
+.ant-spin-text {
+    text-align: center !important;
+}
+
+/* Center the spinning indicator within its container */
+.ant-spin.ant-spin-spinning {
+    left: 50% !important;
+    transform: translateX(-50%) !important;
+}
