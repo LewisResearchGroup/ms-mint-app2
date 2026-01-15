@@ -500,7 +500,7 @@ violin_content = html.Div(
                         fac.AntdSpin(
                             dcc.Graph(
                                 id='violin-chromatogram',
-                                config=PLOTLY_HIGH_RES_CONFIG,
+                                config={'displayModeBar': False, 'responsive': True},
                                 style={'height': '350px', 'width': '100%'},
                             ),
                             text='Loading Chromatogram...',
