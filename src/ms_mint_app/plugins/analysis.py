@@ -287,70 +287,7 @@ clustermap_tab = html.Div([
 ], style={'height': 'calc(100vh - 156px)'})
 pca_tab = html.Div(
     [
-        # First row: Metric, Transformations, Group by controls
-        fac.AntdFlex(
-            [
-                fac.AntdSpace(
-                    [
-                        fac.AntdText("Metric:", style={'fontWeight': 500}),
-                        fac.AntdSelect(
-                            id='analysis-metric-select',
-                            options=[
-                                {'label': 'Peak Area', 'value': 'peak_area'},
-                                {'label': 'Peak Area (Top 3)', 'value': 'peak_area_top3'},
-                                {'label': 'Peak Max', 'value': 'peak_max'},
-                                {'label': 'Peak Mean', 'value': 'peak_mean'},
-                                {'label': 'Peak Median', 'value': 'peak_median'},
-                                {'label': 'Concentration', 'value': 'scalir_conc'},
-                            ],
-                            value='peak_area',
-                            optionFilterProp='label',
-                            optionFilterMode='case-insensitive',
-                            allowClear=False,
-                            style={'width': 180},
-                        ),
-                    ],
-                    align='center',
-                    size='small',
-                ),
-                fac.AntdSpace(
-                    [
-                        fac.AntdText("Transformations:", style={'fontWeight': 500}),
-                        fac.AntdSelect(
-                            id='analysis-normalization-select',
-                            options=NORM_OPTIONS,
-                            value='zscore',
-                            optionFilterProp='label',
-                            optionFilterMode='case-insensitive',
-                            allowClear=False,
-                            style={'width': 160},
-                        ),
-                    ],
-                    align='center',
-                    size='small',
-                ),
-                fac.AntdSpace(
-                    [
-                        fac.AntdText("Group by:", style={'fontWeight': 500}),
-                        fac.AntdSelect(
-                            id='analysis-grouping-select',
-                            options=GROUP_SELECT_OPTIONS,
-                            value='sample_type',
-                            allowClear=False,
-                            style={'width': 160},
-                        ),
-                    ],
-                    align='center',
-                    size='small',
-                ),
-            ],
-            wrap=True,
-            gap='middle',
-            align='center',
-            id='analysis-metric-container',
-            style={'marginBottom': '12px'},
-        ),
-        # Second row: X axis and Y axis controls
+        # PCA-specific controls: X axis and Y axis
         fac.AntdFlex(
             [
                 fac.AntdSpace(
@@ -384,13 +321,13 @@ pca_tab = html.Div(
             ],
             gap='middle',
             align='center',
-            style={'marginBottom': '12px', 'marginTop': '12px'},
+            style={'marginBottom': '12px'},
         ),
         fac.AntdSpin(
             dcc.Graph(
                 id='pca-graph',
                 config=PLOTLY_HIGH_RES_CONFIG,
-                style={'height': 'calc(100vh - 180px)', 'width': '100%', 'minHeight': '400px'},
+                style={'height': 'calc(100vh - 220px)', 'width': '100%', 'minHeight': '400px'},
                 # Start with invisible figure to show only spinner during loading
                 figure={
                     'data': [],
@@ -544,6 +481,69 @@ _layout = fac.AntdLayout(
                 ),
                 html.Div(
                     [
+                        # Shared controls header - visible for all views
+                        fac.AntdFlex(
+                            [
+                                fac.AntdSpace(
+                                    [
+                                        fac.AntdText("Metric:", style={'fontWeight': 500}),
+                                        fac.AntdSelect(
+                                            id='analysis-metric-select',
+                                            options=[
+                                                {'label': 'Peak Area', 'value': 'peak_area'},
+                                                {'label': 'Peak Area (Top 3)', 'value': 'peak_area_top3'},
+                                                {'label': 'Peak Max', 'value': 'peak_max'},
+                                                {'label': 'Peak Mean', 'value': 'peak_mean'},
+                                                {'label': 'Peak Median', 'value': 'peak_median'},
+                                                {'label': 'Concentration', 'value': 'scalir_conc'},
+                                            ],
+                                            value='peak_area',
+                                            optionFilterProp='label',
+                                            optionFilterMode='case-insensitive',
+                                            allowClear=False,
+                                            style={'width': 180},
+                                        ),
+                                    ],
+                                    align='center',
+                                    size='small',
+                                ),
+                                fac.AntdSpace(
+                                    [
+                                        fac.AntdText("Transformations:", style={'fontWeight': 500}),
+                                        fac.AntdSelect(
+                                            id='analysis-normalization-select',
+                                            options=NORM_OPTIONS,
+                                            value='zscore',
+                                            optionFilterProp='label',
+                                            optionFilterMode='case-insensitive',
+                                            allowClear=False,
+                                            style={'width': 160},
+                                        ),
+                                    ],
+                                    align='center',
+                                    size='small',
+                                ),
+                                fac.AntdSpace(
+                                    [
+                                        fac.AntdText("Group by:", style={'fontWeight': 500}),
+                                        fac.AntdSelect(
+                                            id='analysis-grouping-select',
+                                            options=GROUP_SELECT_OPTIONS,
+                                            value='sample_type',
+                                            allowClear=False,
+                                            style={'width': 160},
+                                        ),
+                                    ],
+                                    align='center',
+                                    size='small',
+                                ),
+                            ],
+                            wrap=True,
+                            gap='middle',
+                            align='center',
+                            id='analysis-metric-container',
+                            style={'padding': '12px 16px', 'borderBottom': '1px solid #f0f0f0'},
+                        ),
                         # PCA content
                         html.Div(
                             pca_tab,
@@ -721,7 +721,8 @@ def _plot_curve_fig(frame: pd.DataFrame, peak_label: str, units: pd.DataFrame = 
     return fig
 
 def _analysis_tour_steps(active_tab: str):
-    return [
+    # Common steps for all views
+    common_steps = [
         {
             'title': 'Analysis overview',
             'description': 'Use the controls above to choose a metric, transformation, and grouping.',
@@ -742,11 +743,61 @@ def _analysis_tour_steps(active_tab: str):
             'targetSelector': '#analysis-grouping-select',
         },
         {
-            'title': 'Tabs',
+            'title': 'Analysis Types',
             'description': 'Switch between PCA, Violin, and Clustermap views.',
             'targetSelector': '#analysis-sidebar-menu',
         },
     ]
+    
+    # View-specific steps
+    if active_tab == 'pca':
+        view_steps = [
+            {
+                'title': 'PCA Axes',
+                'description': 'Select which principal components to display on the X and Y axes.',
+                'targetSelector': '#pca-x-comp',
+            },
+            {
+                'title': 'PCA Plot',
+                'description': 'Interactive scatter plot showing samples in PCA space. Hover for details, use the legend to filter groups.',
+                'targetSelector': '#pca-graph',
+            },
+        ]
+    elif active_tab == 'raincloud':
+        view_steps = [
+            {
+                'title': 'Target Selection',
+                'description': 'Choose which target compound to display in the violin plot.',
+                'targetSelector': '#violin-comp-checks',
+            },
+            {
+                'title': 'Violin Plot',
+                'description': 'Shows the distribution of values for each group. Click on individual points to see the chromatogram.',
+                'targetSelector': '#violin-graphs',
+            },
+        ]
+    elif active_tab == 'clustermap':
+        view_steps = [
+            {
+                'title': 'Font Size Controls',
+                'description': 'Adjust the font size for row and column labels.',
+                'targetSelector': '#clustermap-fontsize-x-slider',
+            },
+            {
+                'title': 'Regenerate',
+                'description': 'Click to regenerate the clustermap with current settings.',
+                'targetSelector': '#clustermap-regenerate-btn',
+            },
+            {
+                'title': 'Clustermap',
+                'description': 'Heatmap with hierarchical clustering of samples and targets.',
+                'targetSelector': '#bar-graph-matplotlib',
+            },
+        ]
+    else:
+        view_steps = []
+    
+    return common_steps + view_steps
 
 
 def _build_color_map(color_df: pd.DataFrame, group_col: str) -> dict:
