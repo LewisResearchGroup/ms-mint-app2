@@ -227,64 +227,106 @@ def run_pca_samples_in_cols(df: pd.DataFrame, n_components=None, random_state=0)
 
 
 clustermap_tab = html.Div([
-    fac.AntdSpace([
-        html.Span("X-axis Font:", style={'fontWeight': 500, 'fontSize': 12}),
-        fac.AntdSlider(
-            id='clustermap-fontsize-x-slider',
-            min=0,
-            max=20,
-            step=1,
-            value=5,
-            marks={0: '0', 10: '10', 20: '20'},
-            style={'width': 200, 'fontSize': 10},
-        ),
-        html.Span("Y-axis Font:", style={'fontWeight': 500, 'fontSize': 12, 'marginLeft': '24px'}),
-        fac.AntdSlider(
-            id='clustermap-fontsize-y-slider',
-            min=0,
-            max=20,
-            step=1,
-            value=5,
-            marks={0: '0', 10: '10', 20: '20'},
-            style={'width': 200, 'fontSize': 10},
-        ),
-        fac.AntdTooltip(
-            fac.AntdButton(
-                "Regenerate",
-                id='clustermap-regenerate-btn',
-                type='default',
-                size='small',
-                style={'marginLeft': '24px'},
+    fac.AntdFlex(
+        [
+            # Left side: Options panel
+            html.Div(
+                [
+                    fac.AntdText("Settings", strong=True, style={'fontSize': '14px', 'marginBottom': '16px', 'display': 'block'}),
+                    fac.AntdFlex(
+                        [
+                            fac.AntdSwitch(
+                                id='clustermap-cluster-rows',
+                                checked=True,
+                                checkedChildren='On',
+                                unCheckedChildren='Off',
+                            ),
+                            fac.AntdText("Cluster Rows", style={'marginLeft': '8px'}),
+                        ],
+                        align='center',
+                        style={'marginBottom': '24px'},
+                    ),
+                    fac.AntdFlex(
+                        [
+                            fac.AntdSwitch(
+                                id='clustermap-cluster-cols',
+                                checked=False,
+                                checkedChildren='On',
+                                unCheckedChildren='Off',
+                            ),
+                            fac.AntdText("Cluster Columns", style={'marginLeft': '8px'}),
+                        ],
+                        align='center',
+                        style={'marginBottom': '24px'},
+                    ),
+                    fac.AntdDivider(style={'margin': '16px 0'}),
+                    fac.AntdText("X-axis Font:", style={'fontWeight': 500, 'fontSize': '12px', 'display': 'block', 'marginBottom': '8px'}),
+                    fac.AntdSlider(
+                        id='clustermap-fontsize-x-slider',
+                        min=0,
+                        max=20,
+                        step=1,
+                        value=5,
+                        marks={0: '0', 10: '10', 20: '20'},
+                        style={'width': '100%', 'marginBottom': '24px'},
+                    ),
+                    fac.AntdText("Y-axis Font:", style={'fontWeight': 500, 'fontSize': '12px', 'display': 'block', 'marginBottom': '8px'}),
+                    fac.AntdSlider(
+                        id='clustermap-fontsize-y-slider',
+                        min=0,
+                        max=20,
+                        step=1,
+                        value=5,
+                        marks={0: '0', 10: '10', 20: '20'},
+                        style={'width': '100%', 'marginBottom': '24px'},
+                    ),
+                    fac.AntdDivider(style={'margin': '16px 0'}),
+                    fac.AntdButton(
+                        "Regenerate",
+                        id='clustermap-regenerate-btn',
+                        type='default',
+                        block=True,
+                        style={'marginBottom': '16px'},
+                    ),
+                    fac.AntdButton(
+                        "Save PNG",
+                        id='clustermap-save-png-btn',
+                        type='default',
+                        block=True,
+                    ),
+                    dcc.Download(id='clustermap-download'),
+                ],
+                style={
+                    'width': '250px',
+                    'minWidth': '250px',
+                    'padding': '16px',
+                    'flexShrink': 0,
+                },
             ),
-            title="Click to regenerate heatmap with new font sizes",
-            placement='right',
-        ),
-    ], size=8, style={'padding': '8px 20px'}),
-    html.Div(
-        fuc.FefferyResizable(
-            fac.AntdSpin(
-                fac.AntdCenter(
+            # Right side: Clustermap image
+            html.Div(
+                fac.AntdSpin(
                     html.Img(id='bar-graph-matplotlib', style={
-                        'width': '100%',
-                        'height': '100%',
-                        'object-fit': 'cover',
-                        'border': '0px solid #dee2e6'
+                        'maxWidth': '100%',
+                        'maxHeight': 'calc(100vh - 200px)',
+                        'objectFit': 'contain',
                     }),
-                    style={
-                        'height': '100%',
-                    },
+                    id='clustermap-spinner',
+                    spinning=True,
+                    text='Loading clustermap...',
+                    style={'width': '100%', 'height': '100%', 'display': 'flex', 'justifyContent': 'center', 'alignItems': 'center'},
                 ),
-                id='clustermap-spinner',
-                spinning=True,
-                text='Loading clustermap...',
-                style={'minHeight': '20vh', 'width': '100%'},
+                style={
+                    'flex': '1',
+                    'overflow': 'hidden',
+                    'display': 'flex',
+                    'alignItems': 'center',
+                    'justifyContent': 'center',
+                },
             ),
-            minWidth=100,
-            minHeight=100,
-        ),
-        style={'overflow': 'auto', 'height': 'calc(100vh - 200px)'}
-    )
-], style={'height': 'calc(100vh - 156px)'})
+        ],
+    ),
+], style={'height': '100%'})
 pca_tab = html.Div(
     [
         # PCA-specific controls: X axis and Y axis
@@ -868,7 +910,7 @@ def _create_pivot_custom(conn, value='peak_area', table='results'):
     return df[keep_cols]
 
 def show_tab_content(section_context, tab_key, x_comp, y_comp, violin_comp_checks, metric_value, norm_value,
-                    group_by, regen_clicks, fontsize_x, fontsize_y, wdir):
+                    group_by, regen_clicks, cluster_rows, cluster_cols, fontsize_x, fontsize_y, wdir):
     if not section_context or section_context.get('page') != 'Analysis':
         raise PreventUpdate
     # Prevent double-firing when switching tabs forces a normalization update.
@@ -1041,11 +1083,12 @@ def show_tab_content(section_context, tab_key, x_comp, y_comp, violin_comp_check
                              method='ward', metric='euclidean', 
                              cmap='vlag', center=0, vmin=vmin, vmax=vmax,
                              standard_scale=None,
-                             col_cluster=False, 
+                             row_cluster=cluster_rows if cluster_rows is not None else True,
+                             col_cluster=cluster_cols if cluster_cols is not None else False, 
                              dendrogram_ratio=0.1,
                              figsize=(8, 8),
                              cbar_kws={"orientation": "horizontal"},
-                             cbar_pos=(0.01, 0.95, 0.075, 0.01),
+                             cbar_pos=(0.00, 0.95, 0.075, 0.01),
                              col_colors=sample_colors,
                              row_colors=['#ffffff'] * len(zdf.T.index),
                              colors_ratio=(0.0015, 0.015)
@@ -1076,13 +1119,14 @@ def show_tab_content(section_context, tab_key, x_comp, y_comp, violin_comp_check
                 fig.ax_heatmap.legend(
                     handles=handles,
                     title=group_label,
-                    bbox_to_anchor=(1.00, 1.085),
-                    ncol=len(handles),
+                    bbox_to_anchor=(-0.15, 1.025),
+                    loc='upper right',
+                    ncol=1,
                     frameon=False,
-                    alignment='right',
-                    borderpad=0,
                     fontsize=5,
                     title_fontsize=5,
+                    labelspacing=0.75,
+                    
                 )
         from io import BytesIO
         buf = BytesIO()
@@ -1488,9 +1532,11 @@ def callbacks(app, fsc, cache):
         Input('analysis-normalization-select', 'value'),
         Input('analysis-grouping-select', 'value'),
         Input('clustermap-regenerate-btn', 'nClicks'),
+        Input('clustermap-cluster-rows', 'checked'),
+        Input('clustermap-cluster-cols', 'checked'),
         State('clustermap-fontsize-x-slider', 'value'),
         State('clustermap-fontsize-y-slider', 'value'),
-        State("wdir", "data"),
+        State('wdir', 'data'),
         prevent_initial_call=True,
 
     )(show_tab_content)
@@ -1517,6 +1563,29 @@ def callbacks(app, fsc, cache):
 
         # Otherwise, keep spinning until image src is set
         return bar_src is None
+
+    @app.callback(
+        Output('clustermap-download', 'data'),
+        Input('clustermap-save-png-btn', 'nClicks'),
+        State('bar-graph-matplotlib', 'src'),
+        prevent_initial_call=True,
+    )
+    def save_clustermap_png(n_clicks, img_src):
+        if not n_clicks or not img_src:
+            raise PreventUpdate
+        
+        # Extract base64 data from src
+        if ',' in img_src:
+            img_data = img_src.split(',')[1]
+        else:
+            img_data = img_src
+            
+        return dict(
+            content=img_data,
+            filename='clustermap.png',
+            type='image/png',
+            base64=True,
+        )
 
     @app.callback(
         Output('violin-spinner', 'spinning'),
