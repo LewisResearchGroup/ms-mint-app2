@@ -463,20 +463,17 @@ violin_content = html.Div(
                     optionFilterMode='case-insensitive',
                     style={'width': '320px'},
                 ),
-                fac.AntdText(
-                    'Click on individual samples to show the chromatogram.',
-                    type='secondary',
-                ),
             ],
             align='center',
             gap='small',
             wrap=True,
             style={'paddingBottom': '0.75rem'},
         ),
+
         # Main content: violin plot on left, chromatogram on right
         fac.AntdFlex(
             [
-                # Violin plot container (left side - wider)
+                # Violin plot container (left side)
                 html.Div(
                     fac.AntdSpin(
                         html.Div(
@@ -492,33 +489,36 @@ violin_content = html.Div(
                         text='Loading Violin...',
                         style={'minHeight': '300px', 'width': '100%'},
                     ),
-                    style={'width': 'calc(65% - 6px)', 'height': '380px', 'overflowY': 'auto'},
+                    style={'width': 'calc(55% - 6px)', 'height': '450px', 'overflowY': 'auto'},
                 ),
-                # Chromatogram container (right side - narrower)
+                # Chromatogram container (right side)
                 html.Div(
                     [
                         fac.AntdSpin(
                             dcc.Graph(
                                 id='violin-chromatogram',
                                 config={'displayModeBar': False, 'responsive': True},
-                                style={'height': '350px', 'width': '100%'},
+                                style={'height': '450px', 'width': '100%'},
                             ),
                             text='Loading Chromatogram...',
                         ),
                     ],
                     id='violin-chromatogram-container',
-                    style={'display': 'none', 'width': 'calc(33% - 6px)', 'height': '380px'}
+                    style={'display': 'block', 'width': 'calc(43% - 6px)', 'height': '450px'}
                 ),
             ],
             gap='middle',
             wrap=False,
             justify='center',
             align='center',
-            style={'width': '100%', 'height': 'calc(100vh - 250px)'},
+            style={'width': '100%', 'height': 'calc(100vh - 200px)'},
         ),
     ],
     id='analysis-violin-content',
 )
+
+# Store to track the currently selected sample for violin highlighting (defined outside for callback access)
+violin_selected_sample_store = dcc.Store(id='violin-selected-sample', data=None)
 
 # Analysis menu items for sidebar
 ANALYSIS_MENU_ITEMS = [
@@ -586,7 +586,7 @@ _layout = fac.AntdLayout(
                     id='analysis-sidebar',
                     collapsible=True,
                     collapsed=False,
-                    collapsedWidth=0,
+                    collapsedWidth=60,
                     width=180,
                     trigger=None,
                     style={'height': '100%', 'background': 'white'},
@@ -658,7 +658,7 @@ _layout = fac.AntdLayout(
                         ),
                         # Violin content
                         html.Div(
-                            violin_content,
+                            [violin_content, violin_selected_sample_store],
                             id='analysis-violin-container',
                             style={'display': 'none', 'padding': '16px'}
                         ),
@@ -1403,7 +1403,17 @@ def show_tab_content(section_context, tab_key, x_comp, y_comp, violin_comp_check
                 color_discrete_map=color_map if color_map else None,
                 box=False,
                 points='all',
-                hover_data=['Sample', group_label, 'Intensity', 'PlotValue'],
+                hover_data={
+                    'Sample': True,
+                    group_label: False,  # redundant with x-axis
+                    'PlotValue': False,  # redundant with Intensity
+                    'Intensity': ':.2e'  # formatted intensity
+                },
+            )
+            # Custom hover template to be very concise and clean
+            fig.update_traces(
+                hovertemplate="<b>%{customdata[0]}</b><br>Int: %{customdata[1]}<extra></extra>",
+                selector=dict(type='violin')
             )
             fig.update_traces(jitter=0.25, meanline_visible=False, pointpos=-0.5, selector=dict(type='violin'))
             # Clamp KDE tails with spanmode='hard', similar to seaborn cut; use 1st-99th percentiles
@@ -1439,13 +1449,15 @@ def show_tab_content(section_context, tab_key, x_comp, y_comp, violin_comp_check
                 yaxis_title=y_label,
                 xaxis_title=group_label,
                 yaxis=dict(range=[0, None] if norm_value == 'none' else [None, None], fixedrange=False),
-                margin=dict(l=0, r=10, t=60, b=100),
+
+                margin=dict(l=0, r=10, t=80, b=80),
+                height=450,
                 legend=dict(
-                        title=dict(text=f"{group_label}: ", font=dict(size=12)),
-                        font=dict(size=11),
+                        title=dict(text=f"{group_label}: ", font=dict(size=13)),
+                        font=dict(size=12),
                         orientation='h',
                         yanchor='top',
-                        y=-0.4,
+                        y=-0.3,
                         xanchor='left',
                         x=0,
                     ),
@@ -1461,7 +1473,7 @@ def show_tab_content(section_context, tab_key, x_comp, y_comp, violin_comp_check
             graphs.append(dcc.Graph(
                 id={'type': 'violin-plot', 'index': 'main'},
                 figure=fig, 
-                style={'height': '350px', 'width': '100%'},
+                style={'height': '450px', 'width': '100%'},
                 config=PLOTLY_HIGH_RES_CONFIG
             ))
         return dash.no_update, dash.no_update, graphs, violin_options, selected_compound
@@ -1684,9 +1696,12 @@ def callbacks(app, fsc, cache):
         # Otherwise, stop spinning once content is loaded
         return not violin_children
 
+
+
     @app.callback(
         Output('violin-chromatogram', 'figure'),
         Output('violin-chromatogram-container', 'style'),
+        Output('violin-selected-sample', 'data'),
         Input({'type': 'violin-plot', 'index': ALL}, 'clickData'),
         Input('violin-comp-checks', 'value'),
         Input('analysis-grouping-select', 'value'),
@@ -1696,17 +1711,18 @@ def callbacks(app, fsc, cache):
         prevent_initial_call=True,
     )
     def update_chromatogram_on_click(clickData_list, peak_label, group_by_col, metric, normalization, wdir):
+        import random
         from dash import ALL
         ctx = dash.callback_context
         if not ctx.triggered:
-            return dash.no_update, dash.no_update
+            return dash.no_update, dash.no_update, dash.no_update
 
         # Extract clickData safely
         clickData = clickData_list[0] if clickData_list else None
 
         trigger_id = ctx.triggered[0]['prop_id'].split('.')[0]
 
-        # Reset triggers
+        # Reset triggers - when these change, auto-select a random sample
         reset_triggers = [
             'violin-comp-checks', 
             'analysis-grouping-select', 
@@ -1714,22 +1730,66 @@ def callbacks(app, fsc, cache):
             'analysis-normalization-select'
         ]
 
-        # If parameters changed, hide the chromatogram
-        if trigger_id in reset_triggers:
-            return go.Figure(), {'display': 'none', 'width': 'calc(33% - 6px)', 'height': '380px'}
+        ms_file_label = None
+        
+        # If triggered by a click, extract the sample from clickData
+        if trigger_id not in reset_triggers and clickData:
+            try:
+                ms_file_label = clickData['points'][0]['customdata'][0]
+            except (KeyError, IndexError, TypeError):
+                pass
+        
+        # If no sample from click (or params changed), auto-select a random sample with valid signal
+        if not ms_file_label and wdir and peak_label:
+            with duckdb_connection(wdir) as conn:
+                if conn:
+                    # Get top 5 samples with highest intensity contrast (max - min)
+                    # This ensures we pick a sample with actual peaks, not flat lines
+                    top_samples = conn.execute("""
+                        SELECT ms_file_label 
+                        FROM chromatograms
+                        WHERE peak_label = ?
+                        ORDER BY (list_max(intensity) - list_min(intensity)) DESC
+                        LIMIT 5
+                    """, [peak_label]).fetchall()
+                    
+                    if top_samples:
+                        import random
+                        ms_file_label = random.choice(top_samples)[0]
+                    else:
+                        # Fallback: if all samples are flat, just pick any
+                        random_sample = conn.execute("""
+                            SELECT DISTINCT c.ms_file_label 
+                            FROM chromatograms c
+                            WHERE c.peak_label = ?
+                            ORDER BY random()
+                            LIMIT 1
+                        """, [peak_label]).fetchone()
+                        if random_sample:
+                            ms_file_label = random_sample[0]
 
-        if not clickData or not wdir or not peak_label:
-            return dash.no_update, dash.no_update
-
-        try:
-            ms_file_label = clickData['points'][0]['customdata'][0]
-        except (KeyError, IndexError, TypeError):
-            return dash.no_update, dash.no_update
+        if not ms_file_label or not wdir or not peak_label:
+            # Return empty placeholder figure
+            fig = go.Figure()
+            # fig.add_annotation(
+            #     text="Select a sample from the violin plot",
+            #     xref="paper", yref="paper",
+            #     x=0.5, y=0.5,
+            #     showarrow=False,
+            #     font=dict(size=14, color="gray")
+            # )
+            fig.update_layout(
+                xaxis=dict(visible=False),
+                yaxis=dict(visible=False),
+                template="plotly_white",
+                margin=dict(l=0, r=0, t=0, b=0),
+            )
+            return fig, {'display': 'block', 'width': 'calc(43% - 6px)', 'height': '450px'}, None
 
         # Fetch data
         with duckdb_connection(wdir) as conn:
             if conn is None:
-                return dash.no_update, dash.no_update
+                return dash.no_update, dash.no_update, dash.no_update
             
             # 1. Get RT span info for the target
             rt_info = conn.execute("SELECT rt_min, rt_max FROM targets WHERE peak_label = ?", [peak_label]).fetchone()
@@ -1795,7 +1855,7 @@ def callbacks(app, fsc, cache):
             if not chrom_data:
                 fig = go.Figure()
                 fig.add_annotation(text="No chromatogram data found", showarrow=False)
-                return fig, {'display': 'block'}
+                return fig, {'display': 'block', 'width': 'calc(43% - 6px)', 'height': '450px'}, ms_file_label
 
             # Organize data
             # chrom_data: [(ms_file_label, scan_time, intensity, color), ...]
@@ -1877,8 +1937,8 @@ def callbacks(app, fsc, cache):
             x_range_max = None
             if rt_min is not None and rt_max is not None:
                 span_width = rt_max - rt_min
-                # Use one span width as padding, or 30 seconds minimum
-                padding = max(span_width, 20)
+                # Use 5 seconds as padding since at this point this is optimized
+                padding = 5
                 x_range_min = rt_min - padding
                 x_range_max = rt_max + padding
                 
@@ -1899,20 +1959,25 @@ def callbacks(app, fsc, cache):
                 traces_data = [{'x': list(t.x), 'y': list(t.y)} for t in fig.data if hasattr(t, 'x') and hasattr(t, 'y')]
                 y_range = _calc_y_range_numpy(traces_data, x_range_min, x_range_max, is_log=False)
 
+            # Truncate title if too long
+            title_label = ms_file_label
+            if len(title_label) > 50:
+                 title_label = title_label[:20] + "..." + title_label[-20:]
+
             fig.update_layout(
-                title=f"{peak_label} | {ms_file_label}",
+                title=dict(text=f"{peak_label} | {title_label}"),
                 xaxis_title="Scan Time (s)",
                 yaxis_title="Intensity",
                 template="plotly_white",
-                margin=dict(l=0, r=20, t=50, b=80),
-                height=400,
+                margin=dict(l=0, r=10, t=80, b=80),
+                height=450,
                 showlegend=True,
                 legend=dict(
-                    title=dict(text=f"{group_label}: ", font=dict(size=11)),
-                    font=dict(size=11),
+                    title=dict(text=f"{group_label}: ", font=dict(size=13)),
+                    font=dict(size=12),
                     orientation='h',
-                    yanchor='middle',
-                    y=-0.4,
+                    yanchor='top',
+                    y=-0.3,
                     xanchor='left',
                     x=0,
                 ),
@@ -1925,7 +1990,7 @@ def callbacks(app, fsc, cache):
                     autorange=y_range is None,
                 ),
             )
-            return fig, {'display': 'block', 'width': 'calc(33% - 6px)', 'height': '380px'}
+            return fig, {'display': 'block', 'width': 'calc(43% - 6px)', 'height': '450px'}, ms_file_label
 
 
     @app.callback(
