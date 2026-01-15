@@ -354,22 +354,31 @@ _layout = html.Div(
             style={'paddingTop': '1rem', 'display': 'none'},
         ),
         # Empty state placeholder - shown when no results
-        html.Div(
-            fac.AntdEmpty(
-                description=fac.AntdFlex(
-                    [
-                        fac.AntdText('No Results available', strong=True, style={'fontSize': '16px'}),
-                        fac.AntdText('Click "Run MINT" to process the MS files', type='secondary'),
-                    ],
-                    vertical=True,
-                    align='center',
-                    gap='small',
+        fac.AntdFlex(
+            [
+                fac.AntdEmpty(
+                    description=fac.AntdFlex(
+                        [
+                            fac.AntdText('No Results available', strong=True, style={'fontSize': '16px'}),
+                            fac.AntdText('Click "Run MINT" to process the MS files', type='secondary'),
+                        ],
+                        vertical=True,
+                        align='center',
+                        gap='small',
+                    ),
+                    locale='en-us',
                 ),
-                locale='en-us',
-                style={'marginTop': '100px'},
-            ),
+                fac.AntdButton(
+                    'Run MINT',
+                    id='processing-empty-btn',
+                    size='large',
+                    style={'marginTop': '16px', 'textTransform': 'uppercase'},
+                ),
+            ],
             id='processing-empty-state',
-            style={'display': 'block'},
+            vertical=True,
+            align='center',
+            style={'display': 'flex', 'marginTop': '100px'},
         ),
         html.Div(id="processing-notifications-container"),
         fac.AntdModal(
@@ -1303,15 +1312,15 @@ def callbacks(app, fsc, cache):
     app.clientside_callback(
         """(status) => {
             if (!status) {
-                return [{'display': 'none'}, {'paddingTop': '1rem', 'display': 'none'}, {'display': 'block'}];
+                return [{'display': 'none'}, {'paddingTop': '1rem', 'display': 'none'}, {'display': 'flex'}];
             }
             const hasResults = (status.results_count || 0) > 0;
             const showStyle = hasResults ? 'block' : 'none';
-            const hideStyle = hasResults ? 'none' : 'block';
+            const hideStyle = hasResults ? 'none' : 'flex';
             return [
                 {'display': showStyle},
                 {'paddingTop': '1rem', 'display': showStyle},
-                {'display': hideStyle}
+                {'display': hideStyle, 'marginTop': '100px'}
             ];
         }""",
         [
@@ -1320,6 +1329,23 @@ def callbacks(app, fsc, cache):
             Output('processing-empty-state', 'style'),
         ],
         Input('workspace-status', 'data'),
+    )
+
+    # Disable Run MINT buttons when no targets or ms-files exist
+    app.clientside_callback(
+        """(status) => {
+            if (!status) return [true, true, "Load MS-Files and Targets first"];
+            const hasFiles = (status.ms_files_count || 0) > 0;
+            const hasTargets = (status.targets_count || 0) > 0;
+            const disabled = !(hasFiles && hasTargets);
+            const tooltip = disabled ? "Load MS-Files and Targets first" : "Calculate peak areas (integration) for all targets and MS-files.";
+            return [disabled, disabled, tooltip];
+        }""",
+        Output('processing-btn', 'disabled'),
+        Output('processing-empty-btn', 'disabled'),
+        Output('processing-btn', 'title'),
+        Input('workspace-status', 'data'),
+        prevent_initial_call=False,
     )
 
     @app.callback(
@@ -1919,13 +1945,15 @@ def callbacks(app, fsc, cache):
         Output("processing-chromatogram-compute-ram-item", "help", allow_duplicate=True),
 
         Input("processing-btn", "nClicks"),
+        Input("processing-empty-btn", "nClicks"),
         State('wdir', 'data'),
         prevent_initial_call=True
     )
-    def open_run_mint_modal(nClicks, wdir):
-        if not nClicks:
+    def open_run_mint_modal(nClicks, nClicks_empty, wdir):
+        if not nClicks and not nClicks_empty:
             logger.debug("open_run_mint_modal: PreventUpdate because nClicks is None")
             raise PreventUpdate
+
 
         computed_results = 0
         # check if some results was computed
