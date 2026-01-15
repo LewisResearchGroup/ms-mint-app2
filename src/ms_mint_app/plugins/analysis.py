@@ -1196,26 +1196,19 @@ def show_tab_content(section_context, tab_key, x_comp, y_comp, violin_comp_check
             elif len(groups) > 2:
                 method = "ANOVA"
                 _, p_val = f_oneway(*groups)
+            
+            title_text = f"{selected}"
             if method and p_val is not None and np.isfinite(p_val):
                 display_p = f"{p_val:.3e}"
-                fig.add_annotation(
-                    xref="paper",
-                    yref="paper",
-                    x=1.0,
-                    y=1.08,
-                    xanchor="right",
-                    yanchor="top",
-                    text=f"{method}, p={display_p}",
-                    showarrow=False,
-                    font=dict(size=12, color="#444"),
-                )
+                title_text += f" <span style='font-size: 14px; font-weight: normal; color: #555;'>({method}, p={display_p})</span>"
+
             fig.update_layout(
-                title=f"{selected}",
+                title=dict(text=title_text),
                 title_font=dict(size=16),
                 yaxis_title=y_label,
                 xaxis_title=group_label,
                 yaxis=dict(range=[0, None] if norm_value == 'none' else [None, None], fixedrange=False),
-                margin=dict(l=60, r=20, t=50, b=60),
+                margin=dict(l=60, r=20, t=60, b=60),
                 legend=dict(
                         title=dict(text=f"{group_label}<br>", font=dict(size=14)),
                         font=dict(size=12),

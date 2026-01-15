@@ -144,6 +144,7 @@ _layout = html.Div(
                                         id='processing-btn',
                                         style={'textTransform': 'uppercase', "margin": "0 10px"},
                                     ),
+                                    id='processing-btn-tooltip',
                                     title="Calculate peak areas (integration) for all targets and MS-files.",
                                     placement="bottom"
                                 ),
@@ -368,11 +369,16 @@ _layout = html.Div(
                     ),
                     locale='en-us',
                 ),
-                fac.AntdButton(
-                    'Run MINT',
-                    id='processing-empty-btn',
-                    size='large',
-                    style={'marginTop': '16px', 'textTransform': 'uppercase'},
+                fac.AntdTooltip(
+                    fac.AntdButton(
+                        'Run MINT',
+                        id='processing-empty-btn',
+                        size='large',
+                        style={'marginTop': '16px', 'textTransform': 'uppercase'},
+                    ),
+                    id='processing-empty-btn-tooltip',
+                    title="Calculate peak areas (integration) for all targets and MS-files.",
+                    placement="bottom"
                 ),
             ],
             id='processing-empty-state',
@@ -1334,16 +1340,17 @@ def callbacks(app, fsc, cache):
     # Disable Run MINT buttons when no targets or ms-files exist
     app.clientside_callback(
         """(status) => {
-            if (!status) return [true, true, "Load MS-Files and Targets first"];
+            if (!status) return [true, true, "Load MS-Files and Targets first", "Load MS-Files and Targets first"];
             const hasFiles = (status.ms_files_count || 0) > 0;
             const hasTargets = (status.targets_count || 0) > 0;
             const disabled = !(hasFiles && hasTargets);
             const tooltip = disabled ? "Load MS-Files and Targets first" : "Calculate peak areas (integration) for all targets and MS-files.";
-            return [disabled, disabled, tooltip];
+            return [disabled, disabled, tooltip, tooltip];
         }""",
         Output('processing-btn', 'disabled'),
         Output('processing-empty-btn', 'disabled'),
-        Output('processing-btn', 'title'),
+        Output('processing-btn-tooltip', 'title'),
+        Output('processing-empty-btn-tooltip', 'title'),
         Input('workspace-status', 'data'),
         prevent_initial_call=False,
     )

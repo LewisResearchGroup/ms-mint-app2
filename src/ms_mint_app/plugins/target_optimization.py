@@ -102,6 +102,7 @@ _layout = fac.AntdLayout(
                                         id='compute-chromatograms-btn',
                                         style={'textTransform': 'uppercase', "margin": "0 10px"},
                                     ),
+                                    id='compute-chromatograms-btn-tooltip',
                                     title="Calculate chromatograms from the MS files and Targets.",
                                     placement="bottom"
                                 ),
@@ -482,11 +483,16 @@ _layout = fac.AntdLayout(
                                     ),
                                     locale='en-us',
                                 ),
-                                fac.AntdButton(
-                                    'Compute Chromatograms',
-                                    id='compute-chromatograms-empty-btn',
-                                    size='large',
-                                    style={'marginTop': '16px', 'textTransform': 'uppercase'},
+                                fac.AntdTooltip(
+                                    fac.AntdButton(
+                                        'Compute Chromatograms',
+                                        id='compute-chromatograms-empty-btn',
+                                        size='large',
+                                        style={'marginTop': '16px', 'textTransform': 'uppercase'},
+                                    ),
+                                    id='compute-chromatograms-empty-btn-tooltip',
+                                    title="Calculate chromatograms from the MS files and Targets.",
+                                    placement="bottom"
                                 ),
                             ],
                             id='chromatogram-preview-empty',
@@ -1450,16 +1456,17 @@ def callbacks(app, fsc, cache, cpu=None):
     # Disable compute buttons when no targets or ms-files exist
     app.clientside_callback(
         """(status) => {
-            if (!status) return [true, true, "Load MS-Files and Targets first"];
+            if (!status) return [true, true, "Load MS-Files and Targets first", "Load MS-Files and Targets first"];
             const hasFiles = (status.ms_files_count || 0) > 0;
             const hasTargets = (status.targets_count || 0) > 0;
             const disabled = !(hasFiles && hasTargets);
             const tooltip = disabled ? "Load MS-Files and Targets first" : "Calculate chromatograms from the MS files and Targets.";
-            return [disabled, disabled, tooltip];
+            return [disabled, disabled, tooltip, tooltip];
         }""",
         Output('compute-chromatograms-btn', 'disabled'),
         Output('compute-chromatograms-empty-btn', 'disabled'),
-        Output('compute-chromatograms-btn', 'title'),
+        Output('compute-chromatograms-btn-tooltip', 'title'),
+        Output('compute-chromatograms-empty-btn-tooltip', 'title'),
         Input('workspace-status', 'data'),
         prevent_initial_call=False,
     )

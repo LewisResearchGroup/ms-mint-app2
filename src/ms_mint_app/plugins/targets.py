@@ -451,14 +451,18 @@ _layout = html.Div(
                         ),
                         locale='en-us',
                     ),
-                    fac.AntdButton(
-                        'Load Targets',
-                        id={
-                            'action': 'file-explorer',
-                            'type': 'targets-empty',
-                        },
-                        size='large',
-                        style={'marginTop': '16px', 'textTransform': 'uppercase'},
+                    fac.AntdTooltip(
+                        fac.AntdButton(
+                            'Load Targets',
+                            id={
+                                'action': 'file-explorer',
+                                'type': 'targets-empty',
+                            },
+                            size='large',
+                            style={'marginTop': '16px', 'textTransform': 'uppercase'},
+                        ),
+                        title="Import a targets file (CSV) from your computer",
+                        placement="bottom"
                     ),
                 ],
                 vertical=True,

@@ -295,14 +295,18 @@ _layout = html.Div(
                         ),
                         locale='en-us',
                     ),
-                    fac.AntdButton(
-                        'Load MS-Files',
-                        id={
-                            'action': 'file-explorer',
-                            'type': 'ms-files-empty',
-                        },
-                        size='large',
-                        style={'marginTop': '16px', 'textTransform': 'uppercase'},
+                    fac.AntdTooltip(
+                        fac.AntdButton(
+                            'Load MS-Files',
+                            id={
+                                'action': 'file-explorer',
+                                'type': 'ms-files-empty',
+                            },
+                            size='large',
+                            style={'marginTop': '16px', 'textTransform': 'uppercase'},
+                        ),
+                        title="Import MS files (mzML, mzXML) or ZIP archives containing them.",
+                        placement="bottom"
                     ),
                 ],
                 vertical=True,
