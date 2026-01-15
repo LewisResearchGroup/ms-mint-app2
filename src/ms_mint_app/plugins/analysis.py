@@ -334,181 +334,243 @@ pca_tab = html.Div(
 
 # SCALiR tab has been moved to Processing plugin as a modal workflow
 
-_layout = html.Div(
+# Violin tab content (extracted for reuse in sidebar layout)
+violin_content = html.Div(
     [
         fac.AntdFlex(
             [
+                fac.AntdText('Target to display', strong=True),
+                fac.AntdSelect(
+                    id='violin-comp-checks',
+                    options=[],
+                    value=None,
+                    allowClear=False,
+                    optionFilterProp='label',
+                    optionFilterMode='case-insensitive',
+                    style={'width': '320px'},
+                ),
+                fac.AntdText(
+                    'Click on individual samples to show the chromatogram.',
+                    type='secondary',
+                ),
+            ],
+            align='center',
+            gap='small',
+            wrap=True,
+            style={'paddingBottom': '0.75rem'},
+        ),
+        fac.AntdSpin(
+            html.Div(
+                id='violin-graphs',
+                style={
+                    'display': 'flex',
+                    'flexDirection': 'column',
+                    'gap': '24px',
+                },
+            ),
+            id='violin-spinner',
+            spinning=True,
+            text='Loading Violin...',
+            style={'minHeight': '20vh', 'width': '100%'},
+        ),
+        html.Div(
+            [
+                fac.AntdSpin(
+                    dcc.Graph(
+                        id='violin-chromatogram',
+                        config=PLOTLY_HIGH_RES_CONFIG,
+                        style={'height': '400px'},
+                    ),
+                    text='Loading Chromatogram...',
+                ),
+            ],
+            id='violin-chromatogram-container',
+            style={'display': 'none'}
+        ),
+    ],
+    id='analysis-violin-content',
+)
+
+# Analysis menu items for sidebar
+ANALYSIS_MENU_ITEMS = [
+    {'component': 'Item', 'props': {'key': 'pca', 'title': 'PCA', 'icon': 'antd-dot-chart'}},
+    {'component': 'Item', 'props': {'key': 'raincloud', 'title': 'Violin', 'icon': 'antd-bar-chart'}},
+    {'component': 'Item', 'props': {'key': 'clustermap', 'title': 'Clustermap', 'icon': 'antd-heat-map'}},
+]
+
+_layout = fac.AntdLayout(
+    [
+        fac.AntdHeader(
+            [
                 fac.AntdFlex(
                     [
-                        fac.AntdTitle(
-                            'Analysis', level=4, style={'margin': '0'}
+                        fac.AntdFlex(
+                            [
+                                fac.AntdTitle(
+                                    'Analysis', level=4, style={'margin': '0', 'whiteSpace': 'nowrap'}
+                                ),
+                                fac.AntdIcon(
+                                    id='analysis-tour-icon',
+                                    icon='pi-info',
+                                    style={"cursor": "pointer", 'paddingLeft': '10px'},
+                                ),
+                            ],
+                            align='center',
                         ),
-                        fac.AntdIcon(
-                            id='analysis-tour-icon',
-                            icon='pi-info',
-                            style={"cursor": "pointer", 'paddingLeft': '10px'},
+                        fac.AntdSpace(
+                            [
+                                fac.AntdSpace(
+                                    [
+                                        fac.AntdText("Metric:", style={'fontWeight': 500}),
+                                        fac.AntdSelect(
+                                            id='analysis-metric-select',
+                                            options=[
+                                                {'label': 'Peak Area', 'value': 'peak_area'},
+                                                {'label': 'Peak Area (Top 3)', 'value': 'peak_area_top3'},
+                                                {'label': 'Peak Max', 'value': 'peak_max'},
+                                                {'label': 'Peak Mean', 'value': 'peak_mean'},
+                                                {'label': 'Peak Median', 'value': 'peak_median'},
+                                                {'label': 'Concentration', 'value': 'scalir_conc'},
+                                            ],
+                                            value='peak_area',
+                                            optionFilterProp='label',
+                                            optionFilterMode='case-insensitive',
+                                            allowClear=False,
+                                            style={'width': 200},
+                                        ),
+                                    ],
+                                    align='center',
+                                    size='small',
+                                ),
+                                fac.AntdSpace(
+                                    [
+                                        fac.AntdText("Transformations:", style={'fontWeight': 500}),
+                                        fac.AntdSelect(
+                                            id='analysis-normalization-select',
+                                            options=NORM_OPTIONS,
+                                            value='zscore',
+                                            optionFilterProp='label',
+                                            optionFilterMode='case-insensitive',
+                                            allowClear=False,
+                                            style={'width': 180},
+                                        ),
+                                    ],
+                                    align='center',
+                                    size='small',
+                                ),
+                                fac.AntdSpace(
+                                    [
+                                        fac.AntdText("Group by:", style={'fontWeight': 500}),
+                                        fac.AntdSelect(
+                                            id='analysis-grouping-select',
+                                            options=GROUP_SELECT_OPTIONS,
+                                            value='sample_type',
+                                            allowClear=False,
+                                            style={'width': 180},
+                                        ),
+                                    ],
+                                    align='center',
+                                    size='small',
+                                ),
+                            ],
+                            size='middle',
+                            id='analysis-metric-container',
+                            style={'marginLeft': '24px'},
                         ),
                     ],
+                    justify='flex-start',
                     align='center',
+                    style={'width': '100%'},
                 ),
-                # fac.AntdDropdown(
-                #     id='processing-options',
-                #     title='Options',
-                #     buttonMode=True,
-                #     arrow=True,
-                #     menuItems=[
-                #         {'title': fac.AntdText('Download', strong=True), 'key': 'processing-download'},
-                #         {'isDivider': True},
-                #         {'title': fac.AntdText('Delete selected', strong=True, type='warning'),
-                #          'key': 'processing-delete-selected'},
-                #         {'title': fac.AntdText('Clear table', strong=True, type='danger'),
-                #          'key': 'processing-delete-all'},
-                #     ],
-                #     buttonProps={'style': {'textTransform': 'uppercase'}},
-                # ),
             ],
-            justify="space-between",
-            align="center",
-            gap="middle",
+            style={'background': 'white', 'padding': '0px', 'lineHeight': '32px', 'height': '32px'}
         ),
-        fac.AntdTabs(
-            id='analysis-tabs',
-            items=[
-                {'key': 'pca', 'label': 'PCA', 'children': pca_tab},
-                {
-                    'key': 'raincloud',
-                    'label': 'Violin',
-                    'children': html.Div(
-                        [
-                            fac.AntdFlex(
-                                [
-                                    fac.AntdText('Target to display', strong=True),
-                                    fac.AntdSelect(
-                                        id='violin-comp-checks',
-                                        # mode='multiple',  # Changed to single select
-                                        options=[],
-                                        value=None,
-                                        allowClear=False,
-                                        # maxTagCount=4,
-                                        optionFilterProp='label',
-                                        optionFilterMode='case-insensitive',
-                                        style={'width': '320px'},
-                                    ),
-                                    fac.AntdText(
-                                        'Click on individual samples to show the chromatogram.',
-                                        type='secondary',
-                                    ),
-                                ],
-                                align='center',
-                                gap='small',
-                                wrap=True,
-                                style={'paddingBottom': '0.75rem'},
+        fac.AntdLayout(
+            [
+                fac.AntdSider(
+                    [
+                        fac.AntdButton(
+                            id='analysis-sidebar-collapse',
+                            type='text',
+                            icon=fac.AntdIcon(
+                                id='analysis-sidebar-collapse-icon',
+                                icon='antd-left',
+                                style={'fontSize': '14px'},
                             ),
-                            fac.AntdSpin(
-                                html.Div(
-                                    id='violin-graphs',
-                                    style={
-                                        'display': 'flex',
-                                        'flexDirection': 'column',
-                                        'gap': '24px',
-                                    },
+                            shape='default',
+                            style={
+                                'position': 'absolute',
+                                'zIndex': 1,
+                                'right': -8,
+                                'boxShadow': '2px 2px 5px 1px rgba(0,0,0,0.5)',
+                                'background': 'white',
+                            },
+                        ),
+                        fac.AntdFlex(
+                            [
+                                fac.AntdTitle(
+                                    'Analysis Type',
+                                    level=5,
+                                    style={'margin': '0 0 8px 0', 'padding': '0 16px'}
                                 ),
-                                id='violin-spinner',
-                                spinning=True,
-                                text='Loading Violin...',
-                                style={'minHeight': '20vh', 'width': '100%'},
-                            ),
-                            html.Div(
-                                [
-                                    # fac.AntdDivider("Chromatogram", style={'margin': '12px 0 12px 0'}),
-                                    fac.AntdSpin(
-                                        dcc.Graph(
-                                            id='violin-chromatogram',
-                                            config=PLOTLY_HIGH_RES_CONFIG,
-                                            style={'height': '400px'},
-                                        ),
-                                        text='Loading Chromatogram...',
-                                    ),
-                                ],
-                                id='violin-chromatogram-container',
-                                style={'display': 'none'}
-                            ),
-                        ]
-                    ),
-                },
-                {'key': 'clustermap', 'label': 'Clustermap', 'children': clustermap_tab},
+                                fac.AntdMenu(
+                                    id='analysis-sidebar-menu',
+                                    menuItems=ANALYSIS_MENU_ITEMS,
+                                    mode='inline',
+                                    defaultSelectedKey='pca',
+                                    style={'border': 'none'},
+                                ),
+                            ],
+                            vertical=True,
+                            style={'height': '100%', 'paddingTop': '8px'}
+                        ),
+                    ],
+                    id='analysis-sidebar',
+                    collapsible=True,
+                    collapsed=False,
+                    collapsedWidth=0,
+                    width=180,
+                    trigger=None,
+                    style={'height': '100%', 'background': '#fafafa'},
+                    className="sidebar-mint"
+                ),
+                html.Div(
+                    [
+                        # PCA content
+                        html.Div(
+                            pca_tab,
+                            id='analysis-pca-container',
+                            style={'display': 'block', 'padding': '16px'}
+                        ),
+                        # Violin content
+                        html.Div(
+                            violin_content,
+                            id='analysis-violin-container',
+                            style={'display': 'none', 'padding': '16px'}
+                        ),
+                        # Clustermap content
+                        html.Div(
+                            clustermap_tab,
+                            id='analysis-clustermap-container',
+                            style={'display': 'none', 'padding': '16px'}
+                        ),
+                    ],
+                    className='ant-layout-content css-1v28nim',
+                    style={'background': 'white', 'overflow': 'auto', 'height': 'calc(100vh - 100px)'}
+                ),
             ],
-            centered=True,
-            defaultActiveKey='pca',
-            style={'margin': '12px 0 0 0'},
-            tabBarLeftExtraContent=fac.AntdSpace(
-                [
-                    fac.AntdSpace(
-                        [
-                            fac.AntdText("Metric:", style={'fontWeight': 500}),
-                            fac.AntdSelect(
-                                id='analysis-metric-select',
-                                options=[
-                                    {'label': 'Peak Area', 'value': 'peak_area'},
-                                    {'label': 'Peak Area (Top 3)', 'value': 'peak_area_top3'},
-                                    {'label': 'Peak Max', 'value': 'peak_max'},
-                                    {'label': 'Peak Mean', 'value': 'peak_mean'},
-                                    {'label': 'Peak Median', 'value': 'peak_median'},
-                                    {'label': 'Concentration', 'value': 'scalir_conc'},
-                                ],
-                                value='peak_area',
-                                optionFilterProp='label',
-                                optionFilterMode='case-insensitive',
-                                allowClear=False,
-                                style={'width': 200},
-                            ),
-                        ],
-                        align='center',
-                        size='small',
-                    ),
-                    fac.AntdSpace(
-                        [
-                            fac.AntdText("Transformations:", style={'fontWeight': 500}),
-                            fac.AntdSelect(
-                                id='analysis-normalization-select',
-                                options=NORM_OPTIONS,
-                                value='zscore',
-                                optionFilterProp='label',
-                                optionFilterMode='case-insensitive',
-                                allowClear=False,
-                                style={'width': 180},
-                            ),
-                        ],
-                        align='center',
-                        size='small',
-                    ),
-                    fac.AntdSpace(
-                        [
-                            fac.AntdText("Group by:", style={'fontWeight': 500}),
-                            fac.AntdSelect(
-                                id='analysis-grouping-select',
-                                options=GROUP_SELECT_OPTIONS,
-                                value='sample_type',
-                                allowClear=False,
-                                style={'width': 180},
-                            ),
-                        ],
-                        align='center',
-                        size='small',
-                    ),
-                ],
-                size='small',
-                id='analysis-metric-container',
-            ),
-        )
-        , fac.AntdTour(
+            style={'padding': '1rem 0', 'background': 'white'},
+        ),
+        # Hidden store for maintaining tab state compatibility with callbacks
+        dcc.Store(id='analysis-tabs', data={'activeKey': 'pca'}),
+        fac.AntdTour(
             locale='en-us',
             steps=[],
             id='analysis-tour',
             open=False,
             current=0,
         ),
-        html.Div(id="analysis-notifications-container")
+        html.Div(id="analysis-notifications-container"),
     ]
 )
 
@@ -674,7 +736,7 @@ def _analysis_tour_steps(active_tab: str):
         {
             'title': 'Tabs',
             'description': 'Switch between PCA, Violin, and Clustermap views.',
-            'targetSelector': '#analysis-tabs',
+            'targetSelector': '#analysis-sidebar-menu',
         },
     ]
 
@@ -755,7 +817,7 @@ def show_tab_content(section_context, tab_key, x_comp, y_comp, violin_comp_check
     # we skip this and wait for the normalization update to trigger the callback again.
     from dash import callback_context
     triggered_props = [t['prop_id'] for t in callback_context.triggered] if callback_context.triggered else []
-    if 'analysis-tabs.activeKey' in triggered_props:
+    if 'analysis-sidebar-menu.currentKey' in triggered_props:
         default_norm = TAB_DEFAULT_NORM.get(tab_key)
         if default_norm and norm_value != default_norm:
             raise PreventUpdate
@@ -969,7 +1031,7 @@ def show_tab_content(section_context, tab_key, x_comp, y_comp, violin_comp_check
         try:
             # Avoid double-saving when the norm dropdown hasn't populated yet (provided_norm is None)
             # Also skip the immediate tab-change trigger; wait for the follow-up with the final norm value.
-            if wdir and provided_norm is not None and triggered_prop != 'analysis-tabs':
+            if wdir and provided_norm is not None and triggered_prop != 'analysis-sidebar-menu':
                 cm_dir = Path(wdir) / "analysis" / "clustermap"
                 cm_dir.mkdir(parents=True, exist_ok=True)
                 safe_metric = slugify_label(metric)
@@ -1271,11 +1333,47 @@ def callbacks(app, fsc, cache):
         return []
 
 
+    # Sidebar collapse toggle callback
+    @app.callback(
+        Output('analysis-sidebar', 'collapsed'),
+        Output('analysis-sidebar-collapse-icon', 'icon'),
+        Input('analysis-sidebar-collapse', 'nClicks'),
+        State('analysis-sidebar', 'collapsed'),
+        prevent_initial_call=True,
+    )
+    def toggle_analysis_sidebar(n_clicks, is_collapsed):
+        if n_clicks is None:
+            raise PreventUpdate
+        new_collapsed = not is_collapsed
+        icon = 'antd-right' if new_collapsed else 'antd-left'
+        return new_collapsed, icon
+
+    # Menu selection -> content visibility + sync to analysis-tabs store
+    @app.callback(
+        Output('analysis-pca-container', 'style'),
+        Output('analysis-violin-container', 'style'),
+        Output('analysis-clustermap-container', 'style'),
+        Output('analysis-tabs', 'data'),
+        Input('analysis-sidebar-menu', 'currentKey'),
+        prevent_initial_call=False,
+    )
+    def update_analysis_content_visibility(current_key):
+        # Default to 'pca' if no key selected
+        active_key = current_key or 'pca'
+        
+        pca_style = {'display': 'block', 'padding': '16px'} if active_key == 'pca' else {'display': 'none', 'padding': '16px'}
+        violin_style = {'display': 'block', 'padding': '16px'} if active_key == 'raincloud' else {'display': 'none', 'padding': '16px'}
+        clustermap_style = {'display': 'block', 'padding': '16px'} if active_key == 'clustermap' else {'display': 'none', 'padding': '16px'}
+        
+        # Sync to legacy analysis-tabs store for backward compatibility with other callbacks
+        tabs_data = {'activeKey': active_key}
+        
+        return pca_style, violin_style, clustermap_style, tabs_data
 
 
     @app.callback(
         Output('analysis-metric-container', 'style'),
-        Input('analysis-tabs', 'activeKey'),
+        Input('analysis-sidebar-menu', 'currentKey'),
         prevent_initial_call=False,
     )
     def toggle_metric_visibility(active_tab):
@@ -1285,7 +1383,7 @@ def callbacks(app, fsc, cache):
 
     @app.callback(
         Output('analysis-normalization-select', 'value', allow_duplicate=True),
-        Input('analysis-tabs', 'activeKey'),
+        Input('analysis-sidebar-menu', 'currentKey'),
         prevent_initial_call=True,
     )
     def set_norm_default_for_tab(active_tab):
@@ -1296,7 +1394,7 @@ def callbacks(app, fsc, cache):
         Output('analysis-tour', 'current'),
         Output('analysis-tour', 'open'),
         Output('analysis-tour', 'steps'),
-        Input('analysis-tabs', 'activeKey'),
+        Input('analysis-sidebar-menu', 'currentKey'),
         Input('analysis-tour-icon', 'nClicks'),
         State('analysis-tour', 'open'),
         prevent_initial_call=False,
@@ -1309,7 +1407,7 @@ def callbacks(app, fsc, cache):
         trigger = ctx.triggered[0]['prop_id'].split('.')[0]
         if trigger == 'analysis-tour-icon':
             return 0, True, steps
-        if trigger == 'analysis-tabs' and is_open:
+        if trigger == 'analysis-sidebar-menu' and is_open:
             return 0, True, steps
         return dash.no_update, dash.no_update, steps
 
@@ -1321,7 +1419,7 @@ def callbacks(app, fsc, cache):
         Output('violin-comp-checks', 'value'),
 
         Input('section-context', 'data'),
-        Input('analysis-tabs', 'activeKey'),
+        Input('analysis-sidebar-menu', 'currentKey'),
         Input('pca-x-comp', 'value'),
         Input('pca-y-comp', 'value'),
         Input('violin-comp-checks', 'value'),
@@ -1339,7 +1437,7 @@ def callbacks(app, fsc, cache):
 
     @app.callback(
         Output('clustermap-spinner', 'spinning'),
-        Input('analysis-tabs', 'activeKey'),
+        Input('analysis-sidebar-menu', 'currentKey'),
         Input('bar-graph-matplotlib', 'src'),
         Input('analysis-metric-select', 'value'),
         Input('analysis-normalization-select', 'value'),
@@ -1352,8 +1450,8 @@ def callbacks(app, fsc, cache):
             return False
 
         trigger = callback_context.triggered[0]["prop_id"].split(".")[0] if callback_context.triggered else ""
-        # When user switches to clustermap tab or changes metric/normalization, force spinner on even if previous image exists
-        if trigger in ('analysis-tabs', 'analysis-metric-select', 'analysis-normalization-select'):
+        # When user switches to clustermap or changes metric/normalization, force spinner on even if previous image exists
+        if trigger in ('analysis-sidebar-menu', 'analysis-metric-select', 'analysis-normalization-select'):
             return True
 
         # Otherwise, keep spinning until image src is set
@@ -1361,7 +1459,7 @@ def callbacks(app, fsc, cache):
 
     @app.callback(
         Output('violin-spinner', 'spinning'),
-        Input('analysis-tabs', 'activeKey'),
+        Input('analysis-sidebar-menu', 'currentKey'),
         Input('violin-graphs', 'children'),
         Input('analysis-metric-select', 'value'),
         Input('analysis-normalization-select', 'value'),
@@ -1375,8 +1473,8 @@ def callbacks(app, fsc, cache):
             return False
 
         trigger = callback_context.triggered[0]["prop_id"].split(".")[0] if callback_context.triggered else ""
-        # When user switches to raincloud tab or changes parameters, force spinner on
-        if trigger in ('analysis-tabs', 'analysis-metric-select', 'analysis-normalization-select', 'analysis-grouping-select'):
+        # When user switches to raincloud or changes parameters, force spinner on
+        if trigger in ('analysis-sidebar-menu', 'analysis-metric-select', 'analysis-normalization-select', 'analysis-grouping-select'):
             return True
 
         # Otherwise, stop spinning once content is loaded
