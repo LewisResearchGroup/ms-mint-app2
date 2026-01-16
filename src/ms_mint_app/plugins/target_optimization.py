@@ -18,6 +18,7 @@ from ..duckdb_manager import duckdb_connection, compute_chromatograms_in_batches
 from ..plugin_interface import PluginInterface
 from ..tools import sparsify_chrom, proportional_min1_selection
 from ..plugins.analysis_tools.trace_helper import generate_chromatogram_traces, calculate_rt_alignment, calculate_shifts_per_sample_type
+from ..rt_span_optimizer import optimize_rt_spans_batch
 from .workspaces import activate_workspace_logging
 
 _label = "Optimization"
@@ -1308,49 +1309,14 @@ def _compute_chromatograms_logic(set_progress, recompute_ms1, recompute_ms2, n_c
                                             recompute_ms2=recompute_ms2, n_cpus=n_cpus, ram=ram)
         logger.info(f"Chromatograms computed in {time.perf_counter() - start:.2f} seconds")
         
-        # Update RT values to max intensity time only for targets that had RT auto-adjusted
-        progress_adapter(95, "Chromatograms", "Updating RT to peak apex...")
+        # Optimize RT spans for targets that had RT auto-adjusted
+        # This uses adaptive peak detection to find optimal rt_min, rt_max based on actual data
+        progress_adapter(95, "Chromatograms", "Optimizing RT spans...")
         try:
-            # Chromatograms stores scan_time and intensity as arrays, so we need to unnest them
-            # Only update targets where rt_auto_adjusted = TRUE
-            update_sql = """
-                UPDATE targets
-                SET rt = subq.rt_at_max,
-                    rt_auto_adjusted = FALSE
-                FROM (
-                    WITH adjusted_targets AS (
-                        SELECT peak_label, rt_min, rt_max
-                        FROM targets
-                        WHERE rt_auto_adjusted = TRUE
-                    ),
-                    unnested AS (
-                        SELECT c.peak_label, 
-                                UNNEST(c.scan_time) AS scan_time,
-                                UNNEST(c.intensity) AS intensity
-                        FROM chromatograms c
-                        WHERE c.peak_label IN (SELECT peak_label FROM adjusted_targets)
-                    ),
-                    filtered AS (
-                        SELECT u.peak_label, u.scan_time, u.intensity
-                        FROM unnested u
-                        JOIN adjusted_targets t ON u.peak_label = t.peak_label
-                        WHERE u.scan_time BETWEEN t.rt_min AND t.rt_max
-                    ),
-                    max_per_target AS (
-                        SELECT peak_label, MAX(intensity) AS max_intensity
-                        FROM filtered
-                        GROUP BY peak_label
-                    )
-                    SELECT f.peak_label, f.scan_time AS rt_at_max
-                    FROM filtered f
-                    JOIN max_per_target m ON f.peak_label = m.peak_label AND f.intensity = m.max_intensity
-                ) AS subq
-                WHERE targets.peak_label = subq.peak_label
-            """
-            con.execute(update_sql)
-            logger.info("Updated RT to max intensity for auto-adjusted targets")
+            updated_count = optimize_rt_spans_batch(con)
+            logger.info(f"Optimized RT spans for {updated_count} auto-adjusted targets")
         except Exception as e:
-            logger.warning(f"Could not update RT to max intensity: {e}")
+            logger.warning(f"Could not optimize RT spans: {e}")
         
     return True, False
 

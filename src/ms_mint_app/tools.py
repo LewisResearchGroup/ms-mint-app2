@@ -1216,6 +1216,7 @@ def get_targets_v2(files_path):
                     elif has_rt and not has_rt_min and not has_rt_max:
                         target['rt_min'] = target['rt'] - DEFAULT_RT_WINDOW
                         target['rt_max'] = target['rt'] + DEFAULT_RT_WINDOW
+                        target['rt_auto_adjusted'] = True  # Mark for data-driven optimization
                         logging.debug(
                             f"Target '{target['peak_label']}': Derived rt_min={target['rt_min']:.2f} "
                             f"and rt_max={target['rt_max']:.2f} from rt={target['rt']:.2f} (±{DEFAULT_RT_WINDOW}s)"
@@ -1225,6 +1226,7 @@ def get_targets_v2(files_path):
                     elif has_rt and has_rt_min and not has_rt_max:
                         window = abs(target['rt'] - target['rt_min'])
                         target['rt_max'] = target['rt'] + window
+                        target['rt_auto_adjusted'] = True  # Mark for data-driven optimization of rt_max
                         logging.debug(
                             f"Target '{target['peak_label']}': Derived rt_max={target['rt_max']:.2f} "
                             f"from rt={target['rt']:.2f} and rt_min={target['rt_min']:.2f} (window={window:.2f}s)"
@@ -1234,6 +1236,7 @@ def get_targets_v2(files_path):
                     elif has_rt and has_rt_max and not has_rt_min:
                         window = abs(target['rt_max'] - target['rt'])
                         target['rt_min'] = target['rt'] - window
+                        target['rt_auto_adjusted'] = True  # Mark for data-driven optimization of rt_min
                         logging.debug(
                             f"Target '{target['peak_label']}': Derived rt_min={target['rt_min']:.2f} "
                             f"from rt={target['rt']:.2f} and rt_max={target['rt_max']:.2f} (window={window:.2f}s)"
