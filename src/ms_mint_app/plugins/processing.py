@@ -29,11 +29,13 @@ from ..duckdb_manager import (
     build_order_by,
     build_where_and_params,
     calculate_optimal_batch_size,
+    calculate_optimal_params,
     compute_chromatograms_in_batches,
     compute_results_in_batches,
     create_pivot,
     duckdb_connection,
     duckdb_connection_mint,
+    get_physical_cores,
 )
 from ..plugin_interface import PluginInterface
 from .target_optimization import (
@@ -408,45 +410,41 @@ _layout = html.Div(
                                 fac.AntdFormItem(
                                     fac.AntdInputNumber(
                                         id='processing-chromatogram-compute-cpu',
-                                        defaultValue=max(1, cpu_count() // 2),
+                                        defaultValue=calculate_optimal_params()[0],
                                         min=1,
-                                        max=cpu_count(),
+                                        max=get_physical_cores(),
                                     ),
                                     label='CPU:',
                                     hasFeedback=True,
-                                    help=f"Selected {cpu_count() // 2} / {cpu_count()} cpus",
+                                    help=f"Recommended {calculate_optimal_params()[0]} / {get_physical_cores()} physical cores",
                                     id='processing-chromatogram-compute-cpu-item'
                                 ),
                                 fac.AntdFormItem(
                                     fac.AntdInputNumber(
                                         id='processing-chromatogram-compute-ram',
-                                        value=round(psutil.virtual_memory().available * 0.5 / (1024 ** 3), 1),
+                                        value=calculate_optimal_params()[1],
                                         min=1,
-                                        precision=1,
-                                        step=0.1,
+                                        precision=0,
+                                        step=1,
                                         suffix='GB'
                                     ),
                                     label='RAM:',
                                     hasFeedback=True,
                                     id='processing-chromatogram-compute-ram-item',
-                                    help=f"Selected "
-                                         f"{round(psutil.virtual_memory().available * 0.5 / (1024 ** 3), 1)}GB / "
-                                         f"{round(psutil.virtual_memory().available / (1024 ** 3), 1)}GB available RAM"
+                                    help=f"Recommended {calculate_optimal_params()[1]}GB / "
+                                         f"{round(psutil.virtual_memory().available / (1024 ** 3), 1)}GB available"
                                 ),
                                 fac.AntdFormItem(
                                     fac.AntdInputNumber(
                                         id='processing-chromatogram-compute-batch-size',
-                                        defaultValue=calculate_optimal_batch_size(
-                                            int(psutil.virtual_memory().available * 0.5 / (1024 ** 3)),
-                                            100000,  # Assume 100k pairs as default estimate
-                                            max(1, cpu_count() // 2)
-                                        ),
-                                        min=50,
-                                        step=50,
+                                        defaultValue=calculate_optimal_params()[2],
+                                        min=500,
+                                        max=8000,
+                                        step=500,
                                     ),
                                     label='Batch Size:',
-                                    tooltip='Optimal pairs per batch based on RAM/CPU. '
-                                            'Higher values = faster but more memory.',
+                                    tooltip='Pairs per batch. Larger = faster (up to 8000). '
+                                            'Based on experimental benchmarks.',
                                 ),
                             ],
                             layout='inline'

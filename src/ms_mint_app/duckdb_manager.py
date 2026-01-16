@@ -11,53 +11,107 @@ logger = logging.getLogger(__name__)
 from .sample_metadata import GROUP_COLUMNS
 
 
-def calculate_optimal_batch_size(ram_gb: int = None, total_pairs: int = 0, n_cpus: int = None) -> int:
+def get_physical_cores() -> int:
     """
-    Calculate optimal batch size for chromatogram/results extraction based on resources.
+    Get the number of physical CPU cores (not hyperthreads).
+    Falls back to os.cpu_count() // 2 if psutil can't detect.
+    """
+    import os
+    import psutil
     
-    Formula:
-    - Base: 500 pairs
-    - RAM factor: scales by 4GB increments (1000 per 4GB)
-    - CPU factor: scales with cores (max 1.5x boost)
-    - Cap: 8000 (diminishing returns above this)
-    - Minimum: 500 (to avoid too many small batches)
-    - At least 10 batches for progress reporting
+    physical = psutil.cpu_count(logical=False)
+    if physical is None:
+        # Fallback: assume hyperthreading, so divide logical by 2
+        physical = max(1, (os.cpu_count() or 4) // 2)
+    return physical
+
+
+def calculate_optimal_params(user_cpus: int = None, user_ram: int = None) -> tuple:
+    """
+    Calculate optimal CPU, RAM, and batch_size based on system resources.
     
-    IMPORTANT: If ram_gb is not specified, uses 50% of AVAILABLE RAM (not total)
-    to prevent the app from consuming all system resources.
+    Algorithm (data-driven from experimental benchmarks):
+    1. CPUs: min(logical // 2, physical_cores) - avoids hyperthreads
+    2. RAM: 50% of available, balanced with 1GB per CPU minimum
+    3. Batch: 500 × RAM_GB, capped at 8000
+    
+    If user provides explicit values, those are used instead of auto-detection.
     
     Args:
-        ram_gb: RAM in GB explicitly allocated by user. If None, auto-calculates 50% of available.
-        total_pairs: Total number of pairs to process
-        n_cpus: Number of CPUs allocated to DuckDB
+        user_cpus: Optional user-specified CPU count
+        user_ram: Optional user-specified RAM in GB
+        
+    Returns:
+        (cpus, ram_gb, batch_size) tuple
+    """
+    import os
+    import psutil
+    
+    # Step 1: CPU calculation
+    if user_cpus is not None:
+        target_cpus = user_cpus
+    else:
+        logical_cores = os.cpu_count() or 4
+        physical_cores = get_physical_cores()
+        # Use half of logical, but never exceed physical (no hyperthreading benefit)
+        target_cpus = min(logical_cores // 2, physical_cores)
+        target_cpus = max(1, target_cpus)  # At least 1 CPU
+    
+    # Step 2: RAM calculation
+    if user_ram is not None:
+        usable_ram = user_ram
+    else:
+        available_ram = psutil.virtual_memory().available / (1024 ** 3)
+        usable_ram = int(available_ram * 0.5)  # 50% of available
+        usable_ram = max(4, usable_ram)  # Minimum 4GB
+    
+    # Step 3: Balance CPUs and RAM (1GB per CPU minimum)
+    if usable_ram < target_cpus:
+        # RAM is limiting factor - reduce CPUs to match
+        cpus = usable_ram
+        ram_gb = usable_ram
+    else:
+        # CPU is limiting factor
+        cpus = target_cpus
+        # Cap RAM at 2× CPUs (no benefit beyond that based on experiments)
+        ram_gb = min(usable_ram, cpus * 2)
+    
+    # Step 4: Batch size (from experimental data: larger is better, cap at 8000)
+    batch_size = min(500 * ram_gb, 8000)
+    batch_size = max(500, batch_size)  # Minimum 500
+    
+    return cpus, ram_gb, batch_size
+
+
+def calculate_optimal_batch_size(ram_gb: int = None, total_pairs: int = 0, n_cpus: int = None) -> int:
+    """
+    Calculate optimal batch size for chromatogram/results extraction.
+    
+    This is a simplified wrapper around calculate_optimal_params() for
+    backward compatibility with existing code that only needs batch_size.
+    
+    Formula (from experimental benchmarks on 500-sample dataset):
+    - batch = 500 × RAM_GB, capped at 8000
+    - Experiments showed batch 8000 was 3.2x faster than batch 500
+    
+    Args:
+        ram_gb: RAM in GB. If None, auto-calculates 50% of available.
+        total_pairs: Total pairs (used for progress reporting constraint)
+        n_cpus: Number of CPUs (used for balancing with RAM)
         
     Returns:
         Optimal batch size
     """
-    import psutil
-    
-    # If RAM not specified, use 50% of AVAILABLE memory (not total)
-    if ram_gb is None:
-        available_ram = psutil.virtual_memory().available / (1024 ** 3)
-        ram_gb = max(int(available_ram * 0.5), 4)  # 50% of available, minimum 4GB
-    
-    # RAM factor: 1000 pairs per 4GB (using float division for smooth scaling)
-    ram_factor = max(ram_gb, 4) / 4
-    
-    # CPU factor: modest scaling (max 1.5x boost)
-    # Based on benchmarks: larger batches have diminishing returns
-    n_cpus = n_cpus or 4
-    effective_cpus = min(n_cpus, ram_gb)  # Cap CPUs at RAM GB
-    cpu_factor = min(effective_cpus / 8 + 0.5, 1.5)  # Gentler scaling, max 1.5x
-    
-    base_batch = 750  # Conservative base for good throughput
-    optimal = int(base_batch * ram_factor * cpu_factor)
+    _, effective_ram, batch_size = calculate_optimal_params(
+        user_cpus=n_cpus,
+        user_ram=ram_gb
+    )
     
     # Ensure at least 10 batches for progress reporting
     if total_pairs > 0:
-        optimal = min(optimal, max(total_pairs // 10, 500))
+        batch_size = min(batch_size, max(total_pairs // 10, 500))
     
-    return min(max(optimal, 500), 8000)  # Cap at 8000 (benchmarks show diminishing returns above 5000)
+    return batch_size
 
 
 def get_effective_cpus(n_cpus: int, ram_gb: int) -> int:
