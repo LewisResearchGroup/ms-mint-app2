@@ -11,34 +11,43 @@ logger = logging.getLogger(__name__)
 from .sample_metadata import GROUP_COLUMNS
 
 
-def calculate_optimal_batch_size(ram_gb: int, total_pairs: int, n_cpus: int = None) -> int:
+def calculate_optimal_batch_size(ram_gb: int = None, total_pairs: int = 0, n_cpus: int = None) -> int:
     """
     Calculate optimal batch size for chromatogram/results extraction based on resources.
     
     Formula:
     - Base: 500 pairs
     - RAM factor: scales by 4GB increments (1000 per 4GB)
-    - CPU factor: scales with cores (max 2x boost)
-    - Cap: 10000 (diminishing returns above this)
+    - CPU factor: scales with cores (max 1.5x boost)
+    - Cap: 8000 (diminishing returns above this)
     - Minimum: 500 (to avoid too many small batches)
     - At least 10 batches for progress reporting
     
+    IMPORTANT: If ram_gb is not specified, uses 50% of AVAILABLE RAM (not total)
+    to prevent the app from consuming all system resources.
+    
     Args:
-        ram_gb: Available RAM in GB for DuckDB
+        ram_gb: RAM in GB explicitly allocated by user. If None, auto-calculates 50% of available.
         total_pairs: Total number of pairs to process
         n_cpus: Number of CPUs allocated to DuckDB
         
     Returns:
         Optimal batch size
     """
-    ram_gb = ram_gb or 16  # Default to 16GB if not specified
+    import psutil
+    
+    # If RAM not specified, use 50% of AVAILABLE memory (not total)
+    if ram_gb is None:
+        available_ram = psutil.virtual_memory().available / (1024 ** 3)
+        ram_gb = max(int(available_ram * 0.5), 4)  # 50% of available, minimum 4GB
     
     # RAM factor: 1000 pairs per 4GB (using float division for smooth scaling)
     ram_factor = max(ram_gb, 4) / 4
     
     # CPU factor: modest scaling (max 1.5x boost)
     # Based on benchmarks: larger batches have diminishing returns
-    effective_cpus = min(n_cpus or 4, ram_gb)  # Cap CPUs at RAM GB
+    n_cpus = n_cpus or 4
+    effective_cpus = min(n_cpus, ram_gb)  # Cap CPUs at RAM GB
     cpu_factor = min(effective_cpus / 8 + 0.5, 1.5)  # Gentler scaling, max 1.5x
     
     base_batch = 750  # Conservative base for good throughput
