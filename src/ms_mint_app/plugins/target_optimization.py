@@ -1966,6 +1966,34 @@ def callbacks(app, fsc, cache, cpu=None):
 
             all_targets = [row[0] for row in all_targets]
             
+            # Query ALL targets for dropdown options (without selected_targets filter)
+            # This prevents the dropdown from getting "stuck" showing only selected targets
+            dropdown_targets = conn.execute("""
+                SELECT peak_label
+                FROM targets t
+                WHERE (
+                    CASE
+                        WHEN ? = 'ms1' THEN t.ms_type = 'ms1'
+                        WHEN ? = 'ms2' THEN t.ms_type = 'ms2'
+                        ELSE TRUE
+                    END
+                )
+                AND (
+                    CASE
+                        WHEN ? = 'Bookmarked' THEN t.bookmark = TRUE
+                        WHEN ? = 'Unmarked' THEN t.bookmark = FALSE
+                        ELSE TRUE
+                    END
+                )
+                AND (
+                    t.peak_selection IS TRUE
+                    OR NOT EXISTS (SELECT 1 FROM targets t1 WHERE t1.peak_selection IS TRUE)
+                )
+                ORDER BY peak_label
+            """, [selection_ms_type, selection_ms_type,
+                  selection_bookmark, selection_bookmark]).fetchall()
+            dropdown_targets = [row[0] for row in dropdown_targets]
+            
             # Adjust current_page if it's beyond the available pages (e.g., after deleting all targets on current page)
             total_targets = len(all_targets)
             max_page = max(1, math.ceil(total_targets / page_size)) if total_targets else 1
@@ -2302,8 +2330,9 @@ def callbacks(app, fsc, cache, cpu=None):
         if 'targets-select' in ctx.triggered[0]['prop_id']:
             targets_select_options = dash.no_update
         else:
+            # Use dropdown_targets (unfiltered list) for dropdown options
             targets_select_options = [
-                {"label": target, "value": target} for target in all_targets
+                {"label": target, "value": target} for target in dropdown_targets
             ]
         
         logger.debug(f"Preview refreshed in {time.perf_counter() - t1:.4f}s")
