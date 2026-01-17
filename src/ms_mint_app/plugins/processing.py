@@ -61,11 +61,6 @@ RESULTS_TABLE_COLUMNS = [
         'fixed': 'left'
     },
     {
-        'title': 'MS-Type',
-        'dataIndex': 'ms_type',
-        'width': '120px',
-    },
-    {
         'title': 'peak_area',
         'dataIndex': 'peak_area',
         'width': '120px',
@@ -74,21 +69,16 @@ RESULTS_TABLE_COLUMNS = [
         'title': 'peak_area_top3',
         'dataIndex': 'peak_area_top3',
         'width': '150px',
+    },    
+    {
+        'title': 'peak_max',
+        'dataIndex': 'peak_max',
+        'width': '120px',
     },
     {
         'title': 'peak_n_datapoints',
         'dataIndex': 'peak_n_datapoints',
         'width': '170px',
-    },
-    {
-        'title': 'peak_max',
-        'dataIndex': 'peak_max',
-        'width': '120px',
-    },
-    {
-        'title': 'peak_max',
-        'dataIndex': 'peak_max',
-        'width': '120px',
     },
     {
         'title': 'peak_rt_of_max',
