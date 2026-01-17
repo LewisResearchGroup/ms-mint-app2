@@ -1617,11 +1617,29 @@ def compute_results_in_batches(wdir: str,
                     list_transform(pairs, p -> p.i) AS intensity_arr
                 FROM filtered
             ),
+            -- Compute trapezoid integration for peak_area
+            -- Trapezoid rule: Area = Σ (y[i] + y[i+1])/2 × (x[i+1] - x[i])
+            trapezoid AS (
+                SELECT
+                    scan_time_arr,
+                    intensity_arr,
+                    -- Build list of trapezoid areas for each segment
+                    list_transform(
+                        range(1, len(scan_time_arr)),
+                        i -> (
+                            (list_extract(intensity_arr, i) + list_extract(intensity_arr, i + 1)) / 2.0
+                            * (list_extract(scan_time_arr, i + 1) - list_extract(scan_time_arr, i))
+                        )
+                    ) AS trapezoid_areas
+                FROM arrays
+                WHERE len(intensity_arr) > 0
+            ),
             -- Compute all metrics from arrays
             metrics AS (
                 SELECT
                     len(intensity_arr) AS peak_n_datapoints,
-                    ROUND(list_sum(intensity_arr), 0) AS peak_area,
+                    -- Trapezoid integration (more accurate than simple sum)
+                    ROUND(COALESCE(list_sum(trapezoid_areas), 0), 0) AS peak_area,
                     ROUND(list_max(intensity_arr), 0) AS peak_max,
                     ROUND(list_min(intensity_arr), 0) AS peak_min,
                     ROUND(list_avg(intensity_arr), 0) AS peak_mean,
@@ -1633,8 +1651,7 @@ def compute_results_in_batches(wdir: str,
                     CAST(list_position(intensity_arr, list_max(intensity_arr)) AS BIGINT) AS max_idx,
                     scan_time_arr,
                     intensity_arr
-                FROM arrays
-                WHERE len(intensity_arr) > 0
+                FROM trapezoid
             )
             -- Final output with peak_area_top3
             SELECT
@@ -2027,18 +2044,35 @@ def compute_peak_properties(con: duckdb.DuckDBPyConnection,
                                     FROM unnested u
                                              JOIN targets t ON u.peak_label = t.peak_label
                                     WHERE u.scan_time BETWEEN t.rt_min AND t.rt_max),
+-- Compute trapezoid segments for each consecutive pair of points
+                 trapezoid_segments AS (
+                     SELECT peak_label,
+                            ms_file_label,
+                            scan_time,
+                            intensity,
+                            -- Trapezoid area for segment [i, i+1]: (y[i] + y[i+1])/2 * (x[i+1] - x[i])
+                            CASE 
+                                WHEN LEAD(scan_time) OVER w IS NOT NULL 
+                                THEN (intensity + LEAD(intensity) OVER w) / 2.0 
+                                     * (LEAD(scan_time) OVER w - scan_time)
+                                ELSE 0
+                            END AS segment_area
+                     FROM filtered_range
+                     WINDOW w AS (PARTITION BY peak_label, ms_file_label ORDER BY scan_time)
+                 ),
 -- Group the filtered data into lists
                  aggregated AS (SELECT peak_label,
                                        ms_file_label,
                                        LIST(scan_time ORDER BY scan_time) AS scan_time,
                                        LIST(intensity ORDER BY scan_time) AS intensity,
-                                       ROUND(SUM(intensity), 0)           AS peak_area,
+                                       -- Trapezoid integration (more accurate than simple sum)
+                                       ROUND(SUM(segment_area), 0)        AS peak_area,
                                        ROUND(MAX(intensity), 0)           AS peak_max,
                                        ROUND(MIN(intensity), 0)           AS peak_min,
                                        ROUND(AVG(intensity), 0)           AS peak_mean,
                                        ROUND(MEDIAN(intensity), 0)        AS peak_median,
                                        COUNT(*)                           AS peak_n_datapoints
-                                FROM filtered_range
+                                FROM trapezoid_segments
                                 GROUP BY peak_label, ms_file_label),
 -- Compute peak_area_top3
                  top3_calc AS (
