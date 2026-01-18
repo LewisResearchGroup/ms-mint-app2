@@ -1624,6 +1624,19 @@ def _insert_ms_data(wdir, ms_type, batch_ms, batch_ms_data):
         columns=['ms_file_label', 'label', 'ms_type', 'polarity', 'file_type'],
     )
 
+    # Auto-detect sample type and color in bulk before insertion
+    from .plugins.ms_files import detect_sample_color
+    
+    # helper wrapper to unpack tuple
+    def _get_meta(label):
+        c, t = detect_sample_color(label)
+        return (c or '#BBBBBB', t or 'Sample')
+        
+    # Apply to DataFrame
+    meta = pldf['ms_file_label'].apply(_get_meta)
+    pldf['color'] = [m[0] for m in meta]
+    pldf['sample_type'] = [m[1] for m in meta]
+    
     parquet_files_to_delete = batch_ms_data[ms_type].copy()
     insert_success = False
     
@@ -1631,21 +1644,11 @@ def _insert_ms_data(wdir, ms_type, batch_ms, batch_ms_data):
         if conn is None:
             raise PreventUpdate
         try:
+            # Insert with all metadata columns populated
             conn.execute(
-                "INSERT INTO samples(ms_file_label, label, ms_type, polarity, file_type) "
-                "SELECT ms_file_label, label, ms_type, polarity, file_type FROM pldf"
+                "INSERT INTO samples(ms_file_label, label, ms_type, polarity, file_type, color, sample_type) "
+                "SELECT ms_file_label, label, ms_type, polarity, file_type, color, sample_type FROM pldf"
             )
-            
-            # Auto-detect sample type from filename and assign colors
-            from .plugins.ms_files import detect_sample_color
-            for file_label in pldf['ms_file_label'].to_list():
-                color, sample_type = detect_sample_color(file_label)
-                if color:
-                    conn.execute(
-                        "UPDATE samples SET color = ?, sample_type = ? WHERE ms_file_label = ?",
-                        [color, sample_type, file_label]
-                    )
-                    logging.debug(f"Auto-detected '{file_label}' as {sample_type}, assigned color {color}")
             
             ms_data_table = f'{ms_type}_data'
             extra_columns = ['mz_precursor', 'filterLine', 'filterLine_ELMAVEN']
