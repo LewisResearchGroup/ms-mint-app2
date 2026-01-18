@@ -2326,7 +2326,7 @@ def callbacks(app, fsc, cache):
     )
 
     # Open SCALiR modal and load existing results if available
-    @app.callback(
+    app.callback(
         Output('scalir-modal', 'visible'),
         Output('scalir-status-text', 'children'),
         Output('scalir-conc-path', 'children'),
@@ -2338,97 +2338,17 @@ def callbacks(app, fsc, cache):
         Input('scalir-modal-btn', 'nClicks'),
         State('wdir', 'data'),
         prevent_initial_call=True,
-    )
-    def open_scalir_modal(n_clicks, wdir):
-        if not n_clicks:
-            raise PreventUpdate
-        
-        # Default empty return (modal visible, everything else empty)
-        empty_ret = (
-            True, "", "", [], None, [], 
-            {'display': 'none', 'flexGrow': 1, 'minWidth': '350px'}, 
-            None
-        )
-
-        if not wdir:
-            return empty_ret
-
-        output_dir = Path(wdir) / "results" / "scalir"
-        train_frame_path = output_dir / "train_frame.csv"
-        params_path = output_dir / "standard_curve_parameters.csv"
-        
-        # If results don't exist, just open empty modal
-        if not train_frame_path.exists() or not params_path.exists():
-            return empty_ret
-
-        try:
-            train_frame = pd.read_csv(train_frame_path)
-            params = pd.read_csv(params_path)
-            
-            units_path = output_dir / "units.csv"
-            units_filtered = pd.read_csv(units_path) if units_path.exists() else None
-            concentrations_path = output_dir / "concentrations.csv"
-            
-            common = sorted(train_frame['peak_label'].unique())
-            metabolite_options = [{'label': label, 'value': label} for label in common]
-            first_label = common[0] if common else None
-
-            PLOTLY_HIGH_RES_CONFIG = {
-                'displayModeBar': False,
-                'displaylogo': False,
-            }
-
-            # Generate initial plot
-            plots = []
-            if first_label and not train_frame.empty:
-                fig = _plot_curve_fig(train_frame, first_label, units_filtered, params)
-                plots.append(
-                    dcc.Graph(
-                        figure=fig,
-                        style={'width': '100%', 'height': '450px'},
-                        config=PLOTLY_HIGH_RES_CONFIG,
-                    )
-                )
-            
-            plot_style = {
-                'display': 'block', 
-                'flexGrow': 1, 
-                'minWidth': '350px', 
-                'maxHeight': '400px', 
-                'overflowY': 'auto'
-            } if plots else {'display': 'none'}
-
-            store_data = {
-                "train_frame": train_frame.to_json(orient="split"),
-                "units": units_filtered.to_json(orient="split") if units_filtered is not None else None,
-                "params": params.to_json(orient="split"),
-                "plot_dir": str(output_dir / "plots"),
-                "common": common,
-                "generated_all_plots": True
-            }
-            
-            status_text = f"Loaded results for {len(common)} metabolites."
-            conc_text = f"Concentrations: {concentrations_path}" if concentrations_path.exists() else ""
-            
-            return (True, status_text, conc_text, metabolite_options, first_label, plots, plot_style, store_data)
-
-        except Exception as e:
-            logger.error(f"SCALiR: Failed to load existing results: {e}", exc_info=True)
-            return empty_ret
+    )(open_scalir_modal)
 
     # Show standards filename
-    @app.callback(
+    app.callback(
         Output('scalir-standards-note', 'children'),
         Input('scalir-standards-upload', 'filename'),
         prevent_initial_call=True,
-    )
-    def show_standards_filename(filename):
-        if filename:
-            return filename
-        return "No standards file selected."
+    )(show_standards_filename)
 
     # Run SCALiR
-    @app.callback(
+    app.callback(
         Output('scalir-status-text', 'children', allow_duplicate=True),
         Output('scalir-conc-path', 'children', allow_duplicate=True),
         Output('scalir-metabolite-select', 'options', allow_duplicate=True),
@@ -2448,184 +2368,10 @@ def callbacks(app, fsc, cache):
         State('wdir', 'data'),
         State('section-context', 'data'),
         prevent_initial_call=True,
-    )
-    def run_scalir(n_clicks, standards_contents, standards_filename, intensity, slope_mode,
-                   slope_low, slope_high, generate_plots, wdir, section_context):
-        if not n_clicks:
-            raise PreventUpdate
-        if not section_context or section_context.get('page') != 'Processing':
-            raise PreventUpdate
-
-        import plotly.graph_objects as go
-        PLOTLY_HIGH_RES_CONFIG = {
-            'toImageButtonOptions': {
-                'format': 'png',
-                'scale': 4,
-                'height': None,
-                'width': None,
-            },
-            'displayModeBar': True,
-            'displaylogo': False,
-        }
-
-        hidden_style = {
-            'display': 'none',
-            'flexWrap': 'wrap',
-            'gap': '16px',
-            'paddingTop': '8px',
-            'justifyContent': 'flex-start',
-        }
-        if not wdir:
-            return ("No active workspace.", "", [], None, [], hidden_style, None, False)
-        try:
-            logger.info(f"SCALiR: Parsing standards file {standards_filename}...")
-            standards_df = _parse_uploaded_standards(standards_contents, standards_filename)
-        except Exception as exc:
-            logger.error(f"SCALiR: Failed to parse standards file: {exc}")
-            return (f"Upload a standards table (CSV). Error: {exc}", "", [], None, [], hidden_style, None, False)
-
-        with duckdb_connection(wdir) as conn:
-            if conn is None:
-                logger.error("SCALiR: Failed to connect to database.")
-                return ("Database connection failed.", "", [], None, [], hidden_style, None, False)
-            if intensity not in SCALIR_ALLOWED_METRICS:
-                intensity = 'peak_area'
-            try:
-                mint_df = conn.execute(f"""
-                    SELECT ms_file_label AS ms_file, peak_label, {intensity}
-                    FROM results
-                    WHERE {intensity} IS NOT NULL
-                """).df()
-            except Exception as exc:
-                logger.error(f"SCALiR: Could not load results from database: {exc}")
-                return (f"Could not load results: {exc}", "", [], None, [], hidden_style, None, False)
-
-        if mint_df.empty:
-            return ("No results found for calibration.", "", [], None, [], hidden_style, None, False)
-
-        units_df = None
-        if "unit" in standards_df.columns:
-            units_df = standards_df[["peak_label", "unit"]].copy()
-            standards_df = standards_df.drop(columns=["unit"])
-
-        try:
-            mint_filtered, standards_filtered, units_filtered, common = intersect_peaks(
-                mint_df, standards_df, units_df
-            )
-        except Exception as exc:
-            logger.error(f"SCALiR: Alignment failed: {exc}", exc_info=True)
-            return (f"Could not align standards with results: {exc}", "", [], None, [], hidden_style, None, False)
-
-        if not common:
-            return ("No overlapping peak_label values between results and standards.", "", [], None, [], hidden_style, None, False)
-
-        low = slope_low or 0.85
-        high = slope_high or 1.15
-        slope_interval = (min(low, high), max(low, high))
-
-        try:
-            logger.info(f"SCALiR: Before fit - mint_filtered: {len(mint_filtered)} rows, cols: {list(mint_filtered.columns)}")
-            logger.info(f"SCALiR: Before fit - standards_filtered: {len(standards_filtered)} rows, cols: {list(standards_filtered.columns)}")
-            estimator, std_results, x_train, y_train, params = fit_estimator(
-                mint_filtered, standards_filtered, intensity, slope_mode or "fixed", slope_interval
-            )
-            logger.info(f"SCALiR: After fit - std_results: {len(std_results)} rows, x_train: {len(x_train)} rows")
-            logger.info(f"SCALiR: Fitting completed. Metabolites: {len(common)}")
-            concentrations = build_concentration_table(
-                estimator, mint_filtered, intensity, units_filtered
-            )
-        except Exception as exc:
-            logger.error(f"SCALiR: Fitting failed: {exc}", exc_info=True)
-            return (f"Error fitting calibration: {exc}", "", [], None, [], hidden_style, None, False)
-
-        output_dir = Path(wdir) / "results" / "scalir"
-        plots_dir = output_dir / "plots"
-        output_dir.mkdir(parents=True, exist_ok=True)
-        if generate_plots:
-            plots_dir.mkdir(parents=True, exist_ok=True)
-
-        concentrations_path = output_dir / "concentrations.csv"
-        params_path = output_dir / "standard_curve_parameters.csv"
-        concentrations.to_csv(concentrations_path, index=False)
-        params.to_csv(params_path, index=False)
-
-        # Save train_frame and units for persistence
-        try:
-            logger.info(f"SCALiR: x_train has {len(x_train)} rows, columns: {list(x_train.columns)}")
-            if 'value' in x_train.columns:
-                logger.info(f"SCALiR: x_train.value stats - min: {x_train['value'].min()}, max: {x_train['value'].max()}, values > 0: {(x_train['value'] > 0).sum()}")
-            train_frame = training_plot_frame(estimator, x_train, y_train, params)
-            train_frame_path = output_dir / "train_frame.csv"
-            train_frame.to_csv(train_frame_path, index=False)
-            logger.info(f"SCALiR: train_frame has {len(train_frame)} rows, columns: {list(train_frame.columns)}")
-        except Exception as exc:
-            logger.error(f"SCALiR: Failed to build train_frame: {exc}", exc_info=True)
-            train_frame = pd.DataFrame()
-
-        if units_filtered is not None:
-            units_path = output_dir / "units.csv"
-            units_filtered.to_csv(units_path, index=False)
-
-        if generate_plots and not train_frame.empty:
-            for label in common:
-                plot_standard_curve(train_frame, label, units_filtered, plots_dir)
-
-        sorted_common = sorted(common)
-        metabolite_options = [{'label': label, 'value': label} for label in sorted_common]
-        first_label = sorted_common[0] if sorted_common else None
-        initial_selection = first_label  # Single value for single-select mode
-
-        PLOTLY_HIGH_RES_CONFIG = {
-            'displayModeBar': False,
-            'displaylogo': False,
-        }
-
-        # Generate initial plot for the first selected metabolite
-        plots = []
-        if first_label and not train_frame.empty:
-            fig = _plot_curve_fig(train_frame, first_label, units_filtered, params)
-            plots.append(
-                dcc.Graph(
-                    figure=fig,
-                    style={
-                        'width': '100%',
-                        'height': '450px',
-                    },
-                    config=PLOTLY_HIGH_RES_CONFIG,
-                )
-            )
-
-        plot_style = {
-            'display': 'block' if plots else 'none',
-            'flexGrow': 1,
-            'minWidth': '350px',
-            'maxHeight': '400px',
-            'overflowY': 'auto',
-        }
-
-        store_data = {
-            "train_frame": train_frame.to_json(orient="split") if not train_frame.empty else None,
-            "units": units_filtered.to_json(orient="split") if units_filtered is not None else None,
-            "params": params.to_json(orient="split") if not params.empty else None,
-            "plot_dir": str(plots_dir),
-            "common": common,
-            "generated_all_plots": bool(generate_plots),
-        }
-
-        status_text = f"Fitted {len(common)} metabolites with intensity '{intensity}'."
-        return (
-            status_text,
-            f"Concentrations: {concentrations_path}",
-            metabolite_options,
-            initial_selection,
-            plots,
-            plot_style,
-            store_data,
-            False,
-        )
+    )(run_scalir)
 
     # Reset SCALiR modal
-    @app.callback(
+    app.callback(
         Output('scalir-status-text', 'children', allow_duplicate=True),
         Output('scalir-conc-path', 'children', allow_duplicate=True),
         Output('scalir-metabolite-select', 'options', allow_duplicate=True),
@@ -2638,86 +2384,351 @@ def callbacks(app, fsc, cache):
         Output('scalir-standards-note', 'children', allow_duplicate=True),
         Input('scalir-reset-btn', 'nClicks'),
         prevent_initial_call=True,
-    )
-    def reset_scalir(n_clicks):
-        if not n_clicks:
-            raise PreventUpdate
-        return (
-            "",
-            "",
-            [],
-            None,  # Single value for single-select
-            [],
-            {
-                'display': 'none',
-                'flexGrow': 1,
-                'minWidth': '350px',
-            },
-            None,
-            None,
-            None,
-            "No standards file selected.",
-        )
+    )(reset_scalir)
 
     # Update SCALiR plots based on metabolite selection
-    @app.callback(
+    app.callback(
         Output('scalir-plot-graphs', 'children', allow_duplicate=True),
         Output('scalir-plot-graphs', 'style', allow_duplicate=True),
         Output('scalir-plot-path', 'children'),
         Input('scalir-metabolite-select', 'value'),
         State('scalir-results-store', 'data'),
         prevent_initial_call=True,
+    )(update_scalir_plot)
+
+
+
+def open_scalir_modal(n_clicks, wdir):
+    if not n_clicks:
+        raise PreventUpdate
+    
+    # Default empty return (modal visible, everything else empty)
+    empty_ret = (
+        True, "", "", [], None, [], 
+        {'display': 'none', 'flexGrow': 1, 'minWidth': '350px'}, 
+        None
     )
-    def update_scalir_plot(selected_label, store_data):
-        import plotly.graph_objects as go
+
+    if not wdir:
+        return empty_ret
+
+    output_dir = Path(wdir) / "results" / "scalir"
+    train_frame_path = output_dir / "train_frame.csv"
+    params_path = output_dir / "standard_curve_parameters.csv"
+    
+    # If results don't exist, just open empty modal
+    if not train_frame_path.exists() or not params_path.exists():
+        return empty_ret
+
+    try:
+        train_frame = pd.read_csv(train_frame_path)
+        params = pd.read_csv(params_path)
+        
+        units_path = output_dir / "units.csv"
+        units_filtered = pd.read_csv(units_path) if units_path.exists() else None
+        concentrations_path = output_dir / "concentrations.csv"
+        
+        common = sorted(train_frame['peak_label'].unique())
+        metabolite_options = [{'label': label, 'value': label} for label in common]
+        first_label = common[0] if common else None
+
         PLOTLY_HIGH_RES_CONFIG = {
             'displayModeBar': False,
             'displaylogo': False,
         }
 
-        # If no selection, hide plots
-        if not selected_label:
-            return [], {'display': 'none'}, ""
+        # Generate initial plot
+        plots = []
+        if first_label and not train_frame.empty:
+            fig = _plot_curve_fig(train_frame, first_label, units_filtered, params)
+            plots.append(
+                dcc.Graph(
+                    figure=fig,
+                    style={'width': '100%', 'height': '450px'},
+                    config=PLOTLY_HIGH_RES_CONFIG,
+                )
+            )
+        
+        plot_style = {
+            'display': 'block', 
+            'flexGrow': 1, 
+            'minWidth': '350px', 
+            'maxHeight': '400px', 
+            'overflowY': 'auto'
+        } if plots else {'display': 'none'}
 
-        if not store_data:
-            raise PreventUpdate
+        store_data = {
+            "train_frame": train_frame.to_json(orient="split"),
+            "units": units_filtered.to_json(orient="split") if units_filtered is not None else None,
+            "params": params.to_json(orient="split"),
+            "plot_dir": str(output_dir / "plots"),
+            "common": common,
+            "generated_all_plots": True
+        }
+        
+        status_text = f"Loaded results for {len(common)} metabolites."
+        conc_text = f"Concentrations: {concentrations_path}" if concentrations_path.exists() else ""
+        
+        return (True, status_text, conc_text, metabolite_options, first_label, plots, plot_style, store_data)
 
-        train_frame_json = store_data.get("train_frame")
-        if not train_frame_json:
-            raise PreventUpdate
+    except Exception as e:
+        logger.error(f"SCALiR: Failed to load existing results: {e}", exc_info=True)
+        return empty_ret
 
-        train_frame = pd.read_json(StringIO(train_frame_json), orient="split")
-        units_json = store_data.get("units")
-        units_df = pd.read_json(StringIO(units_json), orient="split") if units_json else None
-        params_json = store_data.get("params")
-        params_df = pd.read_json(StringIO(params_json), orient="split") if params_json else None
 
-        # Single metabolite plot
-        fig = _plot_curve_fig(train_frame, selected_label, units_df, params_df)
-        plots = [
+def show_standards_filename(filename):
+    if filename:
+        return filename
+    return "No standards file selected."
+
+
+def run_scalir(n_clicks, standards_contents, standards_filename, intensity, slope_mode,
+               slope_low, slope_high, generate_plots, wdir, section_context):
+    if not n_clicks:
+        raise PreventUpdate
+    if not section_context or section_context.get('page') != 'Processing':
+        raise PreventUpdate
+
+    import plotly.graph_objects as go
+    PLOTLY_HIGH_RES_CONFIG = {
+        'toImageButtonOptions': {
+            'format': 'png',
+            'scale': 4,
+            'height': None,
+            'width': None,
+        },
+        'displayModeBar': True,
+        'displaylogo': False,
+    }
+
+    hidden_style = {
+        'display': 'none',
+        'flexWrap': 'wrap',
+        'gap': '16px',
+        'paddingTop': '8px',
+        'justifyContent': 'flex-start',
+    }
+    if not wdir:
+        return ("No active workspace.", "", [], None, [], hidden_style, None, False)
+    try:
+        logger.info(f"SCALiR: Parsing standards file {standards_filename}...")
+        standards_df = _parse_uploaded_standards(standards_contents, standards_filename)
+    except Exception as exc:
+        logger.error(f"SCALiR: Failed to parse standards file: {exc}")
+        return (f"Upload a standards table (CSV). Error: {exc}", "", [], None, [], hidden_style, None, False)
+
+    with duckdb_connection(wdir) as conn:
+        if conn is None:
+            logger.error("SCALiR: Failed to connect to database.")
+            return ("Database connection failed.", "", [], None, [], hidden_style, None, False)
+        if intensity not in SCALIR_ALLOWED_METRICS:
+            intensity = 'peak_area'
+        try:
+            mint_df = conn.execute(f"""
+                SELECT ms_file_label AS ms_file, peak_label, {intensity}
+                FROM results
+                WHERE {intensity} IS NOT NULL
+            """).df()
+        except Exception as exc:
+            logger.error(f"SCALiR: Could not load results from database: {exc}")
+            return (f"Could not load results: {exc}", "", [], None, [], hidden_style, None, False)
+
+    if mint_df.empty:
+        return ("No results found for calibration.", "", [], None, [], hidden_style, None, False)
+
+    units_df = None
+    if "unit" in standards_df.columns:
+        units_df = standards_df[["peak_label", "unit"]].copy()
+        standards_df = standards_df.drop(columns=["unit"])
+
+    try:
+        mint_filtered, standards_filtered, units_filtered, common = intersect_peaks(
+            mint_df, standards_df, units_df
+        )
+    except Exception as exc:
+        logger.error(f"SCALiR: Alignment failed: {exc}", exc_info=True)
+        return (f"Could not align standards with results: {exc}", "", [], None, [], hidden_style, None, False)
+
+    if not common:
+        return ("No overlapping peak_label values between results and standards.", "", [], None, [], hidden_style, None, False)
+
+    low = slope_low or 0.85
+    high = slope_high or 1.15
+    slope_interval = (min(low, high), max(low, high))
+
+    try:
+        logger.info(f"SCALiR: Before fit - mint_filtered: {len(mint_filtered)} rows, cols: {list(mint_filtered.columns)}")
+        logger.info(f"SCALiR: Before fit - standards_filtered: {len(standards_filtered)} rows, cols: {list(standards_filtered.columns)}")
+        estimator, std_results, x_train, y_train, params = fit_estimator(
+            mint_filtered, standards_filtered, intensity, slope_mode or "fixed", slope_interval
+        )
+        logger.info(f"SCALiR: After fit - std_results: {len(std_results)} rows, x_train: {len(x_train)} rows")
+        logger.info(f"SCALiR: Fitting completed. Metabolites: {len(common)}")
+        concentrations = build_concentration_table(
+            estimator, mint_filtered, intensity, units_filtered
+        )
+    except Exception as exc:
+        logger.error(f"SCALiR: Fitting failed: {exc}", exc_info=True)
+        return (f"Error fitting calibration: {exc}", "", [], None, [], hidden_style, None, False)
+
+    output_dir = Path(wdir) / "results" / "scalir"
+    plots_dir = output_dir / "plots"
+    output_dir.mkdir(parents=True, exist_ok=True)
+    if generate_plots:
+        plots_dir.mkdir(parents=True, exist_ok=True)
+
+    concentrations_path = output_dir / "concentrations.csv"
+    params_path = output_dir / "standard_curve_parameters.csv"
+    concentrations.to_csv(concentrations_path, index=False)
+    params.to_csv(params_path, index=False)
+
+    # Save train_frame and units for persistence
+    try:
+        logger.info(f"SCALiR: x_train has {len(x_train)} rows, columns: {list(x_train.columns)}")
+        if 'value' in x_train.columns:
+            logger.info(f"SCALiR: x_train.value stats - min: {x_train['value'].min()}, max: {x_train['value'].max()}, values > 0: {(x_train['value'] > 0).sum()}")
+        train_frame = training_plot_frame(estimator, x_train, y_train, params)
+        train_frame_path = output_dir / "train_frame.csv"
+        train_frame.to_csv(train_frame_path, index=False)
+        logger.info(f"SCALiR: train_frame has {len(train_frame)} rows, columns: {list(train_frame.columns)}")
+    except Exception as exc:
+        logger.error(f"SCALiR: Failed to build train_frame: {exc}", exc_info=True)
+        train_frame = pd.DataFrame()
+
+    if units_filtered is not None:
+        units_path = output_dir / "units.csv"
+        units_filtered.to_csv(units_path, index=False)
+
+    if generate_plots and not train_frame.empty:
+        for label in common:
+            plot_standard_curve(train_frame, label, units_filtered, plots_dir)
+
+    sorted_common = sorted(common)
+    metabolite_options = [{'label': label, 'value': label} for label in sorted_common]
+    first_label = sorted_common[0] if sorted_common else None
+    initial_selection = first_label  # Single value for single-select mode
+
+    PLOTLY_HIGH_RES_CONFIG = {
+        'displayModeBar': False,
+        'displaylogo': False,
+    }
+
+    # Generate initial plot for the first selected metabolite
+    plots = []
+    if first_label and not train_frame.empty:
+        fig = _plot_curve_fig(train_frame, first_label, units_filtered, params)
+        plots.append(
             dcc.Graph(
                 figure=fig,
                 style={
                     'width': '100%',
-                    'maxWidth': '500px',
-                    'height': '400px',
+                    'height': '450px',
                 },
                 config=PLOTLY_HIGH_RES_CONFIG,
             )
-        ]
+        )
 
-        plot_dir = Path(store_data.get("plot_dir", ""))
-        plot_path = ""
-        if selected_label and store_data.get("generated_all_plots") and plot_dir:
-            candidate = plot_dir / f"{slugify_label(selected_label)}_curve.png"
-            if candidate.exists():
-                plot_path = f"Plot saved at: {candidate}"
+    plot_style = {
+        'display': 'block' if plots else 'none',
+        'flexGrow': 1,
+        'minWidth': '350px',
+        'maxHeight': '400px',
+        'overflowY': 'auto',
+    }
 
-        return plots, {
-            'display': 'block',
+    store_data = {
+        "train_frame": train_frame.to_json(orient="split") if not train_frame.empty else None,
+        "units": units_filtered.to_json(orient="split") if units_filtered is not None else None,
+        "params": params.to_json(orient="split") if not params.empty else None,
+        "plot_dir": str(plots_dir),
+        "common": common,
+        "generated_all_plots": bool(generate_plots),
+    }
+
+    status_text = f"Fitted {len(common)} metabolites with intensity '{intensity}'."
+    return (
+        status_text,
+        f"Concentrations: {concentrations_path}",
+        metabolite_options,
+        initial_selection,
+        plots,
+        plot_style,
+        store_data,
+        False,
+    )
+
+
+def reset_scalir(n_clicks):
+    if not n_clicks:
+        raise PreventUpdate
+    return (
+        "",
+        "",
+        [],
+        None,  # Single value for single-select
+        [],
+        {
+            'display': 'none',
             'flexGrow': 1,
             'minWidth': '350px',
-        }, plot_path
+        },
+        None,
+        None,
+        None,
+        "No standards file selected.",
+    )
+
+
+def update_scalir_plot(selected_label, store_data):
+    import plotly.graph_objects as go
+    PLOTLY_HIGH_RES_CONFIG = {
+        'displayModeBar': False,
+        'displaylogo': False,
+    }
+
+    # If no selection, hide plots
+    if not selected_label:
+        return [], {'display': 'none'}, ""
+
+    if not store_data:
+        raise PreventUpdate
+
+    train_frame_json = store_data.get("train_frame")
+    if not train_frame_json:
+        raise PreventUpdate
+
+    train_frame = pd.read_json(StringIO(train_frame_json), orient="split")
+    units_json = store_data.get("units")
+    units_df = pd.read_json(StringIO(units_json), orient="split") if units_json else None
+    params_json = store_data.get("params")
+    params_df = pd.read_json(StringIO(params_json), orient="split") if params_json else None
+
+    # Single metabolite plot
+    fig = _plot_curve_fig(train_frame, selected_label, units_df, params_df)
+    plots = [
+        dcc.Graph(
+            figure=fig,
+            style={
+                'width': '100%',
+                'maxWidth': '500px',
+                'height': '400px',
+            },
+            config=PLOTLY_HIGH_RES_CONFIG,
+        )
+    ]
+
+    plot_dir = Path(store_data.get("plot_dir", ""))
+    plot_path = ""
+    if selected_label and store_data.get("generated_all_plots") and plot_dir:
+        candidate = plot_dir / f"{slugify_label(selected_label)}_curve.png"
+        if candidate.exists():
+            plot_path = f"Plot saved at: {candidate}"
+
+    return plots, {
+        'display': 'block',
+        'flexGrow': 1,
+        'minWidth': '350px',
+    }, plot_path
 
 
 def _plot_curve_fig(frame: pd.DataFrame, peak_label: str, units: pd.DataFrame = None, params_df: pd.DataFrame = None):
