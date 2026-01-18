@@ -1680,14 +1680,19 @@ def _insert_ms_data(wdir, ms_type, batch_ms, batch_ms_data):
 
 # IMPORTANT: We've defined these functions here temporarily, but it should be moved to the backend.
 def process_ms_files(wdir, set_progress, selected_files, n_cpus):
-    def _send_progress(percent, detail=""):
+    def _send_progress(percent, stage="Processing", detail=""):
         if not set_progress:
             return
         try:
-            set_progress(percent, detail)
+            set_progress(percent, stage, detail)
         except TypeError:
             try:
-                set_progress(percent)
+                set_progress(percent, detail)
+            except TypeError:
+                try:
+                    set_progress(percent)
+                except Exception:
+                    pass
             except Exception:
                 pass
 
@@ -1695,7 +1700,9 @@ def process_ms_files(wdir, set_progress, selected_files, n_cpus):
     n_total = len(file_list)
     failed_files = []
     duplicates_count = 0
-    total_processed = 0
+    total_processed = 0 # Files committed to DB
+    n_converted = 0     # Files processed by CPU (for smooth progress bar)
+    last_batch_time = None
     import concurrent.futures
     import time
 
@@ -1737,36 +1744,52 @@ def process_ms_files(wdir, set_progress, selected_files, n_cpus):
         chunk_size = 64  # Max files in-flight at once
         batch_ms = {'ms1': [], 'ms2': []}
         batch_ms_data = {'ms1': [], 'ms2': []}
-        batch_size = n_cpus
+        # Decouple DB batch size from CPU count for fewer transactions
+        batch_size = 100
         total_batches = (total_to_process + batch_size - 1) // batch_size
         batch_num = 0
         batch_start = time.time()
-        
-        with tempfile.TemporaryDirectory(dir=workspace_temp) as tmpdir:
+
+        # Prepare ThreadPoolExecutor for DB writes (max_workers=1 to ensure serial writes)
+        # pipeline depth of 1: We convert batch N while writing batch N-1.
+        with tempfile.TemporaryDirectory(dir=workspace_temp) as tmpdir, \
+             concurrent.futures.ThreadPoolExecutor(max_workers=1) as db_executor, \
+             concurrent.futures.ProcessPoolExecutor(max_workers=n_cpus) as executor: # Reuse process pool!
+
+            db_future = None  # Holds the future of the *previous* batch insertion
+
+            # Helper to handle DB result processing
+            def process_db_result(future):
+                nonlocal total_processed, failed_files
+                try:
+                    b_processed, b_failed = future.result()
+                    total_processed += b_processed
+                    failed_files.extend(b_failed)
+                    return b_processed
+                except Exception as e:
+                    logger.error(f"Async DB Insert Failed: {e}")
+                    return 0
+
             # Process files in chunks
             for chunk_start in range(0, len(files_to_process), chunk_size):
                 chunk_end = min(chunk_start + chunk_size, len(files_to_process))
                 chunk_files = files_to_process[chunk_start:chunk_end]
                 
-                with concurrent.futures.ProcessPoolExecutor(
-                    max_workers=min(n_cpus, len(chunk_files)), 
-                    mp_context=None
-                ) as executor:
-                    futures_name = {
-                        executor.submit(
-                            convert_ms_file_to_parquet_fast_batches, file_path, tmp_dir=tmpdir
-                        ): file_path
-                        for file_path in chunk_files
-                    }
-                    
-                    for future in concurrent.futures.as_completed(futures_name.keys()):
+                futures_name = {
+                    executor.submit(
+                        convert_ms_file_to_parquet_fast_batches, file_path, tmp_dir=tmpdir
+                    ): file_path
+                    for file_path in chunk_files
+                }
+                
+                for future in concurrent.futures.as_completed(futures_name.keys()):
                         try:
                             result = future.result()
                         except Exception as e:
                             failed_files.append({futures_name[future]: str(e)})
-                            total_processed += 1
-                            done_count = total_processed + len(failed_files) + duplicates_count
-                            _send_progress(round(done_count / n_total * 100, 1))
+                            n_converted += 1
+                            done_count = n_converted + duplicates_count
+                            _send_progress(round(done_count / n_total * 100, 1), stage="Processing", detail="Processing files...")
                             logger.error(f"Failed: {Path(futures_name[future]).name} ({e})")
                             continue
 
@@ -1774,12 +1797,15 @@ def process_ms_files(wdir, set_progress, selected_files, n_cpus):
                         
                         if _parquet_df is None:
                             failed_files.append({_file_path: "No valid data found or conversion failed"})
-                            total_processed += 1
-                            done_count = total_processed + len(failed_files) + duplicates_count
-                            _send_progress(round(done_count / n_total * 100, 1))
+                            n_converted += 1
+                            done_count = n_converted + duplicates_count
+                            _send_progress(round(done_count / n_total * 100, 1), stage="Processing", detail="Processing files...")
                             logger.warning(f"Failed (no data): {Path(_file_path).name}")
                             continue
 
+                        # Success handling
+                        n_converted += 1
+                        
                         suffix = Path(_file_path).suffix.lower()
                         if suffix == ".mzxml":
                             file_type = "mzXML"
@@ -1790,103 +1816,179 @@ def process_ms_files(wdir, set_progress, selected_files, n_cpus):
                         batch_ms[f'ms{_ms_level}'].append(
                             (_ms_file_label, _ms_file_label, f'ms{_ms_level}', _polarity, file_type)
                         )
+
                         batch_ms_data[f'ms{_ms_level}'].append(_parquet_df)
+                        
+                        # Update progress bar smoothly (file by file)
+                        done_count = n_converted + duplicates_count
+                        pct = round(done_count / n_total * 100, 1)
+                        # We can show detailed text if we want, or keep it generic until batch finishes
+                        # Showing batch info here might be wrong since batch_num updates later?
+                        # Let's show generic "Processing file X/Y" or similar
+                        detail_text = (
+                            f"Batch {batch_num+1}/{total_batches} | "
+                            f"Progress {done_count}/{n_total}"
+                        )
+                        if last_batch_time is not None:
+                             detail_text += f" | Time/batch {last_batch_time:.2f}s"
+
+                        _send_progress(pct, stage="Processing", detail=detail_text)
 
                         if len(batch_ms['ms1']) == batch_size:
-                            b_processed, b_failed = _insert_ms_data(wdir, 'ms1', batch_ms, batch_ms_data)
+                            # 1. Wait for previous DB write to finish (pipelining)
+                            if db_future:
+                                process_db_result(db_future)
+
+                            # 2. Submit new batch (COPY data so main thread can reuse lists)
+                            # Deep copy not needed for list of strings/tuples, shallow copy of list is fine
+                            # But we need new lists for next batch in main thread
+                            batch_ms_copy = {'ms1': batch_ms['ms1'], 'ms2': []} # MS2 is separate triggering
+                            batch_data_copy = {'ms1': batch_ms_data['ms1'], 'ms2': []}
+
+                            t_insert_start = time.time() # This timestamp is less meaningful now, denotes submit time
+                            db_future = db_executor.submit(_insert_ms_data, wdir, 'ms1', batch_ms_copy, batch_data_copy)
+
                             batch_elapsed = time.time() - batch_start
-                            total_processed += b_processed
-                            failed_files.extend(b_failed)
+                            last_batch_time = batch_elapsed # Update for next batch display
 
                             batch_num += 1
                             detail = (
                                 f"Batch {batch_num}/{total_batches} | "
-                                f"Progress {total_processed:,}/{total_to_process:,} | "
-                                f"Time/batch {batch_elapsed:0.2f}s"
+                                f"Progress {done_count}/{n_total} | "
+                                f"Time/batch {batch_elapsed:.2f}s"
                             )
-                            done_count = total_processed + len(failed_files) + duplicates_count
-                            _send_progress(round(done_count / n_total * 100, 1), detail)
+                            # Ensure we don't send > 100% or anything weird, though n_converted handles it
+                            _send_progress(pct, stage="Processing", detail=detail)
                             logger.info(detail)
+
                             batch_ms['ms1'] = []
                             batch_ms_data['ms1'] = []
                             batch_start = time.time()
-                            
-                            # Periodic CHECKPOINT every 20 batches
+
+                            # Periodic CHECKPOINT every 20 batches (Sync check)
                             if batch_num % 20 == 0:
+                                # Must wait for pending DB operations before checkpointing
+                                if db_future:
+                                    process_db_result(db_future)
+                                    db_future = None
                                 with duckdb_connection(wdir) as conn:
                                     if conn is not None:
                                         conn.execute("CHECKPOINT")
                                         logger.info(f"Checkpoint after batch {batch_num}")
 
                         elif len(batch_ms['ms2']) == batch_size:
-                            b_processed, b_failed = _insert_ms_data(wdir, 'ms2', batch_ms, batch_ms_data)
+                             # 1. Wait for previous DB write
+                            if db_future:
+                                process_db_result(db_future)
+
+                            batch_ms_copy = {'ms1': [], 'ms2': batch_ms['ms2']}
+                            batch_data_copy = {'ms1': [], 'ms2': batch_ms_data['ms2']}
+
+                            db_future = db_executor.submit(_insert_ms_data, wdir, 'ms2', batch_ms_copy, batch_data_copy)
+
                             batch_elapsed = time.time() - batch_start
-                            total_processed += b_processed
-                            failed_files.extend(b_failed)
 
                             batch_num += 1
                             detail = (
                                 f"Batch {batch_num}/{total_batches} | "
-                                f"Progress {total_processed:,}/{total_to_process:,} | "
-                                f"Time/batch {batch_elapsed:0.2f}s"
+                                f"Conv Time: {batch_elapsed:0.2f}s | "
+                                f"DB: Async"
                             )
                             done_count = total_processed + len(failed_files) + duplicates_count
                             _send_progress(round(done_count / n_total * 100, 1), detail)
                             logger.info(detail)
+
                             batch_ms['ms2'] = []
                             batch_ms_data['ms2'] = []
                             batch_start = time.time()
-                            
+
                             # Periodic CHECKPOINT every 20 batches
                             if batch_num % 20 == 0:
+                                if db_future:
+                                    process_db_result(db_future)
+                                    db_future = None
                                 with duckdb_connection(wdir) as conn:
                                     if conn is not None:
                                         conn.execute("CHECKPOINT")
                                         logger.info(f"Checkpoint after batch {batch_num}")
-            
-            # Process remaining items in batches
+
+            # Flush remaining batches
+            # 1. Wait for any pending async write
+            _send_progress(99.0, stage="Finalizing", detail="Finishing background tasks...")
+            t_wait_start = time.time()
+            if db_future:
+                process_db_result(db_future)
+                db_future = None
+            wait_time = time.time() - t_wait_start
+
+            # 2. Process remaining items synchronously (or async and wait)
             if len(batch_ms['ms1']):
+                _send_progress(99.5, stage="Finalizing", detail="Saving last batch (MS1)...")
+                t_insert_start = time.time()
                 b_processed, b_failed = _insert_ms_data(wdir, 'ms1', batch_ms, batch_ms_data)
+                t_insert_end = time.time()
+                
                 batch_elapsed = time.time() - batch_start
+                insert_time = t_insert_end - t_insert_start
+                conv_time = batch_elapsed - insert_time - wait_time
+                
                 total_processed += b_processed
                 failed_files.extend(b_failed)
-
+                
                 batch_num += 1
                 detail = (
                     f"Batch {batch_num}/{total_batches} | "
-                    f"Progress {total_processed:,}/{total_to_process:,} | "
-                    f"Time/batch {batch_elapsed:0.2f}s"
+                    f"Files {done_count}/{n_total}"
                 )
-                done_count = total_processed + len(failed_files) + duplicates_count
-                _send_progress(round(done_count / n_total * 100, 1), detail)
-                logger.info(detail)
+                done_count = n_converted + duplicates_count
+                _send_progress(round(done_count / n_total * 100, 1), stage="Processing", detail=detail)
+                
+                log_detail = (
+                    f"Batch {batch_num}/{total_batches} | "
+                    f"Conv: {conv_time:0.2f}s | "
+                    f"Wait: {wait_time:0.2f}s | "
+                    f"DB: {insert_time:0.2f}s (Sync Flush)"
+                )
+                logger.info(log_detail)
+
                 batch_ms['ms1'] = []
                 batch_ms_data['ms1'] = []
-
+                
             if len(batch_ms['ms2']):
+                _send_progress(99.5, stage="Finalizing", detail="Saving last batch (MS2)...")
+                t_insert_start = time.time()
                 b_processed, b_failed = _insert_ms_data(wdir, 'ms2', batch_ms, batch_ms_data)
+                t_insert_end = time.time()
+                
                 batch_elapsed = time.time() - batch_start
+                insert_time = t_insert_end - t_insert_start
+                conv_time = batch_elapsed - insert_time - wait_time
+
                 total_processed += b_processed
                 failed_files.extend(b_failed)
-
+                
                 batch_num += 1
                 detail = (
                     f"Batch {batch_num}/{total_batches} | "
-                    f"Progress {total_processed:,}/{total_to_process:,} | "
-                    f"Time/batch {batch_elapsed:0.2f}s"
+                    f"Files {done_count}/{n_total}"
                 )
-                done_count = total_processed + len(failed_files) + duplicates_count
-                _send_progress(round(done_count / n_total * 100, 1), detail)
-                logger.info(detail)
+                done_count = n_converted + duplicates_count
+                _send_progress(round(done_count / n_total * 100, 1), stage="Processing", detail=detail)
+                
+                log_detail = (
+                    f"Batch {batch_num}/{total_batches} | "
+                    f"Conv: {conv_time:0.2f}s | "
+                    f"Wait: {wait_time:0.2f}s | "
+                    f"DB: {insert_time:0.2f}s (Sync Flush)"
+                )
+                logger.info(log_detail)
+                
                 batch_ms['ms2'] = []
                 batch_ms_data['ms2'] = []
 
-    _send_progress(round(100, 1))
-    elapsed = time.perf_counter() - start_time
-    logger.info(
-        f"Completed MS file processing. Success: {total_processed}, "
-        f"Failed: {len(failed_files)}. Total time: {elapsed:0.2f}s."
-    )
+    total_elapsed = time.perf_counter() - start_time
+    logger.info(f"Completed MS file processing. Success: {total_processed}, Failed: {len(failed_files)}. Total time: {total_elapsed:0.2f}s.")
+    _send_progress(100, stage="Processing", detail=f"Done. Processed {total_processed} files.")
     
     # Clean up the workspace's temp folder
     workspace_temp = Path(wdir) / "data" / "temp"
