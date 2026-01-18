@@ -495,6 +495,7 @@ def _create_tables(conn: duckdb.DuckDBPyConnection):
     # Backfill new processing flag for existing DBs
     conn.execute("ALTER TABLE samples ADD COLUMN IF NOT EXISTS use_for_processing BOOLEAN DEFAULT true;")
     conn.execute("ALTER TABLE samples ADD COLUMN IF NOT EXISTS file_type VARCHAR;")
+    conn.execute("ALTER TABLE samples ADD COLUMN IF NOT EXISTS acquisition_datetime TIMESTAMP;")
     for col in GROUP_COLUMNS:
         conn.execute(f"ALTER TABLE samples ADD COLUMN IF NOT EXISTS {col} VARCHAR;")
     try:
@@ -571,8 +572,8 @@ def _create_tables(conn: duckdb.DuckDBPyConnection):
                      ms_file_label VARCHAR,
                      scan_time     DOUBLE[],
                      intensity     DOUBLE[],
+                     mz_arr        DOUBLE[],
                      ms_type       ms_type_enum,
-                     -- mz            DOUBLE[],
                      PRIMARY KEY (ms_file_label, peak_label)
                  );
                  """)
@@ -598,8 +599,17 @@ def _create_tables(conn: duckdb.DuckDBPyConnection):
                      PRIMARY KEY (ms_file_label, peak_label)
                  );
                  """)
+
+    # Migration: Add mz_arr column to chromatograms table
+    try:
+        chrom_cols = {row[0] for row in conn.execute("DESCRIBE chromatograms").fetchall()}
+        if 'mz_arr' not in chrom_cols:
+            conn.execute("ALTER TABLE chromatograms ADD COLUMN mz_arr DOUBLE[]")
+            logger.info("Migration: Added 'mz_arr' column to chromatograms table")
+    except Exception:
+        pass
     
-    # Migration: Add rt_aligned and rt_shift columns to existing results tables
+    # Migration: Add rt_aligned, rt_shift, peak_mz_of_max columns to existing results tables
     existing_cols = {
         row[0] for row in conn.execute("DESCRIBE results").fetchall()
     }
@@ -609,6 +619,9 @@ def _create_tables(conn: duckdb.DuckDBPyConnection):
     if 'rt_shift' not in existing_cols:
         conn.execute("ALTER TABLE results ADD COLUMN rt_shift DOUBLE")
         logger.info("Migration: Added 'rt_shift' column to results table")
+    if 'peak_mz_of_max' not in existing_cols:
+        conn.execute("ALTER TABLE results ADD COLUMN peak_mz_of_max DOUBLE")
+        logger.info("Migration: Added 'peak_mz_of_max' column to results table")
     
     # Migration: Add EMG peak fitting columns to existing results tables
     fitting_columns = {
@@ -1249,24 +1262,35 @@ def compute_chromatograms_in_batches(wdir: str,
                                  """
 
     QUERY_PROCESS_BATCH_MS1 = """
-                              INSERT INTO chromatograms (peak_label, ms_file_label, scan_time, intensity, ms_type)
+                              INSERT INTO chromatograms (peak_label, ms_file_label, scan_time, intensity, mz_arr, ms_type)
                               WITH batch_pairs AS (SELECT peak_label, ms_file_label, ms_type, mz_mean, mz_width, rt_min, rt_max
                                                    FROM pending_pairs
                                                    WHERE ms_type = 'ms1'
                                                      AND pair_id BETWEEN ? AND ?),
-                                   -- Step 1: Find intensities (only rows with signal)
-                                   matched_intensities AS (SELECT bp.peak_label,
-                                                                  bp.ms_file_label,
-                                                                  ms1.scan_id,
-                                                                  MAX(ms1.intensity) AS intensity
-                                                           FROM batch_pairs bp
-                                                                    JOIN ms1_data ms1
-                                                                         ON ms1.ms_file_label = bp.ms_file_label
-                                                                             AND ms1.mz BETWEEN
-                                                                                bp.mz_mean - (bp.mz_mean * bp.mz_width / 1e6)
-                                                                                AND
-                                                                                bp.mz_mean + (bp.mz_mean * bp.mz_width / 1e6)
-                                                           GROUP BY bp.peak_label, bp.ms_file_label, ms1.scan_id),
+                                   -- Step 1: Find max intensity and corresponding mz per scan
+                                   matched_with_mz AS (
+                                       SELECT bp.peak_label,
+                                              bp.ms_file_label,
+                                              ms1.scan_id,
+                                              ms1.intensity,
+                                              ms1.mz,
+                                              ROW_NUMBER() OVER (
+                                                  PARTITION BY bp.peak_label, bp.ms_file_label, ms1.scan_id
+                                                  ORDER BY ms1.intensity DESC
+                                              ) AS rn
+                                       FROM batch_pairs bp
+                                       JOIN ms1_data ms1
+                                            ON ms1.ms_file_label = bp.ms_file_label
+                                                AND ms1.mz BETWEEN
+                                                   bp.mz_mean - (bp.mz_mean * bp.mz_width / 1e6)
+                                                   AND
+                                                   bp.mz_mean + (bp.mz_mean * bp.mz_width / 1e6)
+                                   ),
+                                   matched_intensities AS (
+                                       SELECT peak_label, ms_file_label, scan_id, intensity, mz
+                                       FROM matched_with_mz
+                                       WHERE rn = 1
+                                   ),
                                    -- Step 2: Expand to scans within RT window (±30s margin)
                                    all_scans_needed AS (SELECT DISTINCT bp.peak_label,
                                                                         bp.ms_file_label,
@@ -1282,8 +1306,8 @@ def compute_chromatograms_in_batches(wdir: str,
                                                             a.ms_file_label,
                                                             a.scan_time,
                                                             a.scan_id,
-                                                            a.scan_time,
-                                                            COALESCE(ROUND(m.intensity, 0), 1) AS intensity
+                                                            COALESCE(ROUND(m.intensity, 0), 1) AS intensity,
+                                                            m.mz AS mz_val
                                                      FROM all_scans_needed a
                                                               LEFT JOIN matched_intensities m
                                                                         ON a.peak_label = m.peak_label
@@ -1292,10 +1316,11 @@ def compute_chromatograms_in_batches(wdir: str,
                                    agg AS (SELECT peak_label,
                                                   ms_file_label,
                                                   LIST(scan_time ORDER BY scan_time) AS scan_time,
-                                                  LIST(intensity ORDER BY scan_time) AS intensity
+                                                  LIST(intensity ORDER BY scan_time) AS intensity,
+                                                  LIST(mz_val ORDER BY scan_time) AS mz_arr
                                            FROM complete_data
                                            GROUP BY peak_label, ms_file_label)
-                              SELECT peak_label, ms_file_label, scan_time, intensity, 'ms1' AS ms_type
+                              SELECT peak_label, ms_file_label, scan_time, intensity, mz_arr, 'ms1' AS ms_type
                               FROM agg;
                               """
 
@@ -1729,6 +1754,7 @@ def compute_results_in_batches(wdir: str,
             peak_min,
             peak_mean,
             peak_rt_of_max,
+            peak_mz_of_max,
             peak_median,
             peak_n_datapoints,
             rt_aligned,
@@ -1748,6 +1774,7 @@ def compute_results_in_batches(wdir: str,
                 c.ms_file_label,
                 c.scan_time,
                 c.intensity,
+                c.mz_arr,
                 t.rt_min,
                 t.rt_max,
                 COALESCE(t.rt_align_enabled, FALSE) AS rt_align_enabled,
@@ -1773,6 +1800,12 @@ def compute_results_in_batches(wdir: str,
             m.peak_min,
             m.peak_mean,
             m.peak_rt_of_max,
+            -- peak_mz_of_max: Get mz at same index as peak max intensity
+            CASE 
+                WHEN pd.mz_arr IS NOT NULL AND list_position(pd.intensity, m.peak_max) IS NOT NULL
+                THEN pd.mz_arr[CAST(list_position(pd.intensity, m.peak_max) AS BIGINT)]
+                ELSE NULL
+            END AS peak_mz_of_max,
             m.peak_median,
             m.peak_n_datapoints,
             pd.rt_align_enabled AS rt_aligned,

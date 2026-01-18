@@ -520,8 +520,69 @@ violin_content = html.Div(
 # Store to track the currently selected sample for violin highlighting (defined outside for callback access)
 violin_selected_sample_store = dcc.Store(id='violin-selected-sample', data=None)
 
+# QC tab content (Quality Control scatter plots over acquisition time)
+qc_content = html.Div(
+    [
+
+        # QC plot container - 2 stacked plots with divider
+        fac.AntdSpin(
+            fac.AntdFlex(
+                [
+                    dcc.Graph(
+                        id='qc-rt-graph',
+                        config=PLOTLY_HIGH_RES_CONFIG,
+                        style={'height': '350px', 'width': '100%'},
+                        figure={
+                            'data': [],
+                            'layout': {
+                                'xaxis': {'visible': False},
+                                'yaxis': {'visible': False},
+                                'paper_bgcolor': 'white',
+                                'plot_bgcolor': 'white',
+                                'margin': {'l': 0, 'r': 0, 't': 0, 'b': 0},
+                                'autosize': True,
+                            }
+                        },
+                    ),
+                    fac.AntdDivider(
+                        children="m/z",
+                        lineColor="#ccc",
+                        fontColor="#666",
+                        fontSize="14px",
+                        style={'margin': '12px 0'}
+                    ),
+                    dcc.Graph(
+                        id='qc-mz-graph',
+                        config=PLOTLY_HIGH_RES_CONFIG,
+                        style={'height': '280px', 'width': '100%'},
+                        figure={
+                            'data': [],
+                            'layout': {
+                                'xaxis': {'visible': False},
+                                'yaxis': {'visible': False},
+                                'paper_bgcolor': 'white',
+                                'plot_bgcolor': 'white',
+                                'margin': {'l': 0, 'r': 0, 't': 0, 'b': 0},
+                                'autosize': True,
+                            }
+                        },
+                    ),
+                ],
+                vertical=True,
+                style={'width': '100%'}
+            ),
+            id='qc-spinner',
+            spinning=True,
+            text='Loading QC plots...',
+            style={'minHeight': '300px', 'width': '100%'},
+        ),
+    ],
+    id='analysis-qc-content',
+)
+
 # Analysis menu items for sidebar
 ANALYSIS_MENU_ITEMS = [
+    {'component': 'Item', 'props': {'key': 'qc', 'title': 'QC', 'icon': 'antd-check-circle'}},
     {'component': 'Item', 'props': {'key': 'pca', 'title': 'PCA', 'icon': 'antd-dot-chart'}},
     {'component': 'Item', 'props': {'key': 'raincloud', 'title': 'Violin', 'icon': 'antd-bar-chart'}},
     {'component': 'Item', 'props': {'key': 'clustermap', 'title': 'Clustermap', 'icon': 'antd-build'}},
@@ -557,7 +618,7 @@ _layout = fac.AntdLayout(
                                     id='analysis-sidebar-menu',
                                     menuItems=ANALYSIS_MENU_ITEMS,
                                     mode='inline',
-                                    defaultSelectedKey='pca',
+                                    defaultSelectedKey='qc',
                                     style={'border': 'none'},
                                 ),
                             ],
@@ -597,37 +658,45 @@ _layout = fac.AntdLayout(
                         # Shared controls header - visible for all views
                         fac.AntdFlex(
                             [
-                                fac.AntdSpace(
-                                    [
-                                        fac.AntdText("Metric:", style={'fontWeight': 500, 'marginLeft': '15px'}),
-                                        fac.AntdSelect(
-                                            id='analysis-metric-select',
-                                            options=METRIC_OPTIONS,
-                                            value='peak_area',
-                                            optionFilterProp='label',
-                                            optionFilterMode='case-insensitive',
-                                            allowClear=False,
-                                            style={'width': 160},
-                                        ),
-                                    ],
-                                    align='center',
-                                    size='small',
+                                html.Div(
+                                    fac.AntdSpace(
+                                        [
+                                            fac.AntdText("Metric:", style={'fontWeight': 500, 'marginLeft': '15px'}),
+                                            fac.AntdSelect(
+                                                id='analysis-metric-select',
+                                                options=METRIC_OPTIONS,
+                                                value='peak_area',
+                                                optionFilterProp='label',
+                                                optionFilterMode='case-insensitive',
+                                                allowClear=False,
+                                                style={'width': 160},
+                                            ),
+                                        ],
+                                        align='center',
+                                        size='small',
+                                    ),
+                                    id='analysis-metric-wrapper',
+                                    style={'display': 'flex'},
                                 ),
-                                fac.AntdSpace(
-                                    [
-                                        fac.AntdText("Transformations:", style={'fontWeight': 500}),
-                                        fac.AntdSelect(
-                                            id='analysis-normalization-select',
-                                            options=NORM_OPTIONS,
-                                            value='zscore',
-                                            optionFilterProp='label',
-                                            optionFilterMode='case-insensitive',
-                                            allowClear=False,
-                                            style={'width': 160},
-                                        ),
-                                    ],
-                                    align='center',
-                                    size='small',
+                                html.Div(
+                                    fac.AntdSpace(
+                                        [
+                                            fac.AntdText("Transformations:", style={'fontWeight': 500}),
+                                            fac.AntdSelect(
+                                                id='analysis-normalization-select',
+                                                options=NORM_OPTIONS,
+                                                value='zscore',
+                                                optionFilterProp='label',
+                                                optionFilterMode='case-insensitive',
+                                                allowClear=False,
+                                                style={'width': 160},
+                                            ),
+                                        ],
+                                        align='center',
+                                        size='small',
+                                    ),
+                                    id='analysis-normalization-wrapper',
+                                    style={'display': 'flex'},
                                 ),
                                 fac.AntdSpace(
                                     [
@@ -643,6 +712,27 @@ _layout = fac.AntdLayout(
                                     align='center',
                                     size='small',
                                 ),
+                                html.Div(
+                                    fac.AntdSpace(
+                                        [
+                                            fac.AntdText("Target:", style={'fontWeight': 500}),
+                                            fac.AntdSelect(
+                                                id='qc-target-select',
+                                                options=[],
+                                                value=None,
+                                                allowClear=False,
+                                                optionFilterProp='label',
+                                                optionFilterMode='case-insensitive',
+                                                style={'width': 350},
+                                            ),
+                                        ],
+                                        align='center',
+                                        size='small',
+                                    ),
+                                    id='qc-target-wrapper',
+                                    # This ID allows potential visibility toggling if needed later
+                                    style={'display': 'flex'},
+                                ),
                             ],
                             wrap=True,
                             gap='middle',
@@ -650,11 +740,17 @@ _layout = fac.AntdLayout(
                             id='analysis-metric-container',
                             style={'padding': '12px 16px', 'borderBottom': '1px solid #f0f0f0'},
                         ),
+                        # QC content (first/default tab)
+                        html.Div(
+                            qc_content,
+                            id='analysis-qc-container',
+                            style={'display': 'block', 'padding': '16px'}
+                        ),
                         # PCA content
                         html.Div(
                             pca_tab,
                             id='analysis-pca-container',
-                            style={'display': 'block', 'padding': '16px'}
+                            style={'display': 'none', 'padding': '16px'}
                         ),
                         # Violin content
                         html.Div(
@@ -676,7 +772,7 @@ _layout = fac.AntdLayout(
             style={'height': 'calc(100vh - 100px)', 'background': 'white'},
         ),
         # Hidden store for maintaining tab state compatibility with callbacks
-        dcc.Store(id='analysis-tabs', data={'activeKey': 'pca'}),
+        dcc.Store(id='analysis-tabs', data={'activeKey': 'qc'}),
         fac.AntdTour(
             locale='en-us',
             steps=[],
@@ -1536,6 +1632,7 @@ def callbacks(app, fsc, cache):
 
     # Menu selection -> content visibility + sync to analysis-tabs store
     @app.callback(
+        Output('analysis-qc-container', 'style'),
         Output('analysis-pca-container', 'style'),
         Output('analysis-violin-container', 'style'),
         Output('analysis-clustermap-container', 'style'),
@@ -1544,9 +1641,10 @@ def callbacks(app, fsc, cache):
         prevent_initial_call=False,
     )
     def update_analysis_content_visibility(current_key):
-        # Default to 'pca' if no key selected
-        active_key = current_key or 'pca'
+        # Default to 'qc' if no key selected (QC is now the first tab)
+        active_key = current_key or 'qc'
         
+        qc_style = {'display': 'block', 'padding': '16px'} if active_key == 'qc' else {'display': 'none', 'padding': '16px'}
         pca_style = {'display': 'block', 'padding': '16px'} if active_key == 'pca' else {'display': 'none', 'padding': '16px'}
         violin_style = {'display': 'block', 'padding': '16px'} if active_key == 'raincloud' else {'display': 'none', 'padding': '16px'}
         # Clustermap needs explicit height for spinner centering to work on first access
@@ -1559,17 +1657,23 @@ def callbacks(app, fsc, cache):
         # Sync to legacy analysis-tabs store for backward compatibility with other callbacks
         tabs_data = {'activeKey': active_key}
         
-        return pca_style, violin_style, clustermap_style, tabs_data
+        return qc_style, pca_style, violin_style, clustermap_style, tabs_data
 
 
     @app.callback(
-        Output('analysis-metric-container', 'style'),
+        Output('analysis-metric-wrapper', 'style'),
+        Output('analysis-normalization-wrapper', 'style'),
         Input('analysis-sidebar-menu', 'currentKey'),
         prevent_initial_call=False,
     )
     def toggle_metric_visibility(active_tab):
-        # SCALiR tab has been moved to Processing plugin
-        return {}
+        # For QC tab, hide Metric and Transformations (show only Group by)
+        if active_tab == 'qc':
+            hidden_style = {'display': 'none'}
+            return hidden_style, hidden_style
+        # For other tabs, show all controls
+        visible_style = {'display': 'flex'}
+        return visible_style, visible_style
 
 
     @app.callback(
@@ -2077,3 +2181,293 @@ def callbacks(app, fsc, cache):
             )
         
         return fig
+
+    # QC Tab callbacks
+    @app.callback(
+        Output('qc-target-select', 'options'),
+        Output('qc-target-select', 'value'),
+        Input('analysis-sidebar-menu', 'currentKey'),
+        State('qc-target-select', 'value'),
+        State('wdir', 'data'),
+        prevent_initial_call=False,
+    )
+    def update_qc_target_options(current_key, current_value, wdir):
+        """Populate QC target dropdown when QC tab is selected."""
+        if current_key != 'qc' or not wdir:
+            raise PreventUpdate
+        
+        with duckdb_connection(wdir) as conn:
+            if conn is None:
+                return [], None
+            
+            # Get targets that have results
+            targets = conn.execute("""
+                SELECT DISTINCT t.peak_label 
+                FROM targets t
+                JOIN results r ON t.peak_label = r.peak_label
+                ORDER BY t.peak_label COLLATE NOCASE
+            """).fetchall()
+            
+            if not targets:
+                return [], None
+            
+            options = [{'label': t[0], 'value': t[0]} for t in targets]
+            value = current_value if current_value in [t[0] for t in targets] else targets[0][0]
+            
+            return options, value
+            
+    @app.callback(
+        Output('qc-target-wrapper', 'style'),
+        Input('analysis-sidebar-menu', 'currentKey'),
+    )
+    def toggle_header_visibility(current_key):
+        """Toggle visibility of the QC target selector in the header."""
+        if current_key == 'qc':
+            return {'display': 'flex'}
+        return {'display': 'none'}
+
+    @app.callback(
+        Output('qc-rt-graph', 'figure'),
+        Output('qc-mz-graph', 'figure'),
+        Output('qc-spinner', 'spinning'),
+        Input('qc-target-select', 'value'),
+        Input('analysis-grouping-select', 'value'),
+        State('wdir', 'data'),
+        State('analysis-sidebar-menu', 'currentKey'),
+        prevent_initial_call=True,
+    )
+    def generate_qc_plots(peak_label, group_by, wdir, current_key):
+        """Generate QC plots: RT and m/z in separate figures."""
+        if not peak_label or not wdir or current_key != 'qc':
+            raise PreventUpdate
+        
+        from plotly.subplots import make_subplots
+        
+        with duckdb_connection(wdir) as conn:
+            if conn is None:
+                empty_fig = go.Figure()
+                empty_fig.update_layout(title="No data available", paper_bgcolor='white', plot_bgcolor='white')
+                return empty_fig, empty_fig, False
+            
+            group_col = group_by if group_by else 'sample_type'
+            
+            # Check if peak_mz_of_max exists
+            has_peak_mz = False
+            try:
+                res_cols = [c[0] for c in conn.execute("DESCRIBE results").fetchall()]
+                if 'peak_mz_of_max' in res_cols:
+                    has_peak_mz = True
+            except:
+                pass
+
+            mz_col_sql = "r.peak_mz_of_max," if has_peak_mz else "NULL as peak_mz_of_max,"
+
+            query = f"""
+                SELECT 
+                    r.ms_file_label,
+                    r.peak_rt_of_max,
+                    {mz_col_sql}
+                    r.peak_area,
+                    t.rt_min,
+                    t.rt_max,
+                    t.mz_mean,
+                    t.mz_width,
+                    COALESCE(s.{group_col}, 'unset') as group_val,
+                    s.color,
+                    s.acquisition_datetime,
+                    ROW_NUMBER() OVER (ORDER BY s.acquisition_datetime NULLS LAST, s.ms_file_label) as sample_order
+                FROM results r
+                JOIN targets t ON r.peak_label = t.peak_label
+                JOIN samples s ON r.ms_file_label = s.ms_file_label
+                WHERE r.peak_label = ?
+                ORDER BY s.acquisition_datetime NULLS LAST, s.ms_file_label
+            """
+            
+            try:
+                df = conn.execute(query, [peak_label]).df()
+            except Exception as e:
+                logger.error(f"QC query error: {e}")
+                err_fig = go.Figure()
+                err_fig.update_layout(title=f"Error: {e}", paper_bgcolor='white', plot_bgcolor='white')
+                return err_fig, err_fig, False
+            
+            if df.empty:
+                empty_fig = go.Figure()
+                empty_fig.update_layout(title="No results for selected target", paper_bgcolor='white', plot_bgcolor='white')
+                return empty_fig, empty_fig, False
+            
+            # Use colors from database (samples table)
+            unique_groups = df['group_val'].unique()
+            color_discrete_map = {}
+            default_colors = px.colors.qualitative.Plotly
+            
+            for i, group in enumerate(unique_groups):
+                # meaningful color from database?
+                group_color = df[df['group_val'] == group]['color'].iloc[0]
+                if group_color and group_color != '#BBBBBB':
+                     color_discrete_map[group] = group_color
+                else:
+                     color_discrete_map[group] = default_colors[i % len(default_colors)]
+
+            # X-axis configuration
+            x_col = 'sample_order'
+            x_title = 'Sample Order (by Acquisition Time)'
+            if df['acquisition_datetime'].notna().any():
+                # Format datetime nicely for plot
+                x_col = 'acquisition_datetime'
+                x_title = 'Acquisition Time'
+            
+            # Get bounds
+            mz_mean = df['mz_mean'].iloc[0] if pd.notna(df['mz_mean'].iloc[0]) else None
+            
+            # === RT FIGURE ===
+            # Create 1x2 subplot: main plot on left, histogram on right
+            fig_rt = make_subplots(
+                rows=1, cols=2,
+                column_widths=[0.85, 0.15],
+                horizontal_spacing=0.02,
+                shared_yaxes=True
+            )
+            
+            # === m/z FIGURE ===
+            fig_mz = make_subplots(
+                rows=1, cols=2,
+                column_widths=[0.85, 0.15],
+                horizontal_spacing=0.02,
+                shared_yaxes=True
+            )
+            
+            # Add traces for each group
+            for group in unique_groups:
+                group_df = df[df['group_val'] == group]
+                # Fallback color for histogram/legend if needed, but scatter points use row-level color
+                base_color = color_discrete_map.get(group, '#888888')
+                
+                # Use per-sample color for scatter points ONLY if grouping by sample_type
+                # Otherwise, use the group-level base_color to distinguish groups visually
+                if (not group_by or group_by == 'sample_type') and 'color' in group_df.columns and group_df['color'].notna().all():
+                    scatter_colors = group_df['color']
+                else:
+                    scatter_colors = base_color
+
+                # === RT SCATTER ===
+                fig_rt.add_trace(
+                    go.Scatter(
+                        x=group_df[x_col],
+                        y=group_df['peak_rt_of_max'],
+                        mode='markers',
+                        name=str(group),
+                        marker=dict(color=scatter_colors, size=6),
+                        text=group_df['ms_file_label'],
+                        hovertemplate='%{text}<br>RT: %{y:.2f}s<extra></extra>',
+                        legendgroup=str(group),
+                        showlegend=True,
+                    ),
+                    row=1, col=1
+                )
+                
+                # === m/z SCATTER ===
+                fig_mz.add_trace(
+                    go.Scatter(
+                        x=group_df[x_col],
+                        y=group_df['peak_mz_of_max'] if 'peak_mz_of_max' in df.columns and df['peak_mz_of_max'].notna().any() else [mz_mean] * len(group_df),
+                        mode='markers',
+                        name=str(group),
+                        marker=dict(color=scatter_colors, size=6),
+                        text=group_df['ms_file_label'],
+                        hovertemplate='%{text}<br>m/z: %{y:.4f}<extra></extra>',
+                        legendgroup=str(group),
+                        showlegend=True, 
+                    ),
+                    row=1, col=1
+                )
+                
+                # === HISTOGRAMS ===
+                if not group_by or group_by == 'sample_type':
+                    # Stack by sample color
+                    unique_colors = group_df['color'].unique() if 'color' in group_df.columns else [base_color]
+                    unique_colors = [c for c in unique_colors if pd.notna(c)]
+                    if not unique_colors: unique_colors = [base_color]
+                else:
+                    # Single color for the whole group
+                    unique_colors = [base_color]
+
+                for color_val in unique_colors:
+                    if not group_by or group_by == 'sample_type':
+                         sub_df = group_df[group_df['color'] == color_val] if 'color' in group_df.columns else group_df
+                    else:
+                         sub_df = group_df
+                    
+                    if sub_df.empty: continue
+                    
+                    # RT histogram
+                    fig_rt.add_trace(
+                        go.Histogram(
+                            y=sub_df['peak_rt_of_max'].dropna(),
+                            orientation='h',
+                            marker=dict(color=color_val),
+                            showlegend=False,
+                            nbinsy=20,
+                            name=str(group),
+                            legendgroup=str(group)
+                        ),
+                        row=1, col=2
+                    )
+                    
+                    # m/z histogram
+                    mz_values = sub_df['peak_mz_of_max'] if 'peak_mz_of_max' in sub_df.columns and sub_df['peak_mz_of_max'].notna().any() else [mz_mean] * len(sub_df)
+                    fig_mz.add_trace(
+                        go.Histogram(
+                            y=mz_values,  
+                            orientation='h',
+                            marker=dict(color=color_val),
+                            showlegend=False,
+                            nbinsy=20,
+                            name=str(group),
+                            legendgroup=str(group)
+                        ),
+                        row=1, col=2
+                    )
+            
+            # Common layout updates
+            layout_common = dict(
+                barmode='stack',
+                legend=dict(
+                    orientation='v',
+                    yanchor='top',
+                    y=0.95,
+                    xanchor='right',
+                    x=-0.1,
+                    font=dict(size=10),
+                ),
+                hovermode='closest',
+                margin=dict(l=120, r=20, t=50, b=40),
+                paper_bgcolor='white',
+                plot_bgcolor='white',
+            )
+
+            # Update RT Figure Layout
+            fig_rt.update_layout(
+                **layout_common,
+            )
+            # RT specifics
+            fig_rt.update_yaxes(title_text='RT (sec)', row=1, col=1, showgrid=True, gridcolor='#eee')
+            fig_rt.update_yaxes(showticklabels=False, row=1, col=2)
+            # Hide X labels for top plot to reduce clutter, or keep them if preferred. Users usually want aligned X axes.
+            # But here they are separate figures in a flex col. Aligning zoom is harder.
+            # Let's keep X axis on both for independent utility, or hide top?
+            # User request "split... into two independent plots", so independent axes make sense.
+            fig_rt.update_xaxes(title_text="", showticklabels=True, row=1, col=1) 
+            fig_rt.update_xaxes(showticklabels=False, row=1, col=2)
+
+            # Update m/z Figure Layout
+            fig_mz.update_layout(
+                **layout_common,
+            )
+            fig_mz.update_yaxes(title_text='m/z', row=1, col=1, showgrid=True, gridcolor='#eee')
+            fig_mz.update_yaxes(showticklabels=False, row=1, col=2)
+            fig_mz.update_xaxes(title_text=x_title, row=1, col=1)
+            fig_mz.update_xaxes(showticklabels=False, row=1, col=2)
+            
+            return fig_rt, fig_mz, False
+
