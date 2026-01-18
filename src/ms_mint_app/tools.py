@@ -16,7 +16,7 @@ import pandas as pd
 import pyarrow as pa
 from pyarrow import parquet as pq
 from dash.exceptions import PreventUpdate
-from lxml.etree import XMLSyntaxError
+import pygixml
 from scipy.ndimage import binary_opening
 
 from .duckdb_manager import duckdb_connection
@@ -271,75 +271,149 @@ def _decode_peaks_optimized(attrs: Dict[str, str], text: Optional[str]) -> tuple
     return arr["mz"], arr["intensity"]
 
 
+
+# def iter_mzxml_fast(path: str | Path, *, decode_binary: bool = True) -> Iterator[Dict[str, Any]]:
+#     """
+#     Legacy lxml-based iterator for mzXML files.
+#     Kept for reference.
+#     """
+#     from lxml import etree
+#     path = Path(path)
+#     context = etree.iterparse(path.as_posix(), events=("start", "end"), remove_comments=True, huge_tree=False)
+#     _, root = next(context)
+#     current: Dict[str, Any] = {}
+#     
+#     for ev, elem in context:
+#         tag = elem.tag
+#         if '}' in tag:
+#             tag = tag.rsplit("}", 1)[-1]
+#             
+#         if ev == "start" and tag == "scan":
+#             attribs = elem.attrib
+#             pol = attribs.get("polarity")
+#             polarity = "Positive" if pol == "+" else ("Negative" if pol == "-" else None)
+#             
+#             current = {
+#                 "num": int(attribs.get("num", "0")),
+#                 "msLevel": int(attribs.get("msLevel", "1")),
+#                 "retentionTime": rt_to_seconds(attribs.get("retentionTime", "0")),
+#                 "polarity": polarity,
+#                 "filterLine": attribs.get("filterLine"),
+#                 "precursorMz": None,
+#                 "m/z array": np.array([], dtype=np.float32), 
+#                 "intensity array": np.array([], dtype=np.float32), 
+#             }
+#             
+#         elif ev == "end" and tag == "precursorMz":
+#             try:
+#                 current["precursorMz"] = float(elem.text)
+#             except (ValueError, TypeError):
+#                 pass
+#                 
+#         elif ev == "end" and tag == "peaks":
+#             if decode_binary:
+#                 mz, it = _decode_peaks_optimized(elem.attrib, (elem.text or "").strip() or None)
+#                 current["m/z array"] = mz
+#                 current["intensity array"] = it
+#                 
+#         elif ev == "end" and tag == "scan":
+#             yield current
+#             elem.clear()
+#             root.clear()
+
 def iter_mzxml_fast(path: str | Path, *, decode_binary: bool = True) -> Iterator[Dict[str, Any]]:
-    from lxml import etree  # CRITICAL IMPORT
-
     path = Path(path)
+    # pygixml implementation
+    doc = pygixml.parse_file(str(path))
+    
+    # Select all scan elements using root relative xpath
+    # Use first_child() to get the root element
+    try:
+        scans = doc.first_child().select_nodes("//*[local-name()='scan']")
+    except Exception:
+        # Fallback or error handling if file is empty/invalid
+        return
 
-    # KEY CHANGE: lxml.etree with remove_comments=True
-    context = etree.iterparse(
-        path.as_posix(),
-        events=("start", "end"),
-        remove_comments=True,  # Speeds up parsing
-        huge_tree=False,  # Security (default)
-    )
-
-    # Get root to clear memory
-    _, root = next(context)
-
-    current: Dict[str, Any] = {}
-    have_peaks = False
-
-    for ev, elem in context:
-        # lxml uses .tag directly (without namespace by default in mzXML)
-        tag = elem.tag
-        if '}' in tag:  # Only if there is a namespace
-            tag = tag.rsplit("}", 1)[-1]
-
-        if ev == "start" and tag == "scan":
-            a = elem.attrib
-            current = {
-                "num": int(a.get("num", "0")),
-                "msLevel": int(a.get("msLevel", "0")),
-                "retentionTime": rt_to_seconds(a.get("retentionTime", "0")),
-                "polarity": (
-                    "Positive" if a.get("polarity") == "+"
-                    else ("Negative" if a.get("polarity") == "-" else None)
-                ),
-                "filterLine": a.get("filterLine"),
-            }
-            have_peaks = False
-
-        elif ev == "end" and tag == "precursorMz":
-            txt = (elem.text or "").strip()
-            if txt:
+    # Use a shared list for reusing objects if optimizing further, but dict creation is fine
+    
+    for scan in scans:
+        scan = scan.node
+        current = {
+            "num": int(scan.attribute("num").value or "0"),
+            "msLevel": int(scan.attribute("msLevel").value or "0"),
+            "retentionTime": rt_to_seconds(scan.attribute("retentionTime").value),
+            "polarity": None,
+            "filterLine": scan.attribute("filterLine").value,
+            "precursorMz": None,
+            "m/z array": np.array([], dtype=np.float32), 
+            "intensity array": np.array([], dtype=np.float32)
+        }
+        
+        pol = scan.attribute("polarity").value
+        if pol == "+":
+            current["polarity"] = "Positive"
+        elif pol == "-":
+            current["polarity"] = "Negative"
+            
+        # Iterate children
+        child = scan.first_child()
+        while child and not child.is_null():
+            tag = child.name
+            
+            if tag.endswith("precursorMz"):
                 try:
-                    current["precursorMz"] = float(txt)
+                    current["precursorMz"] = float(child.text(True, ""))
                 except ValueError:
                     pass
+            elif tag.endswith("peaks"):
+                if decode_binary:
+                    # Attributes for decoding
+                    precision = child.attribute("precision").value
+                    byteOrder = child.attribute("byteOrder").value
+                    compressionType = child.attribute("compressionType").value
+                    
+                    attrs = {
+                        "precision": precision,
+                        "byteOrder": byteOrder, 
+                        "compressionType": compressionType
+                    }
+                    text = child.text(True, "")
+                    
+                    mz, inten = _decode_peaks_optimized(attrs, text)
+                    current["m/z array"] = mz
+                    current["intensity array"] = inten
+                else:
+                    # For non-decoded, we'd need to reconstruct the dict expected by callers
+                    # But the optimized decoder is default. 
+                    # If decode_binary is False existing code returned "peaks": {"attrs": ..., "text": ...}
+                    current["peaks"] = {
+                        "attrs": {
+                            "precision": child.attribute("precision").value,
+                            "byteOrder": child.attribute("byteOrder").value,
+                            "compressionType": child.attribute("compressionType").value
+                        }, 
+                        "text": child.text(True, "")
+                    }
 
-        elif ev == "end" and tag == "peaks":
-            if decode_binary:
-                # KEY OPTIMIZATION: Uses the optimized version
-                mz, it = _decode_peaks_optimized(elem.attrib, (elem.text or "").strip() or None)
-                current["m/z array"] = mz
-                current["intensity array"] = it
-                have_peaks = True
-            else:
-                current["peaks"] = {"attrs": dict(elem.attrib), "text": elem.text}
+            # ELMAVEN-like extra logic handled in loop in original, but here we construct current then yield
+            # The original logic had `elif ev == "end" and tag == "scan":` block for ELMAVEN
+            # We can do it here after parsing children
+            
+            child = child.next_sibling
+            
+        # ELMAVEN logic
+        if current.get("msLevel") == 2:
+            pol_str = current.get("polarity") or ""
+            prec = current.get("precursorMz")
+            mz_arr = current.get("m/z array", [])
+            mz0 = float(mz_arr[0]) if len(mz_arr) > 0 else None
+            if prec is not None and mz0 is not None:
+                current["filterLine_ELMAVEN"] = f"{pol_str} {prec:.3f} [{mz0:.3f}]"
 
-        elif ev == "end" and tag == "scan":
-            # ELMAVEN-like extra (optional)
-            if current.get("msLevel") == 2 and have_peaks:
-                pol_str = current.get("polarity") or ""
-                prec = current.get("precursorMz")
-                mz_arr = current.get("m/z array", [])
-                mz0 = float(mz_arr[0]) if len(mz_arr) else None
-                if prec is not None and mz0 is not None:
-                    current["filterLine_ELMAVEN"] = f"{pol_str} {prec:.3f} [{mz0:.3f}]"
-
-            yield current
-            root.clear()  # frees memory
+        yield current
+        # doc.reset() or element clearing not strictly needed with pygixml struct parsing as it loads dom
+        # but pygixml is fast. If memory is issue we might need iterative parser but pygixml is DOM-like.
+        # The benchmark showed it's fine.
 
 
 # =============================================================================
@@ -571,138 +645,221 @@ def write_mzml_from_spectra(
     tree.write(str(output_path), xml_declaration=True, encoding="UTF-8", pretty_print=True)
 
 
+
+# def iter_mzml_fast(path: str | Path, *, decode_binary: bool = True) -> Iterator[Dict[str, Any]]:
+#     """
+#     Legacy lxml-based iterator for mzML files.
+#     Kept for reference.
+#     """
+#     from lxml import etree
+#     path = Path(path)
+#     NS = "{http://psi.hupo.org/ms/mzml}"
+#     context = etree.iterparse(path.as_posix(), events=("start", "end"), remove_comments=True)
+#     _, root = next(context)
+#
+#     current: Dict[str, Any] = {}
+#     binary_arrays: List[Dict[str, Any]] = []
+#     current_binary: Dict[str, Any] = {}
+#
+#     for ev, elem in context:
+#         tag = elem.tag
+#         if tag.startswith(NS):
+#             tag = tag[len(NS):]
+#
+#         if ev == "start" and tag == "spectrum":
+#             attribs = elem.attrib
+#             index = attribs.get("index", "0")
+#             spec_id = attribs.get("id", "")
+#             scan_match = re.search(r'scan=(\d+)', spec_id)
+#             scan_num = int(scan_match.group(1)) if scan_match else int(index) + 1
+#             current = {
+#                 "num": scan_num,
+#                 "msLevel": 1,
+#                 "retentionTime": 0.0,
+#                 "polarity": None,
+#                 "filterLine": None,
+#                 "m/z array": np.array([], dtype=np.float64), 
+#                 "intensity array": np.array([], dtype=np.float64)
+#             }
+#             binary_arrays = []
+#
+#         elif ev == "end" and tag == "cvParam":
+#             accession = elem.get("accession", "")
+#             value = elem.get("value", "")
+#             if accession == CV_MS_LEVEL:
+#                 current["msLevel"] = int(value) if value else 1
+#             elif accession == CV_POSITIVE_SCAN:
+#                 current["polarity"] = "Positive"
+#             elif accession == CV_NEGATIVE_SCAN:
+#                 current["polarity"] = "Negative"
+#             elif accession == CV_SCAN_START_TIME:
+#                 unit_name = elem.get("unitName", "second")
+#                 time_val = float(value) if value else 0.0
+#                 if unit_name == "minute":
+#                     time_val *= 60.0
+#                 current["retentionTime"] = time_val
+#             elif accession == CV_32BIT_FLOAT:
+#                 current_binary["is_64bit"] = False
+#             elif accession == CV_64BIT_FLOAT:
+#                 current_binary["is_64bit"] = True
+#             elif accession == CV_ZLIB_COMPRESSION:
+#                 current_binary["is_compressed"] = True
+#             elif accession == CV_NO_COMPRESSION:
+#                 current_binary["is_compressed"] = False
+#             elif accession == CV_MZ_ARRAY:
+#                 current_binary["type"] = "mz"
+#             elif accession == CV_INTENSITY_ARRAY:
+#                 current_binary["type"] = "intensity"
+#
+#         elif ev == "start" and tag == "binaryDataArray":
+#             current_binary = {
+#                 "is_64bit": True,
+#                 "is_compressed": False,
+#                 "type": None,
+#                 "data": None,
+#             }
+#
+#         elif ev == "end" and tag == "binary":
+#             current_binary["data"] = elem.text
+#
+#         elif ev == "end" and tag == "binaryDataArray":
+#             if decode_binary and current_binary.get("data"):
+#                 arr = _decode_binary_mzml(
+#                     current_binary["data"],
+#                     is_64bit=current_binary.get("is_64bit", True),
+#                     is_compressed=current_binary.get("is_compressed", False),
+#                 )
+#                 current_binary["array"] = arr
+#             binary_arrays.append(current_binary)
+#             current_binary = {}
+#
+#         elif ev == "end" and tag == "spectrum":
+#             mz_array = np.array([], dtype=np.float64)
+#             intensity_array = np.array([], dtype=np.float64)
+#             for ba in binary_arrays:
+#                 if ba.get("type") == "mz" and "array" in ba:
+#                     mz_array = ba["array"].astype(np.float64)
+#                 elif ba.get("type") == "intensity" and "array" in ba:
+#                     intensity_array = ba["array"].astype(np.float64)
+#             current["m/z array"] = mz_array
+#             current["intensity array"] = intensity_array
+#             yield current
+#             elem.clear()
+#             root.clear()
+
 def iter_mzml_fast(path: str | Path, *, decode_binary: bool = True) -> Iterator[Dict[str, Any]]:
-    """
-    Fast lxml-based iterator for mzML files.
-
-    Similar to iter_mzxml_fast but handles mzML-specific structure:
-    - Separate binaryDataArray elements for m/z and intensity
-    - CV terms for metadata (compression, precision, polarity, etc.)
-    - Always has namespace that must be stripped
-
-    ~2x faster than pyteomics-based iter_mzml_pyteomics.
-
-    Args:
-        path: Path to mzML file
-        decode_binary: If True, decode binary arrays to numpy arrays
-
-    Yields:
-        Dictionary with spectrum data (same format as iter_mzxml_fast)
-    """
-    from lxml import etree
-
     path = Path(path)
-    NS = "{http://psi.hupo.org/ms/mzml}"
+    # pygixml implementation
+    doc = pygixml.parse_file(str(path))
+    
+    # Select all spectrum elements
+    # Using local-name() is safer to avoid namespace issues in XPath
+    try:
+        spectra = doc.first_child().select_nodes("//*[local-name()='spectrum']")
+    except Exception:
+        return
+    
+    for spectrum in spectra:
+        spectrum = spectrum.node
+        current = {
+            "num": 0,
+            "msLevel": 1,
+            "retentionTime": 0.0,
+            "polarity": None,
+            "filterLine": None,
+            "m/z array": np.array([], dtype=np.float64), 
+            "intensity array": np.array([], dtype=np.float64)
+        }
+        
+        # Attributes
+        spec_id = spectrum.attribute("id").value or ""
+        index = spectrum.attribute("index").value or "0"
+        
+        # Scan number
+        scan_match = re.search(r'scan=(\d+)', spec_id)
+        current["num"] = int(scan_match.group(1)) if scan_match else int(index) + 1
+        
+        # We need to traverse children: cvParam, scanList, binaryDataArrayList
+        # pygixml traversal:
+        child = spectrum.first_child()
+        while child and not child.is_null():
+            tag = child.name
+            
+            if tag.endswith("cvParam"):
+                acc = child.attribute("accession").value
+                val = child.attribute("value").value
+                if acc == CV_MS_LEVEL:
+                    current["msLevel"] = int(val) if val else 1
+                elif acc == CV_POSITIVE_SCAN:
+                    current["polarity"] = "Positive"
+                elif acc == CV_NEGATIVE_SCAN:
+                    current["polarity"] = "Negative"
+            
+            elif tag.endswith("scanList"):
+                grandchild = child.first_child()
+                while grandchild and not grandchild.is_null():
+                    if grandchild.name.endswith("scan"):
+                        ggchild = grandchild.first_child()
+                        while ggchild and not ggchild.is_null():
+                            if ggchild.name.endswith("cvParam"):
+                                acc = ggchild.attribute("accession").value
+                                if acc == CV_SCAN_START_TIME:
+                                    unit_name = ggchild.attribute("unitName").value
+                                    val = ggchild.attribute("value").value
+                                    time_val = float(val) if val else 0.0
+                                    if unit_name == "minute":
+                                        time_val *= 60.0
+                                    current["retentionTime"] = time_val
+                            ggchild = ggchild.next_sibling
+                    grandchild = grandchild.next_sibling
+            
+            elif tag.endswith("binaryDataArrayList"):
+                bd_child = child.first_child()
+                while bd_child and not bd_child.is_null():
+                    if bd_child.name.endswith("binaryDataArray"):
+                        b_is_64bit = True
+                        b_is_compressed = False
+                        b_type = None
+                        b_data = None
+                        
+                        b_param = bd_child.first_child()
+                        while b_param and not b_param.is_null():
+                            b_tag = b_param.name
+                            if b_tag.endswith("cvParam"):
+                                acc = b_param.attribute("accession").value
+                                if acc == CV_32BIT_FLOAT:
+                                    b_is_64bit = False
+                                elif acc == CV_64BIT_FLOAT:
+                                    b_is_64bit = True
+                                elif acc == CV_ZLIB_COMPRESSION:
+                                    b_is_compressed = True
+                                elif acc == CV_NO_COMPRESSION:
+                                    b_is_compressed = False
+                                elif acc == CV_MZ_ARRAY:
+                                    b_type = "mz"
+                                elif acc == CV_INTENSITY_ARRAY:
+                                    b_type = "intensity"
+                            elif b_tag.endswith("binary"):
+                                b_data = b_param.text(True, "") 
+                            
+                            b_param = b_param.next_sibling
+                        
+                        if decode_binary and b_data:
+                            arr = _decode_binary_mzml(
+                                b_data,
+                                is_64bit=b_is_64bit,
+                                is_compressed=b_is_compressed,
+                            )
+                            if b_type == "mz":
+                                current["m/z array"] = arr
+                            elif b_type == "intensity":
+                                current["intensity array"] = arr
+                                
+                    bd_child = bd_child.next_sibling
 
-    context = etree.iterparse(
-        path.as_posix(),
-        events=("start", "end"),
-        remove_comments=True,
-    )
-
-    # Get root for memory cleanup
-    _, root = next(context)
-
-    current: Dict[str, Any] = {}
-    binary_arrays: List[Dict[str, Any]] = []
-    current_binary: Dict[str, Any] = {}
-
-    for ev, elem in context:
-        # Strip namespace
-        tag = elem.tag
-        if tag.startswith(NS):
-            tag = tag[len(NS):]
-
-        if ev == "start" and tag == "spectrum":
-            # Start of new spectrum
-            attribs = elem.attrib
-            index = attribs.get("index", "0")
-            spec_id = attribs.get("id", "")
-            # Extract scan number from id like "controllerType=0 controllerNumber=1 scan=4"
-            scan_match = re.search(r'scan=(\d+)', spec_id)
-            scan_num = int(scan_match.group(1)) if scan_match else int(index) + 1
-
-            current = {
-                "num": scan_num,
-                "msLevel": 1,  # Default, will be updated from cvParam
-                "retentionTime": 0.0,
-                "polarity": None,
-                "filterLine": None,
-            }
-            binary_arrays = []
-
-        elif ev == "end" and tag == "cvParam":
-            # Parse CV parameters
-            accession = elem.get("accession", "")
-            value = elem.get("value", "")
-
-            if accession == CV_MS_LEVEL:
-                current["msLevel"] = int(value) if value else 1
-            elif accession == CV_POSITIVE_SCAN:
-                current["polarity"] = "Positive"
-            elif accession == CV_NEGATIVE_SCAN:
-                current["polarity"] = "Negative"
-            elif accession == CV_SCAN_START_TIME:
-                # Get scan time - check units
-                unit_name = elem.get("unitName", "second")
-                time_val = float(value) if value else 0.0
-                if unit_name == "minute":
-                    time_val *= 60.0
-                current["retentionTime"] = time_val
-            elif accession == CV_32BIT_FLOAT:
-                current_binary["is_64bit"] = False
-            elif accession == CV_64BIT_FLOAT:
-                current_binary["is_64bit"] = True
-            elif accession == CV_ZLIB_COMPRESSION:
-                current_binary["is_compressed"] = True
-            elif accession == CV_NO_COMPRESSION:
-                current_binary["is_compressed"] = False
-            elif accession == CV_MZ_ARRAY:
-                current_binary["type"] = "mz"
-            elif accession == CV_INTENSITY_ARRAY:
-                current_binary["type"] = "intensity"
-
-        elif ev == "start" and tag == "binaryDataArray":
-            # Reset for new binary array
-            current_binary = {
-                "is_64bit": True,
-                "is_compressed": False,
-                "type": None,
-                "data": None,
-            }
-
-        elif ev == "end" and tag == "binary":
-            # Store binary text
-            current_binary["data"] = elem.text
-
-        elif ev == "end" and tag == "binaryDataArray":
-            # Complete binary array - decode if requested
-            if decode_binary and current_binary.get("data"):
-                arr = _decode_binary_mzml(
-                    current_binary["data"],
-                    is_64bit=current_binary.get("is_64bit", True),
-                    is_compressed=current_binary.get("is_compressed", False),
-                )
-                current_binary["array"] = arr
-            binary_arrays.append(current_binary)
-            current_binary = {}
-
-        elif ev == "end" and tag == "spectrum":
-            # End of spectrum - assemble result
-            mz_array = np.array([], dtype=np.float64)
-            intensity_array = np.array([], dtype=np.float64)
-
-            for ba in binary_arrays:
-                if ba.get("type") == "mz" and "array" in ba:
-                    mz_array = ba["array"].astype(np.float64)
-                elif ba.get("type") == "intensity" and "array" in ba:
-                    intensity_array = ba["array"].astype(np.float64)
-
-            current["m/z array"] = mz_array
-            current["intensity array"] = intensity_array
-
-            yield current
-            root.clear()
+            child = child.next_sibling
+            
+        yield current
 
 BATCH_SIZE_POINTS = 500_000
 
@@ -861,8 +1018,6 @@ def convert_mzxml_to_parquet_fast_batches(
             if total_points >= batch_size_points:
                 flush_batch()
             # --- END BATCH LOGIC ---
-    except XMLSyntaxError as e:
-        raise ValueError(f"Invalid XML in {file_path}: {str(e)}") from e
     except Exception as e:
         raise ValueError(f"Invalid XML in {file_path}: {e}") from e
     else:
