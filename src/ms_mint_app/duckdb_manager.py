@@ -609,6 +609,21 @@ def _create_tables(conn: duckdb.DuckDBPyConnection):
     if 'rt_shift' not in existing_cols:
         conn.execute("ALTER TABLE results ADD COLUMN rt_shift DOUBLE")
         logger.info("Migration: Added 'rt_shift' column to results table")
+    
+    # Migration: Add EMG peak fitting columns to existing results tables
+    fitting_columns = {
+        'peak_area_fitted': 'DOUBLE',      # Area under fitted EMG curve
+        'peak_sigma': 'DOUBLE',            # Gaussian width (σ)
+        'peak_tau': 'DOUBLE',              # Exponential tail decay (τ/gamma)
+        'peak_asymmetry': 'DOUBLE',        # τ/σ ratio
+        'peak_rt_fitted': 'DOUBLE',        # Peak center from EMG fit
+        'fit_r_squared': 'DOUBLE',         # Goodness of fit (R²)
+        'fit_success': 'BOOLEAN',          # Whether fitting converged
+    }
+    for col_name, col_type in fitting_columns.items():
+        if col_name not in existing_cols:
+            conn.execute(f"ALTER TABLE results ADD COLUMN {col_name} {col_type}")
+            logger.info(f"Migration: Added '{col_name}' column to results table")
 
 
 
@@ -1979,6 +1994,243 @@ def compute_results_in_batches(wdir: str,
         'failed': failed,
         'batches': batches
     }
+
+
+def compute_fitted_results(
+    wdir: str,
+    use_bookmarked: bool = False,
+    recompute: bool = False,
+    n_workers: int = 8,
+    set_progress=None,
+    n_cpus=None,
+    ram=None
+) -> dict:
+    """
+    Compute EMG peak fitting for all results.
+    
+    This function:
+    1. Queries existing results with chromatogram data
+    2. Fits EMG model to each peak using parallel processing
+    3. Updates results table with fitted metrics
+    
+    Parameters:
+        wdir: Working directory path
+        use_bookmarked: Only process bookmarked targets
+        recompute: Recompute even if fitting was already done
+        n_workers: Number of parallel workers (default 8)
+        set_progress: Progress callback function
+        n_cpus: CPU cores for DuckDB
+        ram: RAM allocation for DuckDB
+    
+    Returns:
+        Dictionary with processing statistics
+    """
+    from .peak_fitting import fit_peaks_batch
+    
+    _send_progress(set_progress, 0, stage="Peak Fitting", detail="Preparing data...")
+    
+    # Query results that need fitting
+    with duckdb_connection(wdir, n_cpus=n_cpus, ram=ram) as conn:
+        # Build query to get peaks needing fitting
+        where_conditions = []
+        if use_bookmarked:
+            where_conditions.append(
+                "r.peak_label IN (SELECT peak_label FROM targets WHERE bookmark = TRUE)"
+            )
+        if not recompute:
+            where_conditions.append("(r.fit_success IS NULL OR r.fit_success = FALSE)")
+        
+        where_clause = f"WHERE {' AND '.join(where_conditions)}" if where_conditions else ""
+        
+        # Get chromatogram data for fitting
+        query = f"""
+            SELECT 
+                r.peak_label,
+                r.ms_file_label,
+                r.scan_time,
+                r.intensity,
+                t.rt
+            FROM results r
+            JOIN targets t ON r.peak_label = t.peak_label
+            {where_clause}
+        """
+        
+        data = conn.execute(query).fetchall()
+        
+    if not data:
+        logger.info("No peaks require fitting")
+        _send_progress(set_progress, 100, stage="Peak Fitting", detail="No peaks to fit")
+        return {'total': 0, 'fitted': 0, 'failed': 0}
+    
+    total_peaks = len(data)
+    logger.info(f"Fitting {total_peaks:,} peaks with {n_workers} workers...")
+    
+    _send_progress(
+        set_progress, 
+        5, 
+        stage="Peak Fitting", 
+        detail=f"Fitting {total_peaks:,} peaks..."
+    )
+    
+    # Prepare data for parallel processing
+    # Format: (peak_label, ms_file_label, scan_time, intensity, expected_rt)
+    peaks_data = [
+        (row[0], row[1], row[2], row[3], row[4])
+        for row in data
+    ]
+    
+    # Progress callback for fitting - maps to 5-80% of progress bar
+    batch_start_time = [time.time()]  # Start of current batch
+    last_batch_duration = [0.0]       # Duration of last completed batch
+    last_logged_batch = [0]
+    batch_size = max(100, total_peaks // 20)  # ~20 batches or 100 peaks minimum
+    
+    def fitting_progress(completed, total, rate):
+        # Map fitting progress (0-100%) to UI progress (5-80%)
+        fit_pct = (completed / total) * 100 if total > 0 else 0
+        ui_pct = 5 + (fit_pct * 0.75)  # 5% + up to 75% = 80% max
+        
+        # Calculate batch info
+        current_batch_idx = (completed - 1) // batch_size
+        batch_num = current_batch_idx + 1
+        total_batches = (total + batch_size - 1) // batch_size
+        
+        current_time = time.time()
+        
+        # Check if we moved to a new batch (or finished)
+        if batch_num > last_logged_batch[0] or completed == total:
+            duration = current_time - batch_start_time[0]
+            last_batch_duration[0] = duration
+            
+            logger.info(
+                f"Batch {batch_num:4}/{total_batches} | "
+                f"Peaks {completed:6,}/{total:,} | "
+                f"Batch time: {duration:5.2f}s | "
+                f"Rate: {rate:.0f}/sec"
+            )
+            
+            # Prepare for next batch
+            if completed < total:
+                batch_start_time[0] = current_time
+                last_logged_batch[0] = batch_num
+        
+        # Display time: Use last batch duration for stability, or current elapsed for batch 1
+        display_time = last_batch_duration[0] if batch_num > 1 else (current_time - batch_start_time[0])
+        
+        # Consistent format for UI: "Batch X/Y | Progress X/Y | Time/batch Zs"
+        detail = f"Batch {batch_num}/{total_batches} | Progress {completed:,}/{total:,} | Time/batch {display_time:.2f}s"
+        
+        _send_progress(set_progress, round(ui_pct, 1), stage="Peak Fitting", detail=detail)
+    
+    # Run parallel fitting with progress updates
+    start_time = time.time()
+    fit_results = fit_peaks_batch(peaks_data, n_workers=n_workers, progress_callback=fitting_progress)
+    elapsed = time.time() - start_time
+    
+    logger.info(f"Fitting completed in {elapsed:.2f}s ({total_peaks/elapsed:.0f} peaks/sec)")
+    
+    _send_progress(
+        set_progress, 
+        80, 
+        stage="Peak Fitting", 
+        detail=f"Updating database..."
+    )
+    
+    # Update database with fit results in batches for progress tracking
+    fitted_count = 0
+    failed_count = 0
+    total_results = len(fit_results)
+    update_batch_size = max(100, total_results // 10)  # ~10 updates
+    db_start_time = time.time()
+    last_db_batch_time = time.time()
+    last_db_duration = 0.0
+    
+    with duckdb_connection(wdir, n_cpus=n_cpus, ram=ram) as conn:
+        conn.execute("BEGIN TRANSACTION")
+        
+        for i, result in enumerate(fit_results):
+            try:
+                conn.execute("""
+                    UPDATE results
+                    SET peak_area_fitted = ?,
+                        peak_sigma = ?,
+                        peak_tau = ?,
+                        peak_asymmetry = ?,
+                        peak_rt_fitted = ?,
+                        fit_r_squared = ?,
+                        fit_success = ?
+                    WHERE peak_label = ? AND ms_file_label = ?
+                """, [
+                    result['peak_area_fitted'],
+                    result['peak_sigma'],
+                    result['peak_tau'],
+                    result['peak_asymmetry'],
+                    result['peak_rt_fitted'],
+                    result['fit_r_squared'],
+                    result['fit_success'],
+                    result['peak_label'],
+                    result['ms_file_label'],
+                ])
+                
+                if result['fit_success']:
+                    fitted_count += 1
+                else:
+                    failed_count += 1
+                    
+            except Exception as e:
+                logger.error(f"Failed to update {result['peak_label']}: {e}")
+                failed_count += 1
+            
+            # Progress update every batch
+            if (i + 1) % update_batch_size == 0 or (i + 1) == total_results:
+                # Map progress from 80-98%
+                db_pct = ((i + 1) / total_results) * 18  # 18% range for DB updates
+                ui_pct = 80 + db_pct
+                
+                current_time = time.time()
+                batch_duration = current_time - last_db_batch_time
+                last_db_duration = batch_duration
+                last_db_batch_time = current_time
+                
+                db_elapsed = current_time - db_start_time
+                rate = (i + 1) / db_elapsed if db_elapsed > 0 else 0
+                batch_num = (i + 1) // update_batch_size
+                total_batches = (total_results // update_batch_size) + (1 if total_results % update_batch_size else 0)
+                
+                # Consistent format for UI: "Batch X/Y | Progress X/Y | Time/batch Zs"
+                detail = f"Batch {batch_num}/{total_batches} | Progress {i+1:,}/{total_results:,} | Time/batch {batch_duration:.2f}s"
+                
+                logger.info(
+                    f"Batch {batch_num:4}/{total_batches} | "
+                    f"Rows {i+1:6,}/{total_results:,} | "
+                    f"Batch time: {batch_duration:5.2f}s | "
+                    f"Progress {i+1:,}/{total_results:,}"
+                )
+                _send_progress(set_progress, round(ui_pct, 1), stage="Peak Fitting", detail=detail)
+        
+        conn.execute("COMMIT")
+        conn.execute("CHECKPOINT")
+    
+    _send_progress(
+        set_progress, 
+        100, 
+        stage="Peak Fitting", 
+        detail=f"Fitted {fitted_count:,} peaks"
+    )
+    
+    total_elapsed = time.time() - start_time
+    logger.info(
+        f"Peak fitting complete. "
+        f"Total: {total_peaks:,}, Fitted: {fitted_count:,}, Failed: {failed_count:,}"
+    )
+    
+    return {
+        'total': total_peaks,
+        'fitted': fitted_count,
+        'failed': failed_count,
+        'elapsed_seconds': total_elapsed
+    }
+
 
 def compute_peak_properties(con: duckdb.DuckDBPyConnection,
                             set_progress=None,

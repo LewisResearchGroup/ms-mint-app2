@@ -31,6 +31,7 @@ from ..duckdb_manager import (
     calculate_optimal_batch_size,
     calculate_optimal_params,
     compute_chromatograms_in_batches,
+    compute_fitted_results,
     compute_results_in_batches,
     create_pivot,
     duckdb_connection,
@@ -84,6 +85,28 @@ RESULTS_TABLE_COLUMNS = [
         'title': 'peak_rt_of_max',
         'dataIndex': 'peak_rt_of_max',
         'width': '150px',
+    },
+    # EMG Peak Fitting columns
+    {
+        'title': 'peak_area_fitted',
+        'dataIndex': 'peak_area_fitted',
+        'width': '175px',
+        'sorter': True,
+    },
+    {
+        'title': 'fit_r²',
+        'dataIndex': 'fit_r_squared',
+        'width': '100px',
+        'sorter': True,
+    },
+    {
+        'title': 'fit_success',
+        'dataIndex': 'fit_success',
+        'width': '110px',
+        'filterOptions': [
+            {'label': '✓ Success', 'value': '✓'},
+            {'label': '✗ Failed', 'value': '✗'},
+        ],
     },
     # NOTE: SCALiR columns (Concentration, In Range, Unit) are dynamically inserted here
     # via the scalir_column_insert_index logic when concentrations.csv exists
@@ -306,6 +329,18 @@ _layout = html.Div(
                                 'title': 'Intensity',
                                 'content': 'Mini-plot showing the chromatograms',
                             },
+                            'peak_area_fitted': {
+                                'title': 'peak_area_fitted',
+                                'content': 'Peak area from EMG curve fitting (more accurate for tailing peaks)',
+                            },
+                            'fit_r_squared': {
+                                'title': 'fit_r²',
+                                'content': 'Goodness of fit (R², 0-1). Higher values indicate better model agreement.',
+                            },
+                            'fit_success': {
+                                'title': 'fit_success',
+                                'content': 'Whether EMG fitting converged successfully (✓ = success, ✗ = failed).',
+                            },
                         },
                         filterOptions={
                             'peak_label': {'filterMode': 'keyword'},
@@ -402,11 +437,11 @@ _layout = html.Div(
                                         id='processing-chromatogram-compute-cpu',
                                         defaultValue=calculate_optimal_params()[0],
                                         min=1,
-                                        max=get_physical_cores(),
+                                        max=cpu_count(),
                                     ),
                                     label='CPU:',
                                     hasFeedback=True,
-                                    help=f"Recommended {calculate_optimal_params()[0]} / {get_physical_cores()} physical cores",
+                                    help=f"Selected {calculate_optimal_params()[0]} / {cpu_count()} cpus",
                                     id='processing-chromatogram-compute-cpu-item'
                                 ),
                                 fac.AntdFormItem(
@@ -427,7 +462,7 @@ _layout = html.Div(
                                 fac.AntdFormItem(
                                     fac.AntdInputNumber(
                                         id='processing-chromatogram-compute-batch-size',
-                                        defaultValue=calculate_optimal_params()[2],
+                                        value=4000,  # Default; updated by callback based on CPU/RAM
                                         min=500,
                                         max=8000,
                                         step=500,
@@ -439,6 +474,23 @@ _layout = html.Div(
                             ],
                             layout='inline'
                         ),
+                        fac.AntdDivider('Peak Fitting'),
+                        fac.AntdSpace(
+                            [
+                                fac.AntdCheckbox(
+                                    id='processing-enable-fitting',
+                                    label='Enable EMG Peak Fitting',
+                                ),
+                                fac.AntdTooltip(
+                                    fac.AntdIcon(icon='antd-question-circle', style={'color': '#8c8c8c', 'cursor': 'help'}),
+                                    title='Fit Exponentially Modified Gaussian (EMG) to each peak for more accurate area quantification. '\
+                                          'Adds peak_area_fitted, fit_r², and fit_success columns. '\
+                                          'Best for peaks with tailing (asymmetric shape). '\
+                                          'Runs after standard processing using multiprocessing.',
+                                ),
+                            ],
+                            style={'marginBottom': '0.5rem'},
+                        ),
                         fac.AntdDivider('Recompute'),
                         fac.AntdForm(
                             [
@@ -447,7 +499,7 @@ _layout = html.Div(
                                         id='processing-recompute',
                                         label='Recompute results'
                                     ),
-
+                                    style={'marginBottom': '0.5rem'},
                                 ),
                             ]
                         ),
@@ -456,7 +508,7 @@ _layout = html.Div(
                             type='warning',
                             showIcon=True,
                             id='processing-warning',
-                            style={'display': 'none'},
+                            style={'display': 'none', 'marginBottom': '2rem'},
                         )
                     ],
                     id='processing-options-container',
@@ -534,9 +586,10 @@ _layout = html.Div(
                                         fac.AntdFormItem(
                                             [
                                                 fac.AntdSelect(
-                                                    options=['peak_area', 'peak_area_top3', 'peak_mean',
+                                                    options=['peak_area', 'peak_area_fitted', 'peak_area_top3', 'peak_mean',
                                                              'peak_median', 'peak_n_datapoints', 'peak_min', 'peak_max',
-                                                             'peak_rt_of_max', 'total_intensity'],
+                                                             'peak_rt_of_max', 'peak_sigma', 'peak_tau', 'peak_asymmetry',
+                                                             'peak_rt_fitted', 'fit_r_squared', 'fit_success', 'total_intensity'],
                                                     mode="multiple",
                                                     value=['peak_area', 'peak_area_top3', 'peak_mean',
                                                            'peak_median', 'peak_n_datapoints', 'peak_min', 'peak_max',
@@ -606,9 +659,10 @@ _layout = html.Div(
                                         fac.AntdFormItem(
                                             [
                                                 fac.AntdSelect(
-                                                    options=['peak_area', 'peak_area_top3', 'peak_mean', 'peak_median',
+                                                    options=['peak_area', 'peak_area_fitted', 'peak_area_top3', 'peak_mean', 'peak_median',
                                                              'peak_n_datapoints', 'peak_min', 'peak_max',
-                                                             'peak_rt_of_max', 'total_intensity'],
+                                                             'peak_rt_of_max', 'peak_sigma', 'peak_tau', 'peak_asymmetry',
+                                                             'peak_rt_fitted', 'fit_r_squared', 'fit_success', 'total_intensity'],
                                                     value=['peak_area'],
                                                     style={"width": "100%"},
                                                     locale="en-us",
@@ -1496,16 +1550,24 @@ def callbacks(app, fsc, cache):
                 for idx, peak in enumerate(selected_peaks):
                     order_params.extend([idx, peak])
 
-            order_by_sql = (
-                "ORDER BY __peak_order__, ms_file_label"
-                if selected_peaks
-                else build_order_by(
-                    sorter,
-                    column_types,
-                    tie=('peak_label', 'ASC'),
-                    nocase_text=True
-                )
+            # Build sorter SQL (even when peaks selected, use as secondary sort)
+            sorter_sql = build_order_by(
+                sorter,
+                column_types,
+                tie=('peak_label', 'ASC') if not selected_peaks else None,
+                nocase_text=True
             )
+            
+            if selected_peaks:
+                # When peaks are selected, preserve selection order but allow column sorting as secondary
+                if sorter_sql:
+                    # Extract just the ORDER BY columns (without "ORDER BY" prefix)
+                    sorter_cols = sorter_sql.replace("ORDER BY ", "")
+                    order_by_sql = f"ORDER BY __peak_order__, {sorter_cols}"
+                else:
+                    order_by_sql = "ORDER BY __peak_order__, ms_file_label"
+            else:
+                order_by_sql = sorter_sql
 
             # Check for SCALiR concentrations and dynamically add columns
             scalir_join = ""
@@ -1617,10 +1679,18 @@ def callbacks(app, fsc, cache):
                 params_paged = order_params + params + [effective_page_size, (current - 1) * effective_page_size]
                 df = conn.execute(sql, params_paged).df()
 
-        # Generate key column and round concentration if present
+        # Generate key column and round values for display
         df["key"] = df["peak_label"].astype(str) + "-" + df["ms_file_label"].astype(str)
         if 'scalir_conc' in df.columns:
             df['scalir_conc'] = df['scalir_conc'].round(4)
+        # Round fitting columns for cleaner display
+        if 'peak_area_fitted' in df.columns:
+            df['peak_area_fitted'] = df['peak_area_fitted'].round(0).astype('Int64')
+        if 'fit_r_squared' in df.columns:
+            df['fit_r_squared'] = df['fit_r_squared'].round(2)
+        # Convert fit_success boolean to display-friendly format
+        if 'fit_success' in df.columns:
+            df['fit_success'] = df['fit_success'].map({True: '✓', False: '✗', None: ''})
         # Replace NaN with None for clean JSON serialization
         df = df.where(pd.notnull(df), None)
         data = df.to_dict('records')
@@ -1636,6 +1706,12 @@ def callbacks(app, fsc, cache):
             df["key"] = df["peak_label"].astype(str) + "-" + df["ms_file_label"].astype(str)
             if 'scalir_conc' in df.columns:
                 df['scalir_conc'] = df['scalir_conc'].round(4)
+            if 'peak_area_fitted' in df.columns:
+                df['peak_area_fitted'] = df['peak_area_fitted'].round(0).astype('Int64')
+            if 'fit_r_squared' in df.columns:
+                df['fit_r_squared'] = df['fit_r_squared'].round(2)
+            if 'fit_success' in df.columns:
+                df['fit_success'] = df['fit_success'].map({True: '✓', False: '✗', None: ''})
             df = df.where(pd.notnull(df), None)
             data = df.to_dict('records')
 
@@ -2002,7 +2078,7 @@ def callbacks(app, fsc, cache):
             if results:
                 computed_results = results[0]
 
-        style = {'display': 'block'} if computed_results else {'display': 'none'}
+        style = {'display': 'block', 'marginBottom': '2rem'} if computed_results else {'display': 'none'}
 
         recompute = bool(computed_results)
 
@@ -2039,6 +2115,7 @@ def callbacks(app, fsc, cache):
 
         Input('processing-modal', 'okCounts'),
         State('processing-recompute', 'checked'),
+        State('processing-enable-fitting', 'checked'),
         State("processing-chromatogram-compute-cpu", "value"),
         State("processing-chromatogram-compute-ram", "value"),
         State('processing-chromatogram-compute-batch-size', "value"),
@@ -2073,7 +2150,7 @@ def callbacks(app, fsc, cache):
         ],
         prevent_initial_call=True
     )
-    def compute_results(set_progress, okCounts, recompute, n_cpus, ram, batch_size, bookmarked, wdir):
+    def compute_results(set_progress, okCounts, recompute, enable_fitting, n_cpus, ram, batch_size, bookmarked, wdir):
 
         if not okCounts:
             logger.debug("compute_results: PreventUpdate because okCounts is None")
@@ -2105,9 +2182,23 @@ def callbacks(app, fsc, cache):
                                n_cpus=n_cpus,
                                ram=ram)
 
+            # Run peak fitting if enabled
+            if enable_fitting:
+                logger.info('Computing peak fitting (EMG)...')
+                progress_adapter(0, "Peak Fitting", "Starting EMG fitting...")
+                fit_stats = compute_fitted_results(
+                    wdir=wdir,
+                    use_bookmarked=bookmarked,
+                    recompute=recompute,
+                    n_workers=n_cpus or 8,
+                    set_progress=progress_adapter,
+                    n_cpus=n_cpus,
+                    ram=ram
+                )
+                logger.info(f"Peak fitting complete: {fit_stats}")
 
             # Persist the results table to a workspace folder for resilience
-            progress_adapter(100, "Results", "Backing up results...")
+            progress_adapter(100, "Finalizing", "Backing up results...")
             try:
                 results_dir = Path(wdir) / "results"
                 results_dir.mkdir(parents=True, exist_ok=True)
@@ -2214,7 +2305,7 @@ def callbacks(app, fsc, cache):
         help_ram = _get_ram_help_text(ram)
         # Auto-calculate optimal batch size based on current CPU and RAM
         optimal_batch = calculate_optimal_batch_size(
-            int(ram) if ram else 8,
+            round(ram) if ram else 8,
             100000,  # Estimate for total pairs
             int(cpu) if cpu else max(1, cpu_count() // 2)
         )
