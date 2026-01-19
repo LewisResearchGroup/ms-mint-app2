@@ -605,7 +605,7 @@ def _create_tables(conn: duckdb.DuckDBPyConnection):
         chrom_cols = {row[0] for row in conn.execute("DESCRIBE chromatograms").fetchall()}
         if 'mz_arr' not in chrom_cols:
             conn.execute("ALTER TABLE chromatograms ADD COLUMN mz_arr DOUBLE[]")
-            logger.info("Migration: Added 'mz_arr' column to chromatograms table")
+            logger.debug("Migration: Added 'mz_arr' column to chromatograms table")
     except Exception:
         pass
     
@@ -615,13 +615,13 @@ def _create_tables(conn: duckdb.DuckDBPyConnection):
     }
     if 'rt_aligned' not in existing_cols:
         conn.execute("ALTER TABLE results ADD COLUMN rt_aligned BOOLEAN")
-        logger.info("Migration: Added 'rt_aligned' column to results table")
+        logger.debug("Migration: Added 'rt_aligned' column to results table")
     if 'rt_shift' not in existing_cols:
         conn.execute("ALTER TABLE results ADD COLUMN rt_shift DOUBLE")
-        logger.info("Migration: Added 'rt_shift' column to results table")
+        logger.debug("Migration: Added 'rt_shift' column to results table")
     if 'peak_mz_of_max' not in existing_cols:
         conn.execute("ALTER TABLE results ADD COLUMN peak_mz_of_max DOUBLE")
-        logger.info("Migration: Added 'peak_mz_of_max' column to results table")
+        logger.debug("Migration: Added 'peak_mz_of_max' column to results table")
     
     # Migration: Add EMG peak fitting columns to existing results tables
     fitting_columns = {
@@ -636,7 +636,7 @@ def _create_tables(conn: duckdb.DuckDBPyConnection):
     for col_name, col_type in fitting_columns.items():
         if col_name not in existing_cols:
             conn.execute(f"ALTER TABLE results ADD COLUMN {col_name} {col_type}")
-            logger.info(f"Migration: Added '{col_name}' column to results table")
+            logger.debug(f"Migration: Added '{col_name}' column to results table")
 
 
 
