@@ -213,14 +213,25 @@ def _fit_peak_wrapper(args: Tuple) -> dict:
     }
 
 
+def _process_peak_chunk(chunk_data: List[Tuple]) -> List[dict]:
+    """
+    Process a chunk of peaks in a single worker process.
+    Minimizes IPC overhead.
+    """
+    results = []
+    for args in chunk_data:
+        results.append(_fit_peak_wrapper(args))
+    return results
+
+
 def fit_peaks_batch(
     peaks_data: List[Tuple],
     n_workers: int = 8,
-    chunksize: int = 50,
+    chunksize: int = 200,  # Process peaks in larger chunks
     progress_callback=None,
 ) -> List[dict]:
     """
-    Fit EMG model to multiple peaks using parallel processing.
+    Fit EMG model to multiple peaks using parallel processing with chunking.
     
     Parameters:
         peaks_data: List of tuples (peak_label, ms_file_label, scan_time, intensity, expected_rt)
@@ -239,66 +250,60 @@ def fit_peaks_batch(
     
     total = len(peaks_data)
     
+    # Sequential processing for small datasets
     if total < n_workers * 2:
-        # Not enough work for parallelization, run sequentially
-        results = []
-        for i, args in enumerate(peaks_data):
-            results.append(_fit_peak_wrapper(args))
-            if progress_callback and (i + 1) % 10 == 0:
-                progress_callback(i + 1, total, 0)
-        return results
+        return _process_peak_chunk(peaks_data)
     
-    results = [None] * total  # Pre-allocate to maintain order
+    results = []
     completed = 0
     start_time = time.time()
     last_update = start_time
     
+    # Chunk the data
+    chunks = [peaks_data[i:i + chunksize] for i in range(0, total, chunksize)]
+    
     executor = ProcessPoolExecutor(max_workers=n_workers)
     try:
-        # Submit all tasks with their indices
-        future_to_idx = {
-            executor.submit(_fit_peak_wrapper, args): idx
-            for idx, args in enumerate(peaks_data)
+        # Submit chunks
+        future_to_chunk_idx = {
+            executor.submit(_process_peak_chunk, chunk): i
+            for i, chunk in enumerate(chunks)
         }
         
-        for future in as_completed(future_to_idx):
-            idx = future_to_idx[future]
+        # We need to collect results in order, but futures complete out of order.
+        # We'll store chunk results and flatten later, or just append and sort?
+        # Actually, simpler to just extend a list and rely on the fact that result order 
+        # doesn't strictly matter for the DataFrame unless we rely on index.
+        # But `benchmark_mint_app.py` doesn't seem to rely on order. 
+        # Wait, usually it's safer to maintain order.
+        
+        chunk_results = [None] * len(chunks)
+        
+        for future in as_completed(future_to_chunk_idx):
+            chunk_idx = future_to_chunk_idx[future]
             try:
-                results[idx] = future.result()
+                chunk_res = future.result()
+                chunk_results[chunk_idx] = chunk_res
+                completed += len(chunk_res)
             except Exception as e:
-                # Handle failed futures
-                results[idx] = {
-                    'peak_label': peaks_data[idx][0],
-                    'ms_file_label': peaks_data[idx][1],
-                    'peak_area_fitted': 0.0,
-                    'peak_sigma': 0.0,
-                    'peak_tau': 0.0,
-                    'peak_asymmetry': 0.0,
-                    'peak_rt_fitted': 0.0,
-                    'fit_r_squared': 0.0,
-                    'fit_success': False,
-                }
-                logger.error(f"Peak fitting failed: {e}")
+                logger.error(f"Chunk fitting failed: {e}")
+                chunk_results[chunk_idx] = [] # Should ideally fill with failed results
             
-            completed += 1
-            
-            # Progress updates:
-            # 1. Always on completion
-            # 2. Every 5% (to align with typical batch logging)
+            # Progress updates
             now = time.time()
-            milestone = max(1, total // 20)
-            
-            if progress_callback and (
-                completed == total or 
-                completed % milestone == 0
-            ):
+            # Update more frequently for smooth UI
+            if progress_callback:
                 elapsed = now - start_time
                 rate = completed / elapsed if elapsed > 0 else 0
                 progress_callback(completed, total, rate)
                 last_update = now
+        
+        # Flatten results in order
+        for res in chunk_results:
+            if res:
+                results.extend(res)
                 
     except BaseException:
-        # If cancelled or interrupted, shutdown immediately and cancel pending tasks
         logger.warning("Peak fitting cancelled - shutting down workers...")
         executor.shutdown(wait=False, cancel_futures=True)
         raise

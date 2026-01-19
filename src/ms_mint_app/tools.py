@@ -1679,7 +1679,7 @@ def get_targets_v2(files_path):
     return targets_df[ref_names], failed_files, failed_targets, stats
 
 
-def _insert_ms_data(wdir, ms_type, batch_ms, batch_ms_data):
+def _insert_ms_data(wdir, ms_type, batch_ms, batch_ms_data, n_cpus=None):
     failed_files = []
 
     if not batch_ms[ms_type]:
@@ -1706,10 +1706,14 @@ def _insert_ms_data(wdir, ms_type, batch_ms, batch_ms_data):
     parquet_files_to_delete = batch_ms_data[ms_type].copy()
     insert_success = False
     
-    with duckdb_connection(wdir) as conn:
+    with duckdb_connection(wdir, n_cpus=n_cpus) as conn:
         if conn is None:
             raise PreventUpdate
         try:
+            # Performance tuning:
+            # 1. Increase WAL limit to reduce disk flushes
+            conn.execute("SET wal_autocheckpoint='1GB'")
+            
             # Insert with all metadata columns populated
             conn.execute(
                 "INSERT INTO samples(ms_file_label, label, ms_type, polarity, file_type, color, sample_type, acquisition_datetime) "
@@ -1912,7 +1916,7 @@ def process_ms_files(wdir, set_progress, selected_files, n_cpus):
                             batch_data_copy = {'ms1': batch_ms_data['ms1'], 'ms2': []}
 
                             t_insert_start = time.time() # This timestamp is less meaningful now, denotes submit time
-                            db_future = db_executor.submit(_insert_ms_data, wdir, 'ms1', batch_ms_copy, batch_data_copy)
+                            db_future = db_executor.submit(_insert_ms_data, wdir, 'ms1', batch_ms_copy, batch_data_copy, n_cpus=4)
 
                             batch_elapsed = time.time() - batch_start
                             last_batch_time = batch_elapsed # Update for next batch display
@@ -1950,7 +1954,7 @@ def process_ms_files(wdir, set_progress, selected_files, n_cpus):
                             batch_ms_copy = {'ms1': [], 'ms2': batch_ms['ms2']}
                             batch_data_copy = {'ms1': [], 'ms2': batch_ms_data['ms2']}
 
-                            db_future = db_executor.submit(_insert_ms_data, wdir, 'ms2', batch_ms_copy, batch_data_copy)
+                            db_future = db_executor.submit(_insert_ms_data, wdir, 'ms2', batch_ms_copy, batch_data_copy, n_cpus=4)
 
                             batch_elapsed = time.time() - batch_start
 
@@ -1991,7 +1995,7 @@ def process_ms_files(wdir, set_progress, selected_files, n_cpus):
             if len(batch_ms['ms1']):
                 _send_progress(99.5, stage="Finalizing", detail="Saving last batch (MS1)...")
                 t_insert_start = time.time()
-                b_processed, b_failed = _insert_ms_data(wdir, 'ms1', batch_ms, batch_ms_data)
+                b_processed, b_failed = _insert_ms_data(wdir, 'ms1', batch_ms, batch_ms_data, n_cpus=4)
                 t_insert_end = time.time()
                 
                 batch_elapsed = time.time() - batch_start
@@ -2023,7 +2027,7 @@ def process_ms_files(wdir, set_progress, selected_files, n_cpus):
             if len(batch_ms['ms2']):
                 _send_progress(99.5, stage="Finalizing", detail="Saving last batch (MS2)...")
                 t_insert_start = time.time()
-                b_processed, b_failed = _insert_ms_data(wdir, 'ms2', batch_ms, batch_ms_data)
+                b_processed, b_failed = _insert_ms_data(wdir, 'ms2', batch_ms, batch_ms_data, n_cpus=4)
                 t_insert_end = time.time()
                 
                 batch_elapsed = time.time() - batch_start
