@@ -1670,19 +1670,19 @@ def compute_results_in_batches(wdir: str,
                         )
                     ) AS trapezoid_areas
                 FROM arrays
-                WHERE len(intensity_arr) > 0
+                -- Removed: WHERE len(intensity_arr) > 0
             ),
             -- Compute all metrics from arrays
             metrics AS (
                 SELECT
                     len(intensity_arr) AS peak_n_datapoints,
-                    -- Trapezoid integration (more accurate than simple sum)
+                    -- Trapezoid integration
                     ROUND(COALESCE(list_sum(trapezoid_areas), 0), 0) AS peak_area,
-                    ROUND(list_max(intensity_arr), 0) AS peak_max,
-                    ROUND(list_min(intensity_arr), 0) AS peak_min,
-                    ROUND(list_avg(intensity_arr), 0) AS peak_mean,
-                    -- Median: sorted list at middle index
-                    ROUND(list_sort(intensity_arr)[CAST(len(intensity_arr) / 2 + 1 AS BIGINT)], 0) AS peak_median,
+                    ROUND(COALESCE(list_max(intensity_arr), 0), 0) AS peak_max,
+                    ROUND(COALESCE(list_min(intensity_arr), 0), 0) AS peak_min,
+                    ROUND(COALESCE(list_avg(intensity_arr), 0), 0) AS peak_mean,
+                    -- Median: handle empty list case
+                    ROUND(COALESCE(list_sort(intensity_arr)[CAST(len(intensity_arr) / 2 + 1 AS BIGINT)], 0), 0) AS peak_median,
                     -- RT of max intensity
                     scan_time_arr[CAST(list_position(intensity_arr, list_max(intensity_arr)) AS BIGINT)] AS peak_rt_of_max,
                     -- Index of max for top3 calculation
