@@ -766,6 +766,21 @@ def _save_switch_changes(recentlySwitchDataIndex, recentlySwitchStatus, recently
                      (recentlySwitchStatus, recentlySwitchRow['ms_file_label']))
         logger.info(f"Updated {recentlySwitchDataIndex} for {recentlySwitchRow['ms_file_label']}: {recentlySwitchStatus}")
 
+        # Enforce dependencies
+        if recentlySwitchDataIndex == 'use_for_analysis' and recentlySwitchStatus is True:
+            # Analysis = True => Processing must be True
+            conn.execute("UPDATE samples SET use_for_processing = TRUE WHERE ms_file_label = ?",
+                         (recentlySwitchRow['ms_file_label'],))
+            logger.info(f"Auto-enabled use_for_processing for {recentlySwitchRow['ms_file_label']}")
+
+        if recentlySwitchDataIndex == 'use_for_processing' and recentlySwitchStatus is False:
+             # Processing = False => Analysis must be False
+            conn.execute("UPDATE samples SET use_for_analysis = FALSE WHERE ms_file_label = ?",
+                         (recentlySwitchRow['ms_file_label'],))
+            logger.info(f"Auto-disabled use_for_analysis for {recentlySwitchRow['ms_file_label']}")
+
+    return {'action': 'reload', 'timestamp': time.time()}
+
 
 def _ms_files_table(section_context, processing_output, processed_action, pagination, filter_, sorter, filterOptions,
                    processing_type, wdir):
@@ -1212,6 +1227,7 @@ def callbacks(cls, app, fsc, cache, args_namespace):
         return _genere_color_map(nClicks, clickedKey, wdir)
 
     @app.callback(
+        Output('ms-table-action-store', 'data', allow_duplicate=True),
         Input('ms-files-table', 'recentlySwitchDataIndex'),
         Input('ms-files-table', 'recentlySwitchStatus'),
         Input('ms-files-table', 'recentlySwitchRow'),

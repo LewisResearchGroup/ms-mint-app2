@@ -449,8 +449,8 @@ _layout = html.Div(
                                         id='processing-chromatogram-compute-ram',
                                         value=calculate_optimal_params()[1],
                                         min=1,
-                                        precision=0,
-                                        step=1,
+                                        precision=1,
+                                        step=0.1,
                                         suffix='GB'
                                     ),
                                     label='RAM:',
@@ -1540,7 +1540,7 @@ def callbacks(app, fsc, cache):
             column_types.update({row[0]: row[1] for row in samples_schema})
 
             where_sql, params = build_where_and_params(filter_, filterOptions)
-            where_sql = f"{where_sql} {'AND' if where_sql else 'WHERE'} r.peak_label IN ?"
+            where_sql = f"{where_sql} {'AND' if where_sql else 'WHERE'} r.peak_label IN ? AND s.use_for_processing = TRUE"
             params.append(selected_peaks)
 
             order_params: list = []

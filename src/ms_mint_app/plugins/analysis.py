@@ -1137,9 +1137,14 @@ def _create_pivot_custom(conn, value='peak_area', table='results'):
         ORDER BY ms_type
     """
     df = conn.execute(query).df()
+    if df.empty:
+        return df
     meta_cols = ['ms_type', 'sample_type', *GROUP_COLUMNS, 'ms_file_label']
-    keep_cols = [col for col in meta_cols if col in df.columns] + ordered_pl
-    return df[keep_cols]
+    # Start with metadata columns that exist in the dataframe
+    final_cols = [col for col in meta_cols if col in df.columns]
+    # Add pivot columns (targets) ONLY if they exist in the dataframe
+    final_cols.extend([col for col in ordered_pl if col in df.columns])
+    return df[final_cols]
 
 def show_tab_content(section_context, tab_key, x_comp, y_comp, violin_comp_checks, metric_value, norm_value,
                     group_by, regen_clicks, cluster_rows, cluster_cols, fontsize_x, fontsize_y, wdir):
