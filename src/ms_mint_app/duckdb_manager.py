@@ -989,8 +989,8 @@ def compute_and_insert_chromatograms_from_ms_data(con: duckdb.DuckDBPyConnection
                 WITH pairs_to_process AS (SELECT t.peak_label,
                                                  t.mz_mean,
                                                  t.mz_width,
-                                                 t.rt_min,
-                                                 t.rt_max,
+                                                 CASE WHEN t.rt_unit = 'min' THEN t.rt_min * 60 ELSE t.rt_min END AS rt_min,
+                                                 CASE WHEN t.rt_unit = 'min' THEN t.rt_max * 60 ELSE t.rt_max END AS rt_max,
                                                  s.ms_file_label
                                           FROM targets t
                                                    JOIN samples s
@@ -1040,8 +1040,8 @@ def compute_and_insert_chromatograms_from_ms_data(con: duckdb.DuckDBPyConnection
                 INSERT INTO chromatograms (peak_label, ms_file_label, scan_time, intensity, ms_type)
                 WITH pairs_to_process AS (SELECT t.peak_label,
                                                  t.filterLine,
-                                                 t.rt_min,
-                                                 t.rt_max,
+                                                 CASE WHEN t.rt_unit = 'min' THEN t.rt_min * 60 ELSE t.rt_min END AS rt_min,
+                                                 CASE WHEN t.rt_unit = 'min' THEN t.rt_max * 60 ELSE t.rt_max END AS rt_max,
                                                  s.ms_file_label
                                           FROM targets AS t
                                                    JOIN samples s
@@ -1200,6 +1200,7 @@ def compute_chromatograms_in_batches(wdir: str,
                                                                filterLine,
                                                                rt_min,
                                                                rt_max,
+                                                               rt_unit,
                                                                bookmark
                                                         FROM targets t
                                                         WHERE (
@@ -1229,8 +1230,8 @@ def compute_chromatograms_in_batches(wdir: str,
                                                                     t.mz_mean,
                                                                     t.mz_width,
                                                                     t.filterLine,
-                                                                    t.rt_min,
-                                                                    t.rt_max
+                                                                    CASE WHEN t.rt_unit = 'min' THEN t.rt_min * 60 ELSE t.rt_min END AS rt_min,
+                                                                    CASE WHEN t.rt_unit = 'min' THEN t.rt_max * 60 ELSE t.rt_max END AS rt_max
                                                              FROM target_filter t
                                                                       CROSS JOIN sample_filter s),
                                       pending AS (SELECT a.peak_label,
