@@ -560,7 +560,7 @@ qc_content = html.Div(
                         },
                     ),
                     fac.AntdDivider(
-                        children="m/z",
+                        children="Peak Area",
                         lineColor="#ccc",
                         fontColor="#666",
                         fontSize="14px",
@@ -2404,12 +2404,12 @@ def callbacks(app, fsc, cache):
                 fig_mz.add_trace(
                     go.Scatter(
                         x=group_df[x_col],
-                        y=group_df['peak_mz_of_max'] if 'peak_mz_of_max' in df.columns and df['peak_mz_of_max'].notna().any() else [mz_mean] * len(group_df),
+                        y=group_df['peak_area'],
                         mode='markers',
                         name=str(group),
                         marker=dict(color=scatter_colors, size=6),
                         text=group_df['ms_file_label'],
-                        hovertemplate='%{text}<br>m/z: %{y:.4f}<extra></extra>',
+                        hovertemplate='%{text}<br>Int: %{y:.2e}<extra></extra>',
                         legendgroup=str(group),
                         showlegend=True, 
                     ),
@@ -2449,10 +2449,10 @@ def callbacks(app, fsc, cache):
                     )
                     
                     # m/z histogram
-                    mz_values = sub_df['peak_mz_of_max'] if 'peak_mz_of_max' in sub_df.columns and sub_df['peak_mz_of_max'].notna().any() else [mz_mean] * len(sub_df)
+                    int_values = sub_df['peak_area']
                     fig_mz.add_trace(
                         go.Histogram(
-                            y=mz_values,  
+                            y=int_values,  
                             orientation='h',
                             marker=dict(color=color_val),
                             showlegend=False,
@@ -2471,7 +2471,7 @@ def callbacks(app, fsc, cache):
                     yanchor='top',
                     y=0.95,
                     xanchor='right',
-                    x=-0.1,
+                    x=-0.075,
                     font=dict(size=10),
                 ),
                 hovermode='closest',
@@ -2498,7 +2498,7 @@ def callbacks(app, fsc, cache):
             fig_mz.update_layout(
                 **layout_common,
             )
-            fig_mz.update_yaxes(title_text='m/z', row=1, col=1, showgrid=True, gridcolor='#eee')
+            fig_mz.update_yaxes(title_text='Peak Area', row=1, col=1, showgrid=True, gridcolor='#eee')
             fig_mz.update_yaxes(showticklabels=False, row=1, col=2)
             fig_mz.update_xaxes(title_text=x_title, row=1, col=1)
             fig_mz.update_xaxes(showticklabels=False, row=1, col=2)
