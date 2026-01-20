@@ -552,22 +552,25 @@ qc_content = html.Div(
                                     fontSize="14px",
                                     style={'margin': '12px 0'}
                                 ),
-                                dcc.Graph(
-                                    id='qc-rt-graph',
-                                    config=PLOTLY_HIGH_RES_CONFIG,
-                                    style={'height': '280px', 'width': '100%', 'minHeight': '280px'},
-                                    figure={
-                                        'data': [],
-                                        'layout': {
-                                            'xaxis': {'visible': False},
-                                            'yaxis': {'visible': False},
-                                            'paper_bgcolor': 'white',
-                                            'plot_bgcolor': 'white',
-                                            'margin': {'l': 0, 'r': 0, 't': 0, 'b': 0},
-                                            'autosize': True,
-                                        }
-                                    },
-                                ),
+
+                                html.Div([
+                                    dcc.Graph(
+                                        id='qc-rt-graph',
+                                        config=PLOTLY_HIGH_RES_CONFIG,
+                                        style={'height': '280px', 'width': '100%'},
+                                        figure={
+                                            'data': [],
+                                            'layout': {
+                                                'xaxis': {'visible': False},
+                                                'yaxis': {'visible': False},
+                                                'paper_bgcolor': 'white',
+                                                'plot_bgcolor': 'white',
+                                                'margin': {'l': 0, 'r': 0, 't': 0, 'b': 0},
+                                                'autosize': True,
+                                            }
+                                        },
+                                    )
+                                ], style={'height': '280px', 'width': '100%', 'display': 'block'}),
                                 fac.AntdDivider(
                                     children="Peak Area",
                                     lineColor="#ccc",
@@ -575,22 +578,25 @@ qc_content = html.Div(
                                     fontSize="14px",
                                     style={'margin': '12px 0'}
                                 ),
-                                dcc.Graph(
-                                    id='qc-mz-graph',
-                                    config=PLOTLY_HIGH_RES_CONFIG,
-                                    style={'height': '280px', 'width': '100%', 'minHeight': '280px'},
-                                    figure={
-                                        'data': [],
-                                        'layout': {
-                                            'xaxis': {'visible': False},
-                                            'yaxis': {'visible': False},
-                                            'paper_bgcolor': 'white',
-                                            'plot_bgcolor': 'white',
-                                            'margin': {'l': 0, 'r': 0, 't': 0, 'b': 0},
-                                            'autosize': True,
-                                        }
-                                    },
-                                ),
+
+                                html.Div([
+                                    dcc.Graph(
+                                        id='qc-mz-graph',
+                                        config=PLOTLY_HIGH_RES_CONFIG,
+                                        style={'height': '280px', 'width': '100%'},
+                                        figure={
+                                            'data': [],
+                                            'layout': {
+                                                'xaxis': {'visible': False},
+                                                'yaxis': {'visible': False},
+                                                'paper_bgcolor': 'white',
+                                                'plot_bgcolor': 'white',
+                                                'margin': {'l': 0, 'r': 0, 't': 0, 'b': 0},
+                                                'autosize': True,
+                                            }
+                                        },
+                                    )
+                                ], style={'height': '280px', 'width': '100%', 'display': 'block'}),
                             ],
                             vertical=True,
                             style={'width': '100%'}
@@ -2317,13 +2323,12 @@ def callbacks(app, fsc, cache):
         Output('qc-spinner', 'spinning'),
         Input('qc-target-select', 'value'),
         Input('analysis-grouping-select', 'value'),
-        Input('analysis-sidebar-menu', 'currentKey'),
         Input('wdir', 'data'),
         prevent_initial_call=False,
     )
-    def generate_qc_plots(peak_label, group_by, current_key, wdir):
+    def generate_qc_plots(peak_label, group_by, wdir):
         """Generate QC plots: RT and m/z in separate figures."""
-        if not peak_label or not wdir or current_key != 'qc':
+        if not peak_label or not wdir:
             raise PreventUpdate
         
         from plotly.subplots import make_subplots
@@ -2383,6 +2388,7 @@ def callbacks(app, fsc, cache):
             
             # Use colors from database (samples table)
             unique_groups = df['group_val'].unique()
+            
             color_discrete_map = {}
             default_colors = px.colors.qualitative.Plotly
             
@@ -2479,6 +2485,7 @@ def callbacks(app, fsc, cache):
                 margin=dict(l=0, r=10, t=50, b=40),
                 paper_bgcolor='white',
                 plot_bgcolor='white',
+                height=280,
             )
 
             # Update RT Figure Layout
@@ -2796,13 +2803,13 @@ def callbacks(app, fsc, cache):
                 xaxis_title="Scan Time (s)", yaxis_title=y_title,
                 xaxis_title_font=dict(size=16), yaxis_title_font=dict(size=16),
                 xaxis_tickfont=dict(size=12), yaxis_tickfont=dict(size=12),
-                template="plotly_white", margin=dict(l=50, r=20, t=110, b=80),
+                template="plotly_white", margin=dict(l=50, r=20, t=90, b=80),
                 height=450, showlegend=True,
                 legend=dict(title=dict(text=f"{group_label}: ", font=dict(size=13)), font=dict(size=12), orientation='h', y=-0.3, x=0),
                 xaxis=dict(range=[x_range_min, x_range_max] if x_range_min else None, autorange=x_range_min is None),
                 yaxis=dict(range=y_range if y_range else None, autorange=y_range is None),
             )
-            return fig, {'display': 'block', 'width': 'calc(43% - 6px)', 'marginTop': '56px'}
+            return fig, {'display': 'block', 'width': 'calc(43% - 6px)', 'marginTop': '75px'}
 
     @app.callback(
         Output('qc-rt-graph', 'figure', allow_duplicate=True),
