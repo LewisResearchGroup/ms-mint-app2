@@ -497,14 +497,29 @@ violin_content = html.Div(
                         fac.AntdSpin(
                             dcc.Graph(
                                 id='violin-chromatogram',
-                                config={'displayModeBar': False, 'responsive': True},
+                                config={'displayModeBar': True, 'responsive': True},
                                 style={'height': '450px', 'width': '100%'},
                             ),
                             text='Loading Chromatogram...',
                         ),
+                        fac.AntdFlex(
+                            [
+                                fac.AntdText("Log2 Scale", style={'marginRight': '8px', 'fontSize': '12px'}),
+                                fac.AntdSwitch(
+                                    id='violin-log-scale-switch',
+                                    checked=False,
+                                    checkedChildren='On',
+                                    unCheckedChildren='Off',
+                                    size='small',
+                                ),
+                            ],
+                            justify='end',
+                            align='center',
+                            style={'marginTop': '4px', 'width': '100%'}
+                        )
                     ],
                     id='violin-chromatogram-container',
-                    style={'display': 'block', 'width': 'calc(43% - 6px)', 'height': '450px'}
+                    style={'display': 'block', 'width': 'calc(43% - 6px)', 'height': 'auto'} # Allow height to grow
                 ),
             ],
             gap='middle',
@@ -1484,13 +1499,13 @@ def show_tab_content(section_context, tab_key, x_comp, y_comp, violin_comp_check
                 group_series.name: group_label,
                 selected: 'Intensity',
             })
-            metric_label = 'Concentration' if metric == 'scalir_conc' else 'Intensity'
-            if norm_value == 'none':
-                melt_df['PlotValue'] = melt_df['Intensity']
-                y_label = metric_label
-            else:
-                melt_df['PlotValue'] = melt_df['Intensity']
-                y_label = metric_label
+            
+            # Use label from METRIC_OPTIONS instead of hardcoded strings
+            metric_label = next((opt['label'] for opt in METRIC_OPTIONS if opt['value'] == metric), metric)
+
+            melt_df['PlotValue'] = melt_df['Intensity']
+            y_label = metric_label
+
             fig = px.violin(
                 melt_df,
                 x=group_label,
@@ -1811,10 +1826,12 @@ def callbacks(app, fsc, cache):
         Input('analysis-grouping-select', 'value'),
         Input('analysis-metric-select', 'value'),
         Input('analysis-normalization-select', 'value'),
+        Input('violin-log-scale-switch', 'checked'),
+        State('violin-selected-sample', 'data'),
         State("wdir", "data"),
         prevent_initial_call=True,
     )
-    def update_chromatogram_on_click(clickData_list, peak_label, group_by_col, metric, normalization, wdir):
+    def update_chromatogram_on_click(clickData_list, peak_label, group_by_col, metric, normalization, log_scale, current_selection, wdir):
         import random
         from dash import ALL
         ctx = dash.callback_context
@@ -1837,13 +1854,17 @@ def callbacks(app, fsc, cache):
         ms_file_label = None
         
         # If triggered by a click, extract the sample from clickData
-        if trigger_id not in reset_triggers and clickData:
+        if 'violin-plot' in ctx.triggered[0]['prop_id']:
             try:
                 ms_file_label = clickData['points'][0]['customdata'][0]
             except (KeyError, IndexError, TypeError):
                 pass
         
-        # If no sample from click (or params changed), auto-select a random sample with valid signal
+        # If triggered by log scale toggle, keep current selection
+        elif trigger_id == 'violin-log-scale-switch' and current_selection:
+            ms_file_label = current_selection
+
+        # If no sample (or reset triggered), auto-select a random sample with valid signal
         if not ms_file_label and wdir and peak_label:
             with duckdb_connection(wdir) as conn:
                 if conn:
@@ -1980,6 +2001,9 @@ def callbacks(app, fsc, cache):
                     # If grouping is active but value is missing, use the "unset" color (gray)
                     if group_by_col and group_val is None:
                         n_color = '#bbbbbb'
+                    
+                    if log_scale:
+                         intensities = np.log2(np.array(intensities) + 1)
 
                     fig.add_trace(go.Scatter(
                         x=scan_times,
@@ -2014,6 +2038,10 @@ def callbacks(app, fsc, cache):
                         main_color = '#bbbbbb'
 
                     legend_name = str(display_val) if group_by_col else ms_file_label
+                    
+                    if log_scale:
+                         intensities = np.log2(np.array(intensities) + 1)
+
                     fig.add_trace(go.Scatter(
                         x=scan_times,
                         y=intensities,
@@ -2068,12 +2096,14 @@ def callbacks(app, fsc, cache):
             if len(title_label) > 50:
                  title_label = title_label[:20] + "..." + title_label[-20:]
 
+            # Update layout
+            y_title = "Intensity (Log2)" if log_scale else "Intensity"
             fig.update_layout(
-                title=dict(text=f"{peak_label} | {title_label}"),
+                title=dict(text=f"{peak_label} | {title_label}", font=dict(size=14)),
                 xaxis_title="Scan Time (s)",
-                yaxis_title="Intensity",
+                yaxis_title=y_title,
                 template="plotly_white",
-                margin=dict(l=0, r=10, t=80, b=80),
+                margin=dict(l=50, r=20, t=40, b=40),
                 height=450,
                 showlegend=True,
                 legend=dict(
