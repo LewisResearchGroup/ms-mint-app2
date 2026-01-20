@@ -44,7 +44,7 @@ TARGET_TEMPLATE_DESCRIPTIONS = [
     'True if selected for analysis',
     'True if bookmarked',
     'Mean m/z (centroid)',
-    'm/z window or tolerance',
+    'm/z window or tolerance (ppm)',
     'Precursor m/z (MS2)',
     'Retention time (default: in seconds)',
     'Lower RT bound (default: in seconds)',

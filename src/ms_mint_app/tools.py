@@ -1500,7 +1500,7 @@ def get_targets_v2(files_path):
                     
                     # Warn if window is suspiciously large
                     window_size = target['rt_max'] - target['rt_min']
-                    if window_size > 30.0:
+                    if window_size > 60.0:
                         logging.warning(
                             f"Target '{target['peak_label']}': Large RT window ({window_size:.1f}s). "
                             f"Please verify rt_min and rt_max values."
