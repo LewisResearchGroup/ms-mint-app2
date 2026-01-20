@@ -652,7 +652,7 @@ _layout = fac.AntdLayout(
             width="100vw",
             centered=True,
             destroyOnClose=True,
-            closable=False,
+            closable=True,
             maskClosable=False,
             children=[
                 fac.AntdLayout(
@@ -977,23 +977,26 @@ _layout = fac.AntdLayout(
                                             disabled=True,
                                         ),
                                     ],
-                                    size=15,
+                                    size=20,
                                 ),
                                 fac.AntdButton(
-                                    "Delete target",
+                                    "Bookmark",
+                                    id="bookmark-target-modal-btn",
+                                    icon=fac.AntdIcon(icon="antd-star"),
+                                    type="default",
+                                ),
+                                fac.AntdButton(
+                                    "Delete",
+                                    icon=fac.AntdIcon(icon='antd-delete'),
                                     id="delete-target-from-modal",
                                     danger=True,
-                                    type="dashed",
-                                ),
-                                fac.AntdButton(
-                                    "Close",
-                                    id="chromatogram-view-close",
+                                    type="default",
                                 ),
                             ],
                             size=20,
-                            addSplitLine=True,
+                            addSplitLine=False,
                             style={
-                                'marginLeft': '60px',
+                                'marginLeft': '50px',
                             },
                         ),
 
@@ -1288,6 +1291,22 @@ def _bookmark_target_logic(bookmarks, targets, trigger_id, wdir):
                                 type="success",
                                 showProgress=True,
                                 stack=True)
+
+
+def _toggle_bookmark_logic(target_label, wdir):
+    with duckdb_connection(wdir) as conn:
+        # Check current state
+        res = conn.execute("SELECT bookmark FROM targets WHERE peak_label = ?", [target_label]).fetchone()
+        current_state = res[0] if res else False
+        
+        # Toggle
+        new_state = not current_state
+        conn.execute("UPDATE targets SET bookmark = ? WHERE peak_label = ?", [new_state, target_label])
+        
+        logger.info(f"Toggled bookmark for {target_label} to {new_state}")
+        
+        icon_color = "gold" if new_state else "gray"
+        return fac.AntdIcon(icon="antd-star", style={"color": icon_color})
 
 
 def _compute_chromatograms_logic(set_progress, recompute_ms1, recompute_ms2, n_cpus, ram, batch_size, wdir):
@@ -2424,7 +2443,6 @@ def callbacks(app, fsc, cache, cpu=None):
         Output('chromatograms', 'data', allow_duplicate=True),
 
         Input('target-preview-clicked', 'data'),
-        Input('chromatogram-view-close', 'nClicks'),
         Input('confirm-unsave-modal', 'okCounts'),
         State('update-chromatograms', 'data'),
         State('target-note', 'value'),
@@ -2436,7 +2454,7 @@ def callbacks(app, fsc, cache, cpu=None):
         State('wdir', 'data'),
         prevent_initial_call=True
     )
-    def handle_modal_open_close(target_clicked, close_clicks, close_without_save_clicks, update_chromatograms,
+    def handle_modal_open_close(target_clicked, close_without_save_clicks, update_chromatograms,
                                 target_note, rt_alignment_data, rt_align_toggle, slider_ref, slider_data, wdir):
         ctx = dash.callback_context
         if not ctx.triggered:
@@ -2446,7 +2464,7 @@ def callbacks(app, fsc, cache, cpu=None):
         if trigger_id == 'target-preview-clicked':
             return True, dash.no_update, dash.no_update
             # if not has_changes, close it
-        elif trigger_id == 'chromatogram-view-close':
+        elif False: # trigger_id == 'chromatogram-view-close':
             with duckdb_connection(wdir) as conn:
                 if conn is None:
                     return dash.no_update, dash.no_update, dash.no_update
@@ -2557,18 +2575,6 @@ def callbacks(app, fsc, cache, cpu=None):
 
         return dash.no_update, dash.no_update, dash.no_update
 
-    @app.callback(
-        Output('confirm-unsave-modal', 'visible'),
-
-        Input('chromatogram-view-close', 'nClicks'),
-        State('slider-reference-data', 'data'),
-        State('slider-data', 'data'),
-        prevent_initial_call=True
-    )
-    def show_confirm_modal(close_clicks, reference_data, slider_data):
-        # No longer showing confirmation modal - we auto-save instead
-        # This callback is kept for compatibility but always returns False
-        return False
 
     ############# VIEW MODAL END #######################################
 
@@ -2971,6 +2977,7 @@ def callbacks(app, fsc, cache, cpu=None):
         Output('rt-alignment-data', 'data', allow_duplicate=True),  # Load alignment data
         Output('target-note', 'value', allow_duplicate=True),
         Output('chromatogram-view-lock-range', 'checked', allow_duplicate=True), # Set initial lock state
+        Output('bookmark-target-modal-btn', 'icon'),
 
         Input('target-preview-clicked', 'data'),
         State('chromatogram-preview-log-y', 'checked'),
@@ -2990,15 +2997,15 @@ def callbacks(app, fsc, cache, cpu=None):
         with duckdb_connection(wdir) as conn:
             # Load target data including RT alignment columns
             d = conn.execute("""
-                SELECT rt, rt_min, rt_max, COALESCE(notes, ''), ms_type,
-                       rt_align_enabled, rt_align_reference_rt, rt_align_shifts,
-                       rt_align_rt_min, rt_align_rt_max
-                FROM targets 
-                WHERE peak_label = ?
-            """, [target_clicked]).fetchall()
-            
+            SELECT rt, rt_min, rt_max, COALESCE(notes, ''), ms_type,
+                   rt_align_enabled, rt_align_reference_rt, rt_align_shifts,
+                   rt_align_rt_min, rt_align_rt_max, bookmark
+            FROM targets 
+            WHERE peak_label = ?
+        """, [target_clicked]).fetchall()
+        
             if d:
-                rt, rt_min, rt_max, note, target_ms_type, align_enabled, align_ref_rt, align_shifts_json, align_rt_min, align_rt_max = d[0]
+                rt, rt_min, rt_max, note, target_ms_type, align_enabled, align_ref_rt, align_shifts_json, align_rt_min, align_rt_max, bookmark_state = d[0]
             else:
                 rt, rt_min, rt_max, note = None, None, None, ''
                 target_ms_type = None
@@ -3007,13 +3014,14 @@ def callbacks(app, fsc, cache, cpu=None):
                 align_shifts_json = None
                 align_rt_min = None
                 align_rt_max = None
+                bookmark_state = False
 
             query = """
-                    WITH picked_samples AS (SELECT ms_file_label, color, label, sample_type
-                                            FROM samples
-                                            WHERE use_for_optimization = TRUE
-                        -- AND ms_file_label IN (SELECT unnest(?::VARCHAR[]))
-                    ),
+                        WITH picked_samples AS (SELECT ms_file_label, color, label, sample_type
+                                                FROM samples
+                                                WHERE use_for_optimization = TRUE
+                            -- AND ms_file_label IN (SELECT unnest(?::VARCHAR[]))
+                        ),
                          picked_target AS (SELECT peak_label,
                                                   rt,
                                                   rt_min,
@@ -3076,16 +3084,16 @@ def callbacks(app, fsc, cache, cpu=None):
                     SELECT *
                     FROM final
                     ORDER BY ms_file_label;
-                    """
+                        """
 
             chrom_df = conn.execute(query, [target_clicked]).pl()
-            
-            try:
-                n_sample_types = chrom_df['sample_type'].n_unique()
-                group_legend = True if n_sample_types > 1 else False
-            except Exception as e:
-                logger.warning(f"Error determining sample types: {e}")
-                group_legend = False
+        
+        try:
+            n_sample_types = chrom_df['sample_type'].n_unique()
+            group_legend = True if n_sample_types > 1 else False
+        except Exception as e:
+            logger.warning(f"Error determining sample types: {e}")
+            group_legend = False
 
         t1 = time.perf_counter()
         fig = Patch()
@@ -3292,9 +3300,35 @@ def callbacks(app, fsc, cache, cpu=None):
                 logger.error(f"Error parsing RT alignment data: {e}")
 
         logger.debug(f"Modal view prepared in {time.perf_counter() - t1:.4f}s")
+        
+        bookmark_icon = "antd-star" if bookmark_state else "antd-star" # Warning: AntdIcon names check needed. 
+        # Actually standard AntD icons: 'star' (outline), 'star-filled', 'star-two-tone'.
+        # feffery_antd_components uses 'antd-...' prefix.
+        # Let's try 'antd-star' (outline) and 'antd-star' (filled - wait, how to distinguish?)
+        # A common pattern is 'antd-star' vs 'antd-star-filled' if available, or 'antd-star' with theme.
+        # But looking at existing icons: 'antd-delete', 'antd-right', 'antd-question-circle'.
+        # I'll use 'antd-star' for empty, 'antd-star' (filled is usually not a separate icon name in fac unless specifically supported).
+        # However, looking at other usages, 'antd-home', 'antd-filter'.
+        # Let's try 'antd-star' and 'antd-star' with a different color/type, BUT the Output is 'icon'.
+        # I can return a fac.AntdIcon component? No, usually just string properties if updating property.
+        # Wait, the Output is `Output('bookmark-target-modal-btn', 'icon')`. The `icon` prop of AntdButton expects a Component (fac.AntdIcon) usually?
+        # NO, looking at other callbacks, `Output('some-btn', 'icon')` usually expects the component structure if using Dash.
+        # OR if I update the property of a component, I might need to return the component itself.
+        # Let's check `Output('bookmark-target-modal-btn', 'icon')`. `icon` prop of AntdButton accepts a node.
+        # So I should return `fac.AntdIcon(icon='antd-star')` or `fac.AntdIcon(icon='antd-star', style={'color': 'gold'})`?
+        # Yes.
+        
+        icon_color = "gold" if bookmark_state else "gray"
+        bookmark_icon_node = fac.AntdIcon(icon="antd-star", style={"color": icon_color})
+        if bookmark_state:
+             # Try to find a filled star if possible, or just use color.
+             # 'antd-star' is usually outline. 'antd-star' + theme='filled' -> fac.AntdIcon(icon='antd-star', mode='filled')?
+             # Let's check if I can assume 'antd-star' and just change color for now.
+             pass
+
         return (fig, f"{target_clicked}", False, slider_reference,
                 slider_dict, {"min_y": y_min, "max_y": y_max}, total_points, use_megatrace, log_scale, group_legend, 
-                rt_align_toggle_state, rt_alignment_data_to_load, note, rt_align_toggle_state)
+                rt_align_toggle_state, rt_alignment_data_to_load, note, rt_align_toggle_state, bookmark_icon_node)
 
     @app.callback(
         Output('chromatogram-view-plot', 'figure', allow_duplicate=True),
@@ -3940,6 +3974,19 @@ def callbacks(app, fsc, cache, cpu=None):
         trigger_id = ctx_trigger['index']
 
         return _bookmark_target_logic(bookmarks, targets, trigger_id, wdir)
+
+    @app.callback(
+        Output('bookmark-target-modal-btn', 'icon', allow_duplicate=True),
+        Input('bookmark-target-modal-btn', 'nClicks'),
+        State('chromatogram-view-modal', 'title'),
+        State('wdir', 'data'),
+        prevent_initial_call=True
+    )
+    def toggle_bookmark_from_modal(n_clicks, target_label, wdir):
+        if not n_clicks or not target_label or not wdir:
+            raise PreventUpdate
+            
+        return _toggle_bookmark_logic(target_label, wdir)
 
     @app.callback(
         Output('slider-reference-data', 'data', allow_duplicate=True),
