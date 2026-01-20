@@ -2317,12 +2317,13 @@ def callbacks(app, fsc, cache):
         Output('qc-spinner', 'spinning'),
         Input('qc-target-select', 'value'),
         Input('analysis-grouping-select', 'value'),
+        Input('analysis-sidebar-menu', 'currentKey'),
         Input('wdir', 'data'),
         prevent_initial_call=False,
     )
-    def generate_qc_plots(peak_label, group_by, wdir):
+    def generate_qc_plots(peak_label, group_by, current_key, wdir):
         """Generate QC plots: RT and m/z in separate figures."""
-        if not peak_label or not wdir:
+        if not peak_label or not wdir or current_key != 'qc':
             raise PreventUpdate
         
         from plotly.subplots import make_subplots
@@ -2388,7 +2389,10 @@ def callbacks(app, fsc, cache):
             for i, group in enumerate(unique_groups):
                 # meaningful color from database?
                 group_color = df[df['group_val'] == group]['color'].iloc[0]
-                if group_color and group_color != '#BBBBBB':
+                
+                if group == 'unset':
+                     color_discrete_map[group] = '#bbbbbb'
+                elif group_color and group_color != '#BBBBBB':
                      color_discrete_map[group] = group_color
                 else:
                      color_discrete_map[group] = default_colors[i % len(default_colors)]
@@ -2607,9 +2611,10 @@ def callbacks(app, fsc, cache):
         State('qc-target-select', 'value'),
         State('analysis-grouping-select', 'value'),
         State('wdir', 'data'),
+        State('qc-rt-graph', 'figure'),
         prevent_initial_call=False,
     )
-    def update_qc_chromatogram(ms_file_label, log_scale, peak_label, group_by_col, wdir):
+    def update_qc_chromatogram(ms_file_label, log_scale, peak_label, group_by_col, wdir, rt_fig):
         """Update the chromatogram plot based on the selected sample store."""
         
         if not ms_file_label or not wdir or not peak_label:
@@ -2665,6 +2670,21 @@ def callbacks(app, fsc, cache):
             if group_by_col and not group_val:
                  display_val = f"{group_label} (unset)"
 
+            # Resolve color from QC RT graph if available (to match scatter plot colors)
+            group_color_override = None
+            if rt_fig:
+                # Determine the group name as it appears in the scatter plot legend
+                # In generate_qc_plots, name=str(group_val) where None becomes 'unset'
+                lookup_name = str(group_val) if group_val is not None else 'unset'
+                
+                for trace in rt_fig.get('data', []):
+                    if trace.get('name') == lookup_name:
+                         # Found the group trace, grab its color
+                         marker_color = trace.get('marker', {}).get('color')
+                         if isinstance(marker_color, str):
+                             group_color_override = marker_color
+                         break
+
             # 3. Fetch chromatograms
             files_to_fetch = [ms_file_label] + [n[0] for n in neighbor_files]
             placeholders = ','.join(['?'] * len(files_to_fetch))
@@ -2693,7 +2713,11 @@ def callbacks(app, fsc, cache):
                     _, scan_times, intensities, _ = data_map[n_label]
                     if len(intensities) > 0 and min(intensities) == max(intensities): continue
                     
-                    if group_by_col and group_val is None: n_color = '#bbbbbb'
+                    if group_color_override:
+                        n_color = group_color_override
+                    elif group_by_col and group_val is None: 
+                        n_color = '#bbbbbb'
+                    
                     if log_scale: intensities = np.log2(np.array(intensities) + 1)
 
                     fig.add_trace(go.Scatter(
@@ -2706,12 +2730,30 @@ def callbacks(app, fsc, cache):
             # Plot main sample
             if ms_file_label in data_map:
                 _, scan_times, intensities, main_color = data_map[ms_file_label]
-                is_flat = len(intensities) > 0 and min(intensities) == max(intensities)
+                
+                # Check for flat line only within RT window of the target
+                check_intensities = intensities
+                if rt_min is not None and rt_max is not None:
+                     # Filter checking logic to just the RT span
+                     check_intensities = [i for t, i in zip(scan_times, intensities) if rt_min <= t <= rt_max]
+                     # If the RT span is very narrow or empty, check_intensities might be empty.
+                     # In that case, we might fallback to checking everything or assume it's flat.
+                     # Let's assume if we have no data in the window, it's effectively "no signal".
+                
+                is_flat = False
+                if check_intensities:
+                    is_flat = min(check_intensities) == max(check_intensities)
+                elif rt_min is not None:
+                    # No data points in the window?
+                    is_flat = True
                 
                 if is_flat:
                      fig.add_annotation(text="Selected sample has no valid signal (flat line)", showarrow=False)
                 else:
-                    if group_by_col and not group_val: main_color = '#bbbbbb'
+                    if group_color_override:
+                        main_color = group_color_override
+                    elif group_by_col and not group_val: 
+                        main_color = '#bbbbbb'
                     legend_name = str(display_val) if group_by_col else ms_file_label
                     if log_scale: intensities = np.log2(np.array(intensities) + 1)
 
