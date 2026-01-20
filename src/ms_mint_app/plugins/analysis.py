@@ -1559,9 +1559,9 @@ def show_tab_content(section_context, tab_key, x_comp, y_comp, violin_comp_check
                 title_font=dict(size=16),
                 yaxis_title=y_label,
                 xaxis_title=group_label,
-                yaxis=dict(range=[0, None] if norm_value == 'none' else [None, None], fixedrange=False),
+                yaxis=dict(rangemode='tozero' if norm_value in ['none', 'durbin'] else 'normal', fixedrange=False),
 
-                margin=dict(l=0, r=10, t=80, b=80),
+                margin=dict(l=0, r=10, t=110, b=80),
                 height=450,
                 legend=dict(
                         title=dict(text=f"{group_label}: ", font=dict(size=13)),
@@ -2102,8 +2102,12 @@ def callbacks(app, fsc, cache):
                 title=dict(text=f"{peak_label} | {title_label}", font=dict(size=14)),
                 xaxis_title="Scan Time (s)",
                 yaxis_title=y_title,
+                xaxis_title_font=dict(size=16),
+                yaxis_title_font=dict(size=16),
+                xaxis_tickfont=dict(size=12),
+                yaxis_tickfont=dict(size=12),
                 template="plotly_white",
-                margin=dict(l=50, r=20, t=40, b=40),
+                margin=dict(l=50, r=20, t=110, b=80),
                 height=450,
                 showlegend=True,
                 legend=dict(
