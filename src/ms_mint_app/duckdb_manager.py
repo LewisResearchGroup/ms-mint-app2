@@ -1568,8 +1568,6 @@ def compute_chromatograms_in_batches(wdir: str,
                         batch_elapsed = time.time() - batch_start if 'batch_start' in locals() else 0
                         failed += batch_count
 
-                        failed += batch_count
-
                         logger.error(f"Error processing batch: {batch_elapsed:>5.2f}s | Error: {str(e)[:80]}")
 
 
