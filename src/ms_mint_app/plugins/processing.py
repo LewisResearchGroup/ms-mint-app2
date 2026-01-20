@@ -2088,7 +2088,7 @@ def callbacks(app, fsc, cache):
         default_cpus = max(1, n_cpus_total // 2)
         
         available_ram_gb = psutil.virtual_memory().available / (1024 ** 3)
-        default_ram = min(float(default_cpus), available_ram_gb)
+        default_ram = round(min(float(default_cpus), available_ram_gb), 1)
         available_ram_gb_rounded = round(available_ram_gb, 1)
 
         help_cpu = f"Selected {default_cpus} / {n_cpus_total} cpus"
