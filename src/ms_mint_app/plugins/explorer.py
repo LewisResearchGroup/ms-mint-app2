@@ -89,25 +89,43 @@ class FileExplorer:
                                                                     'title': 'Name',
                                                                     'dataIndex': 'name',
                                                                     'align': 'left',
-                                                                    'width': '70%',
+                                                                    'width': '50%',
                                                                     'renderOptions': {'renderType': 'link'},
                                                                 },
                                                                 {
-                                                                    'title': 'T',
+                                                                    'title': 'Type',
                                                                     'dataIndex': 'type',
-                                                                    'width': '5%',
+                                                                    'width': '15%',
                                                                 },
                                                                 {
                                                                     'title': 'Modified',
                                                                     'dataIndex': 'modified',
-                                                                    'width': '25%',
+                                                                    'width': '20%',
                                                                 },
                                                                 {
-                                                                    'title': 'Fc',
+                                                                    'title': 'Files',
                                                                     'dataIndex': 'file_count',
-                                                                    'width': '10%',
+                                                                    'width': '15%',
                                                                 },
                                                             ],
+                                                            titlePopoverInfo={
+                                                                'name': {
+                                                                    'title': 'Name',
+                                                                    'content': 'The name of the file or directory.',
+                                                                },
+                                                                'type': {
+                                                                    'title': 'Type',
+                                                                    'content': 'The type of the item (File or Folder).',
+                                                                },
+                                                                'modified': {
+                                                                    'title': 'Modified',
+                                                                    'content': 'The timestamp of the last modification.',
+                                                                },
+                                                                'file_count': {
+                                                                    'title': 'Files',
+                                                                    'content': 'The number of matching files in the directory.',
+                                                                },
+                                                            },
                                                             sortOptions={
                                                                 'sortDataIndexes': ['modified', 'name', 'file_count']},
                                                             rowSelectionType='checkbox',
