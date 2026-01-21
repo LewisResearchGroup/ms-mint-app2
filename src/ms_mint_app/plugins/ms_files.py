@@ -18,7 +18,7 @@ from plotly import colors
 
 from .. import tools as T
 from ..colors import make_palette_hsv
-from ..duckdb_manager import duckdb_connection, build_where_and_params, build_order_by
+from ..duckdb_manager import duckdb_connection, build_where_and_params, build_order_by, compact_database
 from ..plugin_interface import PluginInterface
 from ..sample_metadata import GROUP_COLUMNS, GROUP_DESCRIPTIONS, GROUP_LABELS
 from ..logging_setup import activate_workspace_logging
@@ -990,6 +990,14 @@ def _confirm_and_delete(okCounts, selectedRows, clickedKey, wdir):
                 conn.execute("ANALYZE")
 
                 ms_table_action_store = {'action': 'delete', 'status': 'success'}
+        
+        # Compact database only when clearing the entire table (outside 'with' block)
+        if ms_table_action_store.get('status') == 'success':
+            compact_success, compact_msg = compact_database(wdir)
+            if compact_success:
+                logger.info(f"Database compacted after clearing MS files: {compact_msg}")
+            else:
+                logger.warning(f"Failed to compact database: {compact_msg}")
     
     if total_removed > 0:
         logger.info(f"Deleted {total_removed} MS-Files.")

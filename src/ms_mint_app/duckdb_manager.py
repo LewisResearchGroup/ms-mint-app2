@@ -465,6 +465,145 @@ def duckdb_connection_mint(mint_path: Path, workspace=None):
             con.close()
 
 
+def compact_database(workspace_path: Path | str, max_retries: int = 5, initial_delay: float = 0.5) -> tuple[bool, str]:
+    """
+    Compact the workspace database by rebuilding it.
+    
+    DuckDB doesn't automatically reclaim space after DELETEs, so this function
+    creates a new database file with only the current data, then replaces
+    the old file.
+    
+    Args:
+        workspace_path: Path to the workspace directory
+        max_retries: Maximum number of retry attempts for lock conflicts
+        initial_delay: Initial delay between retries (doubles each attempt)
+        
+    Returns:
+        (success, error_message)
+    """
+    import shutil
+    import uuid
+    
+    workspace_path = Path(workspace_path)
+    db_file = workspace_path / 'workspace_mint.db'
+    
+    if not db_file.exists():
+        return False, f"Database file not found: {db_file}"
+    
+    # Get original file size for logging
+    original_size = db_file.stat().st_size
+    original_size_mb = original_size / (1024 * 1024)
+    
+    # Create temporary file name for the new database
+    temp_db_file = workspace_path / f'workspace_mint_{uuid.uuid4().hex[:8]}.db.tmp'
+    backup_file = workspace_path / 'workspace_mint.db.bak'
+    
+    try:
+        # Create new database and copy all tables
+        new_con = None
+        try:
+            new_con = duckdb.connect(database=str(temp_db_file), read_only=False)
+            new_con.execute("PRAGMA enable_checkpoint_on_shutdown")
+            
+            # Limit memory to 50% of available RAM to prevent system freeze
+            import psutil
+            available_ram_gb = psutil.virtual_memory().available / (1024 ** 3)
+            memory_limit_gb = max(2, int(available_ram_gb * 0.5))  # At least 2GB, max 50%
+            new_con.execute(f"SET memory_limit = '{memory_limit_gb}GB'")
+            logger.debug(f"Compaction memory limit set to {memory_limit_gb}GB (50% of {available_ram_gb:.1f}GB available)")
+            
+            # Create all types and tables in the new database
+            _create_tables(new_con)
+            
+            # Attach the old database with retry logic for lock conflicts
+            delay = initial_delay
+            attached = False
+            last_error = None
+            
+            for attempt in range(max_retries):
+                try:
+                    new_con.execute(f"ATTACH '{db_file}' AS old_db (READ_ONLY)")
+                    attached = True
+                    break
+                except duckdb.IOException as e:
+                    last_error = e
+                    if "lock" in str(e).lower() and attempt < max_retries - 1:
+                        logger.debug(f"Compact: lock conflict on attach, retry {attempt + 1}/{max_retries} after {delay:.1f}s")
+                        time.sleep(delay)
+                        delay *= 2  # Exponential backoff
+                    else:
+                        raise
+            
+            if not attached:
+                raise last_error or Exception("Failed to attach old database")
+            
+            # Copy data from all tables
+            tables_to_copy = ['samples', 'targets', 'ms1_data', 'ms2_data', 'chromatograms', 'results']
+            for table in tables_to_copy:
+                # Check if table has data in old database
+                try:
+                    count = new_con.execute(f"SELECT COUNT(*) FROM old_db.{table}").fetchone()[0]
+                    if count > 0:
+                        # Copy data - INSERT INTO ... SELECT * FROM ...
+                        new_con.execute(f"INSERT INTO {table} SELECT * FROM old_db.{table}")
+                        logger.debug(f"Compacted table '{table}': {count} rows")
+                except Exception as e:
+                    # Table might not exist in old DB, which is fine
+                    logger.debug(f"Skipping table '{table}' during compaction: {e}")
+            
+            # Detach old database
+            new_con.execute("DETACH old_db")
+            
+            # Checkpoint to ensure all data is written
+            new_con.execute("CHECKPOINT")
+            
+        finally:
+            if new_con:
+                new_con.close()
+        
+        # Now swap the files
+        # Rename old to backup
+        if backup_file.exists():
+            backup_file.unlink()
+        db_file.rename(backup_file)
+        
+        # Rename new to original
+        temp_db_file.rename(db_file)
+        
+        # Remove backup
+        if backup_file.exists():
+            backup_file.unlink()
+        
+        # Log the size reduction
+        new_size = db_file.stat().st_size
+        new_size_mb = new_size / (1024 * 1024)
+        reduction_pct = ((original_size - new_size) / original_size * 100) if original_size > 0 else 0
+        
+        logger.info(f"Database compacted: {original_size_mb:.1f}MB -> {new_size_mb:.1f}MB ({reduction_pct:.0f}% reduction)")
+        
+        return True, f"Compacted {original_size_mb:.1f}MB -> {new_size_mb:.1f}MB"
+        
+    except Exception as e:
+        logger.error(f"Error compacting database: {e}", exc_info=True)
+        
+        # Cleanup: restore backup if it exists
+        if backup_file.exists() and not db_file.exists():
+            try:
+                backup_file.rename(db_file)
+                logger.info("Restored database from backup after failed compaction")
+            except Exception as restore_error:
+                logger.error(f"Failed to restore backup: {restore_error}")
+        
+        # Remove temp file if it exists
+        if temp_db_file.exists():
+            try:
+                temp_db_file.unlink()
+            except Exception:
+                pass
+        
+        return False, str(e)
+
+
 def _create_tables(conn: duckdb.DuckDBPyConnection):
     # Create tables if they don't exist
     conn.execute("CREATE TYPE IF NOT EXISTS ms_type_enum AS ENUM ('ms1', 'ms2');")

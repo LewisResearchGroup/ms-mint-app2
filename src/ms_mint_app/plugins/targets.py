@@ -11,7 +11,7 @@ from dash.dependencies import Input, Output, State
 from dash.exceptions import PreventUpdate
 
 from .. import tools as T
-from ..duckdb_manager import duckdb_connection, build_where_and_params, build_order_by
+from ..duckdb_manager import duckdb_connection, build_where_and_params, build_order_by, compact_database
 from ..plugin_interface import PluginInterface
 from ..logging_setup import activate_workspace_logging
 from . import targets_asari
@@ -937,6 +937,15 @@ def _target_delete(okCounts, selectedRows, clickedKey, wdir):
                                 stack=True
                             ),
                             {'action': 'delete', 'status': 'failed'})
+        
+        # Compact database only when clearing the entire table (outside the 'with' block)
+        if targets_action_store.get('status') == 'success':
+            compact_success, compact_msg = compact_database(wdir)
+            if compact_success:
+                logger.info(f"Database compacted after clearing targets: {compact_msg}")
+            else:
+                logger.warning(f"Failed to compact database: {compact_msg}")
+
     if total_removed > 0:
         logger.info(f"Deleted {total_removed} targets.")
 
