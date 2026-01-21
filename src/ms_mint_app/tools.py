@@ -1731,6 +1731,9 @@ def _insert_ms_data(wdir, ms_type, batch_ms, batch_ms_data, n_cpus=None):
                          FROM read_parquet(?)
                          """,
                          [batch_ms_data[ms_type]])
+            
+            # CHECKPOINT after each batch to flush WAL and keep insert times consistent
+            conn.execute("CHECKPOINT")
             insert_success = True
                     
         except Exception as e:
