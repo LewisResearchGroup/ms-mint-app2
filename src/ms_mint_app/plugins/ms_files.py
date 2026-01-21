@@ -131,10 +131,14 @@ _layout = html.Div(
                         fac.AntdTitle(
                             'MS-Files', level=4, style={'margin': '0'}
                         ),
-                        fac.AntdIcon(
-                            id='ms-files-tour-icon',
-                            icon='pi-info',
-                            style={"cursor": "pointer", 'paddingLeft': '10px'},
+                        fac.AntdTooltip(
+                            fac.AntdIcon(
+                                id='ms-files-tour-icon',
+                                icon='pi-info',
+                                style={"cursor": "pointer", 'paddingLeft': '10px'},
+                                **{'aria-label': 'Show tutorial'},
+                            ),
+                            title='Show tutorial'
                         ),
                         # Always visible: Load MS-Files button
                         fac.AntdTooltip(

@@ -90,10 +90,14 @@ _layout = html.Div(
                         fac.AntdTitle(
                             'Targets', level=4, style={'margin': '0'}
                         ),
-                        fac.AntdIcon(
-                            id='targets-tour-icon',
-                            icon='pi-info',
-                            style={"cursor": "pointer", 'paddingLeft': '10px'},
+                        fac.AntdTooltip(
+                            fac.AntdIcon(
+                                id='targets-tour-icon',
+                                icon='pi-info',
+                                style={"cursor": "pointer", 'paddingLeft': '10px'},
+                                **{'aria-label': 'Show tutorial'},
+                            ),
+                            title='Show tutorial'
                         ),
                         fac.AntdTooltip(
                             fac.AntdButton(

@@ -146,10 +146,14 @@ _layout = html.Div(
                         fac.AntdTitle(
                             'Processing', level=4, style={'margin': '0'}
                         ),
-                        fac.AntdIcon(
-                            id='processing-tour-icon',
-                            icon='pi-info',
-                            style={"cursor": "pointer", 'paddingLeft': '10px'},
+                        fac.AntdTooltip(
+                            fac.AntdIcon(
+                                id='processing-tour-icon',
+                                icon='pi-info',
+                                style={"cursor": "pointer", 'paddingLeft': '10px'},
+                                **{'aria-label': 'Show tutorial'},
+                            ),
+                            title='Show tutorial'
                         ),
                         fac.AntdSpace(
                             [

@@ -669,10 +669,14 @@ _layout = fac.AntdLayout(
                         fac.AntdTitle(
                             'Analysis', level=4, style={'margin': '0', 'whiteSpace': 'nowrap'}
                         ),
-                        fac.AntdIcon(
-                            id='analysis-tour-icon',
-                            icon='pi-info',
-                            style={"cursor": "pointer", 'paddingLeft': '10px'},
+                        fac.AntdTooltip(
+                            fac.AntdIcon(
+                                id='analysis-tour-icon',
+                                icon='pi-info',
+                                style={"cursor": "pointer", 'paddingLeft': '10px'},
+                                **{'aria-label': 'Show tutorial'},
+                            ),
+                            title='Show tutorial'
                         ),
                     ],
                     align='center',
@@ -697,15 +701,21 @@ _layout = fac.AntdLayout(
                             vertical=True,
                             style={'height': '100%', 'paddingTop': '8px'}
                         ),
-                        fac.AntdButton(
-                            id='analysis-sidebar-collapse',
-                            type='text',
-                            icon=fac.AntdIcon(
-                                id='analysis-sidebar-collapse-icon',
-                                icon='antd-left',
-                                style={'fontSize': '14px'},
+                        html.Div(
+                            fac.AntdTooltip(
+                                fac.AntdButton(
+                                    id='analysis-sidebar-collapse',
+                                    type='text',
+                                    icon=fac.AntdIcon(
+                                        id='analysis-sidebar-collapse-icon',
+                                        icon='antd-left',
+                                        style={'fontSize': '14px'},
+                                    ),
+                                    shape='default',
+                                    **{'aria-label': 'Collapse/Expand Analysis Sidebar'},
+                                ),
+                                title='Collapse/Expand Analysis Sidebar'
                             ),
-                            shape='default',
                             style={
                                 'position': 'absolute',
                                 'zIndex': 1,
@@ -713,6 +723,7 @@ _layout = fac.AntdLayout(
                                 'bottom': 16,
                                 'boxShadow': '2px 2px 5px 1px rgba(0,0,0,0.5)',
                                 'background': 'white',
+                                'borderRadius': '4px',
                             },
                         ),
                     ],

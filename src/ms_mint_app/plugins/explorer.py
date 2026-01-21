@@ -194,20 +194,28 @@ class FileExplorer:
                                                         html.Strong("Selected files"),
                                                         fac.AntdSpace(
                                                             [
-                                                                fac.AntdButton(
-                                                                    id='remove-marked-btn',
-                                                                    size='small',
-                                                                    danger=True,
-                                                                    type='text',
-                                                                    icon=fac.AntdIcon(
-                                                                        icon='md-remove-circle-outline'),
+                                                                fac.AntdTooltip(
+                                                                    fac.AntdButton(
+                                                                        id='remove-marked-btn',
+                                                                        size='small',
+                                                                        danger=True,
+                                                                        type='text',
+                                                                        icon=fac.AntdIcon(
+                                                                            icon='md-remove-circle-outline'),
+                                                                        **{'aria-label': 'Remove selected files from list'},
+                                                                    ),
+                                                                    title='Remove selected files from list'
                                                                 ),
-                                                                fac.AntdButton(
-                                                                    id='clear-selection-btn',
-                                                                    size='small',
-                                                                    danger=True,
-                                                                    type='primary',
-                                                                    icon=fac.AntdIcon(icon='antd-delete'),
+                                                                fac.AntdTooltip(
+                                                                    fac.AntdButton(
+                                                                        id='clear-selection-btn',
+                                                                        size='small',
+                                                                        danger=True,
+                                                                        type='primary',
+                                                                        icon=fac.AntdIcon(icon='antd-delete'),
+                                                                        **{'aria-label': 'Clear all selected files'},
+                                                                    ),
+                                                                    title='Clear all selected files'
                                                                 ),
                                                             ],
                                                             size='small'

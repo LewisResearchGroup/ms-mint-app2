@@ -85,14 +85,20 @@ def _build_layout(*, plugins, file_explorer, initial_page_children=None, initial
 
             fac.AntdSider(
                 [
-                    fac.AntdButton(
-                        id='main-sidebar-collapse',
-                        type='text',
-                        icon=fac.AntdIcon(
-                            id='main-sidebar-collapse-icon',
-                            icon='antd-left',
-                            style={'fontSize': '14px'}, ),
-                        shape='default',
+                    html.Div(
+                        fac.AntdTooltip(
+                            fac.AntdButton(
+                                id='main-sidebar-collapse',
+                                type='text',
+                                icon=fac.AntdIcon(
+                                    id='main-sidebar-collapse-icon',
+                                    icon='antd-left',
+                                    style={'fontSize': '14px'}, ),
+                                shape='default',
+                                **{'aria-label': 'Collapse/Expand Sidebar'},
+                            ),
+                            title='Collapse/Expand Sidebar'
+                        ),
                         style={
                             'position': 'absolute',
                             'zIndex': 1,
@@ -100,8 +106,8 @@ def _build_layout(*, plugins, file_explorer, initial_page_children=None, initial
                             'right': -10,
                             'boxShadow': 'rgb(0 0 0 / 20%) 0px 4px 10px 0px',
                             'background': 'white',
+                            'borderRadius': '4px',
                         },
-
                     ),
                     fac.AntdFlex(
                         [

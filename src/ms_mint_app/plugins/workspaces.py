@@ -47,10 +47,14 @@ _layout = html.Div(
         fac.AntdFlex(
             [
                 fac.AntdTitle('Workspaces', level=4, style={'margin': '0'}),
-                fac.AntdIcon(
-                    id='workspace-tour-icon',
-                    icon='pi-info',
-                    style={"cursor": "pointer", 'paddingLeft': '10px'},
+                fac.AntdTooltip(
+                    fac.AntdIcon(
+                        id='workspace-tour-icon',
+                        icon='pi-info',
+                        style={"cursor": "pointer", 'paddingLeft': '10px'},
+                        **{'aria-label': 'Show tutorial'}
+                    ),
+                    title='Show tutorial'
                 )
             ],
             align='center'
