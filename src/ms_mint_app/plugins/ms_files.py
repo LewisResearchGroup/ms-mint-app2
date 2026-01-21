@@ -1002,6 +1002,13 @@ def _confirm_and_delete(okCounts, selectedRows, clickedKey, wdir):
     if total_removed > 0:
         logger.info(f"Deleted {total_removed} MS-Files.")
     
+    # Get updated file count for workspace-status
+    updated_count = 0
+    with duckdb_connection(wdir) as conn:
+        if conn is not None:
+            result = conn.execute("SELECT COUNT(*) FROM samples").fetchone()
+            updated_count = result[0] if result else 0
+
     return (fac.AntdNotification(message="MS files deleted" if total_removed > 0 else "Failed to delete MS files",
                                  description=f"Deleted {total_removed} files",
                                  type="success" if total_removed > 0 else "error",
@@ -1012,7 +1019,8 @@ def _confirm_and_delete(okCounts, selectedRows, clickedKey, wdir):
                                  style=NOTIFICATION_COMPACT_STYLE
                                  ),
             ms_table_action_store,
-            dash.no_update)
+            dash.no_update,
+            {'ms_files_count': updated_count})
 
 
 def _save_table_on_edit(row_edited, column_edited, wdir):
@@ -1396,6 +1404,7 @@ def callbacks(cls, app, fsc, cache, args_namespace):
         Output("notifications-container", "children", allow_duplicate=True),
         Output("ms-table-action-store", "data", allow_duplicate=True),
         Output("ms-files-table-spin", "spinning"),
+        Output("workspace-status", "data", allow_duplicate=True),
 
         Input("delete-confirmation-modal", "okCounts"),
         State('ms-files-table', 'selectedRows'),
