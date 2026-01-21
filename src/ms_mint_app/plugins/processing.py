@@ -86,28 +86,7 @@ RESULTS_TABLE_COLUMNS = [
         'dataIndex': 'peak_rt_of_max',
         'width': '150px',
     },
-    # EMG Peak Fitting columns
-    {
-        'title': 'peak_area_fitted',
-        'dataIndex': 'peak_area_fitted',
-        'width': '175px',
-        'sorter': True,
-    },
-    {
-        'title': 'fit_r²',
-        'dataIndex': 'fit_r_squared',
-        'width': '100px',
-        'sorter': True,
-    },
-    {
-        'title': 'fit_success',
-        'dataIndex': 'fit_success',
-        'width': '110px',
-        'filterOptions': [
-            {'label': '✓ Success', 'value': '✓'},
-            {'label': '✗ Failed', 'value': '✗'},
-        ],
-    },
+    # NOTE: EMG Peak Fitting columns are dynamically inserted here when fitting data exists
     # NOTE: SCALiR columns (Concentration, In Range, Unit) are dynamically inserted here
     # via the scalir_column_insert_index logic when concentrations.csv exists
     {
@@ -593,7 +572,8 @@ _layout = html.Div(
                                                     options=['peak_area', 'peak_area_fitted', 'peak_area_top3', 'peak_mean',
                                                              'peak_median', 'peak_n_datapoints', 'peak_min', 'peak_max',
                                                              'peak_rt_of_max', 'peak_sigma', 'peak_tau', 'peak_asymmetry',
-                                                             'peak_rt_fitted', 'fit_r_squared', 'fit_success', 'total_intensity'],
+                                                             'peak_rt_fitted', 'fit_r_squared', 'fit_success', 'total_intensity',
+                                                             'rt_aligned', 'rt_shift', 'peak_mz_of_max', 'scan_time', 'intensity'],
                                                     mode="multiple",
                                                     value=['peak_area', 'peak_area_top3', 'peak_mean',
                                                            'peak_median', 'peak_n_datapoints', 'peak_min', 'peak_max',
@@ -615,7 +595,9 @@ _layout = html.Div(
                                 fac.AntdButton(
                                     'Download',
                                     id='download-all-results-btn',
-                                    type='primary',
+                                    icon=fac.AntdIcon(icon='antd-download'),
+                                    autoSpin=True,
+                                    style={'minWidth': 110, 'textTransform': 'uppercase'},
                                 )
                             ],
                             justify='center',
@@ -684,8 +666,10 @@ _layout = html.Div(
                                 ),
                                 fac.AntdButton(
                                     'Download',
-                                    type='primary',
                                     id='download-densematrix-results-btn',
+                                    icon=fac.AntdIcon(icon='antd-download'),
+                                    autoSpin=True,
+                                    style={'minWidth': 110, 'textTransform': 'uppercase'},
                                 )
                             ],
                             justify='center',
@@ -1105,9 +1089,20 @@ def _download_all_results(wdir: str, ws_name: str, selected_columns: list) -> tu
         Tuple of (download_data, notification) where download_data is for dcc.Download
         and notification is AntdNotification or None
     """
+    # All columns that can be downloaded (matching the dropdown options in the modal)
     allowed_cols = {
+        # Core result columns
         'peak_area', 'peak_area_top3', 'peak_mean', 'peak_median',
         'peak_n_datapoints', 'peak_min', 'peak_max', 'peak_rt_of_max', 'total_intensity',
+        # EMG Peak Fitting columns
+        'peak_area_fitted', 'peak_sigma', 'peak_tau', 'peak_asymmetry',
+        'peak_rt_fitted', 'fit_r_squared', 'fit_success',
+        # Raw data arrays (optional - for advanced users)
+        'scan_time', 'intensity',
+        # RT alignment columns
+        'rt_aligned', 'rt_shift',
+        # m/z of max
+        'peak_mz_of_max',
     }
     
     if not selected_columns or not isinstance(selected_columns, list):
@@ -1142,11 +1137,104 @@ def _download_all_results(wdir: str, ws_name: str, selected_columns: list) -> tu
                 showProgress=True,
             )
         
-        cols = ', '.join(safe_cols)
-        filename = f"{T.today()}-MINT__{ws_name}-all_results.csv"
-        logger.info(f"Download request: {filename}")
+        # Check for existing backup file (generated when results table loads)
+        backup_path = Path(wdir) / "results" / "results_backup.csv"
+        if not backup_path.exists():
+            # Fallback: generate from database if backup doesn't exist
+            return _download_all_results_from_db(wdir, ws_name, safe_cols)
         
-        # Use DuckDB COPY for faster export (2.87x speedup vs pandas)
+        
+        filename = f"{T.today()}-MINT__{ws_name}-all_results.csv"
+        
+        # 1. Use Polars to clean/filter the data first (respecting user column selection)
+        logger.info(f"Download request: {filename} (filtering columns with Polars)")
+        import polars as pl
+        import tempfile
+        import os
+        
+        # Read schema to find available columns
+        lf = pl.scan_csv(backup_path, infer_schema_length=100)
+        available_cols = lf.collect_schema().names()
+        
+        # Filter to requested columns (always include keys)
+        cols_to_select = ['peak_label', 'ms_file_label'] + [
+            c for c in safe_cols 
+            if c in available_cols and c not in ('peak_label', 'ms_file_label')
+        ]
+        
+        # Write filtered data to temp file
+        with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.csv') as tmp:
+            tmp_path = tmp.name
+        
+        lf.select(cols_to_select).collect().write_csv(tmp_path)
+        
+        # 2. Check size of the filtered file
+        file_size_mb = os.path.getsize(tmp_path) / (1024 * 1024)
+        
+        # 3. If file is large (>50MB), serve via Flask Direct Download + Modal
+        # This prevents browser freezing/crashing with base64 data
+        if file_size_mb > 50:
+            logger.info(f"File is large ({file_size_mb:.1f} MB). Using Direct Download via Modal.")
+            import base64
+            
+            # Encode path for Flask route
+            encoded_path = base64.urlsafe_b64encode(tmp_path.encode()).decode()
+            download_url = f"/download-results-direct/{encoded_path}?filename={filename}"
+            
+            return dash.no_update, fac.AntdModal(
+                title="Download Large Results File",
+                visible=True,
+                width=500,
+                children=[
+                    html.P(f"The filtered results file is large ({file_size_mb:.1f} MB)."),
+                    html.P("Click the button below to download it directly."),
+                    html.Div(
+                        fac.AntdButton(
+                            "DOWNLOAD RESULTS",
+                            href=download_url,
+                            target="_blank",
+                            icon=fac.AntdIcon(icon="antd-download"),
+                            style={
+                                "marginTop": "10px",
+                                "textTransform": "uppercase"
+                            }
+                        ),
+                        style={"textAlign": "center", "marginTop": "20px"}
+                    )
+                ],
+                okButtonProps={'style': {'display': 'none'}},
+                cancelButtonProps={'style': {'display': 'none'}}
+            )
+            
+        # 4. If file is small, standard dcc.Download is fine
+        return dcc.send_file(tmp_path, filename=filename), dash.no_update
+
+
+def _download_all_results_from_db(wdir: str, ws_name: str, safe_cols: list) -> tuple:
+    """Fallback: download from database when backup doesn't exist."""
+    with duckdb_connection(wdir) as conn:
+        if conn is None:
+            return dash.no_update, fac.AntdNotification(
+                message="Download Results",
+                description="Database unavailable.",
+                type="error",
+                duration=4,
+                placement="bottom",
+                showProgress=True,
+            )
+        
+        # Build column list, converting arrays to comma-separated strings
+        col_list = []
+        for c in safe_cols:
+            if c in ('scan_time', 'intensity'):
+                col_list.append(f"array_to_string(r.{c}, ',') AS {c}")
+            else:
+                col_list.append(f"r.{c}")
+        cols = ', '.join(col_list)
+        
+        filename = f"{T.today()}-MINT__{ws_name}-all_results.csv"
+        logger.info(f"Download request: {filename} (from database)")
+        
         import tempfile
         with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.csv') as tmp:
             tmp_path = tmp.name
@@ -1359,6 +1447,31 @@ def _delete_all_results(wdir: str) -> tuple:
 
 
 def callbacks(app, fsc, cache):
+    # Flask route for direct file downloads (bypasses Dash's slow base64 encoding)
+    from flask import send_file as flask_send_file, request
+    
+    @app.server.route('/download-results-direct/<path:filepath>')
+    def download_results_direct(filepath):
+        """Serve large results files directly via Flask - much faster than dcc.send_file"""
+        # Decode the path (it's base64 encoded for safety)
+        import base64
+        try:
+            decoded_path = base64.urlsafe_b64decode(filepath.encode()).decode()
+            file_path = Path(decoded_path)
+            
+            # Get desired filename from query param, else use actual filename
+            download_name = request.args.get('filename', file_path.name)
+            
+            if file_path.exists() and file_path.suffix == '.csv':
+                return flask_send_file(
+                    str(file_path),
+                    as_attachment=True,
+                    download_name=download_name
+                )
+        except Exception as e:
+            logger.error(f"Direct download failed: {e}")
+        return "File not found", 404
+    
     # Clientside callback to toggle processing UI visibility based on workspace-status
     # This runs in the browser for instant UI updates without server roundtrips
     app.clientside_callback(
@@ -1576,7 +1689,39 @@ def callbacks(app, fsc, cache):
             # Check for SCALiR concentrations and dynamically add columns
             scalir_join = ""
             scalir_select = ""
+            fitting_select = ""
             columns = RESULTS_TABLE_COLUMNS.copy()
+            
+            # Check if fitting data exists (any fit_success = TRUE)
+            has_fitting_data = False
+            try:
+                fitting_check = conn.execute(
+                    "SELECT EXISTS(SELECT 1 FROM results WHERE fit_success = TRUE LIMIT 1)"
+                ).fetchone()
+                has_fitting_data = fitting_check and fitting_check[0]
+            except Exception:
+                pass
+            
+            if has_fitting_data:
+                # Add fitting columns before Intensity (last column)
+                fitting_cols = [
+                    {'title': 'peak_area_fitted', 'dataIndex': 'peak_area_fitted', 'width': '175px', 'sorter': True},
+                    {'title': 'fit_r²', 'dataIndex': 'fit_r_squared', 'width': '100px', 'sorter': True},
+                    {
+                        'title': 'fit_success', 
+                        'dataIndex': 'fit_success', 
+                        'width': '110px',
+                        'filterOptions': [
+                            {'label': '✓ Success', 'value': '✓'},
+                            {'label': '✗ Failed', 'value': '✗'},
+                        ]
+                    },
+                ]
+                insert_idx = len(columns) - 1  # Before Intensity
+                for col in fitting_cols:
+                    columns.insert(insert_idx, col)
+                    insert_idx += 1
+                fitting_select = ", r.peak_area_fitted, r.fit_r_squared, r.fit_success"
             
             conc_file = Path(wdir) / "results" / "scalir" / "concentrations.csv"
             if conc_file.exists():
@@ -1632,12 +1777,26 @@ def callbacks(app, fsc, cache):
                 except Exception as e:
                     logger.warning(f"Failed to join SCALiR concentrations: {e}")
 
+            # Only fetch columns that are actually displayed in the table
+            # This avoids sending large unused arrays (scan_time, etc.) to the client
             filtered_sql = f"""
             WITH
             {f"target_order AS (SELECT * FROM (VALUES {order_values}) AS t(ord, target_peak_label))," if order_values else ""}
             filtered AS (
-              SELECT r.*, UPPER(s.ms_type) AS ms_type, s.sample_type
-              {scalir_select}
+              SELECT 
+                r.peak_label,
+                r.ms_file_label,
+                r.peak_area,
+                r.peak_area_top3,
+                r.peak_max,
+                r.peak_n_datapoints,
+                r.peak_rt_of_max
+                {fitting_select}
+                {scalir_select},
+                -- Convert intensity array to comma-separated string for lighter JSON payload
+                array_to_string(r.intensity, ',') AS intensity,
+                UPPER(s.ms_type) AS ms_type,
+                s.sample_type
               {", COALESCE(tord.ord, 1e9) AS __peak_order__" if order_values else ""}
               FROM results r
               LEFT JOIN samples s USING (ms_file_label)
@@ -1695,6 +1854,21 @@ def callbacks(app, fsc, cache):
         # Convert fit_success boolean to display-friendly format
         if 'fit_success' in df.columns:
             df['fit_success'] = df['fit_success'].map({True: '✓', False: '✗', None: ''})
+        # Convert intensity string back to list for sparkline, downsampled to max 50 points
+        if 'intensity' in df.columns:
+            def parse_and_downsample(s, max_points=50):
+                if not s or pd.isna(s):
+                    return []
+                try:
+                    vals = [float(x) for x in str(s).split(',') if x.strip()]
+                    # Downsample if too many points
+                    if len(vals) > max_points:
+                        step = len(vals) / max_points
+                        vals = [vals[int(i * step)] for i in range(max_points)]
+                    return vals
+                except Exception:
+                    return []
+            df['intensity'] = df['intensity'].apply(parse_and_downsample)
         # Replace NaN with None for clean JSON serialization
         df = df.where(pd.notnull(df), None)
         data = df.to_dict('records')
@@ -1716,6 +1890,8 @@ def callbacks(app, fsc, cache):
                 df['fit_r_squared'] = df['fit_r_squared'].round(2)
             if 'fit_success' in df.columns:
                 df['fit_success'] = df['fit_success'].map({True: '✓', False: '✗', None: ''})
+            if 'intensity' in df.columns:
+                df['intensity'] = df['intensity'].apply(parse_and_downsample)
             df = df.where(pd.notnull(df), None)
             data = df.to_dict('records')
 
@@ -1904,6 +2080,8 @@ def callbacks(app, fsc, cache):
     @app.callback(
         Output("download-csv", "data"),
         Output("notifications-container", "children", allow_duplicate=True),
+        Output("download-all-results-btn", "loading"),
+        Output("download-densematrix-results-btn", "loading"),
 
         Input("download-all-results-btn", "nClicks"),
         Input("download-densematrix-results-btn", "nClicks"),
@@ -1936,7 +2114,7 @@ def callbacks(app, fsc, cache):
                 duration=4,
                 placement="bottom",
                 showProgress=True,
-            )
+            ), False, False
 
         ws_key = Path(wdir).stem
         with duckdb_connection_mint(Path(wdir).parent.parent) as mint_conn:
@@ -1949,11 +2127,13 @@ def callbacks(app, fsc, cache):
                 raise PreventUpdate
             ws_name = ws_row[0]
 
-        # Delegate to appropriate standalone function  
+        # Delegate to appropriate standalone function (returns tuple of download_data, notification)
         if prop_id == 'download-all-results-btn':
-            return _download_all_results(wdir, ws_name, d_options_value)
+            download_data, notification = _download_all_results(wdir, ws_name, d_options_value)
+            return download_data, notification, False, False
         else:
-            return _download_dense_matrix(wdir, ws_name, d_dm_rows, d_dm_cols, d_dm_value)
+            download_data, notification = _download_dense_matrix(wdir, ws_name, d_dm_rows, d_dm_cols, d_dm_value)
+            return download_data, notification, False, False
 
     @app.callback(
         Output('processing-tour-empty', 'current'),
