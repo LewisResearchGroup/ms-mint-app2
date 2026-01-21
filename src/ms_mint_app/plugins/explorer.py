@@ -95,17 +95,17 @@ class FileExplorer:
                                                                 {
                                                                     'title': 'Type',
                                                                     'dataIndex': 'type',
-                                                                    'width': '15%',
+                                                                    'width': '12.5%',
                                                                 },
                                                                 {
                                                                     'title': 'Modified',
                                                                     'dataIndex': 'modified',
-                                                                    'width': '20%',
+                                                                    'width': '30%',
                                                                 },
                                                                 {
                                                                     'title': 'Files',
                                                                     'dataIndex': 'file_count',
-                                                                    'width': '15%',
+                                                                    'width': '12.5%',
                                                                 },
                                                             ],
                                                             titlePopoverInfo={
