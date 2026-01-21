@@ -94,7 +94,7 @@ NORM_OPTIONS = [
 TAB_DEFAULT_NORM = {
     'clustermap': 'zscore',
     'pca': 'durbin',
-    'tsne': 'durbin',
+    'tsne': 'none',
     'raincloud': 'durbin',
 }
 GROUPING_FIELDS = ['sample_type'] + GROUP_COLUMNS
@@ -109,6 +109,7 @@ METRIC_OPTIONS = [
     {'label': 'Peak Max', 'value': 'peak_max'},
     {'label': 'Peak Mean', 'value': 'peak_mean'},
     {'label': 'Peak Median', 'value': 'peak_median'},
+    {'label': 'Peak Area (EMG Fitted)', 'value': 'peak_area_fitted'},
     {'label': 'Concentration', 'value': 'scalir_conc'},
 ]
 
