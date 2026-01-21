@@ -16,10 +16,12 @@ from ..pca import SciPyPCA as PCA
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 from plotly import colors as plotly_colors
-from ..duckdb_manager import duckdb_connection, create_pivot
+from ..duckdb_manager import duckdb_connection, create_pivot, get_physical_cores
+import os
 from ..plugin_interface import PluginInterface
 import plotly.express as px
 from scipy.stats import ttest_ind, f_oneway
+from sklearn.manifold import TSNE
 from ..sample_metadata import GROUP_COLUMNS, GROUP_LABELS
 from .scalir import (
     intersect_peaks,
@@ -79,6 +81,10 @@ PCA_COMPONENT_OPTIONS = [
     {'label': f'PC{i}', 'value': f'PC{i}'}
     for i in range(1, 6)
 ]
+TSNE_COMPONENT_OPTIONS = [
+    {'label': f't-SNE-{i}', 'value': f't-SNE-{i}'}
+    for i in range(1, 4)
+]
 NORM_OPTIONS = [
     {'label': 'None (raw)', 'value': 'none'},
     {'label': 'Z-score', 'value': 'zscore'},
@@ -88,6 +94,7 @@ NORM_OPTIONS = [
 TAB_DEFAULT_NORM = {
     'clustermap': 'zscore',
     'pca': 'durbin',
+    'tsne': 'durbin',
     'raincloud': 'durbin',
 }
 GROUPING_FIELDS = ['sample_type'] + GROUP_COLUMNS
@@ -446,6 +453,91 @@ pca_tab = html.Div(
     style={'height': '100%'},
 )
 
+tsne_tab = html.Div(
+    [
+        # t-SNE-specific controls
+        fac.AntdFlex(
+            [
+                fac.AntdSpace(
+                    [
+                        html.Span("X axis:", style={'fontWeight': 500}),
+                        fac.AntdSelect(
+                            id='tsne-x-comp',
+                            options=TSNE_COMPONENT_OPTIONS,
+                            value='t-SNE-1',
+                            allowClear=False,
+                            style={'width': 100},
+                        ),
+                    ],
+                    align='center',
+                    size='small',
+                ),
+                fac.AntdSpace(
+                    [
+                        html.Span("Y axis:", style={'fontWeight': 500}),
+                        fac.AntdSelect(
+                            id='tsne-y-comp',
+                            options=TSNE_COMPONENT_OPTIONS,
+                            value='t-SNE-2',
+                            allowClear=False,
+                            style={'width': 100},
+                        ),
+                    ],
+                    align='center',
+                    size='small',
+                ),
+                fac.AntdDivider(direction='vertical', style={'height': '24px', 'margin': '0 12px'}),
+                fac.AntdSpace(
+                    [
+                        fac.AntdText("Perplexity:", style={'fontWeight': 500}),
+                        fac.AntdSlider(
+                            id='tsne-perplexity-slider',
+                            min=1,
+                            max=100,
+                            step=1,
+                            value=30,
+                            style={'width': '200px'},
+                            tooltipPrefix='Perplexity: '
+                        ),
+                    ],
+                    align='center',
+                    size='small',
+                ),
+                fac.AntdButton(
+                    "Generate",
+                    id="tsne-regenerate-btn",
+                    icon=fac.AntdIcon(icon="antd-sync"),
+                    style={'textTransform': 'uppercase'},
+                ),
+            ],
+            gap='middle',
+            align='center',
+            style={'marginBottom': '12px'},
+        ),
+        fac.AntdSpin(
+            dcc.Graph(
+                id='tsne-graph',
+                config=PLOTLY_HIGH_RES_CONFIG,
+                style={'height': 'calc(100vh - 220px)', 'width': '80%', 'minHeight': '400px', 'margin': '0 auto'},
+                figure={
+                    'data': [],
+                    'layout': {
+                        'xaxis': {'visible': False},
+                        'yaxis': {'visible': False},
+                        'paper_bgcolor': 'white',
+                        'plot_bgcolor': 'white',
+                        'margin': {'l': 0, 'r': 0, 't': 0, 'b': 0},
+                        'autosize': True,
+                    }
+                },
+            ),
+            text='Loading t-SNE...',
+            style={'minHeight': '20vh', 'width': '100%'},
+        ),
+    ],
+    style={'height': '100%'},
+)
+
 # SCALiR tab has been moved to Processing plugin as a modal workflow
 
 # Violin tab content (extracted for reuse in sidebar layout)
@@ -656,6 +748,7 @@ qc_content = html.Div(
 ANALYSIS_MENU_ITEMS = [
     {'component': 'Item', 'props': {'key': 'qc', 'title': 'QC', 'icon': 'antd-check-circle'}},
     {'component': 'Item', 'props': {'key': 'pca', 'title': 'PCA', 'icon': 'antd-dot-chart'}},
+    {'component': 'Item', 'props': {'key': 'tsne', 'title': 't-SNE', 'icon': 'antd-deployment-unit'}},
     {'component': 'Item', 'props': {'key': 'raincloud', 'title': 'Violin', 'icon': 'antd-bar-chart'}},
     {'component': 'Item', 'props': {'key': 'clustermap', 'title': 'Clustermap', 'icon': 'antd-build'}},
 ]
@@ -833,6 +926,12 @@ _layout = fac.AntdLayout(
                         html.Div(
                             pca_tab,
                             id='analysis-pca-container',
+                            style={'display': 'none', 'padding': '16px'}
+                        ),
+                        # t-SNE content
+                        html.Div(
+                            tsne_tab,
+                            id='analysis-tsne-container',
                             style={'display': 'none', 'padding': '16px'}
                         ),
                         # Violin content
@@ -1047,6 +1146,20 @@ def _analysis_tour_steps(active_tab: str):
                 'description': 'Interactive scatter plot showing samples in PCA space. Hover for details, use the legend to filter groups.',
                 'targetSelector': '#pca-graph',
             },
+
+        ]
+    elif active_tab == 'tsne':
+        view_steps = [
+            {
+                'title': 't-SNE Axes',
+                'description': 'Select which t-SNE dimensions to display.',
+                'targetSelector': '#tsne-x-comp',
+            },
+            {
+                'title': 't-SNE Plot',
+                'description': 'Interactive scatter plot showing samples in t-SNE space.',
+                'targetSelector': '#tsne-graph',
+            },
         ]
     elif active_tab == 'raincloud':
         view_steps = [
@@ -1158,7 +1271,8 @@ def _create_pivot_custom(conn, value='peak_area', table='results'):
     return df[final_cols]
 
 def show_tab_content(section_context, tab_key, x_comp, y_comp, violin_comp_checks, metric_value, norm_value,
-                    group_by, regen_clicks, cluster_rows, cluster_cols, fontsize_x, fontsize_y, wdir):
+                    group_by, regen_clicks, tsne_regen_clicks, cluster_rows, cluster_cols, fontsize_x, fontsize_y, wdir,
+                    tsne_x_comp, tsne_y_comp, tsne_perplexity):
     if not section_context or section_context.get('page') != 'Analysis':
         raise PreventUpdate
     # Prevent double-firing when switching tabs forces a normalization update.
@@ -1190,10 +1304,10 @@ def show_tab_content(section_context, tab_key, x_comp, y_comp, violin_comp_check
     selected_group = group_by if group_by in grouping_fields else GROUPING_FIELDS[0]
     with duckdb_connection(wdir) as conn:
         if conn is None:
-            return None, invisible_fig, [], [], []
+            return None, invisible_fig, invisible_fig, [], [], []
         results_count = conn.execute("SELECT COUNT(*) FROM results").fetchone()[0]
         if results_count == 0:
-            return None, invisible_fig, [], [], []
+            return None, invisible_fig, invisible_fig, [], [], []
         # Robust metric selection
         metric = 'peak_area'
         if metric_value == 'scalir_conc' or metric_value in allowed_metrics:
@@ -1205,7 +1319,7 @@ def show_tab_content(section_context, tab_key, x_comp, y_comp, violin_comp_check
         if metric == 'scalir_conc':
             scalir_path = Path(wdir) / "results" / "scalir" / "concentrations.csv"
             if not scalir_path.exists():
-                return None, invisible_fig, [], [], []
+                return None, invisible_fig, invisible_fig, [], [], []
             try:
                 conn.execute(f"CREATE OR REPLACE TEMP VIEW scalir_temp_conc AS SELECT * FROM read_csv_auto('{scalir_path}')")
                 conn.execute("""
@@ -1221,7 +1335,7 @@ def show_tab_content(section_context, tab_key, x_comp, y_comp, violin_comp_check
                 target_table = 'scalir_results_view'
             except Exception as e:
                 logger.error(f"Error preparing SCALiR data: {e}")
-                return None, invisible_fig, [], [], []
+                return None, invisible_fig, invisible_fig, [], [], []
 
         df = _create_pivot_custom(conn, value=metric, table=target_table)
         df.set_index('ms_file_label', inplace=True)
@@ -1278,7 +1392,7 @@ def show_tab_content(section_context, tab_key, x_comp, y_comp, violin_comp_check
         raw_df[raw_numeric_cols] = raw_numeric
         color_labels = group_series.reindex(df.index).fillna(missing_group_label)
         if df.empty or raw_numeric.empty:
-            return None, invisible_fig, [], [], []
+            return None, invisible_fig, invisible_fig, [], [], []
         from ..pca import StandardScaler
         scaler = StandardScaler()
         provided_norm = norm_value  # keep the user-provided value (None on first layout pass)
@@ -1309,7 +1423,7 @@ def show_tab_content(section_context, tab_key, x_comp, y_comp, violin_comp_check
         else:
             violin_matrix = df
         if violin_matrix.empty:
-            return dash.no_update, invisible_fig, [], [], []
+            return dash.no_update, invisible_fig, invisible_fig, [], [], []
     if tab_key == 'clustermap':
         import seaborn as sns
         import matplotlib.pyplot as plt
@@ -1405,7 +1519,7 @@ def show_tab_content(section_context, tab_key, x_comp, y_comp, violin_comp_check
         import base64
         fig_data = base64.b64encode(buf.getbuffer()).decode("ascii")
         fig_bar_matplotlib = f'data:image/png;base64,{fig_data}'
-        return fig_bar_matplotlib, dash.no_update, dash.no_update, compound_options, dash.no_update
+        return fig_bar_matplotlib, dash.no_update, dash.no_update, dash.no_update, compound_options, dash.no_update
     elif tab_key == 'pca':
         logger.info(f"Generating PCA ({x_comp} vs {y_comp})...")
         # n_components should be <= min(n_samples, n_features)
@@ -1516,7 +1630,84 @@ def show_tab_content(section_context, tab_key, x_comp, y_comp, violin_comp_check
             paper_bgcolor='white',
             plot_bgcolor='white',
         )
-        return dash.no_update, fig, dash.no_update, compound_options, dash.no_update
+        return dash.no_update, fig, dash.no_update, dash.no_update, compound_options, dash.no_update
+    elif tab_key == 'tsne':
+        logger.info(f"Generating t-SNE...")
+        
+        # CPU limit logic
+        n_jobs = max(1, min((os.cpu_count() or 4) // 2, get_physical_cores()))
+
+        # t-SNE components (usually 2, sometimes 3)
+        n_components = 3
+        # Use random_state for reproducibility
+        perplexity = tsne_perplexity if tsne_perplexity else 30
+        
+        # Ensure perplexity is valid for sample size
+        n_samples = ndf.shape[0]
+        if n_samples > 0:
+             perplexity = min(perplexity, max(1, n_samples - 1))
+             
+        tsne = TSNE(n_components=n_components, perplexity=perplexity, n_jobs=n_jobs, random_state=42, init='pca')
+        
+        # Handle sparse/empty
+        if ndf.empty or ndf.shape[0] < 2:
+            return dash.no_update, dash.no_update, invisible_fig, dash.no_update, compound_options, dash.no_update
+
+        # Fit t-SNE
+        # For t-SNE, use the normalized data
+        data_for_tsne = ndf.to_numpy()
+        embedded = tsne.fit_transform(data_for_tsne)
+        
+        # Create results DataFrame
+        tsne_cols = [f"t-SNE-{i+1}" for i in range(n_components)]
+        scores_df = pd.DataFrame(embedded, index=ndf.index, columns=tsne_cols)
+        
+        # Add metadata for plotting
+        scores_df['color_group'] = color_labels
+        scores_df['sample_label'] = scores_df.index
+        
+        x_axis = tsne_x_comp or 't-SNE-1'
+        y_axis = tsne_y_comp or 't-SNE-2'
+        
+        # Determine actual columns to use (fallback to available if selected not present)
+        if x_axis not in scores_df.columns and len(scores_df.columns) > 0:
+            x_axis = scores_df.columns[0]
+        if y_axis not in scores_df.columns and len(scores_df.columns) > 1:
+            y_axis = scores_df.columns[1]
+            
+        fig = px.scatter(
+            scores_df,
+            x=x_axis,
+            y=y_axis,
+            color='color_group',
+            symbol='color_group',
+            color_discrete_map=color_map if color_map else None,
+            hover_data={'sample_label': True},
+        )
+        
+        fig.update_layout(
+            autosize=True,
+            margin=dict(l=140, r=80, t=60, b=50),
+            legend_title_text=group_label,
+            legend=dict(
+                x=-0.06,
+                y=1.05,
+                xanchor='right',
+                orientation='v',
+                title=dict(text=f'{group_label}<br>', font=dict(size=12)),
+                font=dict(size=11),
+                itemsizing='constant',
+                tracegroupgap=7.5,
+            ),
+            xaxis_title_font=dict(size=16),
+            yaxis_title_font=dict(size=16),
+            xaxis_tickfont=dict(size=12),
+            yaxis_tickfont=dict(size=12),
+            template='plotly_white',
+            paper_bgcolor='white',
+            plot_bgcolor='white',
+        )
+        return dash.no_update, dash.no_update, fig, dash.no_update, compound_options, dash.no_update
     elif tab_key == 'raincloud':
         logger.info("Generating Violin/Raincloud plots...")
         # Build options list; sort by absolute PC1 loading if available so the most
@@ -1661,8 +1852,8 @@ def show_tab_content(section_context, tab_key, x_comp, y_comp, violin_comp_check
                 style={'height': '450px', 'width': '100%'},
                 config=PLOTLY_HIGH_RES_CONFIG
             ))
-        return dash.no_update, dash.no_update, graphs, violin_options, selected_compound
-    return dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update
+        return dash.no_update, dash.no_update, dash.no_update, graphs, violin_options, selected_compound
+    return dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update
 
 def callbacks(app, fsc, cache):
     @app.callback(
@@ -1723,6 +1914,7 @@ def callbacks(app, fsc, cache):
     @app.callback(
         Output('analysis-qc-container', 'style'),
         Output('analysis-pca-container', 'style'),
+        Output('analysis-tsne-container', 'style'),
         Output('analysis-violin-container', 'style'),
         Output('analysis-clustermap-container', 'style'),
         Output('analysis-tabs', 'data'),
@@ -1735,6 +1927,7 @@ def callbacks(app, fsc, cache):
         
         qc_style = {'display': 'block', 'padding': '16px'} if active_key == 'qc' else {'display': 'none', 'padding': '16px'}
         pca_style = {'display': 'block', 'padding': '16px'} if active_key == 'pca' else {'display': 'none', 'padding': '16px'}
+        tsne_style = {'display': 'block', 'padding': '16px'} if active_key == 'tsne' else {'display': 'none', 'padding': '16px'}
         violin_style = {'display': 'block', 'padding': '16px'} if active_key == 'raincloud' else {'display': 'none', 'padding': '16px'}
         # Clustermap needs explicit height for spinner centering to work on first access
         clustermap_style = {
@@ -1746,7 +1939,7 @@ def callbacks(app, fsc, cache):
         # Sync to legacy analysis-tabs store for backward compatibility with other callbacks
         tabs_data = {'activeKey': active_key}
         
-        return qc_style, pca_style, violin_style, clustermap_style, tabs_data
+        return qc_style, pca_style, tsne_style, violin_style, clustermap_style, tabs_data
 
 
     @app.callback(
@@ -1798,6 +1991,7 @@ def callbacks(app, fsc, cache):
     app.callback(
         Output('bar-graph-matplotlib', 'src'),
         Output('pca-graph', 'figure'),
+        Output('tsne-graph', 'figure'),
         Output('violin-graphs', 'children'),
         Output('violin-comp-checks', 'options'),
         Output('violin-comp-checks', 'value'),
@@ -1811,11 +2005,15 @@ def callbacks(app, fsc, cache):
         Input('analysis-normalization-select', 'value'),
         Input('analysis-grouping-select', 'value'),
         Input('clustermap-regenerate-btn', 'nClicks'),
+        Input('tsne-regenerate-btn', 'nClicks'),
         Input('clustermap-cluster-rows', 'checked'),
         Input('clustermap-cluster-cols', 'checked'),
         State('clustermap-fontsize-x-slider', 'value'),
         State('clustermap-fontsize-y-slider', 'value'),
         State('wdir', 'data'),
+        State('tsne-x-comp', 'value'),
+        State('tsne-y-comp', 'value'),
+        State('tsne-perplexity-slider', 'value'),
         prevent_initial_call=True,
 
     )(show_tab_content)

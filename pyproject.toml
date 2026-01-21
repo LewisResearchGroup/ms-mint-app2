@@ -54,6 +54,7 @@ dependencies = [
   "pygixml",
   "PyYAML",
   "pyteomics",
+  "scikit-learn",
   "scipy>=1.16.3",
   "seaborn",
   "sqlalchemy",
