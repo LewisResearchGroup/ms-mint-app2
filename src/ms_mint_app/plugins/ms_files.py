@@ -922,7 +922,7 @@ def _ms_files_table(section_context, processing_output, processed_action, pagina
     return dash.no_update
 
 
-def _confirm_and_delete(okCounts, selectedRows, clickedKey, wdir):
+def _confirm_and_delete(okCounts, selectedRows, clickedKey, wdir, workspace_status):
     if okCounts is None:
         raise PreventUpdate
     if not wdir:
@@ -1009,6 +1009,9 @@ def _confirm_and_delete(okCounts, selectedRows, clickedKey, wdir):
             result = conn.execute("SELECT COUNT(*) FROM samples").fetchone()
             updated_count = result[0] if result else 0
 
+    new_status = workspace_status or {}
+    new_status['ms_files_count'] = updated_count
+
     return (fac.AntdNotification(message="MS files deleted" if total_removed > 0 else "Failed to delete MS files",
                                  description=f"Deleted {total_removed} files",
                                  type="success" if total_removed > 0 else "error",
@@ -1020,7 +1023,7 @@ def _confirm_and_delete(okCounts, selectedRows, clickedKey, wdir):
                                  ),
             ms_table_action_store,
             dash.no_update,
-            {'ms_files_count': updated_count})
+            new_status)
 
 
 def _save_table_on_edit(row_edited, column_edited, wdir):
@@ -1410,6 +1413,7 @@ def callbacks(cls, app, fsc, cache, args_namespace):
         State('ms-files-table', 'selectedRows'),
         State("ms-options", "clickedKey"),
         State("wdir", "data"),
+        State("workspace-status", "data"),
         background=True,
         running=[
             (Output("ms-files-table-spin", "spinning"), True, False),
@@ -1417,8 +1421,8 @@ def callbacks(cls, app, fsc, cache, args_namespace):
         ],
         prevent_initial_call=True,
     )
-    def confirm_and_delete(okCounts, selectedRows, clickedKey, wdir):
-        return _confirm_and_delete(okCounts, selectedRows, clickedKey, wdir)
+    def confirm_and_delete(okCounts, selectedRows, clickedKey, wdir, workspace_status):
+        return _confirm_and_delete(okCounts, selectedRows, clickedKey, wdir, workspace_status)
 
     @app.callback(
         Output("notifications-container", "children", allow_duplicate=True),
