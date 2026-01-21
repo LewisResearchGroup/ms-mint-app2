@@ -844,8 +844,16 @@ def _targets_table(section_context, pagination, filter_, sorter, filterOptions, 
         # This avoids using pl.Object dtype which causes panic in frozen apps
         data_dicts = data.to_dicts()
         for row in data_dicts:
-            row['peak_selection'] = {'checked': bool(row.pop('peak_selection_resolved', False))}
-            row['bookmark'] = {'checked': bool(row.pop('bookmark_resolved', False))}
+            row['peak_selection'] = {
+                'checked': bool(row.pop('peak_selection_resolved', False)),
+                'checkedChildren': 'YES',
+                'unCheckedChildren': 'NO'
+            }
+            row['bookmark'] = {
+                'checked': bool(row.pop('bookmark_resolved', False)),
+                'checkedChildren': 'YES',
+                'unCheckedChildren': 'NO'
+            }
 
         return [
             data_dicts,

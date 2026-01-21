@@ -1454,6 +1454,7 @@ def show_tab_content(section_context, tab_key, x_comp, y_comp, violin_comp_check
             x=x_axis,
             y=y_axis,
             color='color_group',
+            symbol='color_group',
             color_discrete_map=color_map if color_map else None,
             hover_data={'sample_label': True},
             title=f'PCA ({x_axis} vs {y_axis})'

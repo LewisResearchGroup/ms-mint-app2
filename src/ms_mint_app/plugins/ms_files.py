@@ -879,16 +879,28 @@ def _ms_files_table(section_context, processing_output, processed_action, pagina
                 skip_nulls=False,
             ).alias('color'),
             pl.col('use_for_optimization').map_elements(
-                lambda value: {'checked': value},
-                return_dtype=pl.Struct({'checked': pl.Boolean})
+                lambda value: {'checked': value, 'checkedChildren': 'YES', 'unCheckedChildren': 'NO'},
+                return_dtype=pl.Struct({
+                    'checked': pl.Boolean,
+                    'checkedChildren': pl.String,
+                    'unCheckedChildren': pl.String
+                })
             ).alias('use_for_optimization'),
             pl.col('use_for_processing').map_elements(
-                lambda value: {'checked': value},
-                return_dtype=pl.Struct({'checked': pl.Boolean})
+                lambda value: {'checked': value, 'checkedChildren': 'YES', 'unCheckedChildren': 'NO'},
+                return_dtype=pl.Struct({
+                    'checked': pl.Boolean,
+                    'checkedChildren': pl.String,
+                    'unCheckedChildren': pl.String
+                })
             ).alias('use_for_processing'),
             pl.col('use_for_analysis').map_elements(
-                lambda value: {'checked': value},
-                return_dtype=pl.Struct({'checked': pl.Boolean})
+                lambda value: {'checked': value, 'checkedChildren': 'YES', 'unCheckedChildren': 'NO'},
+                return_dtype=pl.Struct({
+                    'checked': pl.Boolean,
+                    'checkedChildren': pl.String,
+                    'unCheckedChildren': pl.String
+                })
             ).alias('use_for_analysis'),
             pl.col('ms_type').map_elements(
                 lambda value: value.upper() if isinstance(value, str) else value,
