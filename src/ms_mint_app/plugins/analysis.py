@@ -548,7 +548,7 @@ qc_content = html.Div(
                                 fac.AntdDivider(
                                     children="RT",
                                     lineColor="#ccc",
-                                    fontColor="#666",
+                                    fontColor="#444",
                                     fontSize="14px",
                                     style={'margin': '12px 0'}
                                 ),
@@ -574,7 +574,7 @@ qc_content = html.Div(
                                 fac.AntdDivider(
                                     children="Peak Area",
                                     lineColor="#ccc",
-                                    fontColor="#666",
+                                    fontColor="#444",
                                     fontSize="14px",
                                     style={'margin': '12px 0'}
                                 ),

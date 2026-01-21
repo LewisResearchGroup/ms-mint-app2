@@ -66,7 +66,7 @@ _layout = html.Div(
                 fac.AntdText("Current Data Directory:", strong=True),
                 fac.AntdTooltip(
                     title="This is the global root directory where all your workspaces and data are stored.",
-                    children=fac.AntdIcon(icon="antd-question-circle", style={"color": "#888", "marginRight": "2.5px"})
+                    children=fac.AntdIcon(icon="antd-question-circle", style={"color": "#555", "marginRight": "2.5px"})
                 ),
                 fac.AntdText("Loading...", id="ws-current-data-dir-text", style={"marginRight": "10px", "fontWeight": "bold"}),
                 fac.AntdTooltip(
@@ -223,7 +223,7 @@ _layout = html.Div(
                             )
                         ),
                         fac.AntdTooltip(
-                            fac.AntdIcon(icon='antd-question-circle', style={'color': '#999', 'fontSize': '16px'}),
+                            fac.AntdIcon(icon='antd-question-circle', style={'color': '#555', 'fontSize': '16px'}),
                             title='Enter the path to an existing MINT database file (.db) or click the folder icon to browse. This will copy the database and create a new workspace.'
                         ),
                     ],

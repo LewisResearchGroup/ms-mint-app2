@@ -754,7 +754,7 @@ _layout = html.Div(
                         fac.AntdTooltip(
                             fac.AntdIcon(
                                 icon='antd-question-circle',
-                                style={'color': '#888', 'cursor': 'help'}
+                                style={'color': '#555', 'cursor': 'help'}
                             ),
                             title='Skipping plot generation speeds up the process significantly for large datasets.'
                         ),
@@ -871,7 +871,7 @@ _layout = html.Div(
                     align='flex-start',
                     style={'marginBottom': 12},
                 ),
-                fac.AntdText(id='scalir-plot-path', style={'fontSize': 12, 'color': '#666'}),
+                fac.AntdText(id='scalir-plot-path', style={'fontSize': 12, 'color': '#444'}),
                 dcc.Store(id='scalir-results-store'),
             ],
             id='scalir-modal',

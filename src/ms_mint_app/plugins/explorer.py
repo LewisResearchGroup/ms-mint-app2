@@ -258,7 +258,7 @@ class FileExplorer:
                                                     'Total: 0 files selected',
                                                     id='selection-counter',
                                                     style={'marginTop': '10px', 'fontSize': '12px',
-                                                           'color': '#666'}
+                                                           'color': '#444'}
                                                 ),
                                             ],
                                             vertical=True,
