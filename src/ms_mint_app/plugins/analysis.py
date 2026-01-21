@@ -1400,7 +1400,7 @@ def show_tab_content(section_context, tab_key, x_comp, y_comp, violin_comp_check
     selected_group = group_by if group_by in grouping_fields else GROUPING_FIELDS[0]
     with duckdb_connection(wdir) as conn:
         if conn is None:
-            return None, invisible_fig, invisible_fig, [], [], []
+            return None, invisible_fig, invisible_fig, [], [], [], [], [], []
         results_count = conn.execute("SELECT COUNT(*) FROM results").fetchone()[0]
         if results_count == 0:
             return None, invisible_fig, invisible_fig, [], [], [], [], [], []
@@ -1488,7 +1488,7 @@ def show_tab_content(section_context, tab_key, x_comp, y_comp, violin_comp_check
         raw_df[raw_numeric_cols] = raw_numeric
         color_labels = group_series.reindex(df.index).fillna(missing_group_label)
         if df.empty or raw_numeric.empty:
-            return None, invisible_fig, invisible_fig, [], [], []
+            return None, invisible_fig, invisible_fig, [], [], [], [], [], []
         from ..pca import StandardScaler
         scaler = StandardScaler()
         provided_norm = norm_value  # keep the user-provided value (None on first layout pass)
@@ -1615,7 +1615,7 @@ def show_tab_content(section_context, tab_key, x_comp, y_comp, violin_comp_check
         import base64
         fig_data = base64.b64encode(buf.getbuffer()).decode("ascii")
         fig_bar_matplotlib = f'data:image/png;base64,{fig_data}'
-        return fig_bar_matplotlib, dash.no_update, dash.no_update, dash.no_update, compound_options, dash.no_update
+        return fig_bar_matplotlib, dash.no_update, dash.no_update, dash.no_update, compound_options, dash.no_update, dash.no_update, dash.no_update, dash.no_update
     elif tab_key == 'pca':
         logger.info(f"Generating PCA ({x_comp} vs {y_comp})...")
         # n_components should be <= min(n_samples, n_features)
