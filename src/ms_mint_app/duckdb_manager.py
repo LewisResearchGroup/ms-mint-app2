@@ -5,6 +5,8 @@ from threading import Thread
 import duckdb
 import time
 import logging
+import math
+import numpy as np
 
 logger = logging.getLogger(__name__)
 
@@ -12,10 +14,17 @@ try:
     import lttbc as _lttbc
 except Exception:
     _lttbc = None
+
+try:
+    from scipy.signal import savgol_filter as _savgol_filter
+except Exception:
+    _savgol_filter = None
 from .sample_metadata import GROUP_COLUMNS
 
-FULL_RANGE_DOWNSAMPLE_POINTS = 100
+FULL_RANGE_DOWNSAMPLE_POINTS = 1000
 FULL_RANGE_DOWNSAMPLE_BATCH = 200
+FULL_RANGE_SAVGOL_WINDOW = 10
+FULL_RANGE_SAVGOL_ORDER = 2
 
 
 def _apply_lttb_downsampling(scan_time, intensity, n_out=FULL_RANGE_DOWNSAMPLE_POINTS):
@@ -38,6 +47,84 @@ def _apply_lttb_downsampling(scan_time, intensity, n_out=FULL_RANGE_DOWNSAMPLE_P
         return scan_time, intensity
 
     return downsampled_x, downsampled_y
+
+
+def _savgol_coeffs_numpy(window_length, polyorder, deriv=0, delta=1.0):
+    half_window = window_length // 2
+    pos = np.arange(-half_window, half_window + 1, dtype=float)
+    a = np.vander(pos, polyorder + 1, increasing=True)
+    b = np.zeros(polyorder + 1, dtype=float)
+    b[deriv] = math.factorial(deriv) / (delta ** deriv)
+    return np.linalg.lstsq(a.T, b, rcond=None)[0]
+
+
+def _savgol_filter_numpy(intensity, window_length, polyorder):
+    intensity = np.asarray(intensity, dtype=float)
+    n_points = intensity.size
+    if n_points == 0:
+        return intensity
+
+    half_window = window_length // 2
+    if n_points < window_length:
+        return intensity
+
+    coeffs = _savgol_coeffs_numpy(window_length, polyorder)
+    filtered = np.empty_like(intensity, dtype=float)
+
+    interior = np.convolve(intensity, coeffs[::-1], mode='valid')
+    filtered[half_window:-half_window] = interior
+
+    x = np.arange(window_length, dtype=float)
+    left_poly = np.polyfit(x, intensity[:window_length], polyorder)
+    filtered[:half_window] = np.polyval(left_poly, x[:half_window])
+    right_poly = np.polyfit(x, intensity[-window_length:], polyorder)
+    filtered[-half_window:] = np.polyval(right_poly, x[-half_window:])
+
+    return filtered
+
+
+def _apply_savgol_smoothing(intensity,
+                            window_length=FULL_RANGE_SAVGOL_WINDOW,
+                            polyorder=FULL_RANGE_SAVGOL_ORDER):
+    if window_length is None:
+        window_length = FULL_RANGE_SAVGOL_WINDOW
+    if polyorder is None:
+        polyorder = FULL_RANGE_SAVGOL_ORDER
+
+    try:
+        window_length = int(window_length)
+        polyorder = int(polyorder)
+    except (TypeError, ValueError):
+        return intensity
+
+    if window_length < 3:
+        return intensity
+
+    if window_length % 2 == 0:
+        window_length -= 1
+
+    intensity = np.asarray(intensity, dtype=float)
+    n_points = intensity.size
+    if n_points < 3:
+        return intensity
+
+    if window_length > n_points:
+        window_length = n_points if n_points % 2 == 1 else n_points - 1
+
+    if window_length < 3:
+        return intensity
+
+    if polyorder < 0:
+        polyorder = 0
+    if polyorder >= window_length:
+        polyorder = window_length - 1
+
+    if _savgol_filter is not None:
+        smoothed = _savgol_filter(intensity, window_length, polyorder, mode='interp')
+    else:
+        smoothed = _savgol_filter_numpy(intensity, window_length, polyorder)
+
+    return np.maximum(smoothed, 0)
 
 
 def get_physical_cores() -> int:
@@ -2013,7 +2100,8 @@ def populate_full_range_downsampled_chromatograms(wdir: str,
             for peak_label, ms_file_label, scan_time, intensity in rows:
                 if scan_time is None or intensity is None:
                     continue
-                down_x, down_y = _apply_lttb_downsampling(scan_time, intensity, n_out=n_out)
+                smoothed = _apply_savgol_smoothing(intensity)
+                down_x, down_y = _apply_lttb_downsampling(scan_time, smoothed, n_out=n_out)
                 if len(down_x) > n_out and len(scan_time) > n_out:
                     logger.warning(
                         "Downsampling failed for %s/%s (points=%d, n_out=%d)",
@@ -2197,7 +2285,8 @@ def populate_full_range_downsampled_chromatograms_for_target(wdir: str | None,
         for ms_file_label, scan_time, intensity in rows:
             if scan_time is None or intensity is None:
                 continue
-            down_x, down_y = _apply_lttb_downsampling(scan_time, intensity, n_out=n_out)
+            smoothed = _apply_savgol_smoothing(intensity)
+            down_x, down_y = _apply_lttb_downsampling(scan_time, smoothed, n_out=n_out)
             updates.append((list(down_x), list(down_y), peak_label, ms_file_label))
 
         if updates:
