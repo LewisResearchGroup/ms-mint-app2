@@ -76,9 +76,12 @@ def calculate_optimal_params(user_cpus: int = None, user_ram: int = None) -> tup
         # Cap RAM at 2× CPUs (no benefit beyond that based on experiments)
         ram_gb = min(usable_ram, cpus * 2)
     
-    # Step 4: Batch size (from experimental data: larger is better, cap at 8000)
-    batch_size = min(500 * ram_gb, 8000)
-    batch_size = max(500, batch_size)  # Minimum 500
+    # Step 4: Batch size optimization
+    # Benchmarks (Jan 2026) showed 1000-3000 is the "sweet spot" for throughput
+    # and stability. Larger batches (5000+) reduced speed by 3x and increased crash risk.
+    # New formula: 200 * RAM_GB, capped at 3000.
+    batch_size = min(200 * ram_gb, 3000)
+    batch_size = max(1000, batch_size)  # Minimum 1000 for efficiency
     
     return cpus, ram_gb, batch_size
 
@@ -90,9 +93,10 @@ def calculate_optimal_batch_size(ram_gb: int = None, total_pairs: int = 0, n_cpu
     This is a simplified wrapper around calculate_optimal_params() for
     backward compatibility with existing code that only needs batch_size.
     
-    Formula (from experimental benchmarks on 500-sample dataset):
-    - batch = 500 × RAM_GB, capped at 8000
-    - Experiments showed batch 8000 was 3.2x faster than batch 500
+    Formula (revised Jan 2026 based on large dataset benchmarks):
+    - batch = 200 × RAM_GB, capped at 3000
+    - Experiments showed batch 1000 was 3x faster than batch 5000
+    - Large batches (8000+) caused high memory pressure and crashes
     
     Args:
         ram_gb: RAM in GB. If None, auto-calculates 50% of available.
