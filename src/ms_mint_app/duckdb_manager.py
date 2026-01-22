@@ -379,6 +379,49 @@ def _update_workspace_activity(mint_root: Path, workspace_id: str, retries: int 
             return
 
 
+class DatabaseCorruptionError(Exception):
+    """Raised when the DuckDB file is corrupted."""
+    pass
+
+
+# Global tracker for corrupted workspaces - allows plugins to show notifications
+_corrupted_workspaces: set[str] = set()
+
+
+def is_workspace_corrupted(workspace_path: Path | str) -> bool:
+    """Check if a workspace has been marked as corrupted."""
+    if not workspace_path:
+        return False
+    return str(workspace_path) in _corrupted_workspaces
+
+
+def clear_corruption_flag(workspace_path: Path | str):
+    """Clear the corruption flag for a workspace (e.g., after user acknowledges)."""
+    _corrupted_workspaces.discard(str(workspace_path))
+
+
+def _mark_corrupted(workspace_path: Path | str):
+    """Mark a workspace as corrupted."""
+    _corrupted_workspaces.add(str(workspace_path))
+
+
+def get_corruption_notification():
+    """
+    Returns a notification component for a corrupted database.
+    
+    Plugins can use this when they detect conn is None and is_workspace_corrupted() is True.
+    Returns a dict suitable for fac.AntdNotification or None if not applicable.
+    """
+    return {
+        'message': "⚠️ Database Corrupted",
+        'description': "This workspace has a corrupted database. Please delete it and restore from backup or recreate the workspace.",
+        'type': "error",
+        'duration': 10,
+        'placement': 'bottom',
+        'showProgress': True,
+    }
+
+
 @contextmanager
 def duckdb_connection(workspace_path: Path | str, register_activity=True, n_cpus=None, ram=None):
     """
@@ -420,6 +463,20 @@ def duckdb_connection(workspace_path: Path | str, register_activity=True, n_cpus
             actual_limit = con.execute("SELECT current_setting('memory_limit')").fetchone()[0]
             logger.info(f"DuckDB memory_limit set to {ram}GB (verified: {actual_limit})")
         _create_tables(con)
+    except duckdb.IOException as e:
+        if "Corrupt database file" in str(e):
+            _mark_corrupted(workspace_path)  # Mark for UI notification
+            logger.critical(
+                f"⚠️ DATABASE CORRUPTION DETECTED in {db_file}: {e}\n"
+                "This usually happens due to a system crash or forced termination during a write operation.\n"
+                "Please delete this workspace and restore from backup or recreate it."
+            )
+            # Return None so that all existing "if conn is None" checks handle this gracefully
+            yield None
+            return
+        logger.error(f"Error connecting to DuckDB: {e}")
+        yield None
+        return
     except Exception as e:
         logger.error(f"Error connecting to DuckDB: {e}")
         yield None

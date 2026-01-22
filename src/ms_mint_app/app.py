@@ -111,12 +111,13 @@ def _build_layout(*, plugins, file_explorer, initial_page_children=None, initial
                     ),
                     fac.AntdFlex(
                         [
-                            fac.AntdFlex(
-                                [
-                                    html.Div(id='notifications-container'),
                                     fac.AntdFlex(
                                         [
-                                            fac.AntdAvatar(
+                                            html.Div(id='corruption-notifications-container'),
+                                            html.Div(id='notifications-container'),
+                                            fac.AntdFlex(
+                                                [
+                                                    fac.AntdAvatar(
                                                 id='logo',
                                                 mode='image',
                                                 shape='square',
@@ -271,8 +272,9 @@ def register_callbacks(app, cache, fsc, args, *, plugins, file_explorer):
     from dash import html
     from dash.exceptions import PreventUpdate
     from flask_login import current_user
+    import feffery_antd_components as fac
 
-    from .duckdb_manager import duckdb_connection_mint
+    from .duckdb_manager import duckdb_connection_mint, is_workspace_corrupted
 
     logging.info("Register callbacks")
     upload_root = os.getenv("MINT_DATA_DIR", tempfile.gettempdir())
@@ -331,6 +333,29 @@ def register_callbacks(app, cache, fsc, args, *, plugins, file_explorer):
                 ),
                 section_context,
             )
+
+    @app.callback(
+        Output('corruption-notifications-container', 'children'),
+
+        Input('section-context', 'data'),
+        Input('wdir', 'data'),
+        prevent_initial_call=True
+    )
+    def check_corruption_on_navigation(section_context, wdir):
+        """Show notification when navigating to a tab or when workspace changes if corrupted."""
+        if not wdir:
+            raise PreventUpdate
+        if is_workspace_corrupted(wdir):
+            return fac.AntdNotification(
+                message="⚠️ Database Corrupted",
+                description="This workspace's database is corrupted. Please go to Workspaces tab and delete this workspace, then restore from backup or recreate it.",
+                type="error",
+                duration=15,
+                placement='bottom',
+                showProgress=True,
+            )
+        raise PreventUpdate
+
 
     @app.callback(
         Output('logo', 'style'),

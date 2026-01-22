@@ -736,6 +736,8 @@ def _targets_table(section_context, pagination, filter_, sorter, filterOptions, 
         current = pagination['current']
 
         with duckdb_connection(wdir) as conn:
+            if conn is None:
+                raise PreventUpdate
             schema = conn.execute("DESCRIBE targets").pl()
         column_types = {r["column_name"]: r["column_type"] for r in schema.to_dicts()}
         where_sql, params = build_where_and_params(filter_, filterOptions)
@@ -761,6 +763,8 @@ def _targets_table(section_context, pagination, filter_, sorter, filterOptions, 
         params_paged = params + [page_size, (current - 1) * page_size]
 
         with duckdb_connection(wdir) as conn:
+            if conn is None:
+                raise PreventUpdate
             dfpl = conn.execute(sql, params_paged).pl()
 
         data = (
@@ -790,6 +794,8 @@ def _targets_table(section_context, pagination, filter_, sorter, filterOptions, 
         if len(data) == 0 and number_records == 0:
             # Check if there are actually any records matching the filter
             with duckdb_connection(wdir) as conn:
+                if conn is None:
+                    raise PreventUpdate
                 count_sql = f"SELECT COUNT(*) FROM targets {where_sql}"
                 total_count = conn.execute(count_sql, params).fetchone()[0]
                 if total_count > 0:
@@ -803,6 +809,8 @@ def _targets_table(section_context, pagination, filter_, sorter, filterOptions, 
         if params_paged[-1] != (current - 1) * page_size:
             params_paged = params + [page_size, (current - 1) * page_size]
             with duckdb_connection(wdir) as conn:
+                if conn is None:
+                    raise PreventUpdate
                 dfpl = conn.execute(sql, params_paged).pl()
             
             data = (
@@ -824,6 +832,8 @@ def _targets_table(section_context, pagination, filter_, sorter, filterOptions, 
             number_records = int(data["__total__"][0]) if len(data) else 0
 
         with (duckdb_connection(wdir) as conn):
+            if conn is None:
+                raise PreventUpdate
             category_filters = conn.execute(
                 "SELECT DISTINCT category FROM targets ORDER BY category ASC"
             ).df()['category'].to_list()
