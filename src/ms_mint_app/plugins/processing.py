@@ -1139,36 +1139,50 @@ def _download_all_results(wdir: str, ws_name: str, selected_columns: list) -> tu
         
         # Check for existing backup file (generated when results table loads)
         backup_path = Path(wdir) / "results" / "results_backup.csv"
-        if not backup_path.exists():
-            # Fallback: generate from database if backup doesn't exist
-            return _download_all_results_from_db(wdir, ws_name, safe_cols)
-        
         
         filename = f"{T.today()}-MINT__{ws_name}-all_results.csv"
-        
-        # 1. Use Polars to clean/filter the data first (respecting user column selection)
-        logger.info(f"Download request: {filename} (filtering columns with Polars)")
-        import polars as pl
-        import tempfile
+        tmp_path = None
         import os
         
-        # Read schema to find available columns
-        lf = pl.scan_csv(backup_path, infer_schema_length=100)
-        available_cols = lf.collect_schema().names()
-        
-        # Filter to requested columns (always include keys)
-        cols_to_select = ['peak_label', 'ms_file_label'] + [
-            c for c in safe_cols 
-            if c in available_cols and c not in ('peak_label', 'ms_file_label')
-        ]
-        
-        # Write filtered data to temp file
-        with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.csv') as tmp:
-            tmp_path = tmp.name
-        
-        lf.select(cols_to_select).collect().write_csv(tmp_path)
+        if backup_path.exists():
+            # 1. Use Polars to clean/filter the data first (respecting user column selection)
+            logger.info(f"Download request: {filename} (filtering columns with Polars)")
+            import polars as pl
+            import tempfile
+            
+            # Read schema to find available columns
+            lf = pl.scan_csv(backup_path, infer_schema_length=100)
+            available_cols = lf.collect_schema().names()
+            
+            # Filter to requested columns (always include keys)
+            cols_to_select = ['peak_label', 'ms_file_label'] + [
+                c for c in safe_cols 
+                if c in available_cols and c not in ('peak_label', 'ms_file_label')
+            ]
+            
+            # Write filtered data to temp file
+            with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.csv') as tmp:
+                tmp_path = tmp.name
+            
+            lf.select(cols_to_select).collect().write_csv(tmp_path)
+            
+        else:
+            # Fallback: generate from database if backup doesn't exist
+            logger.info(f"Backup missing for {filename}, generating from DB...")
+            tmp_path = _generate_csv_from_db(wdir, ws_name, safe_cols)
+            
+            if tmp_path is None:
+                return dash.no_update, fac.AntdNotification(
+                    message="Download Results",
+                    description="Database unavailable.",
+                    type="error",
+                    duration=4,
+                    placement="bottom",
+                    showProgress=True,
+                )
         
         # 2. Check size of the filtered file
+
         file_size_mb = os.path.getsize(tmp_path) / (1024 * 1024)
         
         # 3. If file is large (>50MB), serve via Flask Direct Download + Modal
@@ -1210,30 +1224,23 @@ def _download_all_results(wdir: str, ws_name: str, selected_columns: list) -> tu
         return dcc.send_file(tmp_path, filename=filename), dash.no_update
 
 
-def _download_all_results_from_db(wdir: str, ws_name: str, safe_cols: list) -> tuple:
-    """Fallback: download from database when backup doesn't exist."""
+def _generate_csv_from_db(wdir: str, ws_name: str, safe_cols: list) -> str:
+    """Fallback: generate CSV from database when backup doesn't exist. Returns path to temp file."""
     with duckdb_connection(wdir) as conn:
         if conn is None:
-            return dash.no_update, fac.AntdNotification(
-                message="Download Results",
-                description="Database unavailable.",
-                type="error",
-                duration=4,
-                placement="bottom",
-                showProgress=True,
-            )
+            return None
         
         # Build column list, converting arrays to comma-separated strings
         col_list = []
         for c in safe_cols:
             if c in ('scan_time', 'intensity'):
                 col_list.append(f"array_to_string(r.{c}, ',') AS {c}")
-            else:
+            elif c not in ('peak_label', 'ms_file_label', 'ms_type'): # Avoid dupes
                 col_list.append(f"r.{c}")
         cols = ', '.join(col_list)
         
         filename = f"{T.today()}-MINT__{ws_name}-all_results.csv"
-        logger.info(f"Download request: {filename} (from database)")
+        logger.info(f"Generating temporary CSV: {filename} (from database)")
         
         import tempfile
         with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.csv') as tmp:
@@ -1252,7 +1259,7 @@ def _download_all_results_from_db(wdir: str, ws_name: str, safe_cols: list) -> t
             ) TO ? (HEADER, DELIMITER ',')
         """, (tmp_path,))
         
-    return dcc.send_file(tmp_path, filename=filename), dash.no_update
+    return tmp_path
 
 
 def _download_dense_matrix(wdir: str, ws_name: str, rows: list, cols: list, value: list) -> tuple:
@@ -1371,6 +1378,8 @@ def _delete_selected_results(wdir: str, selected_rows: list) -> tuple:
                     params
                 )
                 results_action_store = {'action': 'delete', 'status': 'success'}
+                # Invalidate backup file so it regenerates fresh on next download
+                (Path(wdir) / "results" / "results_backup.csv").unlink(missing_ok=True)
             else:
                 results_action_store = {'action': 'delete', 'status': 'failed'}
                 total_removed = [0, 0]
@@ -1424,6 +1433,8 @@ def _delete_all_results(wdir: str) -> tuple:
                 total_removed = list(total_removed_q)
                 conn.execute("DELETE FROM results")
                 results_action_store = {'action': 'delete', 'status': 'success'}
+                # Invalidate backup file so it regenerates fresh on next download
+                (Path(wdir) / "results" / "results_backup.csv").unlink(missing_ok=True)
                 logger.info(f"Deleted {total_removed[0]} targets and {total_removed[1]} samples from results.")
             
             conn.execute("COMMIT")
@@ -1561,55 +1572,15 @@ def callbacks(app, fsc, cache):
             logger.debug("results_table: PreventUpdate because wdir is not set")
             raise PreventUpdate
 
-        # Autosave results table on tab load/refresh for durability (throttled to limit I/O).
-        # Skip if processing just completed (already backed up there)
-        try:
-            # Check if processing just completed
-            skip_backup = False
-            if isinstance(results_actions, dict):
-                if results_actions.get('action') == 'processing' and results_actions.get('status') == 'completed':
-                    timestamp = results_actions.get('timestamp', 0)
-                    if time.time() - timestamp < 10:  # Within last 10 seconds
-                        skip_backup = True
-                        logger.debug("Skipping backup - processing just completed")
-            
-            if not skip_backup:
-                results_dir = Path(wdir) / "results"
-                results_dir.mkdir(parents=True, exist_ok=True)
-                backup_path = results_dir / "results_backup.csv"
-                should_write = True
-                if backup_path.exists():
-                    last_write = backup_path.stat().st_mtime
-                    should_write = (time.time() - last_write) > 30
-                if should_write:
-                    with duckdb_connection(wdir) as conn:
-                        if conn is None:
-                            logger.debug("results_table: PreventUpdate because database connection is None (backup)")
-                            raise PreventUpdate
-                        backup_sql = "SELECT * EXCLUDE (total_intensity) FROM results"
-                        scalir_path = Path(wdir) / "results" / "scalir" / "concentrations.csv"
-                        if scalir_path.exists():
-                            try:
-                                conn.execute(f"CREATE OR REPLACE TEMP VIEW backup_scalir AS SELECT * FROM read_csv_auto('{scalir_path}')")
-                                backup_sql = """
-                                    SELECT r.* EXCLUDE (total_intensity), s.pred_conc, s.in_range, s.unit 
-                                    FROM results r 
-                                    LEFT JOIN backup_scalir s 
-                                    ON r.ms_file_label = CAST(s.ms_file AS VARCHAR) 
-                                    AND r.peak_label = s.peak_label
-                                """
-                            except Exception as e:
-                                logger.warning(f"Failed to include SCALiR in backup: {e}")
+        # Connect to database using context manager
+        with duckdb_connection(wdir) as conn:
+            if conn is None:
+                logger.debug("results_table: PreventUpdate because database connection is None")
+                raise PreventUpdate
 
-                        conn.execute(
-                            f"COPY ({backup_sql}) TO ? (HEADER, DELIMITER ',')",
-                            (str(backup_path),),
-                        )
-                    logger.debug(f"Auto-backed up results to {backup_path}")
-        except PreventUpdate:
-            raise
-        except Exception:
-            pass
+            # Create alias for compatibility
+            conn.execute("PRAGMA enable_profiling='json'")
+            conn.execute("PRAGMA profile_output='duckdb_profile.json'")
 
         pagination = pagination or {
             'position': 'bottomCenter',
