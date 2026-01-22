@@ -42,6 +42,7 @@ dependencies = [
   "flask-sqlalchemy",
   "flask_login",
   "lxml>=6.0.2",
+  "lttbc",
   "matplotlib>=3.10.8",
   "numpy==2.3.3",
   "openpyxl",

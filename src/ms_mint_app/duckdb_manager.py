@@ -8,7 +8,36 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+try:
+    import lttbc as _lttbc
+except Exception:
+    _lttbc = None
 from .sample_metadata import GROUP_COLUMNS
+
+FULL_RANGE_DOWNSAMPLE_POINTS = 100
+FULL_RANGE_DOWNSAMPLE_BATCH = 200
+
+
+def _apply_lttb_downsampling(scan_time, intensity, n_out=FULL_RANGE_DOWNSAMPLE_POINTS):
+    if n_out is None:
+        n_out = FULL_RANGE_DOWNSAMPLE_POINTS
+
+    try:
+        n_out = int(n_out)
+    except (TypeError, ValueError):
+        return scan_time, intensity
+
+    if _lttbc is None:
+        return scan_time, intensity
+
+    if not scan_time or n_out <= 0 or len(scan_time) <= n_out:
+        return scan_time, intensity
+
+    downsampled_x, downsampled_y = _lttbc.downsample(scan_time, intensity, n_out)
+    if len(downsampled_x) == 0:
+        return scan_time, intensity
+
+    return downsampled_x, downsampled_y
 
 
 def get_physical_cores() -> int:
@@ -772,6 +801,8 @@ def _create_tables(conn: duckdb.DuckDBPyConnection):
                      ms_file_label VARCHAR,
                      scan_time     DOUBLE[],
                      intensity     DOUBLE[],
+                     scan_time_full_ds DOUBLE[],
+                     intensity_full_ds DOUBLE[],
                      mz_arr        DOUBLE[],
                      ms_type       ms_type_enum,
                      PRIMARY KEY (ms_file_label, peak_label)
@@ -806,6 +837,12 @@ def _create_tables(conn: duckdb.DuckDBPyConnection):
         if 'mz_arr' not in chrom_cols:
             conn.execute("ALTER TABLE chromatograms ADD COLUMN mz_arr DOUBLE[]")
             logger.debug("Migration: Added 'mz_arr' column to chromatograms table")
+        if 'scan_time_full_ds' not in chrom_cols:
+            conn.execute("ALTER TABLE chromatograms ADD COLUMN scan_time_full_ds DOUBLE[]")
+            logger.debug("Migration: Added 'scan_time_full_ds' column to chromatograms table")
+        if 'intensity_full_ds' not in chrom_cols:
+            conn.execute("ALTER TABLE chromatograms ADD COLUMN intensity_full_ds DOUBLE[]")
+            logger.debug("Migration: Added 'intensity_full_ds' column to chromatograms table")
     except Exception:
         pass
     
@@ -1816,6 +1853,370 @@ def compute_chromatograms_in_batches(wdir: str,
     with duckdb_connection(wdir, n_cpus=n_cpus, ram=ram) as conn:
         conn.execute("DROP TABLE IF EXISTS ms_file_scans")
         conn.execute("DROP TABLE IF EXISTS pending_pairs")
+
+
+def populate_full_range_downsampled_chromatograms(wdir: str,
+                                                  n_out: int = FULL_RANGE_DOWNSAMPLE_POINTS,
+                                                  batch_size: int = FULL_RANGE_DOWNSAMPLE_BATCH,
+                                                  set_progress=None,
+                                                  n_cpus=None,
+                                                  ram=None):
+    if _lttbc is None:
+        logger.warning("Full-range downsampling skipped: 'lttbc' is not available.")
+        _send_progress(set_progress, 100, stage="Downsampling", detail="lttbc not available")
+        return
+
+    logger.info("Preparing full-range downsampled chromatograms (MS1 only)...")
+    _send_progress(
+        set_progress,
+        0,
+        stage="Downsampling",
+        detail="Preparing full-range downsampled chromatograms",
+    )
+
+    query_create_scan_lookup = """
+        CREATE TABLE IF NOT EXISTS ms_file_scans AS
+        SELECT DISTINCT ms_file_label,
+               scan_id,
+               scan_time,
+               'ms1' AS ms_type
+        FROM ms1_data
+            UNION ALL
+        SELECT DISTINCT ms_file_label,
+               scan_id,
+               scan_time,
+               'ms2' AS ms_type
+        FROM ms2_data
+        ORDER BY ms_file_label, scan_id, ms_type;
+
+        CREATE INDEX IF NOT EXISTS idx_ms_file_scans_file
+            ON ms_file_scans (ms_file_label);
+
+        CREATE INDEX IF NOT EXISTS idx_ms_file_scans_file_scan
+            ON ms_file_scans (ms_file_label, scan_id, ms_type);
+        """
+
+    query_create_pending = """
+        CREATE TABLE IF NOT EXISTS pending_full_ds_pairs AS
+        SELECT
+            ROW_NUMBER() OVER () AS pair_id,
+            c.peak_label,
+            c.ms_file_label,
+            t.mz_mean,
+            t.mz_width
+        FROM chromatograms c
+        JOIN targets t ON c.peak_label = t.peak_label
+        WHERE c.ms_type = 'ms1'
+          AND c.scan_time_full_ds IS NULL
+          AND t.mz_mean IS NOT NULL
+          AND t.mz_width IS NOT NULL
+        ORDER BY c.ms_file_label, c.peak_label;
+        """
+
+    query_batch_full_range = """
+        WITH batch_pairs AS (
+            SELECT peak_label, ms_file_label, mz_mean, mz_width
+            FROM pending_full_ds_pairs
+            WHERE pair_id BETWEEN ? AND ?
+        ),
+        matched_with_mz AS (
+            SELECT
+                bp.peak_label,
+                bp.ms_file_label,
+                ms1.scan_id,
+                ms1.intensity,
+                ROW_NUMBER() OVER (
+                    PARTITION BY bp.peak_label, bp.ms_file_label, ms1.scan_id
+                    ORDER BY ms1.intensity DESC
+                ) AS rn
+            FROM batch_pairs bp
+            JOIN ms1_data ms1
+                ON ms1.ms_file_label = bp.ms_file_label
+                AND ms1.mz BETWEEN
+                    bp.mz_mean - (bp.mz_mean * bp.mz_width / 1e6)
+                    AND bp.mz_mean + (bp.mz_mean * bp.mz_width / 1e6)
+        ),
+        matched_intensities AS (
+            SELECT peak_label, ms_file_label, scan_id, intensity
+            FROM matched_with_mz
+            WHERE rn = 1
+        ),
+        all_scans AS (
+            SELECT
+                bp.peak_label,
+                bp.ms_file_label,
+                s.scan_id,
+                s.scan_time
+            FROM batch_pairs bp
+            JOIN ms_file_scans s
+                ON s.ms_file_label = bp.ms_file_label
+                AND s.ms_type = 'ms1'
+        ),
+        complete_data AS (
+            SELECT
+                a.peak_label,
+                a.ms_file_label,
+                a.scan_time,
+                COALESCE(ROUND(m.intensity, 0), 1) AS intensity
+            FROM all_scans a
+            LEFT JOIN matched_intensities m
+                ON a.peak_label = m.peak_label
+                AND a.ms_file_label = m.ms_file_label
+                AND a.scan_id = m.scan_id
+        ),
+        agg AS (
+            SELECT
+                peak_label,
+                ms_file_label,
+                LIST(scan_time ORDER BY scan_time) AS scan_time,
+                LIST(intensity ORDER BY scan_time) AS intensity
+            FROM complete_data
+            GROUP BY peak_label, ms_file_label
+        )
+        SELECT peak_label, ms_file_label, scan_time, intensity
+        FROM agg;
+        """
+
+    created_lookup = False
+    with duckdb_connection(wdir, n_cpus=n_cpus, ram=ram) as conn:
+        try:
+            conn.execute("SELECT COUNT(*) FROM ms_file_scans").fetchone()
+        except Exception:
+            logger.info("Creating scan lookup table for full-range downsampling...")
+            conn.execute(query_create_scan_lookup)
+            created_lookup = True
+
+        conn.execute("DROP TABLE IF EXISTS pending_full_ds_pairs")
+        conn.execute(query_create_pending)
+
+        total_pairs = conn.execute(
+            "SELECT COUNT(*) FROM pending_full_ds_pairs"
+        ).fetchone()[0]
+
+        if not total_pairs:
+            logger.info("No full-range downsampled chromatograms to compute.")
+            conn.execute("DROP TABLE IF EXISTS pending_full_ds_pairs")
+            if created_lookup:
+                conn.execute("DROP TABLE IF EXISTS ms_file_scans")
+            _send_progress(set_progress, 100, stage="Downsampling", detail="No pending pairs")
+            return
+
+        total_batches = (total_pairs + batch_size - 1) // batch_size
+        logger.info(f"Downsampling {total_pairs:,} MS1 chromatograms in {total_batches} batches...")
+
+        for batch_idx in range(total_batches):
+            start_id = batch_idx * batch_size + 1
+            end_id = min((batch_idx + 1) * batch_size, total_pairs)
+
+            rows = conn.execute(query_batch_full_range, [start_id, end_id]).fetchall()
+            updates = []
+            for peak_label, ms_file_label, scan_time, intensity in rows:
+                if scan_time is None or intensity is None:
+                    continue
+                down_x, down_y = _apply_lttb_downsampling(scan_time, intensity, n_out=n_out)
+                if len(down_x) > n_out and len(scan_time) > n_out:
+                    logger.warning(
+                        "Downsampling failed for %s/%s (points=%d, n_out=%d)",
+                        peak_label,
+                        ms_file_label,
+                        len(scan_time),
+                        n_out,
+                    )
+                    continue
+                updates.append(
+                    (list(down_x), list(down_y), peak_label, ms_file_label)
+                )
+
+            if updates:
+                conn.executemany(
+                    """
+                    UPDATE chromatograms
+                    SET scan_time_full_ds = ?, intensity_full_ds = ?
+                    WHERE peak_label = ? AND ms_file_label = ?
+                    """,
+                    updates,
+                )
+
+            progress_pct = round((end_id / total_pairs) * 100, 1)
+            _send_progress(
+                set_progress,
+                progress_pct,
+                stage="Downsampling",
+                detail=f"Batch {batch_idx + 1}/{total_batches}",
+            )
+
+        conn.execute("DROP TABLE IF EXISTS pending_full_ds_pairs")
+        if created_lookup:
+            conn.execute("DROP TABLE IF EXISTS ms_file_scans")
+
+    _send_progress(set_progress, 100, stage="Downsampling", detail="Done")
+    logger.info("Full-range downsampled chromatograms computed.")
+
+
+def populate_full_range_downsampled_chromatograms_for_target(wdir: str | None,
+                                                             peak_label: str,
+                                                             n_out: int = FULL_RANGE_DOWNSAMPLE_POINTS,
+                                                             n_cpus=None,
+                                                             ram=None,
+                                                             conn: duckdb.DuckDBPyConnection | None = None) -> bool:
+    if _lttbc is None:
+        logger.warning("On-demand downsampling skipped: 'lttbc' is not available.")
+        return False
+
+    query_create_scan_lookup = """
+        CREATE TABLE IF NOT EXISTS ms_file_scans AS
+        SELECT DISTINCT ms_file_label,
+               scan_id,
+               scan_time,
+               'ms1' AS ms_type
+        FROM ms1_data
+            UNION ALL
+        SELECT DISTINCT ms_file_label,
+               scan_id,
+               scan_time,
+               'ms2' AS ms_type
+        FROM ms2_data
+        ORDER BY ms_file_label, scan_id, ms_type;
+
+        CREATE INDEX IF NOT EXISTS idx_ms_file_scans_file
+            ON ms_file_scans (ms_file_label);
+
+        CREATE INDEX IF NOT EXISTS idx_ms_file_scans_file_scan
+            ON ms_file_scans (ms_file_label, scan_id, ms_type);
+        """
+
+    query_full_range = """
+        WITH target AS (
+            SELECT ?::DOUBLE AS mz_mean, ?::DOUBLE AS mz_width
+        ),
+        samples AS (
+            SELECT DISTINCT ms_file_label
+            FROM chromatograms
+            WHERE peak_label = ?
+              AND ms_type = 'ms1'
+              AND scan_time_full_ds IS NULL
+        ),
+        matched_with_mz AS (
+            SELECT
+                s.ms_file_label,
+                ms1.scan_id,
+                ms1.intensity,
+                ROW_NUMBER() OVER (
+                    PARTITION BY s.ms_file_label, ms1.scan_id
+                    ORDER BY ms1.intensity DESC
+                ) AS rn
+            FROM samples s
+            JOIN ms1_data ms1
+                ON ms1.ms_file_label = s.ms_file_label
+                AND ms1.mz BETWEEN
+                    (SELECT mz_mean FROM target) - ((SELECT mz_mean FROM target) * (SELECT mz_width FROM target) / 1e6)
+                    AND (SELECT mz_mean FROM target) + ((SELECT mz_mean FROM target) * (SELECT mz_width FROM target) / 1e6)
+        ),
+        matched_intensities AS (
+            SELECT ms_file_label, scan_id, intensity
+            FROM matched_with_mz
+            WHERE rn = 1
+        ),
+        all_scans AS (
+            SELECT
+                s.ms_file_label,
+                sc.scan_id,
+                sc.scan_time
+            FROM samples s
+            JOIN ms_file_scans sc
+                ON sc.ms_file_label = s.ms_file_label
+                AND sc.ms_type = 'ms1'
+        ),
+        complete_data AS (
+            SELECT
+                a.ms_file_label,
+                a.scan_time,
+                COALESCE(ROUND(m.intensity, 0), 1) AS intensity
+            FROM all_scans a
+            LEFT JOIN matched_intensities m
+                ON a.ms_file_label = m.ms_file_label
+                AND a.scan_id = m.scan_id
+        ),
+        agg AS (
+            SELECT
+                ms_file_label,
+                LIST(scan_time ORDER BY scan_time) AS scan_time,
+                LIST(intensity ORDER BY scan_time) AS intensity
+            FROM complete_data
+            GROUP BY ms_file_label
+        )
+        SELECT ms_file_label, scan_time, intensity
+        FROM agg;
+        """
+
+    connection_ctx = None
+    if conn is None:
+        if wdir is None:
+            return False
+        connection_ctx = duckdb_connection(wdir, n_cpus=n_cpus, ram=ram)
+        conn = connection_ctx.__enter__()
+        if conn is None:
+            return False
+    try:
+        target = conn.execute(
+            """
+            SELECT mz_mean, mz_width
+            FROM targets
+            WHERE peak_label = ?
+              AND mz_mean IS NOT NULL
+              AND mz_width IS NOT NULL
+            """,
+            [peak_label],
+        ).fetchone()
+        if not target:
+            return False
+
+        missing = conn.execute(
+            """
+            SELECT COUNT(*)
+            FROM chromatograms
+            WHERE peak_label = ?
+              AND ms_type = 'ms1'
+              AND scan_time_full_ds IS NULL
+            """,
+            [peak_label],
+        ).fetchone()[0]
+        if not missing:
+            return True
+
+        created_lookup = False
+        try:
+            conn.execute("SELECT COUNT(*) FROM ms_file_scans").fetchone()
+        except Exception:
+            conn.execute(query_create_scan_lookup)
+            created_lookup = True
+
+        logger.info("On-demand downsampling for target %s (%d chromatograms)", peak_label, missing)
+        rows = conn.execute(query_full_range, [target[0], target[1], peak_label]).fetchall()
+        updates = []
+        for ms_file_label, scan_time, intensity in rows:
+            if scan_time is None or intensity is None:
+                continue
+            down_x, down_y = _apply_lttb_downsampling(scan_time, intensity, n_out=n_out)
+            updates.append((list(down_x), list(down_y), peak_label, ms_file_label))
+
+        if updates:
+            conn.executemany(
+                """
+                UPDATE chromatograms
+                SET scan_time_full_ds = ?, intensity_full_ds = ?
+                WHERE peak_label = ? AND ms_file_label = ?
+                """,
+                updates,
+            )
+
+        if created_lookup:
+            conn.execute("DROP TABLE IF EXISTS ms_file_scans")
+    finally:
+        if connection_ctx is not None:
+            connection_ctx.__exit__(None, None, None)
+
+    return True
 
 
 def compute_results_in_batches(wdir: str,

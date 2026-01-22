@@ -14,16 +14,30 @@ from dash import html, dcc, Patch
 from dash.dependencies import Input, Output, State, ALL
 from dash.exceptions import PreventUpdate
 
-from ..duckdb_manager import duckdb_connection, compute_chromatograms_in_batches, calculate_optimal_batch_size
+from ..duckdb_manager import (
+    duckdb_connection,
+    compute_chromatograms_in_batches,
+    calculate_optimal_batch_size,
+    populate_full_range_downsampled_chromatograms_for_target,
+)
 from ..plugin_interface import PluginInterface
 from ..tools import sparsify_chrom, proportional_min1_selection
-from ..plugins.analysis_tools.trace_helper import generate_chromatogram_traces, calculate_rt_alignment, calculate_shifts_per_sample_type
+from ..plugins.analysis_tools.trace_helper import (
+    generate_chromatogram_traces,
+    calculate_rt_alignment,
+    calculate_shifts_per_sample_type,
+    apply_savgol_smoothing,
+    apply_lttb_downsampling,
+)
 from ..rt_span_optimizer import optimize_rt_spans_batch
 from .workspaces import activate_workspace_logging
 
 _label = "Optimization"
 
 logger = logging.getLogger(__name__)
+LTTB_TARGET_POINTS = 100
+SAVGOL_WINDOW = 10
+SAVGOL_ORDER = 2
 
 
 class TargetOptimizationPlugin(PluginInterface):
@@ -62,7 +76,7 @@ def downsample_for_preview(scan_time, intensity, max_points=100):
 
 
 
-def get_chromatogram_dataframe(conn, target_label, full_range=False):
+def get_chromatogram_dataframe(conn, target_label, full_range=False, wdir=None):
     """
     Fetches chromatogram data for a specific target.
     If full_range is True, queries the raw ms1/ms2_data tables (slower but complete).
@@ -83,6 +97,104 @@ def get_chromatogram_dataframe(conn, target_label, full_range=False):
         
         if ms_type not in ['ms1', 'ms2']:
              return None
+
+        if ms_type == 'ms1':
+            has_full_ds = conn.execute(
+                """
+                SELECT COUNT(*)
+                FROM chromatograms
+                WHERE peak_label = ?
+                  AND ms_type = 'ms1'
+                  AND scan_time_full_ds IS NOT NULL
+                """,
+                [target_label],
+            ).fetchone()[0]
+            if not has_full_ds and wdir:
+                populate_full_range_downsampled_chromatograms_for_target(
+                    wdir,
+                    target_label,
+                    n_out=LTTB_TARGET_POINTS,
+                    conn=conn,
+                )
+                has_full_ds = conn.execute(
+                    """
+                    SELECT COUNT(*)
+                    FROM chromatograms
+                    WHERE peak_label = ?
+                      AND ms_type = 'ms1'
+                      AND scan_time_full_ds IS NOT NULL
+                    """,
+                    [target_label],
+                ).fetchone()[0]
+
+            if has_full_ds:
+                query = """
+                    WITH picked_samples AS (
+                        SELECT ms_file_label, color, label, sample_type
+                        FROM samples
+                        WHERE use_for_optimization = TRUE
+                    ),
+                    base AS (
+                        SELECT
+                            c.ms_file_label,
+                            s.color,
+                            s.label,
+                            s.sample_type,
+                            c.scan_time_full_ds AS scan_time,
+                            c.intensity_full_ds AS intensity
+                        FROM chromatograms c
+                        JOIN picked_samples s USING (ms_file_label)
+                        WHERE c.peak_label = ?
+                          AND c.ms_type = 'ms1'
+                          AND c.scan_time_full_ds IS NOT NULL
+                          AND c.intensity_full_ds IS NOT NULL
+                    ),
+                    zipped AS (
+                        SELECT
+                            ms_file_label,
+                            color,
+                            label,
+                            sample_type,
+                            list_transform(
+                                range(1, len(scan_time) + 1),
+                                i -> struct_pack(
+                                    t := list_extract(scan_time, i),
+                                    i := list_extract(intensity, i)
+                                )
+                            ) AS pairs
+                        FROM base
+                    ),
+                    final AS (
+                        SELECT
+                            ms_file_label,
+                            color,
+                            label,
+                            sample_type,
+                            list_transform(pairs, p -> p.t) AS scan_time_sliced,
+                            list_transform(pairs, p -> p.i) AS intensity_sliced,
+                            CASE
+                                WHEN len(pairs) = 0 THEN NULL
+                                ELSE list_max(list_transform(pairs, p -> p.i)) * 1.10
+                            END AS intensity_max_in_range,
+                            CASE
+                                WHEN len(pairs) = 0 THEN NULL
+                                ELSE list_min(list_transform(pairs, p -> p.i))
+                            END AS intensity_min_in_range,
+                            CASE
+                                WHEN len(pairs) = 0 THEN NULL
+                                ELSE list_max(list_transform(pairs, p -> p.t))
+                            END AS scan_time_max_in_range,
+                            CASE
+                                WHEN len(pairs) = 0 THEN NULL
+                                ELSE list_min(list_transform(pairs, p -> p.t))
+                            END AS scan_time_min_in_range
+                        FROM zipped
+                    )
+                    SELECT *
+                    FROM final
+                    ORDER BY ms_file_label
+                """
+                return conn.execute(query, [target_label]).pl()
 
         # Calculate m/z window
         delta_mz = mz_mean * mz_width_ppm / 1e6
@@ -128,6 +240,117 @@ def get_chromatogram_dataframe(conn, target_label, full_range=False):
         return conn.execute(query, [mz_lower, mz_upper, ms_type]).pl()
 
     else:
+        has_full_ds = conn.execute(
+            """
+            SELECT COUNT(*)
+            FROM chromatograms
+            WHERE peak_label = ?
+              AND ms_type = 'ms1'
+              AND scan_time_full_ds IS NOT NULL
+            """,
+            [target_label],
+        ).fetchone()[0]
+
+        if has_full_ds:
+            query = """
+                WITH picked_samples AS (
+                    SELECT ms_file_label, color, label, sample_type
+                    FROM samples
+                    WHERE use_for_optimization = TRUE
+                ),
+                picked_target AS (
+                    SELECT peak_label, intensity_threshold, rt_min, rt_max
+                    FROM targets
+                    WHERE peak_label = ?
+                ),
+                base AS (
+                    SELECT
+                        c.*,
+                        s.color,
+                        s.label,
+                        s.sample_type,
+                        t.intensity_threshold,
+                        t.rt_min,
+                        t.rt_max,
+                        CASE
+                            WHEN c.ms_type = 'ms1' AND c.scan_time_full_ds IS NOT NULL
+                                THEN c.scan_time_full_ds
+                            ELSE c.scan_time
+                        END AS scan_time_use,
+                        CASE
+                            WHEN c.ms_type = 'ms1' AND c.intensity_full_ds IS NOT NULL
+                                THEN c.intensity_full_ds
+                            ELSE c.intensity
+                        END AS intensity_use
+                    FROM chromatograms c
+                    JOIN picked_samples s USING (ms_file_label)
+                    JOIN picked_target t USING (peak_label)
+                ),
+                zipped AS (
+                    SELECT
+                        ms_file_label,
+                        color,
+                        label,
+                        sample_type,
+                        intensity_threshold,
+                        rt_min,
+                        rt_max,
+                        list_transform(
+                            range(1, len(scan_time_use) + 1),
+                            i -> struct_pack(
+                                t := list_extract(scan_time_use, i),
+                                i := list_extract(intensity_use,  i)
+                            )
+                        ) AS pairs
+                    FROM base
+                ),
+                sliced AS (
+                    SELECT
+                        ms_file_label,
+                        color,
+                        label,
+                        sample_type,
+                        pairs,
+                        list_filter(
+                            pairs,
+                            p -> p.i >= COALESCE(intensity_threshold, 0)
+                                 AND p.t >= COALESCE(rt_min, 0) - 30
+                                 AND p.t <= COALESCE(rt_max, 999999) + 30
+                        ) AS pairs_in
+                    FROM zipped
+                ),
+                final AS (
+                    SELECT
+                        ms_file_label,
+                        color,
+                        label,
+                        sample_type,
+                        list_transform(pairs_in, p -> p.t) AS scan_time_sliced,
+                        list_transform(pairs_in, p -> p.i) AS intensity_sliced,
+                        CASE
+                            WHEN len(pairs) = 0 THEN NULL
+                            ELSE list_max(list_transform(pairs, p -> p.i)) * 1.10
+                        END AS intensity_max_in_range,
+                        CASE
+                            WHEN len(pairs) = 0 THEN NULL
+                            ELSE list_min(list_transform(pairs, p -> p.i))
+                        END AS intensity_min_in_range,
+                        CASE
+                            WHEN len(pairs) = 0 THEN NULL
+                            ELSE list_max(list_transform(pairs, p -> p.t))
+                        END AS scan_time_max_in_range,
+                        CASE
+                            WHEN len(pairs) = 0 THEN NULL
+                            ELSE list_min(list_transform(pairs, p -> p.t))
+                        END AS scan_time_min_in_range
+                    FROM sliced
+                )
+                SELECT *
+                FROM final
+                ORDER BY ms_file_label;
+            """
+            return conn.execute(query, [target_label]).pl()
+
         # specific standard query for cached chromatograms
         query = """
             WITH picked_samples AS (SELECT ms_file_label, color, label, sample_type
@@ -1037,6 +1260,43 @@ _layout = fac.AntdLayout(
                                                     fac.AntdSwitch(
                                                         id='chromatogram-view-rt-align',
                                                         checked=False,
+                                                        checkedChildren='On',
+                                                        unCheckedChildren='Off',
+                                                        style={'width': '60px'}
+                                                    ),
+                                                    style={
+                                                        'width': '110px',
+                                                        'display': 'flex',
+                                                        'justifyContent': 'flex-start'
+                                                    }
+                                                ),
+                                            ],
+                                            style={'display': 'flex', 'alignItems': 'center'}
+                                        ),
+                                        html.Div(
+                                            [
+                                                html.Div(
+                                                    [
+                                                        html.Span('SAVGOL Smoothing:'),
+                                                        fac.AntdTooltip(
+                                                            fac.AntdIcon(
+                                                                icon='antd-question-circle',
+                                                                style={'marginLeft': '5px', 'color': 'gray'}
+                                                            ),
+                                                            title='Apply Savitzky-Golay smoothing to intensities'
+                                                        )
+                                                    ],
+                                                    style={
+                                                        'display': 'flex',
+                                                        'alignItems': 'center',
+                                                        'width': '170px',
+                                                        'paddingRight': '8px'
+                                                    }
+                                                ),
+                                                html.Div(
+                                                    fac.AntdSwitch(
+                                                        id='chromatogram-view-savgol',
+                                                        checked=True,
                                                         checkedChildren='On',
                                                         unCheckedChildren='Off',
                                                         style={'width': '60px'}
@@ -2283,7 +2543,17 @@ def callbacks(app, fsc, cache, cpu=None):
                                            t.rt_align_enabled,
                                            t.rt_align_shifts,
                                            t.filterLine,
-                                           s.sample_type
+                                           s.sample_type,
+                                           CASE
+                                               WHEN c.ms_type = 'ms1' AND c.scan_time_full_ds IS NOT NULL
+                                                   THEN c.scan_time_full_ds
+                                               ELSE c.scan_time
+                                           END AS scan_time_use,
+                                           CASE
+                                               WHEN c.ms_type = 'ms1' AND c.intensity_full_ds IS NOT NULL
+                                                   THEN c.intensity_full_ds
+                                               ELSE c.intensity
+                                           END AS intensity_use
                                     FROM chromatograms c
                                           JOIN picked_samples s USING (ms_file_label)
                                           JOIN picked_targets t USING (peak_label)
@@ -2305,10 +2575,10 @@ def callbacks(app, fsc, cache, cpu=None):
                                            filterLine,
                                            sample_type,
                                            list_transform(
-                                                   range(1, len(scan_time) + 1),
+                                                   range(1, len(scan_time_use) + 1),
                                                    i -> struct_pack(
-                                                       t := list_extract(scan_time, i),
-                                                       i := list_extract(intensity, i)
+                                                       t := list_extract(scan_time_use, i),
+                                                       i := list_extract(intensity_use, i)
                                                    )
                                                )
                                            AS pairs_raw,
@@ -2403,6 +2673,15 @@ def callbacks(app, fsc, cache, cpu=None):
                 
                 scan_time_sliced = scan_time[mask]
                 intensity_sliced = intensity[mask]
+
+                intensity_sliced = apply_savgol_smoothing(
+                    intensity_sliced, window_length=SAVGOL_WINDOW, polyorder=SAVGOL_ORDER
+                )
+
+                if ms_type == 'ms1':
+                    scan_time_sliced, intensity_sliced = apply_lttb_downsampling(
+                        scan_time_sliced, intensity_sliced, n_out=LTTB_TARGET_POINTS
+                    )
 
                 # MS2/SRM data has sparse peaks - use min_peak_width=1 and higher baseline
                 # MS1 uses default parameters (min_peak_width=3, baseline=1.0)
@@ -2819,19 +3098,22 @@ def callbacks(app, fsc, cache, cpu=None):
         Output('chromatogram-view-plot', 'figure', allow_duplicate=True),
         Input('chromatogram-view-megatrace', 'checked'),
         Input('chromatogram-view-full-range', 'checked'),
+        Input('chromatogram-view-savgol', 'checked'),
         State('chromatogram-view-plot', 'figure'),
         State('target-preview-clicked', 'data'),
         State('wdir', 'data'),
         State('rt-alignment-data', 'data'),  # Check if RT alignment is active
         prevent_initial_call=True
     )
-    def update_megatrace_mode(use_megatrace, full_range, figure, target_clicked, wdir, rt_alignment_data):
+    def update_megatrace_mode(use_megatrace, full_range, use_savgol, figure, target_clicked, wdir, rt_alignment_data):
         if not wdir or not target_clicked:
             logger.debug("update_megatrace_mode: No workspace directory or target clicked, preventing update")
             raise PreventUpdate
         
         with duckdb_connection(wdir) as conn:
-            chrom_df = get_chromatogram_dataframe(conn, target_clicked, full_range=full_range)
+            chrom_df = get_chromatogram_dataframe(
+                conn, target_clicked, full_range=full_range, wdir=wdir
+            )
             
             # Fetch ms_type for this target
             target_ms_type = conn.execute(
@@ -2850,11 +3132,28 @@ def callbacks(app, fsc, cache, cpu=None):
 
             # logger.debug(f"Megatrace callback: Applying RT alignment with {len(rt_alignment_shifts)} shifts")
         
+        smoothing_params = None
+        if use_savgol:
+            smoothing_params = {
+                'enabled': True,
+                'window_length': SAVGOL_WINDOW,
+                'polyorder': SAVGOL_ORDER
+            }
+
+        downsample_params = None
+        if target_ms_type == 'ms1':
+            downsample_params = {
+                'enabled': True,
+                'n_out': LTTB_TARGET_POINTS
+            }
+
         traces, x_min, x_max, y_min, y_max = generate_chromatogram_traces(
             chrom_df, 
             use_megatrace=use_megatrace,
             rt_alignment_shifts=rt_alignment_shifts,
-            ms_type=target_ms_type
+            ms_type=target_ms_type,
+            smoothing_params=smoothing_params,
+            downsample_params=downsample_params
         )
         
         fig = Patch()
@@ -2875,13 +3174,14 @@ def callbacks(app, fsc, cache, cpu=None):
         Input('chromatogram-view-rt-align', 'checked'),
         State('chromatogram-view-plot', 'figure'),
         State('chromatogram-view-megatrace', 'checked'),
+        State('chromatogram-view-savgol', 'checked'),
         State('slider-data', 'data'),  # Use current slider values, not reference
         State('target-preview-clicked', 'data'),
         State('wdir', 'data'),
         State('rt-alignment-data', 'data'),  # Check if this is a restoration
         prevent_initial_call=True
     )
-    def apply_rt_alignment(use_alignment, figure, use_megatrace, slider_current, target_clicked, wdir, existing_rt_data):
+    def apply_rt_alignment(use_alignment, figure, use_megatrace, use_savgol, slider_current, target_clicked, wdir, existing_rt_data):
         """Apply or remove RT alignment when toggle changes"""
         # logger.debug(f"RT Alignment callback triggered: use_alignment={use_alignment}")
         
@@ -2920,7 +3220,17 @@ def callbacks(app, fsc, cache, cpu=None):
                                          s.color,
                                          s.label,
                                          s.sample_type,
-                                         t.intensity_threshold
+                                         t.intensity_threshold,
+                                         CASE
+                                             WHEN c.ms_type = 'ms1' AND c.scan_time_full_ds IS NOT NULL
+                                                 THEN c.scan_time_full_ds
+                                             ELSE c.scan_time
+                                         END AS scan_time_use,
+                                         CASE
+                                             WHEN c.ms_type = 'ms1' AND c.intensity_full_ds IS NOT NULL
+                                                 THEN c.intensity_full_ds
+                                             ELSE c.intensity
+                                         END AS intensity_use
                                   FROM chromatograms c
                                            JOIN picked_samples s USING (ms_file_label)
                                            JOIN picked_target t USING (peak_label)),
@@ -2930,10 +3240,10 @@ def callbacks(app, fsc, cache, cpu=None):
                                            sample_type,
                                            intensity_threshold,
                                            list_transform(
-                                                   range(1, len(scan_time) + 1),
+                                                   range(1, len(scan_time_use) + 1),
                                                    i -> struct_pack(
-                                                           t := list_extract(scan_time, i),
-                                                           i := list_extract(intensity,  i)
+                                                           t := list_extract(scan_time_use, i),
+                                                           i := list_extract(intensity_use,  i)
                                                         )
                                            ) AS pairs
                                     FROM base),
@@ -3015,11 +3325,28 @@ def callbacks(app, fsc, cache, cpu=None):
             # logger.debug(f"RT Alignment data prepared: {alignment_data}")
         
         # Regenerate traces with or without alignment
+        smoothing_params = None
+        if use_savgol:
+            smoothing_params = {
+                'enabled': True,
+                'window_length': SAVGOL_WINDOW,
+                'polyorder': SAVGOL_ORDER
+            }
+
+        downsample_params = None
+        if target_ms_type == 'ms1':
+            downsample_params = {
+                'enabled': True,
+                'n_out': LTTB_TARGET_POINTS
+            }
+
         traces, x_min, x_max, y_min, y_max = generate_chromatogram_traces(
             chrom_df, 
             use_megatrace=use_megatrace,
             rt_alignment_shifts=rt_alignment_shifts,
-            ms_type=target_ms_type
+            ms_type=target_ms_type,
+            smoothing_params=smoothing_params,
+            downsample_params=downsample_params
         )
         
         fig = Patch()
@@ -3100,10 +3427,12 @@ def callbacks(app, fsc, cache, cpu=None):
         State('chromatogram-view-log-y', 'checked'),  # Current log-y state  
         State('chromatogram-view-groupclick', 'checked'),  # Current legend behavior state
         State('chromatogram-view-full-range', 'checked'),  # Current full range state
+        State('chromatogram-view-savgol', 'checked'),
         prevent_initial_call=True
     )
     def chromatogram_view_modal(target_clicked, log_scale, checkedKeys, wdir, 
-                                 modal_already_open, current_megatrace, current_log_y, current_groupclick, current_full_range):
+                                 modal_already_open, current_megatrace, current_log_y, current_groupclick, current_full_range,
+                                 current_savgol):
 
         if not wdir:
             raise PreventUpdate
@@ -3130,13 +3459,18 @@ def callbacks(app, fsc, cache, cpu=None):
                 bookmark_state = False
 
             # Use helper function to fetch data
-            chrom_df = get_chromatogram_dataframe(conn, target_clicked, full_range=current_full_range if modal_already_open else False)
+            chrom_df = get_chromatogram_dataframe(
+                conn,
+                target_clicked,
+                full_range=current_full_range if modal_already_open else False,
+                wdir=wdir,
+            )
             
             # Count samples for optimization
             n_samples = conn.execute("SELECT COUNT(*) FROM samples WHERE use_for_optimization = TRUE").fetchone()[0]
         
         # Limit full range to 90 samples to prevent OOM
-        full_range_disabled = n_samples > 90
+        full_range_disabled = n_samples > 100
         if full_range_disabled:
             full_range = False
             full_range_tooltip = f"Full Range disabled (>90 samples, total optimization samples: {n_samples}) to prevent OOM."
@@ -3192,11 +3526,28 @@ def callbacks(app, fsc, cache, cpu=None):
             rt_alignment_shifts_to_apply = calculate_rt_alignment(chrom_df, align_rt_min, align_rt_max)
             logger.info(f"Applying saved RT alignment on modal open: ref={align_ref_rt:.2f}s")
         
+        smoothing_params = None
+        if current_savgol:
+            smoothing_params = {
+                'enabled': True,
+                'window_length': SAVGOL_WINDOW,
+                'polyorder': SAVGOL_ORDER
+            }
+
+        downsample_params = None
+        if target_ms_type == 'ms1':
+            downsample_params = {
+                'enabled': True,
+                'n_out': LTTB_TARGET_POINTS
+            }
+
         traces, x_min, x_max, y_min, y_max = generate_chromatogram_traces(
             chrom_df, 
             use_megatrace=use_megatrace,
             rt_alignment_shifts=rt_alignment_shifts_to_apply,
-            ms_type=target_ms_type
+            ms_type=target_ms_type,
+            smoothing_params=smoothing_params,
+            downsample_params=downsample_params
         )
 
         if traces:
@@ -4506,4 +4857,3 @@ def callbacks(app, fsc, cache, cpu=None):
             return False, True  # Stop spinning and disable interval
         
         raise PreventUpdate
-
