@@ -1,6 +1,7 @@
 import importlib
 import logging
 import os
+import sys
 import tempfile
 import time
 from pathlib import Path
@@ -460,6 +461,9 @@ def create_app(**kwargs):
         initial_page_children=initial_page_children,
         initial_section_context=initial_section_context,
     )
+
+    if getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS'):
+        kwargs['assets_folder'] = os.path.join(sys._MEIPASS, 'ms_mint_app', 'assets')
 
     app = Dash(
         __name__,

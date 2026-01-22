@@ -79,7 +79,7 @@ where = ["src"]
 include = ["ms_mint_app*"]
 
 [tool.setuptools.package-data]
-"ms_mint_app.assets" = ["*.css"]
+"ms_mint_app" = ["assets/*", "static/*", "static/**/*"]
 
 [tool.versioneer]
 VCS = "git"
