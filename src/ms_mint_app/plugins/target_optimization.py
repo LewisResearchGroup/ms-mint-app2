@@ -61,6 +61,140 @@ def downsample_for_preview(scan_time, intensity, max_points=100):
     return scan_time[indices], intensity[indices]
 
 
+
+def get_chromatogram_dataframe(conn, target_label, full_range=False):
+    """
+    Fetches chromatogram data for a specific target.
+    If full_range is True, queries the raw ms1/ms2_data tables (slower but complete).
+    If False, queries the cached chromatograms table (faster but sliced to RT window).
+    """
+    if full_range:
+        # 1. Get target metadata
+        t_info = conn.execute("""
+            SELECT ms_type, mz_mean, mz_width, rt_min, rt_max 
+            FROM targets 
+            WHERE peak_label = ?
+        """, [target_label]).fetchone()
+        
+        if not t_info:
+            return None
+            
+        ms_type, mz_mean, mz_width_ppm, rt_min, rt_max = t_info
+        
+        if ms_type not in ['ms1', 'ms2']:
+             return None
+
+        # Calculate m/z window
+        delta_mz = mz_mean * mz_width_ppm / 1e6
+        mz_lower = mz_mean - delta_mz
+        mz_upper = mz_mean + delta_mz
+        
+        table_name = "ms1_data" if ms_type == "ms1" else "ms2_data"
+        
+        # 2. Query raw data
+        # Note: We group by file and aggregate directly to match the format of the 'chromatograms' table query
+        # We assume ms_file_scans has the timing info.
+        query = f"""
+        WITH picked_samples AS (
+            SELECT ms_file_label, color, label, sample_type
+            FROM samples 
+            WHERE use_for_optimization = TRUE
+        ),
+        raw_scans AS (
+            SELECT d.ms_file_label, d.scan_id, d.intensity, s.scan_time
+            FROM {table_name} d
+            JOIN ms_file_scans s ON d.ms_file_label = s.ms_file_label AND d.scan_id = s.scan_id
+            WHERE d.mz BETWEEN ? AND ?
+              AND s.ms_type = ?
+              AND d.ms_file_label IN (SELECT ms_file_label FROM picked_samples)
+        )
+        SELECT 
+            r.ms_file_label, 
+            p.color, 
+            p.label, 
+            p.sample_type, 
+            LIST(r.scan_time ORDER BY r.scan_time) as scan_time_sliced,
+            LIST(r.intensity ORDER BY r.scan_time) as intensity_sliced,
+            MAX(r.intensity) * 1.10 as intensity_max_in_range,
+            MIN(r.intensity) as intensity_min_in_range,
+            MAX(r.scan_time) as scan_time_max_in_range,
+            MIN(r.scan_time) as scan_time_min_in_range
+        FROM raw_scans r
+        JOIN picked_samples p ON r.ms_file_label = p.ms_file_label
+        GROUP BY r.ms_file_label, p.color, p.label, p.sample_type
+        ORDER BY r.ms_file_label
+        """
+        
+        return conn.execute(query, [mz_lower, mz_upper, ms_type]).pl()
+
+    else:
+        # specific standard query for cached chromatograms
+        query = """
+            WITH picked_samples AS (SELECT ms_file_label, color, label, sample_type
+                                    FROM samples
+                                    WHERE use_for_optimization = TRUE
+            ),
+             picked_target AS (SELECT peak_label,
+                                      intensity_threshold
+                               FROM targets
+                               WHERE peak_label = ?),
+             base AS (SELECT c.*,
+                             s.color,
+                             s.label,
+                             s.sample_type,
+                             t.intensity_threshold
+                      FROM chromatograms c
+                               JOIN picked_samples s USING (ms_file_label)
+                               JOIN picked_target t USING (peak_label)),
+             zipped AS (SELECT ms_file_label,
+                               color,
+                               label,
+                               sample_type,
+                               intensity_threshold,
+                               list_transform(
+                                       range(1, len(scan_time) + 1),
+                                       i -> struct_pack(
+                                               t := list_extract(scan_time, i),
+                                               i := list_extract(intensity,  i)
+                                            )
+                               ) AS pairs
+                        FROM base),
+
+             sliced AS (SELECT ms_file_label,
+                               color,
+                               label,
+                               sample_type,
+                               pairs,
+                               list_filter(pairs, p -> p.i >= COALESCE(intensity_threshold, 0)) AS pairs_in
+                        FROM zipped),
+             final AS (SELECT ms_file_label,
+                              color,
+                              label,
+                              sample_type,
+                              list_transform(pairs_in, p -> p.t)                            AS scan_time_sliced,
+                              list_transform(pairs_in, p -> p.i)                            AS intensity_sliced,
+                              CASE
+                                  WHEN len(pairs) = 0 THEN NULL
+                                  ELSE list_max(list_transform(pairs, p -> p.i)) * 1.10 END AS
+                                                                                               intensity_max_in_range,
+                              CASE
+                                  WHEN len(pairs) = 0 THEN NULL
+                                  ELSE list_min(list_transform(pairs, p -> p.i)) END        AS intensity_min_in_range,
+                              CASE
+                                  WHEN len(pairs) = 0 THEN NULL
+                                  ELSE list_max(list_transform(pairs, p -> p.t)) END        AS scan_time_max_in_range,
+                              CASE
+                                  WHEN len(pairs) = 0 THEN NULL
+                                  ELSE list_min(list_transform(pairs, p -> p.t)) END        AS scan_time_min_in_range
+
+                       FROM sliced)
+        SELECT *
+        FROM final
+        ORDER BY ms_file_label;
+            """
+        return conn.execute(query, [target_label]).pl()
+
+
 MAX_NUM_CARDS = 20  # Support up to 20 cards/page while keeping load time reasonable
 DEFAULT_GRAPH_WIDTH = 250
 DEFAULT_GRAPH_HEIGHT = 180
@@ -793,6 +927,44 @@ _layout = fac.AntdLayout(
                                                         checked=False,
                                                         checkedChildren='Grp',
                                                         unCheckedChildren='Sng',
+                                                        style={'width': '60px'}
+                                                    ),
+                                                    style={
+                                                        'width': '110px',
+                                                        'display': 'flex',
+                                                        'justifyContent': 'flex-start'
+                                                    }
+                                                ),
+                                            ],
+                                            style={'display': 'flex', 'alignItems': 'center'}
+                                        ),
+                                        html.Div(
+                                            [
+                                                html.Div(
+                                                    [
+                                                        html.Span('Full Range:'),
+                                                        fac.AntdTooltip(
+                                                            fac.AntdIcon(
+                                                                icon='antd-question-circle',
+                                                                style={'marginLeft': '5px', 'color': 'gray'}
+                                                            ),
+                                                            id='chromatogram-view-full-range-tooltip',
+                                                            title='Show entire chromatogram (slower) vs 30s window'
+                                                        )
+                                                    ],
+                                                    style={
+                                                        'display': 'flex',
+                                                        'alignItems': 'center',
+                                                        'width': '170px',
+                                                        'paddingRight': '8px'
+                                                    }
+                                                ),
+                                                html.Div(
+                                                    fac.AntdSwitch(
+                                                        id='chromatogram-view-full-range',
+                                                        checked=False,
+                                                        checkedChildren='All',
+                                                        unCheckedChildren='30s',
                                                         style={'width': '60px'}
                                                     ),
                                                     style={
@@ -2646,83 +2818,20 @@ def callbacks(app, fsc, cache, cpu=None):
     @app.callback(
         Output('chromatogram-view-plot', 'figure', allow_duplicate=True),
         Input('chromatogram-view-megatrace', 'checked'),
+        Input('chromatogram-view-full-range', 'checked'),
         State('chromatogram-view-plot', 'figure'),
         State('target-preview-clicked', 'data'),
         State('wdir', 'data'),
         State('rt-alignment-data', 'data'),  # Check if RT alignment is active
         prevent_initial_call=True
     )
-    def update_megatrace_mode(use_megatrace, figure, target_clicked, wdir, rt_alignment_data):
+    def update_megatrace_mode(use_megatrace, full_range, figure, target_clicked, wdir, rt_alignment_data):
         if not wdir or not target_clicked:
             logger.debug("update_megatrace_mode: No workspace directory or target clicked, preventing update")
             raise PreventUpdate
         
         with duckdb_connection(wdir) as conn:
-            query = """
-                    WITH picked_samples AS (SELECT ms_file_label, color, label, sample_type
-                                            FROM samples
-                                            WHERE use_for_optimization = TRUE
-                    ),
-                         picked_target AS (SELECT peak_label,
-                                                  intensity_threshold
-                                           FROM targets
-                                           WHERE peak_label = ?),
-                         base AS (SELECT c.*,
-                                         s.color,
-                                         s.label,
-                                         s.sample_type,
-                                         t.intensity_threshold
-                                  FROM chromatograms c
-                                           JOIN picked_samples s USING (ms_file_label)
-                                           JOIN picked_target t USING (peak_label)),
-                         zipped AS (SELECT ms_file_label,
-                                           color,
-                                           label,
-                                           sample_type,
-                                           intensity_threshold,
-                                           list_transform(
-                                                   range(1, len(scan_time) + 1),
-                                                   i -> struct_pack(
-                                                           t := list_extract(scan_time, i),
-                                                           i := list_extract(intensity,  i)
-                                                        )
-                                           ) AS pairs
-                                    FROM base),
-
-                         sliced AS (SELECT ms_file_label,
-                                           color,
-                                           label,
-                                           sample_type,
-                                           pairs,
-                                           list_filter(pairs, p -> p.i >= COALESCE(intensity_threshold, 0)) AS pairs_in
-                                    FROM zipped),
-                         final AS (SELECT ms_file_label,
-                                          color,
-                                          label,
-                                          sample_type,
-                                          list_transform(pairs_in, p -> p.t)                            AS scan_time_sliced,
-                                          list_transform(pairs_in, p -> p.i)                            AS intensity_sliced,
-                                          CASE
-                                              WHEN len(pairs) = 0 THEN NULL
-                                              ELSE list_max(list_transform(pairs, p -> p.i)) * 1.10 END AS
-                                                                                                           intensity_max_in_range,
-                                          CASE
-                                              WHEN len(pairs) = 0 THEN NULL
-                                              ELSE list_min(list_transform(pairs, p -> p.i)) END        AS intensity_min_in_range,
-                                          CASE
-                                              WHEN len(pairs) = 0 THEN NULL
-                                              ELSE list_max(list_transform(pairs, p -> p.t)) END        AS scan_time_max_in_range,
-                                          CASE
-                                              WHEN len(pairs) = 0 THEN NULL
-                                              ELSE list_min(list_transform(pairs, p -> p.t)) END        AS scan_time_min_in_range
-
-                                   FROM sliced)
-                    SELECT *
-                    FROM final
-                    ORDER BY ms_file_label;
-                    """
-
-            chrom_df = conn.execute(query, [target_clicked]).pl()
+            chrom_df = get_chromatogram_dataframe(conn, target_clicked, full_range=full_range)
             
             # Fetch ms_type for this target
             target_ms_type = conn.execute(
@@ -2973,6 +3082,9 @@ def callbacks(app, fsc, cache, cpu=None):
         Output('chromatogram-view-megatrace', 'checked', allow_duplicate=True),
         Output('chromatogram-view-log-y', 'checked', allow_duplicate=True),
         Output('chromatogram-view-groupclick', 'checked', allow_duplicate=True),
+        Output('chromatogram-view-full-range', 'checked', allow_duplicate=True),
+        Output('chromatogram-view-full-range', 'disabled'),
+        Output('chromatogram-view-full-range-tooltip', 'title'),
         Output('chromatogram-view-rt-align', 'checked', allow_duplicate=True),  # Set RT alignment state
         Output('rt-alignment-data', 'data', allow_duplicate=True),  # Load alignment data
         Output('target-note', 'value', allow_duplicate=True),
@@ -2987,10 +3099,11 @@ def callbacks(app, fsc, cache, cpu=None):
         State('chromatogram-view-megatrace', 'checked'),  # Current megatrace state
         State('chromatogram-view-log-y', 'checked'),  # Current log-y state  
         State('chromatogram-view-groupclick', 'checked'),  # Current legend behavior state
+        State('chromatogram-view-full-range', 'checked'),  # Current full range state
         prevent_initial_call=True
     )
     def chromatogram_view_modal(target_clicked, log_scale, checkedKeys, wdir, 
-                                 modal_already_open, current_megatrace, current_log_y, current_groupclick):
+                                 modal_already_open, current_megatrace, current_log_y, current_groupclick, current_full_range):
 
         if not wdir:
             raise PreventUpdate
@@ -3016,78 +3129,20 @@ def callbacks(app, fsc, cache, cpu=None):
                 align_rt_max = None
                 bookmark_state = False
 
-            query = """
-                        WITH picked_samples AS (SELECT ms_file_label, color, label, sample_type
-                                                FROM samples
-                                                WHERE use_for_optimization = TRUE
-                            -- AND ms_file_label IN (SELECT unnest(?::VARCHAR[]))
-                        ),
-                         picked_target AS (SELECT peak_label,
-                                                  rt,
-                                                  rt_min,
-                                                  rt_max,
-                                                  intensity_threshold
-                                           FROM targets
-                                           WHERE peak_label = ?),
-                         base AS (SELECT c.*,
-                                         s.color,
-                                         s.label,
-                                         s.sample_type,
-                                         t.intensity_threshold
-                                  FROM chromatograms c
-                                           JOIN picked_samples s USING (ms_file_label)
-                                           JOIN picked_target t USING (peak_label)),
-                         -- Emparejamos (scan_time[i], intensity[i]) en una lista de structs
-                         zipped AS (SELECT ms_file_label,
-                                           color,
-                                           label,
-                                           sample_type,
-                                           intensity_threshold,
-                                           list_transform(
-                                                   range(1, len(scan_time) + 1),
-                                                   i -> struct_pack(
-                                                           t := list_extract(scan_time, i),
-                                                           i := list_extract(intensity,  i)
-                                                        )
-                                           ) AS pairs
-                                    FROM base),
-
-                         sliced AS (SELECT ms_file_label,
-                                           color,
-                                           label,
-                                           sample_type,
-                                           pairs,
-                                           list_filter(pairs, p -> p.i >= COALESCE(intensity_threshold, 0)) AS pairs_in
-                                    FROM zipped),
-                         -- Reconstruimos listas y calculamos min/max de intensidad COMPLETO
-                         final AS (SELECT ms_file_label,
-                                          color,
-                                          label,
-                                          sample_type,
-                                          list_transform(pairs_in, p -> p.t)                            AS scan_time_sliced,
-                                          list_transform(pairs_in, p -> p.i)                            AS intensity_sliced,
-                                          CASE
-                                              WHEN len(pairs) = 0 THEN NULL
-                                              ELSE list_max(list_transform(pairs, p -> p.i)) * 1.10 END AS
-                                                                                                           intensity_max_in_range,
-                                          CASE
-                                              WHEN len(pairs) = 0 THEN NULL
-                                              ELSE list_min(list_transform(pairs, p -> p.i)) END        AS intensity_min_in_range,
-                                          CASE
-                                              WHEN len(pairs) = 0 THEN NULL
-                                              ELSE list_max(list_transform(pairs, p -> p.t)) END        AS scan_time_max_in_range,
-                                          CASE
-                                              WHEN len(pairs) = 0 THEN NULL
-                                              ELSE list_min(list_transform(pairs, p -> p.t)) END        AS scan_time_min_in_range
-
-                                   FROM sliced)
-                    SELECT *
-                    FROM final
-                    ORDER BY ms_file_label;
-                        """
-
-            chrom_df = conn.execute(query, [target_clicked]).pl()
+            # Use helper function to fetch data
+            chrom_df = get_chromatogram_dataframe(conn, target_clicked, full_range=current_full_range if modal_already_open else False)
+            
+            # Count samples for optimization
+            n_samples = conn.execute("SELECT COUNT(*) FROM samples WHERE use_for_optimization = TRUE").fetchone()[0]
         
+        # Limit full range to 90 samples to prevent OOM
+        full_range_disabled = n_samples > 90
+        if full_range_disabled:
+            full_range = False
+            full_range_tooltip = f"Full Range disabled (>90 samples, total optimization samples: {n_samples}) to prevent OOM."
+        else:
+            full_range_tooltip = "Show entire chromatogram (slower) vs 30s window"
+            
         try:
             n_sample_types = chrom_df['sample_type'].n_unique()
             group_legend = True if n_sample_types > 1 else False
@@ -3123,6 +3178,12 @@ def callbacks(app, fsc, cache, cpu=None):
                 log_scale = current_log_y
             if current_groupclick is not None:
                 group_legend = current_groupclick
+            if current_full_range is not None:
+                full_range = current_full_range
+            else:
+                full_range = False # Default off
+        else:
+             full_range = False # Reset if new open
 
         # Calculate RT alignment shifts if enabled in database
         rt_alignment_shifts_to_apply = None
@@ -3328,7 +3389,7 @@ def callbacks(app, fsc, cache, cpu=None):
 
         return (fig, f"{target_clicked}", False, slider_reference,
                 slider_dict, {"min_y": y_min, "max_y": y_max}, total_points, use_megatrace, log_scale, group_legend, 
-                rt_align_toggle_state, rt_alignment_data_to_load, note, rt_align_toggle_state, bookmark_icon_node)
+                full_range, full_range_disabled, full_range_tooltip, rt_align_toggle_state, rt_alignment_data_to_load, note, False, bookmark_icon_node)
 
     @app.callback(
         Output('chromatogram-view-plot', 'figure', allow_duplicate=True),
