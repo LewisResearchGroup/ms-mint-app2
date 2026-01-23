@@ -160,20 +160,16 @@ def test_real_files_parsing():
     """Test parsing of real files from test_MS1 directory."""
     # Use relative path dynamically based on this test file's location
     test_dir = Path(__file__).parent / "test_MS1" / "ms-files"
-    mzml_path = test_dir / "test.mzML"
-    mzxml_path = test_dir / "test.mzXML"
+    mzml_path = test_dir / "test_mzML.mzML"
+    mzxml_path = test_dir / "test_mzXML.mzXML"
     
     if not mzml_path.exists() or not mzxml_path.exists():
         pytest.skip(f"Real test files not found in {test_dir}")
         
-    print(f"\nTesting real file: {mzml_path}")
     mzml_scans = list(iter_mzml_fast(str(mzml_path)))
-    print(f"  Parsed {len(mzml_scans)} scans from mzML")
     assert len(mzml_scans) > 0, "No scans parsed from real mzML file"
     
-    print(f"Testing real file: {mzxml_path}")
     mzxml_scans = list(iter_mzxml_fast(str(mzxml_path)))
-    print(f"  Parsed {len(mzxml_scans)} scans from mzXML")
     assert len(mzxml_scans) > 0, "No scans parsed from real mzXML file"
     
     # Basic check on first scan structure
@@ -183,8 +179,7 @@ def test_real_files_parsing():
     assert isinstance(s["m/z array"], np.ndarray)
     
     # Consistency check between formats if they are supposed to be same data
-    # (assuming test.mzML and test.mzXML are same run)
+    # (assuming the paired test files are from the same run)
     if len(mzml_scans) == len(mzxml_scans):
          s_xml = mzxml_scans[0]
          assert abs(s["retentionTime"] - s_xml["retentionTime"]) < 1e-2
-

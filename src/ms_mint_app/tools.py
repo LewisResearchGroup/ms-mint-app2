@@ -1649,8 +1649,10 @@ def get_targets_v2(files_path):
 
     # Fill default values
     # Default to selected when the column is missing/blank so uploaded targets are included by default.
-    targets_df['peak_selection'] = targets_df['peak_selection'].fillna(True).astype(bool)
-    targets_df['bookmark'] = targets_df['bookmark'].fillna(False).astype(bool)
+    peak_selection = targets_df['peak_selection'].astype('boolean').fillna(True)
+    targets_df['peak_selection'] = peak_selection.astype(bool)
+    bookmark = targets_df['bookmark'].astype('boolean').fillna(False)
+    targets_df['bookmark'] = bookmark.astype(bool)
 
     logging.info("Processing summary:")
     logging.info(f"  Total files: {total_files}")

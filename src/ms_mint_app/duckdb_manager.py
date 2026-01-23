@@ -1,11 +1,13 @@
 from contextlib import contextmanager
+from datetime import datetime, timedelta
 from pathlib import Path
 from threading import Thread
 
 import duckdb
-import time
 import logging
 import math
+import os
+import time
 import numpy as np
 
 logger = logging.getLogger(__name__)
@@ -441,6 +443,336 @@ def import_database_as_workspace(
     
     return True, "", workspace_key
 
+
+def ensure_exploration_workspace(mint_root: Path, *, seed: int = 7) -> bool:
+    """
+    Create an exploration workspace on first run.
+    Prefer seeding from a bundled sample snapshot; otherwise seed synthetic data.
+    Returns True if a workspace was created, False otherwise.
+    """
+    if os.environ.get("MINT_DISABLE_EXPLORATION_WORKSPACE"):
+        return False
+
+    mint_root = Path(mint_root)
+    try:
+        with duckdb_connection_mint(mint_root) as mint_conn:
+            if mint_conn is None:
+                return False
+            existing = mint_conn.execute("SELECT COUNT(*) FROM workspaces").fetchone()
+            if existing and existing[0] > 0:
+                return False
+    except Exception as e:
+        logger.error(f"Failed to check existing workspaces: {e}", exc_info=True)
+        return False
+
+    bundle_path = _resolve_exploration_bundle_path()
+    manifest = _load_exploration_manifest(bundle_path) if bundle_path else None
+    ws_name = (manifest or {}).get("workspace_name") or "Explore"
+    description = _exploration_workspace_description(manifest)
+
+    workspace_key = _create_exploration_workspace_record(
+        mint_root,
+        name=ws_name,
+        description=description,
+    )
+    if not workspace_key:
+        return False
+
+    workspace_path = mint_root / "workspaces" / workspace_key
+    try:
+        workspace_path.mkdir(parents=True, exist_ok=True)
+        if bundle_path and _seed_exploration_workspace_from_bundle(workspace_path, bundle_path):
+            logger.info(f"Seeded exploration workspace from bundle: {bundle_path}")
+        else:
+            logger.warning("Falling back to synthetic exploration data.")
+            _seed_exploration_workspace_db(workspace_path, seed=seed)
+    except Exception as e:
+        logger.error(f"Failed to seed exploration workspace: {e}", exc_info=True)
+        return False
+
+    logger.info(f"Created exploration workspace at {workspace_path}")
+    return True
+
+
+def _create_exploration_workspace_record(
+    mint_root: Path,
+    *,
+    name: str,
+    description: str,
+) -> str | None:
+    try:
+        with duckdb_connection_mint(mint_root) as mint_conn:
+            if mint_conn is None:
+                return None
+            result = mint_conn.execute(
+                """INSERT INTO workspaces (name, description, active, created_at, last_activity)
+                   VALUES (?, ?, true, NOW(), NOW()) RETURNING key""",
+                (name, description)
+            ).fetchone()
+            return str(result[0]) if result else None
+    except Exception as e:
+        logger.error(f"Failed to create exploration workspace record: {e}", exc_info=True)
+        return None
+
+
+def _resolve_exploration_bundle_path() -> Path | None:
+    env_path = os.environ.get("MINT_EXPLORATION_BUNDLE_PATH")
+    if env_path:
+        candidate = Path(env_path).expanduser()
+        if candidate.exists():
+            return candidate
+        logger.warning(f"MINT_EXPLORATION_BUNDLE_PATH does not exist: {candidate}")
+
+    bundle_path = Path(__file__).resolve().parent / "assets" / "explore_bundle"
+    if bundle_path.exists():
+        return bundle_path
+
+    return None
+
+
+def _load_exploration_manifest(bundle_path: Path | None) -> dict | None:
+    if not bundle_path:
+        return None
+    manifest_path = bundle_path / "manifest.json"
+    if not manifest_path.exists():
+        return None
+    try:
+        import json
+        with open(manifest_path, "r", encoding="utf-8") as fh:
+            return json.load(fh)
+    except Exception as e:
+        logger.warning(f"Failed to read exploration manifest: {e}")
+        return None
+
+
+def _exploration_workspace_description(manifest: dict | None) -> str:
+    if not manifest:
+        return "Auto-generated exploration workspace (synthetic demo data)."
+    source = manifest.get("source_label") or "sampled real data"
+    return f"Auto-generated exploration workspace."
+
+
+def _seed_exploration_workspace_from_bundle(
+    workspace_path: Path,
+    bundle_path: Path,
+) -> bool:
+    manifest = _load_exploration_manifest(bundle_path) or {}
+    tables = manifest.get("tables") or {}
+
+    with duckdb_connection(workspace_path, register_activity=False) as conn:
+        if conn is None:
+            return False
+
+        for table in ("samples", "targets", "chromatograms", "results"):
+            parquet_file = bundle_path / f"{table}.parquet"
+            if not parquet_file.exists():
+                continue
+
+            dest_cols = [row[0] for row in conn.execute(f"DESCRIBE {table}").fetchall()]
+            src_cols = tables.get(table, {}).get("columns") or []
+            columns = [col for col in dest_cols if col in src_cols]
+            if not columns:
+                continue
+
+            quoted_cols = ", ".join(f'"{col}"' for col in columns)
+            parquet_path = str(parquet_file).replace("'", "''")
+            conn.execute(
+                f"INSERT INTO {table} ({quoted_cols}) "
+                f"SELECT {quoted_cols} FROM read_parquet('{parquet_path}')"
+            )
+
+    return True
+
+
+def _seed_exploration_workspace_db(workspace_path: Path, *, seed: int = 7) -> None:
+    """Populate a new workspace with lightweight synthetic data for exploration."""
+    with duckdb_connection(workspace_path, register_activity=False) as conn:
+        if conn is None:
+            raise RuntimeError("Could not open workspace database for seeding.")
+
+        existing = conn.execute("SELECT COUNT(*) FROM samples").fetchone()
+        if existing and existing[0] > 0:
+            return
+
+        rng = np.random.default_rng(seed)
+        base_time = datetime(2024, 1, 1, 9, 0, 0)
+
+        sample_specs = [
+            ("EC_01", "E. coli 1", "EC", "#4C78A8", "Batch 1", "Plate A", True),
+            ("EC_02", "E. coli 2", "EC", "#4C78A8", "Batch 2", "Plate A", True),
+            ("CA_01", "C. albicans 1", "CA", "#F58518", "Batch 1", "Plate B", True),
+            ("CA_02", "C. albicans 2", "CA", "#F58518", "Batch 2", "Plate B", True),
+            ("SA_01", "S. aureus 1", "SA", "#54A24B", "Batch 1", "Plate C", True),
+            ("SA_02", "S. aureus 2", "SA", "#54A24B", "Batch 2", "Plate C", True),
+            ("QC_01", "QC Mix", "QC", "#B279A2", "Batch 1", "Plate A", True),
+            ("BLK_01", "Blank", "Blank", "#9E9E9E", "Batch 1", "Plate A", False),
+        ]
+
+        sample_rows = []
+        for idx, (ms_file_label, label, sample_type, color, group_1, group_2, use_opt) in enumerate(sample_specs):
+            sample_rows.append(
+                (
+                    ms_file_label,
+                    "ms1",
+                    "mzML",
+                    use_opt,
+                    True,
+                    True,
+                    "Positive",
+                    color,
+                    label,
+                    sample_type,
+                    group_1,
+                    group_2,
+                    base_time + timedelta(minutes=12 * idx),
+                )
+            )
+
+        conn.executemany(
+            """
+            INSERT INTO samples (
+                ms_file_label, ms_type, file_type, use_for_optimization, use_for_processing,
+                use_for_analysis, polarity, color, label, sample_type, group_1, group_2,
+                acquisition_datetime
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            sample_rows,
+        )
+
+        targets = [
+            ("GLUCOSE", 179.056, 0.012, 1.25, "Carbohydrate"),
+            ("LACTATE", 89.024, 0.010, 2.10, "Organic Acid"),
+            ("SUCCINATE", 117.019, 0.012, 3.05, "Organic Acid"),
+            ("CITRATE", 191.019, 0.015, 4.35, "Organic Acid"),
+            ("ALANINE", 90.055, 0.010, 5.20, "Amino Acid"),
+            ("GLUTAMATE", 148.060, 0.012, 6.10, "Amino Acid"),
+        ]
+
+        target_rows = []
+        for idx, (peak_label, mz, mz_width, rt, category) in enumerate(targets):
+            target_rows.append(
+                (
+                    peak_label,
+                    mz,
+                    mz_width,
+                    mz,
+                    rt,
+                    rt - 0.20,
+                    rt + 0.20,
+                    "min",
+                    500.0,
+                    "Positive",
+                    None,
+                    "ms1",
+                    category,
+                    True if idx < 4 else False,
+                    round(0.85 + 0.03 * idx, 3),
+                    False,
+                    "demo",
+                    "Synthetic demo target",
+                )
+            )
+
+        conn.executemany(
+            """
+            INSERT INTO targets (
+                peak_label, mz_mean, mz_width, mz, rt, rt_min, rt_max, rt_unit,
+                intensity_threshold, polarity, filterLine, ms_type, category,
+                peak_selection, score, bookmark, source, notes
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            target_rows,
+        )
+
+        type_factors = {
+            "EC": 1.2,
+            "CA": 0.9,
+            "SA": 1.1,
+            "QC": 1.0,
+            "Blank": 0.12,
+        }
+
+        time_axis = np.linspace(0.5, 8.0, 120)
+        scan_time = np.round(time_axis, 4).tolist()
+
+        chrom_rows = []
+        result_rows = []
+        for ms_file_label, _label, sample_type, _color, _g1, _g2, _use_opt in sample_specs:
+            type_factor = type_factors.get(sample_type, 1.0)
+            for idx, (peak_label, mz, _mz_width, rt, _category) in enumerate(targets):
+                sigma = 0.08 + (idx * 0.015)
+                base_amp = 6000 + (idx * 900)
+                amp = base_amp * type_factor * float(rng.uniform(0.85, 1.15))
+                signal = amp * np.exp(-0.5 * ((time_axis - rt) / sigma) ** 2)
+                noise = rng.normal(0.0, amp * 0.02, size=time_axis.size)
+                intensity = np.maximum(signal + noise + 40.0, 0.0)
+
+                intensity_list = np.round(intensity, 3).tolist()
+                mz_arr = [float(mz)] * len(scan_time)
+
+                chrom_rows.append(
+                    (
+                        peak_label,
+                        ms_file_label,
+                        scan_time,
+                        intensity_list,
+                        None,
+                        None,
+                        mz_arr,
+                        "ms1",
+                    )
+                )
+
+                peak_max = float(np.max(intensity))
+                peak_min = float(np.min(intensity))
+                peak_mean = float(np.mean(intensity))
+                peak_median = float(np.median(intensity))
+                peak_rt_of_max = float(scan_time[int(np.argmax(intensity))])
+                peak_area = float(np.trapz(intensity, time_axis))
+                total_intensity = float(np.sum(intensity))
+                peak_area_top3 = float(np.sort(intensity)[-3:].sum())
+
+                result_rows.append(
+                    (
+                        peak_label,
+                        ms_file_label,
+                        total_intensity,
+                        peak_area,
+                        peak_area_top3,
+                        peak_max,
+                        peak_min,
+                        peak_mean,
+                        peak_rt_of_max,
+                        peak_median,
+                        len(scan_time),
+                        False,
+                        0.0,
+                        scan_time,
+                        intensity_list,
+                    )
+                )
+
+        conn.executemany(
+            """
+            INSERT INTO chromatograms (
+                peak_label, ms_file_label, scan_time, intensity,
+                scan_time_full_ds, intensity_full_ds, mz_arr, ms_type
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            chrom_rows,
+        )
+
+        conn.executemany(
+            """
+            INSERT INTO results (
+                peak_label, ms_file_label, total_intensity, peak_area,
+                peak_area_top3, peak_max, peak_min, peak_mean,
+                peak_rt_of_max, peak_median, peak_n_datapoints,
+                rt_aligned, rt_shift, scan_time, intensity
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            result_rows,
+        )
 
 def _send_progress(set_progress, percent, stage: str = "", detail: str = ""):
     """
