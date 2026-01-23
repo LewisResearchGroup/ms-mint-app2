@@ -3,4 +3,5 @@ mkdocs-material
 mkdocs-glightbox
 flake8
 pytest
+pytest-cov
 pyinstaller
