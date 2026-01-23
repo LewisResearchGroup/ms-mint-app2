@@ -1,6 +1,6 @@
-site_name: ms-mint-app
-site_url: https://github.com/lewisresearchgroup/ms-mint-app
-site_author: Soren Wacker 
+site_name: ms-mint-app2
+site_url: https://github.com/lewisresearchgroup/ms-mint-app2
+site_author: Mario E. Valdes-Tresanco et al. 
 nav:
   - Home: 'index.md'
   - Installation: 'install.md' 
