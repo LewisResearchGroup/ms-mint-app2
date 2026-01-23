@@ -1,0 +1,128 @@
+{
+  "workspace_name": "My first Workspace",
+  "source_label": "sampled from workspace_mint.db",
+  "source_db": "workspace_mint.db",
+  "generated_at": "2026-01-23T10:46:50.277057Z",
+  "filters": {
+    "sample_limit": 12,
+    "target_limit": 12,
+    "samples": [
+      "CA_B1",
+      "CA_B2",
+      "CA_B3",
+      "CA_B4",
+      "EC_B1",
+      "EC_B2",
+      "EC_B3",
+      "EC_B4",
+      "SA_B1",
+      "SA_B2",
+      "SA_B3",
+      "SA_B4"
+    ],
+    "targets": [
+      "Adenine",
+      "Asparagine",
+      "Aspartic acid",
+      "Fumaric acid",
+      "Leucine",
+      "Ornithine",
+      "Serine",
+      "Succinic acid",
+      "Uracil"
+    ]
+  },
+  "tables": {
+    "samples": {
+      "rows": 12,
+      "columns": [
+        "ms_file_label",
+        "ms_type",
+        "file_type",
+        "use_for_optimization",
+        "use_for_processing",
+        "use_for_analysis",
+        "polarity",
+        "color",
+        "label",
+        "sample_type",
+        "group_1",
+        "group_2",
+        "group_3",
+        "group_4",
+        "group_5",
+        "acquisition_datetime"
+      ]
+    },
+    "targets": {
+      "rows": 9,
+      "columns": [
+        "peak_label",
+        "mz_mean",
+        "mz_width",
+        "mz",
+        "rt",
+        "rt_min",
+        "rt_max",
+        "rt_unit",
+        "intensity_threshold",
+        "polarity",
+        "filterLine",
+        "ms_type",
+        "category",
+        "peak_selection",
+        "score",
+        "bookmark",
+        "source",
+        "notes",
+        "rt_auto_adjusted",
+        "rt_align_enabled",
+        "rt_align_reference_rt",
+        "rt_align_shifts",
+        "rt_align_rt_min",
+        "rt_align_rt_max"
+      ]
+    },
+    "chromatograms": {
+      "rows": 108,
+      "columns": [
+        "peak_label",
+        "ms_file_label",
+        "scan_time",
+        "intensity",
+        "scan_time_full_ds",
+        "intensity_full_ds",
+        "mz_arr",
+        "ms_type"
+      ]
+    },
+    "results": {
+      "rows": 108,
+      "columns": [
+        "peak_label",
+        "ms_file_label",
+        "total_intensity",
+        "peak_area",
+        "peak_area_top3",
+        "peak_max",
+        "peak_min",
+        "peak_mean",
+        "peak_rt_of_max",
+        "peak_median",
+        "peak_n_datapoints",
+        "rt_aligned",
+        "rt_shift",
+        "scan_time",
+        "intensity",
+        "peak_mz_of_max",
+        "peak_area_fitted",
+        "peak_sigma",
+        "peak_tau",
+        "peak_asymmetry",
+        "peak_rt_fitted",
+        "fit_r_squared",
+        "fit_success"
+      ]
+    }
+  }
+}

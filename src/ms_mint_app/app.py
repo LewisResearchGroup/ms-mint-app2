@@ -152,17 +152,28 @@ def _build_layout(*, plugins, file_explorer, initial_page_children=None, initial
                                     ),
                                     fac.AntdFlex(
                                         [
-                                            fac.AntdText('Workspace:', strong=True),
+                                            fac.AntdText('Workspace:', strong=True, style={'whiteSpace': 'nowrap'}),
                                             fac.AntdCopyText(
                                                 id="ws-wdir-name",
                                                 locale='en-us',
-                                                beforeIcon=fac.AntdText(code=True, id="ws-wdir-name-text"),
+                                                style={'minWidth': 0, 'flex': 1, 'textAlign': 'right'},
+                                                beforeIcon=fac.AntdText(
+                                                    code=True,
+                                                    id="ws-wdir-name-text",
+                                                    style={
+                                                        'whiteSpace': 'nowrap',
+                                                        'overflow': 'hidden',
+                                                        'textOverflow': 'ellipsis',
+                                                        'maxWidth': '100%',
+                                                        'display': 'inline-block',
+                                                    },
+                                                ),
                                                 afterIcon=fac.AntdIcon(icon='antd-like')
                                             )
                                         ],
                                         justify='space-between',
                                         align='center',
-                                        style={'padding': '0 4px 0 8px'},
+                                        style={'padding': '0 4px 0 8px', 'flexWrap': 'nowrap'},
                                         id='active-workspace-container'
                                     ),
                                     fac.AntdDivider(
@@ -275,7 +286,7 @@ def register_callbacks(app, cache, fsc, args, *, plugins, file_explorer):
     from flask_login import current_user
     import feffery_antd_components as fac
 
-    from .duckdb_manager import duckdb_connection_mint, is_workspace_corrupted
+    from .duckdb_manager import duckdb_connection_mint, ensure_exploration_workspace, is_workspace_corrupted
 
     logging.info("Register callbacks")
     upload_root = os.getenv("MINT_DATA_DIR", tempfile.gettempdir())
@@ -409,6 +420,11 @@ def register_callbacks(app, cache, fsc, args, *, plugins, file_explorer):
         if not Path(ud, 'mint.db').exists():
             with duckdb_connection_mint(ud):
                 logging.info("Created Workspaces DB...")
+
+        try:
+            ensure_exploration_workspace(Path(ud))
+        except Exception:
+            logging.exception("Failed to initialize exploration workspace")
         return ud, logout_menu_style
 
     logging.info("Done registering callbacks")
