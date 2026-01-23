@@ -119,8 +119,8 @@ jobs:
           compression-level: 0  # Already compressed
 
   build-linux:
-    name: Build Linux Executable
-    runs-on: ubuntu-latest
+    name: Build Linux Executable (Ubuntu 20.04)
+    runs-on: ubuntu-20.04
     timeout-minutes: 180
     
     steps:
@@ -208,14 +208,6 @@ jobs:
             exit 1
           fi
 
-      - name: Create archive
-        run: |
-          cd pyinstaller/dist
-          tar -czf Mint-Linux-x64.tar.gz Mint/
-          
-          zipSize=$(du -h Mint-Linux-x64.tar.gz | cut -f1)
-          echo "Archive size: $zipSize"
-
       - name: Get version
         id: get_version
         run: |
@@ -237,9 +229,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: Mint-Linux-x64-${{ steps.get_version.outputs.version }}
-          path: pyinstaller/dist/Mint-Linux-x64.tar.gz
+          path: pyinstaller/dist/Mint/
           retention-days: 90
-          compression-level: 0
+          compression-level: 6
 
   build-macos:
     name: Build macOS Executable
@@ -311,14 +303,6 @@ jobs:
             exit 1
           fi
 
-      - name: Create archive
-        run: |
-          cd pyinstaller/dist
-          tar -czf Mint-macOS-x64.tar.gz Mint/
-          
-          zipSize=$(du -h Mint-macOS-x64.tar.gz | cut -f1)
-          echo "Archive size: $zipSize"
-
       - name: Get version
         id: get_version
         run: |
@@ -340,9 +324,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: Mint-macOS-x64-${{ steps.get_version.outputs.version }}
-          path: pyinstaller/dist/Mint-macOS-x64.tar.gz
+          path: pyinstaller/dist/Mint/
           retention-days: 90
-          compression-level: 0
+          compression-level: 6
 
   release:
     name: Create Release
@@ -355,12 +339,56 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           path: artifacts
-          merge-multiple: true
 
       - name: List downloaded files
         run: |
           echo "Downloaded artifacts:"
-          ls -lh artifacts/
+          ls -lhR artifacts/
+
+      - name: Create release archives
+        run: |
+          set -e
+          
+          # Windows - already a zip, just rename/move it
+          WINDOWS_ZIP=$(find artifacts -name "Mint-Windows-x64.zip" -type f | head -n 1)
+          if [ -z "$WINDOWS_ZIP" ]; then
+            echo "ERROR: Windows zip file not found"
+            exit 1
+          fi
+          mv "$WINDOWS_ZIP" ./Mint-Windows-x64.zip
+          echo "✓ Windows archive ready: Mint-Windows-x64.zip"
+          
+          # Linux - create tar.gz from directory
+          cd artifacts
+          LINUX_DIR=$(find . -type d -name "Mint-Linux-x64-*" | head -n 1)
+          if [ -z "$LINUX_DIR" ]; then
+            echo "ERROR: Linux artifact directory not found"
+            exit 1
+          fi
+          if [ ! -d "$LINUX_DIR/Mint" ]; then
+            echo "ERROR: Mint/ subdirectory not found in Linux artifact"
+            exit 1
+          fi
+          tar -czf ../Mint-Linux-x64.tar.gz -C "$LINUX_DIR" Mint/
+          echo "✓ Linux archive created: Mint-Linux-x64.tar.gz"
+          
+          # macOS - create tar.gz from directory
+          MACOS_DIR=$(find . -type d -name "Mint-macOS-x64-*" | head -n 1)
+          if [ -z "$MACOS_DIR" ]; then
+            echo "ERROR: macOS artifact directory not found"
+            exit 1
+          fi
+          if [ ! -d "$MACOS_DIR/Mint" ]; then
+            echo "ERROR: Mint/ subdirectory not found in macOS artifact"
+            exit 1
+          fi
+          tar -czf ../Mint-macOS-x64.tar.gz -C "$MACOS_DIR" Mint/
+          echo "✓ macOS archive created: Mint-macOS-x64.tar.gz"
+          
+          cd ..
+          echo ""
+          echo "=== Final Release Archives ==="
+          ls -lh *.zip *.tar.gz
 
       - name: Get version info
         id: version_info
@@ -378,7 +406,10 @@ jobs:
         if: steps.version_info.outputs.is_prerelease == 'true'
         uses: softprops/action-gh-release@v1
         with:
-          files: artifacts/*
+          files: |
+            Mint-Windows-x64.zip
+            Mint-Linux-x64.tar.gz
+            Mint-macOS-x64.tar.gz
           draft: false
           prerelease: true
           generate_release_notes: true
@@ -388,21 +419,40 @@ jobs:
             This is a **pre-release version** for public testing and feedback.
             **Not recommended for production use.**
             
-            ### Downloads (~600 MB each)
-            - **Windows**: `Mint-Windows-x64.zip`
-            - **Linux**: `Mint-Linux-x64.tar.gz`
-            - **macOS**: `Mint-macOS-x64.tar.gz`
+            ### Downloads
+            - **Windows**: `Mint-Windows-x64.zip` - Extract and run `Mint/Mint.exe`
+            - **Linux**: `Mint-Linux-x64.tar.gz` - Extract and run `Mint/Mint` (Ubuntu 20.04+)
+            - **macOS**: `Mint-macOS-x64.tar.gz` - Extract and run `Mint/Mint`
             
             ### Installation
-            1. Download the appropriate file for your platform
-            2. Extract the archive
-            3. Run the `Mint` executable
+            
+            **Windows:**
+            ```powershell
+            # Extract Mint-Windows-x64.zip
+            cd Mint
+            .\Mint.exe
+            ```
+            
+            **Linux:**
+            ```bash
+            tar -xzf Mint-Linux-x64.tar.gz
+            cd Mint
+            ./Mint
+            ```
+            
+            **macOS:**
+            ```bash
+            tar -xzf Mint-macOS-x64.tar.gz
+            cd Mint
+            ./Mint
+            ```
+            
+            ### System Requirements
+            - **Linux**: Ubuntu 20.04+, Debian 11+, or equivalent (glibc 2.31+)
+            - **Ubuntu 18.04 users**: Please install from source (see documentation)
             
             ### Reporting Issues
             Please report bugs at: https://github.com/${{ github.repository }}/issues
-            
-            ---
-            **Note**: Due to the large package size (~600 MB), download may take several minutes.
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -410,28 +460,50 @@ jobs:
         if: steps.version_info.outputs.is_prerelease == 'false'
         uses: softprops/action-gh-release@v1
         with:
-          files: artifacts/*
+          files: |
+            Mint-Windows-x64.zip
+            Mint-Linux-x64.tar.gz
+            Mint-macOS-x64.tar.gz
           draft: false
           prerelease: false
           generate_release_notes: true
           body: |
             ## 🎉 Stable Release
             
-            ### Downloads (~600 MB each)
-            - **Windows**: `Mint-Windows-x64.zip`
-            - **Linux**: `Mint-Linux-x64.tar.gz`
-            - **macOS**: `Mint-macOS-x64.tar.gz`
+            ### Downloads
+            - **Windows**: `Mint-Windows-x64.zip` - Extract and run `Mint/Mint.exe`
+            - **Linux**: `Mint-Linux-x64.tar.gz` - Extract and run `Mint/Mint` (Ubuntu 20.04+)
+            - **macOS**: `Mint-macOS-x64.tar.gz` - Extract and run `Mint/Mint`
             
             ### Installation
-            1. Download the appropriate file for your platform
-            2. Extract the archive
-            3. Run the `Mint` executable
+            
+            **Windows:**
+            ```powershell
+            # Extract Mint-Windows-x64.zip
+            cd Mint
+            .\Mint.exe
+            ```
+            
+            **Linux:**
+            ```bash
+            tar -xzf Mint-Linux-x64.tar.gz
+            cd Mint
+            ./Mint
+            ```
+            
+            **macOS:**
+            ```bash
+            tar -xzf Mint-macOS-x64.tar.gz
+            cd Mint
+            ./Mint
+            ```
+            
+            ### System Requirements
+            - **Linux**: Ubuntu 20.04+, Debian 11+, or equivalent (glibc 2.31+)
+            - **Ubuntu 18.04 users**: Please install from source (see documentation)
             
             ### Documentation
             - [Full Documentation](https://LewisResearchGroup.github.io/ms-mint-app2/)
             - [Quick Start Guide](https://LewisResearchGroup.github.io/ms-mint-app2/quickstart/)
-            
-            ---
-            **Note**: Due to the large package size (~600 MB), download may take several minutes.
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
