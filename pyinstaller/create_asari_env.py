@@ -66,9 +66,9 @@ def main():
         text=True
     )
     if result.returncode == 0:
-        print("✓ Asari installed successfully!")
+        print("[OK] Asari installed successfully!")
     else:
-        print("✗ Asari installation verification failed:")
+        print("[ERROR] Asari installation verification failed:")
         print(result.stderr)
         sys.exit(1)
     

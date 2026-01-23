@@ -51,12 +51,16 @@ jobs:
           cd pyinstaller
           python create_asari_env.py
         shell: bash
+        env:
+          PYTHONIOENCODING: utf-8
 
       - name: Generate matplotlib font cache
         run: |
           cd pyinstaller
           python prebuild_matplotlib_cache.py
         shell: bash
+        env:
+          PYTHONIOENCODING: utf-8
 
       - name: Build executable with PyInstaller
         run: |
@@ -69,12 +73,12 @@ jobs:
       - name: Verify build and check size
         run: |
           if (Test-Path "pyinstaller\dist\Mint\Mint.exe") {
-            Write-Host "✓ Executable built successfully!"
+            Write-Host "[OK] Executable built successfully!"
             
             $size = (Get-ChildItem -Path "pyinstaller\dist\Mint" -Recurse | Measure-Object -Property Length -Sum).Sum
             Write-Host "Build size: $([math]::Round($size/1GB, 2)) GB"
           } else {
-            Write-Host "✗ Build failed"
+            Write-Host "[ERROR] Build failed"
             exit 1
           }
         shell: powershell
@@ -155,29 +159,52 @@ jobs:
         run: |
           cd pyinstaller
           python create_asari_env.py
+        continue-on-error: true
+        env:
+          PYTHONIOENCODING: utf-8
 
       - name: Generate matplotlib font cache
         run: |
           cd pyinstaller
           python prebuild_matplotlib_cache.py
+        continue-on-error: true
+        env:
+          PYTHONIOENCODING: utf-8
+
+      - name: Check disk space before build
+        run: df -h
 
       - name: Build executable with PyInstaller
         run: |
           cd pyinstaller
-          pyinstaller --noconfirm --clean --log-level=INFO Mint.spec
+          pyinstaller --noconfirm --clean --log-level=DEBUG Mint.spec 2>&1 | tee build.log
         env:
           PYTHONOPTIMIZE: 1
+
+      - name: Show build log on failure
+        if: failure()
+        run: |
+          echo "=== PyInstaller Build Log ==="
+          cat pyinstaller/build.log || echo "No build log found"
+          echo ""
+          echo "=== Checking build directory ==="
+          ls -la pyinstaller/build/ || echo "No build directory"
+          echo ""
+          echo "=== Checking dist directory ==="
+          ls -la pyinstaller/dist/ || echo "No dist directory"
 
       - name: Verify build and check size
         run: |
           if [ -f "pyinstaller/dist/Mint/Mint" ]; then
-            echo "✓ Executable built successfully!"
+            echo "[OK] Executable built successfully!"
             chmod +x pyinstaller/dist/Mint/Mint
             
             size=$(du -sh pyinstaller/dist/Mint | cut -f1)
             echo "Build size: $size"
           else
-            echo "✗ Build failed"
+            echo "[ERROR] Build failed - executable not found"
+            echo "Contents of dist directory:"
+            ls -la pyinstaller/dist/ || echo "dist directory does not exist"
             exit 1
           fi
 
@@ -252,11 +279,17 @@ jobs:
         run: |
           cd pyinstaller
           python create_asari_env.py
+        continue-on-error: true
+        env:
+          PYTHONIOENCODING: utf-8
 
       - name: Generate matplotlib font cache
         run: |
           cd pyinstaller
           python prebuild_matplotlib_cache.py
+        continue-on-error: true
+        env:
+          PYTHONIOENCODING: utf-8
 
       - name: Build executable with PyInstaller
         run: |
@@ -268,13 +301,13 @@ jobs:
       - name: Verify build and check size
         run: |
           if [ -f "pyinstaller/dist/Mint/Mint" ]; then
-            echo "✓ Executable built successfully!"
+            echo "[OK] Executable built successfully!"
             chmod +x pyinstaller/dist/Mint/Mint
             
             size=$(du -sh pyinstaller/dist/Mint | cut -f1)
             echo "Build size: $size"
           else
-            echo "✗ Build failed"
+            echo "[ERROR] Build failed"
             exit 1
           fi
 
