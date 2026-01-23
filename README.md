@@ -41,12 +41,12 @@ pip install ms-mint-app2
 Mint
 ```
 
-For detailed installation instructions (conda, Docker, standalone builds), see the [Installation Guide](https://lewisresearchgroup.github.io/ms-mint-app/install/).
+For detailed installation instructions (conda, Docker, standalone builds), see the [Installation Guide](https://lewisresearchgroup.github.io/ms-mint-app2/install/).
 
 ## Documentation
 
-- **[Full Documentation](https://LewisResearchGroup.github.io/ms-mint-app/)** - Complete user guide
-- **[Quick Start Tutorial](https://LewisResearchGroup.github.io/ms-mint-app/quickstart/)** - Get up and running in 5 minutes
+- **[Full Documentation](https://LewisResearchGroup.github.io/ms-mint-app2/)** - Complete user guide
+- **[Quick Start Tutorial](https://LewisResearchGroup.github.io/ms-mint-app2/quickstart/)** - Get up and running in 5 minutes
 
 ## What's New (v1.x)
 
@@ -70,7 +70,7 @@ All contributions are welcome! This includes:
 - Feature requests and enhancements
 - Code reviews
 
-Please open a [GitHub issue](https://github.com/LewisResearchGroup/ms-mint-app/issues) to get started.
+Please open a [GitHub issue](https://github.com/LewisResearchGroup/ms-mint-app2/issues) to get started.
 
 ### Code Standards
 

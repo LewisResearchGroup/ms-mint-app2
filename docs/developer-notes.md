@@ -2,7 +2,7 @@
 
 ## Building and Uploading the Package
 
-To build the source distribution and wheel for `ms-mint-app`, follow these steps:
+To build the source distribution and wheel for `ms-mint-app2`, follow these steps:
 
 1. Navigate to the root directory of the project.
 2. Run the following command to create the source distribution (`sdist`) and wheel (`bdist_wheel`):

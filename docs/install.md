@@ -8,11 +8,11 @@ The latest stable release can be installed in a standard Python 3 (>= 3.12) cond
 
 ```bash
 # Create conda environment
-conda create -n ms-mint-app python==3.12
-conda activate ms-mint-app
+conda create -n ms-mint-app2 python==3.12
+conda activate ms-mint-app2
 
 # Install the package normally
-pip install ms-mint-app
+pip install ms-mint-app2
 
 ```
 
@@ -42,12 +42,12 @@ If you want to contribute to MINT or use the latest unreleased features, install
 
 ```bash
 # Create conda environment
-conda create -n ms-mint-app python==3.12
-conda activate ms-mint-app
+conda create -n ms-mint-app2 python==3.12
+conda activate ms-mint-app2
 
 # Get the code
-git clone https://github.com/LewisResearchGroup/ms-mint-app
-cd ms-mint-app
+git clone https://github.com/LewisResearchGroup/ms-mint-app2
+cd ms-mint-app2
 
 # Install the package normally
 pip install .
