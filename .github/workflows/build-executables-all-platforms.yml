@@ -1,43 +1,16 @@
-name: Build Executables (All Platforms)
+name: Build Executables (Optimized)
 
 on:
   push:
-    branches:
-      - develop  # Development builds
-      - main     # Only when merging develop -> main
     tags:
-      - 'v*'     # All version tags (beta and stable)
-  workflow_dispatch:
+      - 'v*'  # Only build on version tags to save resources
+  workflow_dispatch:  # Allow manual triggering
 
 jobs:
-  build:
-    name: Build on ${{ matrix.os }}
-    runs-on: ${{ matrix.os }}
-    strategy:
-      matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
-        include:
-          - os: ubuntu-latest
-            platform: Linux
-            executable: Mint
-            asari_path: asari_env/bin/asari
-            cache_subdir: linux
-            archive_name: Mint-Linux-x64.tar.gz
-            archive_cmd: tar -czf Mint-Linux-x64.tar.gz Mint/
-          - os: windows-latest
-            platform: Windows
-            executable: Mint.exe
-            asari_path: asari_env/Scripts/asari.exe
-            cache_subdir: windows
-            archive_name: Mint-Windows-x64.zip
-            archive_cmd: Compress-Archive -Path Mint -DestinationPath Mint-Windows-x64.zip
-          - os: macos-latest
-            platform: macOS
-            executable: Mint
-            asari_path: asari_env/bin/asari
-            cache_subdir: darwin
-            archive_name: Mint-macOS-x64.tar.gz
-            archive_cmd: tar -czf Mint-macOS-x64.tar.gz Mint/
+  build-windows:
+    name: Build Windows Executable
+    runs-on: windows-latest
+    timeout-minutes: 180
     
     steps:
       - name: Checkout repository
@@ -45,35 +18,32 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Free up disk space
+        run: |
+          # Remove unnecessary software to free up space
+          Remove-Item -Recurse -Force "C:\hostedtoolcache\windows\Python\3.7" -ErrorAction SilentlyContinue
+          Remove-Item -Recurse -Force "C:\hostedtoolcache\windows\Python\3.8" -ErrorAction SilentlyContinue
+          Remove-Item -Recurse -Force "C:\hostedtoolcache\windows\Python\3.9" -ErrorAction SilentlyContinue
+          Remove-Item -Recurse -Force "C:\hostedtoolcache\windows\Python\3.10" -ErrorAction SilentlyContinue
+          Remove-Item -Recurse -Force "C:\hostedtoolcache\windows\Python\3.11" -ErrorAction SilentlyContinue
+        shell: powershell
+        continue-on-error: true
+
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-
-      - name: Cache pip (Linux/macOS)
-        if: runner.os != 'Windows'
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/pip
-          key: ${{ runner.os }}-pip-${{ hashFiles('**/pyproject.toml', '**/requirements-dev.txt') }}
-          restore-keys: |
-            ${{ runner.os }}-pip-
-
-      - name: Cache pip (Windows)
-        if: runner.os == 'Windows'
-        uses: actions/cache@v4
-        with:
-          path: ~\AppData\Local\pip\Cache
-          key: ${{ runner.os }}-pip-${{ hashFiles('**/pyproject.toml', '**/requirements-dev.txt') }}
-          restore-keys: |
-            ${{ runner.os }}-pip-
+          cache: 'pip'
+          cache-dependency-path: |
+            pyproject.toml
+            requirements-dev.txt
 
       - name: Install dependencies
         run: |
-          python -m pip install --upgrade pip
+          python -m pip install --upgrade pip wheel setuptools
           pip install pyinstaller
           pip install "matplotlib>=3.10.8"
-          pip install -e .
+          pip install -e . --no-cache-dir
         shell: bash
 
       - name: Create Asari environment
@@ -91,91 +61,47 @@ jobs:
       - name: Build executable with PyInstaller
         run: |
           cd pyinstaller
-          pyinstaller Mint.spec
+          pyinstaller --noconfirm --clean --log-level=INFO Mint.spec
         shell: bash
+        env:
+          PYTHONOPTIMIZE: 1
 
-      - name: Verify build (Linux/macOS)
-        if: runner.os != 'Windows'
+      - name: Verify build and check size
         run: |
-          if [ -f "pyinstaller/dist/Mint/${{ matrix.executable }}" ]; then
-            echo "✓ Executable built successfully!"
-            chmod +x pyinstaller/dist/Mint/${{ matrix.executable }}
-            
-            if [ -f "pyinstaller/dist/Mint/${{ matrix.asari_path }}" ]; then
-              echo "✓ Asari environment bundled"
-            else
-              echo "✗ Asari environment missing"
-              exit 1
-            fi
-            
-            if [ -f "pyinstaller/dist/Mint/assets/matplotlib_cache_${{ matrix.cache_subdir }}/fontlist-v390.json" ]; then
-              echo "✓ Matplotlib cache bundled"
-            else
-              echo "⚠ Matplotlib cache not found"
-            fi
-          else
-            echo "✗ Build failed"
-            exit 1
-          fi
-
-      - name: Verify build (Windows)
-        if: runner.os == 'Windows'
-        run: |
-          if (Test-Path "pyinstaller\dist\Mint\${{ matrix.executable }}") {
+          if (Test-Path "pyinstaller\dist\Mint\Mint.exe") {
             Write-Host "✓ Executable built successfully!"
             
-            if (Test-Path "pyinstaller\dist\Mint\${{ matrix.asari_path }}") {
-              Write-Host "✓ Asari environment bundled"
-            } else {
-              Write-Host "✗ Asari environment missing"
-              exit 1
-            }
-            
-            if (Test-Path "pyinstaller\dist\Mint\assets\matplotlib_cache_${{ matrix.cache_subdir }}\fontlist-v390.json") {
-              Write-Host "✓ Matplotlib cache bundled"
-            } else {
-              Write-Host "⚠ Matplotlib cache not found"
-            }
+            $size = (Get-ChildItem -Path "pyinstaller\dist\Mint" -Recurse | Measure-Object -Property Length -Sum).Sum
+            Write-Host "Build size: $([math]::Round($size/1GB, 2)) GB"
           } else {
             Write-Host "✗ Build failed"
             exit 1
           }
         shell: powershell
 
-      - name: Create archive (Linux/macOS)
-        if: runner.os != 'Windows'
+      - name: Create archive with maximum compression
         run: |
           cd pyinstaller/dist
-          ${{ matrix.archive_cmd }}
-
-      - name: Create archive (Windows)
-        if: runner.os == 'Windows'
-        run: |
-          cd pyinstaller/dist
-          Compress-Archive -Path Mint -DestinationPath Mint-Windows-x64.zip
+          Compress-Archive -Path Mint -DestinationPath Mint-Windows-x64.zip -CompressionLevel Optimal
+          
+          $zipSize = (Get-Item Mint-Windows-x64.zip).Length
+          Write-Host "Archive size: $([math]::Round($zipSize/1MB, 2)) MB"
         shell: powershell
 
-      - name: Get version and build type
+      - name: Get version
         id: get_version
         run: |
           if [[ "$GITHUB_REF" == refs/tags/* ]]; then
             version=${GITHUB_REF#refs/tags/}
-            
-            # Check if it's a pre-release (beta, rc, alpha, etc.)
             if [[ "$version" =~ (alpha|beta|rc|preview) ]]; then
               is_prerelease=true
-              echo "Build type: Pre-release"
             else
               is_prerelease=false
-              echo "Build type: Stable release"
             fi
           else
-            # Development build from branch
             version="dev-$(git rev-parse --short HEAD)"
             is_prerelease=true
-            echo "Build type: Development build"
           fi
-          
           echo "version=$version" >> $GITHUB_OUTPUT
           echo "is_prerelease=$is_prerelease" >> $GITHUB_OUTPUT
         shell: bash
@@ -183,55 +109,288 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Mint-${{ matrix.platform }}-x64-${{ steps.get_version.outputs.version }}
-          path: pyinstaller/dist/${{ matrix.archive_name }}
-          retention-days: 30
+          name: Mint-Windows-x64-${{ steps.get_version.outputs.version }}
+          path: pyinstaller/dist/Mint-Windows-x64.zip
+          retention-days: 90
+          compression-level: 0  # Already compressed
 
-      - name: Create Pre-release (beta/rc/dev)
-        if: startsWith(github.ref, 'refs/tags/') && steps.get_version.outputs.is_prerelease == 'true'
+  build-linux:
+    name: Build Linux Executable
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Free up disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /usr/local/lib/android
+          sudo rm -rf /opt/ghc
+          sudo rm -rf /opt/hostedtoolcache/CodeQL
+          sudo docker image prune --all --force
+          df -h
+        continue-on-error: true
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+          cache-dependency-path: |
+            pyproject.toml
+            requirements-dev.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip wheel setuptools
+          pip install pyinstaller
+          pip install "matplotlib>=3.10.8"
+          pip install -e . --no-cache-dir
+
+      - name: Create Asari environment
+        run: |
+          cd pyinstaller
+          python create_asari_env.py
+
+      - name: Generate matplotlib font cache
+        run: |
+          cd pyinstaller
+          python prebuild_matplotlib_cache.py
+
+      - name: Build executable with PyInstaller
+        run: |
+          cd pyinstaller
+          pyinstaller --noconfirm --clean --log-level=INFO Mint.spec
+        env:
+          PYTHONOPTIMIZE: 1
+
+      - name: Verify build and check size
+        run: |
+          if [ -f "pyinstaller/dist/Mint/Mint" ]; then
+            echo "✓ Executable built successfully!"
+            chmod +x pyinstaller/dist/Mint/Mint
+            
+            size=$(du -sh pyinstaller/dist/Mint | cut -f1)
+            echo "Build size: $size"
+          else
+            echo "✗ Build failed"
+            exit 1
+          fi
+
+      - name: Create archive
+        run: |
+          cd pyinstaller/dist
+          tar -czf Mint-Linux-x64.tar.gz Mint/
+          
+          zipSize=$(du -h Mint-Linux-x64.tar.gz | cut -f1)
+          echo "Archive size: $zipSize"
+
+      - name: Get version
+        id: get_version
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            version=${GITHUB_REF#refs/tags/}
+            if [[ "$version" =~ (alpha|beta|rc|preview) ]]; then
+              is_prerelease=true
+            else
+              is_prerelease=false
+            fi
+          else
+            version="dev-$(git rev-parse --short HEAD)"
+            is_prerelease=true
+          fi
+          echo "version=$version" >> $GITHUB_OUTPUT
+          echo "is_prerelease=$is_prerelease" >> $GITHUB_OUTPUT
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Mint-Linux-x64-${{ steps.get_version.outputs.version }}
+          path: pyinstaller/dist/Mint-Linux-x64.tar.gz
+          retention-days: 90
+          compression-level: 0
+
+  build-macos:
+    name: Build macOS Executable
+    runs-on: macos-latest
+    timeout-minutes: 180
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Free up disk space
+        run: |
+          sudo rm -rf /Applications/Xcode_*.app
+          sudo rm -rf ~/Library/Android
+          df -h
+        continue-on-error: true
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+          cache-dependency-path: |
+            pyproject.toml
+            requirements-dev.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip wheel setuptools
+          pip install pyinstaller
+          pip install "matplotlib>=3.10.8"
+          pip install -e . --no-cache-dir
+
+      - name: Create Asari environment
+        run: |
+          cd pyinstaller
+          python create_asari_env.py
+
+      - name: Generate matplotlib font cache
+        run: |
+          cd pyinstaller
+          python prebuild_matplotlib_cache.py
+
+      - name: Build executable with PyInstaller
+        run: |
+          cd pyinstaller
+          pyinstaller --noconfirm --clean --log-level=INFO Mint.spec
+        env:
+          PYTHONOPTIMIZE: 1
+
+      - name: Verify build and check size
+        run: |
+          if [ -f "pyinstaller/dist/Mint/Mint" ]; then
+            echo "✓ Executable built successfully!"
+            chmod +x pyinstaller/dist/Mint/Mint
+            
+            size=$(du -sh pyinstaller/dist/Mint | cut -f1)
+            echo "Build size: $size"
+          else
+            echo "✗ Build failed"
+            exit 1
+          fi
+
+      - name: Create archive
+        run: |
+          cd pyinstaller/dist
+          tar -czf Mint-macOS-x64.tar.gz Mint/
+          
+          zipSize=$(du -h Mint-macOS-x64.tar.gz | cut -f1)
+          echo "Archive size: $zipSize"
+
+      - name: Get version
+        id: get_version
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            version=${GITHUB_REF#refs/tags/}
+            if [[ "$version" =~ (alpha|beta|rc|preview) ]]; then
+              is_prerelease=true
+            else
+              is_prerelease=false
+            fi
+          else
+            version="dev-$(git rev-parse --short HEAD)"
+            is_prerelease=true
+          fi
+          echo "version=$version" >> $GITHUB_OUTPUT
+          echo "is_prerelease=$is_prerelease" >> $GITHUB_OUTPUT
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Mint-macOS-x64-${{ steps.get_version.outputs.version }}
+          path: pyinstaller/dist/Mint-macOS-x64.tar.gz
+          retention-days: 90
+          compression-level: 0
+
+  release:
+    name: Create Release
+    needs: [build-windows, build-linux, build-macos]
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
+    
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: List downloaded files
+        run: |
+          echo "Downloaded artifacts:"
+          ls -lh artifacts/
+
+      - name: Get version info
+        id: version_info
+        run: |
+          version=${GITHUB_REF#refs/tags/}
+          if [[ "$version" =~ (alpha|beta|rc|preview) ]]; then
+            is_prerelease=true
+          else
+            is_prerelease=false
+          fi
+          echo "version=$version" >> $GITHUB_OUTPUT
+          echo "is_prerelease=$is_prerelease" >> $GITHUB_OUTPUT
+
+      - name: Create Pre-release
+        if: steps.version_info.outputs.is_prerelease == 'true'
         uses: softprops/action-gh-release@v1
         with:
-          files: pyinstaller/dist/${{ matrix.archive_name }}
+          files: artifacts/*
           draft: false
-          prerelease: true  # Mark as pre-release
+          prerelease: true
           generate_release_notes: true
           body: |
             ## ⚠️ Pre-release / Beta Version
             
             This is a **pre-release version** for public testing and feedback.
-            
             **Not recommended for production use.**
             
-            Please report any issues you encounter at: https://github.com/${{ github.repository }}/issues
+            ### Downloads (~600 MB each)
+            - **Windows**: `Mint-Windows-x64.zip`
+            - **Linux**: `Mint-Linux-x64.tar.gz`
+            - **macOS**: `Mint-macOS-x64.tar.gz`
             
-            ### Testing Instructions
-            1. Download the appropriate executable for your platform
+            ### Installation
+            1. Download the appropriate file for your platform
             2. Extract the archive
-            3. Run the executable
-            4. Report bugs or feedback in GitHub Issues
+            3. Run the `Mint` executable
+            
+            ### Reporting Issues
+            Please report bugs at: https://github.com/${{ github.repository }}/issues
             
             ---
+            **Note**: Due to the large package size (~600 MB), download may take several minutes.
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Create Stable Release
-        if: startsWith(github.ref, 'refs/tags/') && steps.get_version.outputs.is_prerelease == 'false'
+        if: steps.version_info.outputs.is_prerelease == 'false'
         uses: softprops/action-gh-release@v1
         with:
-          files: pyinstaller/dist/${{ matrix.archive_name }}
+          files: artifacts/*
           draft: false
-          prerelease: false  # Mark as stable
+          prerelease: false
           generate_release_notes: true
           body: |
             ## 🎉 Stable Release
             
-            This is a **stable release** ready for production use.
+            ### Downloads (~600 MB each)
+            - **Windows**: `Mint-Windows-x64.zip`
+            - **Linux**: `Mint-Linux-x64.tar.gz`
+            - **macOS**: `Mint-macOS-x64.tar.gz`
             
             ### Installation
-            1. Download the appropriate executable for your platform:
-               - **Windows**: `Mint-Windows-x64.zip`
-               - **Linux**: `Mint-Linux-x64.tar.gz`
-               - **macOS**: `Mint-macOS-x64.tar.gz`
+            1. Download the appropriate file for your platform
             2. Extract the archive
             3. Run the `Mint` executable
             
@@ -240,5 +399,6 @@ jobs:
             - [Quick Start Guide](https://LewisResearchGroup.github.io/ms-mint-app2/quickstart/)
             
             ---
+            **Note**: Due to the large package size (~600 MB), download may take several minutes.
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
