@@ -2928,15 +2928,11 @@ def callbacks(app, fsc, cache, cpu=None):
         y_max = max_y.get("max_y", 1)
         fig = Patch()
 
-        # Try to use the current x-range (zoom or RT span) to compute an informed y-range.
-        x_range = figure.get('layout', {}).get('xaxis', {}).get('range')
-        if x_range and len(x_range) == 2:
-            x_left, x_right = x_range
-        else:
-            shape = (figure.get('layout', {}).get('shapes') or [{}])[0]
-            x_left, x_right = shape.get('x0'), shape.get('x1')
-            if x_left is None or x_right is None:
-                x_left = x_right = None
+        # Use RT span only for y-range calculations.
+        shape = (figure.get('layout', {}).get('shapes') or [{}])[0]
+        x_left, x_right = shape.get('x0'), shape.get('x1')
+        if x_left is None or x_right is None:
+            x_left = x_right = None
 
         if log_scale:
             fig['layout']['yaxis']['type'] = 'log'
@@ -3038,6 +3034,26 @@ def callbacks(app, fsc, cache, cpu=None):
         
         fig = Patch()
         fig['data'] = traces
+        # Recompute y-range using RT span only
+        is_log = figure and figure.get('layout', {}).get('yaxis', {}).get('type') == 'log'
+        shape = (figure.get('layout', {}).get('shapes') or [{}])[0] if figure else {}
+        x_left, x_right = shape.get('x0'), shape.get('x1')
+        if x_left is None or x_right is None:
+            x_left, x_right = x_min, x_max
+
+        if x_left is not None and x_right is not None:
+            y_range_calc = _calc_y_range_numpy(traces, min(x_left, x_right), max(x_left, x_right), is_log=is_log)
+            if y_range_calc:
+                fig['layout']['yaxis']['range'] = y_range_calc
+                fig['layout']['yaxis']['autorange'] = False
+            else:
+                if is_log:
+                    log_y_min = math.log10(y_min) if y_min and y_min > 0 else y_min
+                    log_y_max = math.log10(y_max) if y_max and y_max > 0 else y_max
+                    fig['layout']['yaxis']['range'] = [log_y_min, log_y_max]
+                else:
+                    fig['layout']['yaxis']['range'] = [y_min, y_max * 1.05]
+                fig['layout']['yaxis']['autorange'] = False
         # We don't necessarily update ranges here to preserve user zoom/pan if desired, 
         # but to be consistent with main load, we might want to. 
         # For now let's update data only, or update everything if user expects a "reset" view.
@@ -3519,7 +3535,10 @@ def callbacks(app, fsc, cache, cpu=None):
         fig['layout']['yaxis']['autorange'] = False
 
         fig['layout']['yaxis']['type'] = 'log' if log_scale else 'linear'
-        y_range_zoom = _calc_y_range_numpy(traces, nx_min, nx_max, is_log=log_scale)
+        # Use RT span only for initial y-range
+        y_left = rt_min if rt_min is not None else nx_min
+        y_right = rt_max if rt_max is not None else nx_max
+        y_range_zoom = _calc_y_range_numpy(traces, y_left, y_right, is_log=log_scale)
         if y_range_zoom:
             fig['layout']['yaxis']['range'] = y_range_zoom
             fig['layout']['yaxis']['autorange'] = False
