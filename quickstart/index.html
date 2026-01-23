@@ -1,0 +1,1214 @@
+<!DOCTYPE html><html lang="en" class="no-js"><head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+      
+        <meta name="author" content="Soren Wacker">
+      
+      
+        <link rel="canonical" href="https://github.com/lewisresearchgroup/ms-mint-app2/quickstart/">
+      
+      
+        <link rel="prev" href="../install/">
+      
+      
+        <link rel="next" href="../gui/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.1">
+    
+    
+      
+        <title>Quickstart - ms-mint-app2</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.484c7ddc.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&amp;display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../stylesheets/extra.css">
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+  
+
+
+  
+  
+
+<script id="__analytics">function __md_analytics(){function e(){dataLayer.push(arguments)}window.dataLayer=window.dataLayer||[],e("js",new Date),e("config","G-F718PR80XX"),document.addEventListener("DOMContentLoaded",(function(){document.forms.search&&document.forms.search.query.addEventListener("blur",(function(){this.value&&e("event","search",{search_term:this.value})}));document$.subscribe((function(){var t=document.forms.feedback;if(void 0!==t)for(var a of t.querySelectorAll("[type=submit]"))a.addEventListener("click",(function(a){a.preventDefault();var n=document.location.pathname,d=this.getAttribute("data-md-value");e("event","feedback",{page:n,data:d}),t.firstElementChild.disabled=!0;var r=t.querySelector(".md-feedback__note [data-md-value='"+d+"']");r&&(r.hidden=!1)})),t.hidden=!1})),location$.subscribe((function(t){e("config","G-F718PR80XX",{page_path:t.pathname})}))}));var t=document.createElement("script");t.async=!0,t.src="https://www.googletagmanager.com/gtag/js?id=G-F718PR80XX",document.getElementById("__analytics").insertAdjacentElement("afterEnd",t)}</script>
+  
+    <script>if("undefined"!=typeof __md_analytics){var consent=__md_get("__consent");consent&&consent.analytics&&__md_analytics()}</script>
+  
+
+    
+    
+  <link href="../assets/stylesheets/glightbox.min.css" rel="stylesheet"><script src="../assets/javascripts/glightbox.min.js"></script><style id="glightbox-style">
+            html.glightbox-open { overflow: initial; height: 100%; }
+            .gslide-title { margin-top: 0px; user-select: text; }
+            .gslide-desc { color: #666; user-select: text; }
+            .gslide-image img { background: white; }
+            .gscrollbar-fixer { padding-right: 15px; }
+            .gdesc-inner { font-size: 0.75rem; }
+            body[data-md-color-scheme="slate"] .gdesc-inner { background: var(--md-default-bg-color); }
+            body[data-md-color-scheme="slate"] .gslide-title { color: var(--md-default-fg-color); }
+            body[data-md-color-scheme="slate"] .gslide-desc { color: var(--md-default-fg-color); }
+        </style></head>
+  
+  
+    <body dir="ltr">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#quickstart-guide-for-mint" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="ms-mint-app2" class="md-header__button md-logo" aria-label="ms-mint-app2" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"></path></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"></path></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            ms-mint-app2
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Quickstart
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation">
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="ms-mint-app2" class="md-nav__button md-logo" aria-label="ms-mint-app2" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"></path></svg>
+
+    </a>
+    ms-mint-app2
+  </label>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../install/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Installation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Quickstart
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Quickstart
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#1-open-mint" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. Open MINT
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#2-create-a-workspace" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. Create a workspace
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#3-download-the-demo-files" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. Download the demo files
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#4-upload-lc-ms-files" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4. Upload LC-MS files
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#5-add-metadata-optional-but-highly-recommended" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5. Add metadata (Optional, but highly recommended)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#6-add-targets-metabolites" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6. Add targets (metabolites)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#7-optimize-retention-times-optional-but-highly-recommended" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        7. Optimize retention times (Optional, but highly recommended)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#8-process-the-data" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        8. Process the data
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#9-analyze-the-results" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        9. Analyze the results
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#next-steps" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Next steps
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4">
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    GUI
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    GUI
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../gui/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Introduction
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../gui/workspaces/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Workspaces
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../gui/ms-files/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    MS-Files
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../gui/targets/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Targets
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../gui/optimization/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Optimization
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../gui/processing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Processing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../gui/analysis/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Analysis
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../developer-notes/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Developer Notes
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc">
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#1-open-mint" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. Open MINT
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#2-create-a-workspace" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. Create a workspace
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#3-download-the-demo-files" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. Download the demo files
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#4-upload-lc-ms-files" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4. Upload LC-MS files
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#5-add-metadata-optional-but-highly-recommended" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5. Add metadata (Optional, but highly recommended)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#6-add-targets-metabolites" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6. Add targets (metabolites)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#7-optimize-retention-times-optional-but-highly-recommended" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        7. Optimize retention times (Optional, but highly recommended)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#8-process-the-data" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        8. Process the data
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#9-analyze-the-results" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        9. Analyze the results
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#next-steps" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Next steps
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+
+<h1 id="quickstart-guide-for-mint">Quickstart Guide for MINT</h1>
+<p>Welcome to the MINT quickstart guide! This guide helps you get up and running with the application so you can start analyzing mass spectrometry data efficiently. Follow the steps below to install the app, create a workspace, and begin processing your data.</p>
+<h2 id="1-open-mint">1. Open <code>MINT</code></h2>
+<p>Download an executable compatible with your OS and open MINT (see other installation options <a href="../install/">here</a>).
+Once the app starts, you should see the <code>Workspaces</code> tab.</p>
+<h2 id="2-create-a-workspace">2. Create a workspace</h2>
+<p>If you have never started the application before, you will not have any workspaces yet. A workspace provides easy access to all data files and results for a given project.</p>
+<p><a class="glightbox" data-type="image" data-width="auto" data-height="auto" href="first-start.png" data-desc-position="bottom"><img alt="" src="first-start.png"></a></p>
+<p>In the <code>Workspaces</code> tab, click the <code>+ Create Workspace</code> button. A dialog opens asking for the name of the workspace and an optional description. Type <code>DEMO</code> into the text field, add a brief description like <code>This is a DEMO</code>, and click <code>Create</code>.
+Expected result: the <code>DEMO</code> workspace appears with a blue toggle indicating it is active.</p>
+<p><a class="glightbox" data-type="image" data-width="auto" data-height="auto" href="create-workspace.png" data-desc-position="bottom"><img alt="Create workspace" src="create-workspace.png"></a></p>
+<p>You can see which workspace is active by looking at the blue toggle to the left of the workspace name. Click the <code>+</code> sign to view the workspace folder location and stats like how many samples were analyzed and how many compounds were included in the analysis.</p>
+<p><a class="glightbox" data-type="image" data-width="auto" data-height="auto" href="workspace-activated.png" data-desc-position="bottom"><img alt="Workspace active" src="workspace-activated.png"></a></p>
+<p>Now you have created your first workspace, but it is empty. You will need some input files to populate it.</p>
+<h2 id="3-download-the-demo-files">3. Download the demo files</h2>
+<p>Some demo files are available for download on the <code>ms-mint</code> Google Drive. Download the files from <a href="https://drive.google.com/drive/folders/1U4xMy5lfETk93sSVXPI79cCWyIMcAjeZ?usp=drive_link">Google Drive</a> and extract the archive.</p>
+<p>This is the directory tree of the demo files:</p>
+<pre><code>.
+├── README.md
+├── metadata
+│&nbsp;&nbsp; └── metadata.csv
+├── ms-files
+│&nbsp;&nbsp; ├── CA_B1.mzXML
+│&nbsp;&nbsp; ├── CA_B2.mzXML
+│&nbsp;&nbsp; ├── CA_B3.mzXML
+│&nbsp;&nbsp; ├── CA_B4.mzXML
+│&nbsp;&nbsp; ├── EC_B1.mzXML
+│&nbsp;&nbsp; ├── EC_B2.mzXML
+│&nbsp;&nbsp; ├── EC_B3.mzXML
+│&nbsp;&nbsp; ├── EC_B4.mzXML
+│&nbsp;&nbsp; ├── SA_B1.mzML
+│&nbsp;&nbsp; ├── SA_B2.mzML
+│&nbsp;&nbsp; ├── SA_B3.mzML
+│&nbsp;&nbsp; ├── SA_B4.mzML
+└── targets
+    └── targets.csv
+
+4 directories, 15 files
+</code></pre>
+<ul>
+<li>A folder (<code>ms-files</code>) with 12 mass spectrometry (MS) files from microbial samples. We have four files for each <em>Escherichia coli</em> (EC), <em>Candida albicans</em> (CA), and <em>Staphylococcus aureus</em> (SA). Each file belongs to one of four batches (B1-B4).</li>
+<li>A folder (<code>metadata</code>) with a <code>metadata.csv</code> file containing this information in tabular format. Submitting metadata is optional, but highly recommended to make downstream analysis smoother.</li>
+<li>A folder (<code>targets</code>) with a <code>targets.csv</code> file containing the extraction lists. The identification of the metabolites has been done before, so we know where the metabolites appear in the MS data.</li>
+</ul>
+<h2 id="4-upload-lc-ms-files">4. Upload LC-MS files</h2>
+<p>Switch to the <code>MS-Files</code> tab and upload the 12 MS files. Click <code>LOAD MS-FILES</code>, navigate to the folder where the files are located, select either the files individually or the folder, and click <code>Process Files</code>.
+Expected result: the 12 files appear in the MS-Files table.</p>
+<p><a class="glightbox" data-type="image" data-width="auto" data-height="auto" href="ms-files-uploaded-1.png" data-desc-position="bottom"><img alt="" src="ms-files-uploaded-1.png"></a></p>
+<p><a class="glightbox" data-type="image" data-width="auto" data-height="auto" href="ms-files-uploaded-2.png" data-desc-position="bottom"><img alt="" src="ms-files-uploaded-2.png"></a></p>
+<p>At this point you can proceed with the rest of the steps without providing any metadata; however, we strongly recommend using metadata to streamline downstream analyses.</p>
+<h2 id="5-add-metadata-optional-but-highly-recommended">5. Add metadata (Optional, but highly recommended)</h2>
+<p>In the same way as before, click <code>LOAD METADATA</code> on the top left, navigate to the folder where the metadata file is located, select the file, and click <code>Process Files</code>. If colors are not provided, automatic ones are assigned according to sample type.</p>
+<p><a class="glightbox" data-type="image" data-width="auto" data-height="auto" href="metadata-added.png" data-desc-position="bottom"><img alt="" src="metadata-added.png"></a></p>
+<p>This file contains important information about your samples. Only <code>ms_file_label</code> and <code>sample_type</code> are essential; the remaining columns are optional but useful for grouping and plotting. If any of the columns <code>use_for_optimization</code>, <code>use_for_processing</code>, <code>use_for_analysis</code> are left blank they will be assumed to be <code>TRUE</code>.</p>
+<table>
+<thead>
+<tr>
+<th>Column Name</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>ms_file_label</code></td>
+<td>Unique file name; must match the MS file on disk</td>
+</tr>
+<tr>
+<td><code>label</code></td>
+<td>Friendly label to display in plots and reports</td>
+</tr>
+<tr>
+<td><code>color</code></td>
+<td>Hex color for visualizations (auto-generated if blank)</td>
+</tr>
+<tr>
+<td><code>use_for_optimization</code></td>
+<td>True to include in optimization steps (COMPUTE CHROMATOGRAMS)</td>
+</tr>
+<tr>
+<td><code>use_for_processing</code></td>
+<td>True to include in processing (RUN MINT)</td>
+</tr>
+<tr>
+<td><code>use_for_analysis</code></td>
+<td>True to include in analysis outputs</td>
+</tr>
+<tr>
+<td><code>sample_type</code></td>
+<td>Sample category (e.g.; Sample; QC; Blank; Standard)</td>
+</tr>
+<tr>
+<td><code>group_1</code></td>
+<td>User-defined grouping field 1 for analysis/grouping (free text)</td>
+</tr>
+<tr>
+<td><code>group_2</code></td>
+<td>User-defined grouping field 2 for analysis/grouping (free text)</td>
+</tr>
+<tr>
+<td><code>group_3</code></td>
+<td>User-defined grouping field 3 for analysis/grouping (free text)</td>
+</tr>
+<tr>
+<td><code>group_4</code></td>
+<td>User-defined grouping field 4 for analysis/grouping (free text)</td>
+</tr>
+<tr>
+<td><code>group_5</code></td>
+<td>User-defined grouping field 5 for analysis/grouping (free text)</td>
+</tr>
+<tr>
+<td><code>polarity</code></td>
+<td>Polarity (Positive or Negative)</td>
+</tr>
+<tr>
+<td><code>ms_type</code></td>
+<td>Acquisition type (ms1 or ms2)</td>
+</tr>
+</tbody>
+</table>
+<h2 id="6-add-targets-metabolites">6. Add targets (metabolites)</h2>
+<p>Switch to the <code>Targets</code> tab and upload <code>targets.csv</code>.
+This file is located in the <code>targets</code> folder within the demo archive.</p>
+<p><a class="glightbox" data-type="image" data-width="auto" data-height="auto" href="targets-table.png" data-desc-position="bottom"><img alt="" src="targets-table.png"></a></p>
+<p>This is the data extraction protocol. It determines what data is extracted from the files. The same protocol is applied to all files. No fitting or peak optimization is done.</p>
+<p>This file contains important information about the targets.</p>
+<table>
+<thead>
+<tr>
+<th>Column Name</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>peak_label</code></td>
+<td>Unique metabolite/feature name</td>
+</tr>
+<tr>
+<td><code>peak_selection</code></td>
+<td>True if selected for analysis</td>
+</tr>
+<tr>
+<td><code>bookmark</code></td>
+<td>True if bookmarked</td>
+</tr>
+<tr>
+<td><code>mz_mean</code></td>
+<td>Mean m/z (centroid)</td>
+</tr>
+<tr>
+<td><code>mz_width</code></td>
+<td>m/z window or tolerance</td>
+</tr>
+<tr>
+<td><code>mz</code></td>
+<td>Precursor m/z (MS2)</td>
+</tr>
+<tr>
+<td><code>rt</code></td>
+<td>Retention time (default: in seconds)</td>
+</tr>
+<tr>
+<td><code>rt_min</code></td>
+<td>Lower RT bound (default: in seconds)</td>
+</tr>
+<tr>
+<td><code>rt_max</code></td>
+<td>Upper RT bound (default: in seconds)</td>
+</tr>
+<tr>
+<td><code>rt_unit</code></td>
+<td>RT unit (e.g. s or min; default: in seconds)</td>
+</tr>
+<tr>
+<td><code>intensity_threshold</code></td>
+<td>Intensity cutoff (anything lower than this value is considered zero)</td>
+</tr>
+<tr>
+<td><code>polarity</code></td>
+<td>Polarity (Positive or Negative)</td>
+</tr>
+<tr>
+<td><code>filterLine</code></td>
+<td>Filter ID for MS2 scans</td>
+</tr>
+<tr>
+<td><code>ms_type</code></td>
+<td>ms1 or ms2</td>
+</tr>
+<tr>
+<td><code>category</code></td>
+<td>Category</td>
+</tr>
+<tr>
+<td><code>score</code></td>
+<td>Score</td>
+</tr>
+<tr>
+<td><code>notes</code></td>
+<td>Free-form notes</td>
+</tr>
+<tr>
+<td><code>source</code></td>
+<td>Data source or file</td>
+</tr>
+</tbody>
+</table>
+<h2 id="7-optimize-retention-times-optional-but-highly-recommended">7. Optimize retention times (Optional, but highly recommended)</h2>
+<p>Switch to the <code>Optimization</code> tab. Traditionally, and especially for large datasets, you select a representative set of samples including standards (with known concentrations of the target metabolites) to perform the optimization. However, in MINT, you can perform the optimization with all samples in most cases (see the files selected for optimization in the tree on the left side).</p>
+<p><a class="glightbox" data-type="image" data-width="auto" data-height="auto" href="peak-optimization-1.png" data-desc-position="bottom"><img alt="" src="peak-optimization-1.png"></a></p>
+<p>Peak optimization takes longer as you use more files and define more targets. Click <code>COMPUTE CHROMATOGRAMS</code>. Here you can choose how many resources to allocate to process the files, including CPU, RAM, and batch size. In small datasets the default values should suffice; as the number of files used for optimization grows, tweaking these parameters improves performance. Click <code>Generate</code> to compute the chromatograms.</p>
+<p><a class="glightbox" data-type="image" data-width="auto" data-height="auto" href="peak-optimization-2.png" data-desc-position="bottom"><img alt="" src="peak-optimization-2.png"></a>
+<a class="glightbox" data-type="image" data-width="auto" data-height="auto" href="peak-optimization-3.png" data-desc-position="bottom"><img alt="" src="peak-optimization-3.png"></a></p>
+<p>This shows the shapes of the data in the selected regions as an overview. It is a great way to validate that your target parameters are correct. However, you have to make sure the metabolite you are looking for is present in the files. That is why you should always include some standard samples (samples with the metabolite of interest at different concentrations). The colors in the plots correspond to the sample type colors in the metadata table.</p>
+<p>You can click on a card to use the interactive tool below and manually optimize the region of interest (ROI) or retention time span for each target. Move the borders of the box to select the peak, then click <code>Save</code>. The green area shows the currently selected retention time (RT) range. If the target is not present in any of the files, you can remove it from the target list by clicking <code>Delete target</code>.</p>
+<p><a class="glightbox" data-type="image" data-width="auto" data-height="auto" href="peak-optimization-4.png" data-desc-position="bottom"><img alt="" src="peak-optimization-4.png"></a></p>
+<p>Once the optimization is done, you can proceed to <code>Processing</code>.</p>
+<h2 id="8-process-the-data">8. Process the data</h2>
+<p>Switch to <code>Processing</code> and start data extraction with <code>RUN MINT</code>. As in Optimization, you can choose how many resources to allocate to process the files, including CPU, RAM, and batch size. In small datasets the default values should suffice; as the number of files grows, tweaking these parameters improves performance. Click <code>Run</code> to compute the results.
+For the demo data, this should take a few seconds-minutes depending on your machine.</p>
+<p><a class="glightbox" data-type="image" data-width="auto" data-height="auto" href="run-mint-1.png" data-desc-position="bottom"><img alt="" src="run-mint-1.png"></a>
+<a class="glightbox" data-type="image" data-width="auto" data-height="auto" href="run-mint-2.png" data-desc-position="bottom"><img alt="" src="run-mint-2.png"></a></p>
+<p>Now, you can download the results in long format or dense <code>peak_max</code> values by clicking <code>DOWNLOAD RESULTS</code>. The tidy format contains all results, while the dense format contains a selected metric (<code>peak_max</code> by default) as a matrix of values.</p>
+<p><a class="glightbox" data-type="image" data-width="auto" data-height="auto" href="run-mint-3.png" data-desc-position="bottom"><img alt="" src="run-mint-3.png"></a></p>
+<h2 id="9-analyze-the-results">9. Analyze the results</h2>
+<p>Once the results are generated, there are several analyses you can perform. In the analysis section you can see four tabs, each corresponding to a different analysis. If you are new, start with the Clustermap to quickly spot outliers or batch effects.</p>
+<p><a class="glightbox" data-type="image" data-width="auto" data-height="auto" href="analysis-1.png" data-desc-position="bottom"><img alt="" src="analysis-1.png"></a></p>
+<div class="tabbed-set tabbed-alternate" data-tabs="1:4"><input checked="checked" id="__tabbed_1_1" name="__tabbed_1" type="radio"><input id="__tabbed_1_2" name="__tabbed_1" type="radio"><input id="__tabbed_1_3" name="__tabbed_1" type="radio"><input id="__tabbed_1_4" name="__tabbed_1" type="radio"><div class="tabbed-labels"><label for="__tabbed_1_1">PCA</label><label for="__tabbed_1_2">Violin</label><label for="__tabbed_1_3">Clustermap</label><label for="__tabbed_1_4">Scalir</label></div>
+<div class="tabbed-content">
+<div class="tabbed-block">
+<p>Principal component analysis plot for sample-level patterns. Includes a score plot (PC1 to PC5) on the left side, cumulative variance (top right), and absolute loading values for a selected PC on the x-axis (bottom right).</p>
+<p><a class="glightbox" data-type="image" data-width="auto" data-height="auto" href="analysis-3.png" data-desc-position="bottom"><img alt="" src="analysis-3.png"></a></p>
+</div>
+<div class="tabbed-block">
+<p>Distribution plots by group (for example, Sample type, Group 1, Group 2) to compare target values. Includes a hypothesis test result (t-test for two samples, ANOVA for more than two samples) on the top right corner.</p>
+<p><a class="glightbox" data-type="image" data-width="auto" data-height="auto" href="analysis-4.png" data-desc-position="bottom"><img alt="" src="analysis-4.png"></a></p>
+</div>
+<div class="tabbed-block">
+<p>Clustered heatmap showing relationships between samples and targets. In this tab you can select different metrics (for example, peak_area, peak_top3), transformations (for example, z-score, log2), and groupings (for example, Sample type, Group 1, Group 2).</p>
+<p><a class="glightbox" data-type="image" data-width="auto" data-height="auto" href="analysis-2.png" data-desc-position="bottom"><img alt="" src="analysis-2.png"></a></p>
+</div>
+<div class="tabbed-block">
+<p>Summary view for calculating concentrations.</p>
+<p><a class="glightbox" data-type="image" data-width="auto" data-height="auto" href="analysis-5.png" data-desc-position="bottom"><img alt="" src="analysis-5.png"></a></p>
+</div>
+</div>
+</div>
+<h2 id="next-steps">Next steps</h2>
+<p>For a deeper tour of the interface, see the <a href="../gui/">GUI guide</a>.</p>
+
+
+
+
+
+
+
+
+
+  
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+      <div class="md-consent" data-md-component="consent" id="__consent" hidden>
+        <div class="md-consent__overlay"></div>
+        <aside class="md-consent__inner">
+          <form class="md-consent__form md-grid md-typeset" name="consent">
+            
+
+
+  
+
+
+<h4>Cookie consent</h4>
+<p>We use cookies to recognize your repeated visits and preferences, as well as to measure the effectiveness of our documentation and whether users find what they're searching for. With your consent, you're helping us to make our documentation better.
+</p>
+<input class="md-toggle" type="checkbox" id="__settings">
+<div class="md-consent__settings">
+  <ul class="task-list">
+    
+    
+      
+        
+  
+  
+    
+    
+  
+  <li class="task-list-item">
+    <label class="task-list-control">
+      <input type="checkbox" name="analytics" checked>
+      <span class="task-list-indicator"></span>
+      Google Analytics
+    </label>
+  </li>
+
+      
+    
+    
+      
+    
+    
+  </ul>
+</div>
+<div class="md-consent__controls">
+  
+    
+      <button class="md-button md-button--primary">Accept</button>
+    
+    
+    
+  
+    
+    
+    
+      <label class="md-button" for="__settings">Manage settings</label>
+    
+  
+</div>
+          </form>
+        </aside>
+      </div>
+      <script>var consent=__md_get("__consent");if(consent)for(var input of document.forms.consent.elements)input.name&&(input.checked=consent[input.name]||!1);else"file:"!==location.protocol&&setTimeout((function(){document.querySelector("[data-md-component=consent]").hidden=!1}),250);var form=document.forms.consent;for(var action of["submit","reset"])form.addEventListener(action,(function(e){if(e.preventDefault(),"reset"===e.type)for(var n of document.forms.consent.elements)n.name&&(n.checked=!1);__md_set("__consent",Object.fromEntries(Array.from(new FormData(form).keys()).map((function(e){return[e,!0]})))),location.hash="",location.reload()}))</script>
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": [], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+    
+  
+<script id="init-glightbox">const lightbox = GLightbox({"touchNavigation": true, "loop": false, "zoomable": true, "draggable": true, "openEffect": "zoom", "closeEffect": "zoom", "slideEffect": "slide"});
+document$.subscribe(()=>{ lightbox.reload(); });
+</script></body></html>
