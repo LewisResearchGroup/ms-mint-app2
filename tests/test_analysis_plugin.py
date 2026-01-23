@@ -72,12 +72,13 @@ class TestAnalysisCallbacks:
         mock_ctx.triggered = []
         
         # Input args for show_tab_content
-        # section_context, tab_key, x_comp, y_comp, violin_comp_checks, metric_value, norm_value,
-        # group_by, regen_clicks, fontsize_x, fontsize_y, wdir
+        # section_context, tab_key, x_comp, y_comp, violin_comp_checks, bar_comp_checks, metric_value,
+        # norm_value, group_by, regen_clicks, tsne_regen_clicks, cluster_rows, cluster_cols,
+        # fontsize_x, fontsize_y, wdir, tsne_x_comp, tsne_y_comp, tsne_perplexity
         
         res = show_tab_content(
-            {'page': 'Analysis'}, 'pca', 'PC1', 'PC2', [], 'peak_area', 'zscore',
-            'sample_type', 0, False, False, 10, 10, '/tmp/wdir'
+            {'page': 'Analysis'}, 'pca', 'PC1', 'PC2', [], [], 'peak_area', 'zscore',
+            'sample_type', 0, 0, False, False, 10, 10, '/tmp/wdir', None, None, None
         )
         
         # Outputs: bar_graph_matplotlib, pca_graph, violin_graphs, violin_opts, violin_val
@@ -96,8 +97,8 @@ class TestAnalysisCallbacks:
         mock_conn.return_value.__enter__.return_value = con
         
         res = show_tab_content(
-             {'page': 'Analysis'}, 'pca', 'PC1', 'PC2', [], 'peak_area', 'zscore',
-            'sample_type', 0, False, False, 10, 10, '/tmp/wdir'
+             {'page': 'Analysis'}, 'pca', 'PC1', 'PC2', [], [], 'peak_area', 'zscore',
+            'sample_type', 0, 0, False, False, 10, 10, '/tmp/wdir', None, None, None
         )
         
         # Should return None/empty figs, not crash
@@ -112,8 +113,8 @@ class TestAnalysisCallbacks:
         mock_ctx.triggered = []
         
         res = show_tab_content(
-            {'page': 'Analysis'}, 'clustermap', 'PC1', 'PC2', [], 'peak_area', 'zscore',
-            'sample_type', 0, True, True, 10, 10, '/tmp/wdir'
+            {'page': 'Analysis'}, 'clustermap', 'PC1', 'PC2', [], [], 'peak_area', 'zscore',
+            'sample_type', 0, 0, True, True, 10, 10, '/tmp/wdir', None, None, None
         )
         
         # Outputs[0] is bar_graph_matplotlib (src string)
@@ -172,4 +173,3 @@ class TestAnalysisCallbacks:
             print(f"SCALiR failed as expected or unexpected: {res[0]}")
         else:
              assert "Fitted" in res[0]
-

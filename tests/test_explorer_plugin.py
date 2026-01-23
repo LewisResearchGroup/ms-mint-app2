@@ -114,7 +114,9 @@ class TestExplorerNavigation:
         
         with patch('dash.callback_context') as mock_ctx:
             mock_ctx.triggered = [{'prop_id': 'file-table.recentlyCellClickRecord'}]
-            data = _navigate_folders(explorer, modal_visible, None, recentlyCellClickRecord, str(temp_fs), processing_type)
+            data = _navigate_folders(
+                explorer, modal_visible, None, None, recentlyCellClickRecord, str(temp_fs), processing_type
+            )
         
         breadcrumb = data[0]
         new_path = data[2]

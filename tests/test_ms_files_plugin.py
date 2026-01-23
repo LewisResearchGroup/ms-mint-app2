@@ -76,7 +76,7 @@ class TestMSFilesCRUD:
     def test_delete_selected(self, temp_wdir):
         selectedRows = [{'ms_file_label': 'file1'}]
         with patch('ms_mint_app.plugins.ms_files.activate_workspace_logging'):
-            res = _confirm_and_delete(1, selectedRows, 'delete-selected', temp_wdir)
+            res = _confirm_and_delete(1, selectedRows, 'delete-selected', temp_wdir, {})
             
         notification = res[0]
         assert notification.type == 'success'
@@ -92,7 +92,7 @@ class TestMSFilesCRUD:
 
     def test_delete_all(self, temp_wdir):
         with patch('ms_mint_app.plugins.ms_files.activate_workspace_logging'):
-            res = _confirm_and_delete(1, [], 'delete-all', temp_wdir)
+            res = _confirm_and_delete(1, [], 'delete-all', temp_wdir, {})
             
         assert "Deleted 2 files" in res[0].description
         from ms_mint_app.duckdb_manager import duckdb_connection
