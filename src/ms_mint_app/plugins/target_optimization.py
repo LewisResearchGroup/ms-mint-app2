@@ -1713,11 +1713,20 @@ def _calc_y_range_numpy(data, x_left, x_right, is_log=False):
         return None
 
     if is_log:
-        pos_mask = ys_concat > 1
-        ys_pos = ys_concat[pos_mask]
+        min_floor = 1.0001
+        ys_pos = ys_concat[ys_concat > min_floor]
         if len(ys_pos) == 0:
-            return None
-        return [math.log10(np.min(ys_pos)), math.log10(np.max(ys_pos) * 1.05)]
+            return [math.log10(min_floor), math.log10(min_floor * 1.05)]
+
+        # Use median of the 10 smallest values > 1 to avoid a "wall" from a single low outlier.
+        k = min(10, len(ys_pos))
+        smallest = np.partition(ys_pos, k - 1)[:k]
+        y_min = np.median(smallest)
+        if y_min <= min_floor:
+            y_min = min_floor
+
+        y_max = np.max(ys_pos)
+        return [math.log10(y_min), math.log10(y_max * 1.05)]
 
     y_min = np.min(ys_concat)
     y_max = np.max(ys_concat)
@@ -2941,10 +2950,12 @@ def callbacks(app, fsc, cache, cpu=None):
                 y_range_calc = _calc_y_range_numpy(figure.get('data', []), min(x_left, x_right), max(x_left, x_right), True)
             if y_range_calc:
                 fig['layout']['yaxis']['range'] = y_range_calc
+                fig['layout']['yaxis']['autorange'] = False
             else:
                 log_y_min = math.log10(y_min) if y_min > 0 else y_min
                 log_y_max = math.log10(y_max) if y_max > 0 else y_max
                 fig['layout']['yaxis']['range'] = [log_y_min, log_y_max]
+                fig['layout']['yaxis']['autorange'] = False
         else:
             fig['layout']['yaxis']['type'] = 'linear'
             y_range_calc = None
@@ -2952,8 +2963,10 @@ def callbacks(app, fsc, cache, cpu=None):
                 y_range_calc = _calc_y_range_numpy(figure.get('data', []), min(x_left, x_right), max(x_left, x_right), False)
             if y_range_calc:
                 fig['layout']['yaxis']['range'] = y_range_calc
+                fig['layout']['yaxis']['autorange'] = False
             else:
                 fig['layout']['yaxis']['range'] = [0, y_max * 1.05]
+                fig['layout']['yaxis']['autorange'] = False
         return fig
 
     @app.callback(
@@ -3744,14 +3757,27 @@ def callbacks(app, fsc, cache, cpu=None):
                 fig_zoom['layout']['xaxis']['range'] = [x_range[0], x_range[1]]
                 fig_zoom['layout']['xaxis']['autorange'] = False
 
-            if y_range[0] is not None and y_range[1] is not None:
-                fig_zoom['layout']['yaxis']['range'] = [y_range[0], y_range[1]]
-                fig_zoom['layout']['yaxis']['autorange'] = False
-            elif x_range[0] is not None and x_range[1] is not None and figure_state:
-                y_calc = _calc_y_range_numpy(figure_state.get('data', []), x_range[0], x_range[1], is_log)
+            if is_log and figure_state:
+                shape = (figure_state.get('layout', {}).get('shapes') or [{}])[0]
+                rt_left, rt_right = shape.get('x0'), shape.get('x1')
+                if rt_left is not None and rt_right is not None:
+                    y_calc = _calc_y_range_numpy(figure_state.get('data', []), min(rt_left, rt_right), max(rt_left, rt_right), True)
+                elif x_range[0] is not None and x_range[1] is not None:
+                    y_calc = _calc_y_range_numpy(figure_state.get('data', []), x_range[0], x_range[1], True)
+                else:
+                    y_calc = None
                 if y_calc:
                     fig_zoom['layout']['yaxis']['range'] = y_calc
                     fig_zoom['layout']['yaxis']['autorange'] = False
+            else:
+                if y_range[0] is not None and y_range[1] is not None:
+                    fig_zoom['layout']['yaxis']['range'] = [y_range[0], y_range[1]]
+                    fig_zoom['layout']['yaxis']['autorange'] = False
+                elif x_range[0] is not None and x_range[1] is not None and figure_state:
+                    y_calc = _calc_y_range_numpy(figure_state.get('data', []), x_range[0], x_range[1], is_log)
+                    if y_calc:
+                        fig_zoom['layout']['yaxis']['range'] = y_calc
+                        fig_zoom['layout']['yaxis']['autorange'] = False
 
             return fig_zoom, dash.no_update, dash.no_update
 
