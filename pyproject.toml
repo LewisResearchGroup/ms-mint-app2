@@ -61,7 +61,7 @@ dependencies = [
   "sqlalchemy",
   "tqdm>=4.67.1",
   "waitress",
-  "werkzeug==3.0.6",
+  "werkzeug==3.1.5",
 ]
 dynamic = ["version"]
 
