@@ -83,15 +83,6 @@ jobs:
           }
         shell: powershell
 
-      - name: Create archive with maximum compression
-        run: |
-          cd pyinstaller/dist
-          Compress-Archive -Path Mint -DestinationPath Mint-Windows-x64.zip -CompressionLevel Optimal
-          
-          $zipSize = (Get-Item Mint-Windows-x64.zip).Length
-          Write-Host "Archive size: $([math]::Round($zipSize/1MB, 2)) MB"
-        shell: powershell
-
       - name: Get version
         id: get_version
         run: |
@@ -114,13 +105,13 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: Mint-Windows-x64-${{ steps.get_version.outputs.version }}
-          path: pyinstaller/dist/Mint-Windows-x64.zip
+          path: pyinstaller/dist/Mint/
           retention-days: 90
-          compression-level: 0  # Already compressed
+          compression-level: 9  # Maximum compression
 
   build-linux:
-    name: Build Linux Executable (Ubuntu 20.04)
-    runs-on: ubuntu-20.04
+    name: Build Linux Executable (Ubuntu 22.04)
+    runs-on: ubuntu-22.04
     timeout-minutes: 180
     
     steps:
@@ -347,47 +338,43 @@ jobs:
 
       - name: Create release archives
         run: |
-          set -e
+          cd artifacts
+          echo "Contents of artifacts directory:"
+          ls -la
           
-          # Windows - already a zip, just rename/move it
-          WINDOWS_ZIP=$(find artifacts -name "Mint-Windows-x64.zip" -type f | head -n 1)
-          if [ -z "$WINDOWS_ZIP" ]; then
-            echo "ERROR: Windows zip file not found"
+          # Windows - create zip from directory
+          WINDOWS_DIR=$(find . -type d -name "Mint-Windows-x64-*" | head -n 1)
+          if [ -d "$WINDOWS_DIR" ]; then
+            echo "Creating Windows zip from: $WINDOWS_DIR"
+            cd "$WINDOWS_DIR"
+            zip -9 -r ../../Mint-Windows-x64.zip Mint/
+            cd ../..
+          else
+            echo "ERROR: Windows artifact directory not found"
             exit 1
           fi
-          mv "$WINDOWS_ZIP" ./Mint-Windows-x64.zip
-          echo "✓ Windows archive ready: Mint-Windows-x64.zip"
           
           # Linux - create tar.gz from directory
-          cd artifacts
           LINUX_DIR=$(find . -type d -name "Mint-Linux-x64-*" | head -n 1)
-          if [ -z "$LINUX_DIR" ]; then
+          if [ -d "$LINUX_DIR" ]; then
+            echo "Creating Linux tar.gz from: $LINUX_DIR"
+            tar -czf Mint-Linux-x64.tar.gz -C "$LINUX_DIR" Mint/
+          else
             echo "ERROR: Linux artifact directory not found"
             exit 1
           fi
-          if [ ! -d "$LINUX_DIR/Mint" ]; then
-            echo "ERROR: Mint/ subdirectory not found in Linux artifact"
-            exit 1
-          fi
-          tar -czf ../Mint-Linux-x64.tar.gz -C "$LINUX_DIR" Mint/
-          echo "✓ Linux archive created: Mint-Linux-x64.tar.gz"
           
           # macOS - create tar.gz from directory
           MACOS_DIR=$(find . -type d -name "Mint-macOS-x64-*" | head -n 1)
-          if [ -z "$MACOS_DIR" ]; then
+          if [ -d "$MACOS_DIR" ]; then
+            echo "Creating macOS tar.gz from: $MACOS_DIR"
+            tar -czf Mint-macOS-x64.tar.gz -C "$MACOS_DIR" Mint/
+          else
             echo "ERROR: macOS artifact directory not found"
             exit 1
           fi
-          if [ ! -d "$MACOS_DIR/Mint" ]; then
-            echo "ERROR: Mint/ subdirectory not found in macOS artifact"
-            exit 1
-          fi
-          tar -czf ../Mint-macOS-x64.tar.gz -C "$MACOS_DIR" Mint/
-          echo "✓ macOS archive created: Mint-macOS-x64.tar.gz"
           
-          cd ..
-          echo ""
-          echo "=== Final Release Archives ==="
+          echo "Final archives created:"
           ls -lh *.zip *.tar.gz
 
       - name: Get version info
@@ -421,7 +408,7 @@ jobs:
             
             ### Downloads
             - **Windows**: `Mint-Windows-x64.zip` - Extract and run `Mint/Mint.exe`
-            - **Linux**: `Mint-Linux-x64.tar.gz` - Extract and run `Mint/Mint` (Ubuntu 20.04+)
+            - **Linux**: `Mint-Linux-x64.tar.gz` - Extract and run `Mint/Mint` (Ubuntu 22.04+)
             - **macOS**: `Mint-macOS-x64.tar.gz` - Extract and run `Mint/Mint`
             
             ### Installation
@@ -448,8 +435,8 @@ jobs:
             ```
             
             ### System Requirements
-            - **Linux**: Ubuntu 20.04+, Debian 11+, or equivalent (glibc 2.31+)
-            - **Ubuntu 18.04 users**: Please install from source (see documentation)
+            - **Linux**: Ubuntu 22.04+, Debian 12+, or equivalent (glibc 2.35+)
+            - **Ubuntu 20.04 users**: Please install from source (see documentation)
             
             ### Reporting Issues
             Please report bugs at: https://github.com/${{ github.repository }}/issues
@@ -472,7 +459,7 @@ jobs:
             
             ### Downloads
             - **Windows**: `Mint-Windows-x64.zip` - Extract and run `Mint/Mint.exe`
-            - **Linux**: `Mint-Linux-x64.tar.gz` - Extract and run `Mint/Mint` (Ubuntu 20.04+)
+            - **Linux**: `Mint-Linux-x64.tar.gz` - Extract and run `Mint/Mint` (Ubuntu 22.04+)
             - **macOS**: `Mint-macOS-x64.tar.gz` - Extract and run `Mint/Mint`
             
             ### Installation
@@ -499,8 +486,8 @@ jobs:
             ```
             
             ### System Requirements
-            - **Linux**: Ubuntu 20.04+, Debian 11+, or equivalent (glibc 2.31+)
-            - **Ubuntu 18.04 users**: Please install from source (see documentation)
+            - **Linux**: Ubuntu 22.04+, Debian 12+, or equivalent (glibc 2.35+)
+            - **Ubuntu 20.04 users**: Please install from source (see documentation)
             
             ### Documentation
             - [Full Documentation](https://LewisResearchGroup.github.io/ms-mint-app2/)
