@@ -347,23 +347,47 @@ jobs:
 
       - name: Create release archives
         run: |
+          set -e
+          
           # Windows - already a zip, just rename/move it
-          find artifacts -name "Mint-Windows-x64.zip" -exec mv {} ./Mint-Windows-x64.zip \;
+          WINDOWS_ZIP=$(find artifacts -name "Mint-Windows-x64.zip" -type f | head -n 1)
+          if [ -z "$WINDOWS_ZIP" ]; then
+            echo "ERROR: Windows zip file not found"
+            exit 1
+          fi
+          mv "$WINDOWS_ZIP" ./Mint-Windows-x64.zip
+          echo "✓ Windows archive ready: Mint-Windows-x64.zip"
           
           # Linux - create tar.gz from directory
           cd artifacts
           LINUX_DIR=$(find . -type d -name "Mint-Linux-x64-*" | head -n 1)
-          if [ -d "$LINUX_DIR" ]; then
-            tar -czf ../Mint-Linux-x64.tar.gz -C "$LINUX_DIR" Mint/
+          if [ -z "$LINUX_DIR" ]; then
+            echo "ERROR: Linux artifact directory not found"
+            exit 1
           fi
+          if [ ! -d "$LINUX_DIR/Mint" ]; then
+            echo "ERROR: Mint/ subdirectory not found in Linux artifact"
+            exit 1
+          fi
+          tar -czf ../Mint-Linux-x64.tar.gz -C "$LINUX_DIR" Mint/
+          echo "✓ Linux archive created: Mint-Linux-x64.tar.gz"
           
           # macOS - create tar.gz from directory
           MACOS_DIR=$(find . -type d -name "Mint-macOS-x64-*" | head -n 1)
-          if [ -d "$MACOS_DIR" ]; then
-            tar -czf ../Mint-macOS-x64.tar.gz -C "$MACOS_DIR" Mint/
+          if [ -z "$MACOS_DIR" ]; then
+            echo "ERROR: macOS artifact directory not found"
+            exit 1
           fi
+          if [ ! -d "$MACOS_DIR/Mint" ]; then
+            echo "ERROR: Mint/ subdirectory not found in macOS artifact"
+            exit 1
+          fi
+          tar -czf ../Mint-macOS-x64.tar.gz -C "$MACOS_DIR" Mint/
+          echo "✓ macOS archive created: Mint-macOS-x64.tar.gz"
           
           cd ..
+          echo ""
+          echo "=== Final Release Archives ==="
           ls -lh *.zip *.tar.gz
 
       - name: Get version info
