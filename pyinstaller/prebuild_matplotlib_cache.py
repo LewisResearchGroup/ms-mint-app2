@@ -25,11 +25,11 @@ def build_matplotlib_cache(output_dir):
     
     os.environ['MPLCONFIGDIR'] = str(cache_dir)
     
-    print(f"\n📁 Cache directory: {cache_dir}")
-    print(f"✓ Created cache directory")
+    print(f"\nCache directory: {cache_dir}")
+    print(f"[OK] Created cache directory")
     
     # Force matplotlib to build font cache
-    print(f"\n⏳ Building font cache (this takes ~5 seconds)...")
+    print(f"\nBuilding font cache (this takes ~5 seconds)...")
     import matplotlib
     import matplotlib.pyplot as plt
     import matplotlib.font_manager
@@ -37,11 +37,11 @@ def build_matplotlib_cache(output_dir):
     # This triggers font cache building
     _ = matplotlib.font_manager.fontManager.ttflist
     
-    print(f"✓ Font cache built!")
+    print(f"[OK] Font cache built!")
     
     # Show what was created
     cache_files = list(cache_dir.rglob("*"))
-    print(f"\n📊 Generated {len(cache_files)} cache files:")
+    print(f"\nGenerated {len(cache_files)} cache files:")
     total_size = 0
     for f in cache_files:
         if f.is_file():
@@ -49,10 +49,10 @@ def build_matplotlib_cache(output_dir):
             total_size += size
             print(f"   {f.name:40s} {size:>10,} bytes")
     
-    print(f"\n💾 Total cache size: {total_size:,} bytes ({total_size/1024/1024:.2f} MB)")
+    print(f"\nTotal cache size: {total_size:,} bytes ({total_size/1024/1024:.2f} MB)")
     
     # Get matplotlib version for documentation
-    print(f"\n📌 Matplotlib version: {matplotlib.__version__}")
+    print(f"\nMatplotlib version: {matplotlib.__version__}")
     print(f"   Python version: {sys.version.split()[0]}")
     
     return cache_dir
@@ -61,16 +61,16 @@ def create_integration_instructions(cache_dir):
     """Create instructions for integrating the cache into the app."""
     
     instructions = f"""
-╔══════════════════════════════════════════════════════════════════════╗
-║              MATPLOTLIB CACHE INTEGRATION INSTRUCTIONS               ║
-╚══════════════════════════════════════════════════════════════════════╝
+========================================================================
+             MATPLOTLIB CACHE INTEGRATION INSTRUCTIONS
+========================================================================
 
 The matplotlib font cache has been built at:
   {cache_dir}
 
-────────────────────────────────────────────────────────────────────────
+------------------------------------------------------------------------
 OPTION 1: Bundle with app distribution (RECOMMENDED)
-────────────────────────────────────────────────────────────────────────
+------------------------------------------------------------------------
 
 1. Copy the cache to your app's asset directory:
    
@@ -112,30 +112,30 @@ OPTION 2: Auto-deploy on first run
    user_cache = Path.home() / '.cache' / 'matplotlib'
    if not user_cache.exists():
        shutil.copytree(bundled_cache, user_cache)
-       print("✓ Matplotlib cache initialized")
+       print("[OK] Matplotlib cache initialized")
    ```
 
-────────────────────────────────────────────────────────────────────────
+------------------------------------------------------------------------
 IMPORTANT NOTES
-────────────────────────────────────────────────────────────────────────
+------------------------------------------------------------------------
 
-⚠️  Platform-specific: Font cache may differ between:
+[WARNING] Platform-specific: Font cache may differ between:
     - Operating systems (Linux, macOS, Windows)
     - System fonts installed
     
     Solution: Build separate caches for each platform
 
-⚠️  Version-specific: Cache is tied to matplotlib version
+[WARNING] Version-specific: Cache is tied to matplotlib version
     - Rebuild when updating matplotlib
     - Include version check in startup code
 
-⚠️  Cache size: ~1-2 MB per platform
+[WARNING] Cache size: ~1-2 MB per platform
     - Consider build-time generation in CI/CD
     - Or bundle pre-built caches for all platforms
 
-────────────────────────────────────────────────────────────────────────
+------------------------------------------------------------------------
 ALREADY IMPLEMENTED IN YOUR APP
-────────────────────────────────────────────────────────────────────────
+------------------------------------------------------------------------
 
 Looking at your Mint.py (lines 153-164), you already have:
 
@@ -147,7 +147,7 @@ if is_frozen:
         os.environ.setdefault("MPLCONFIGDIR", str(mpl_cfg))
 ```
 
-✓ You're already setting a custom cache directory!
+[OK] You're already setting a custom cache directory!
 
 TO INTEGRATE:
 1. Build cache during your PyInstaller build process
@@ -171,5 +171,5 @@ if __name__ == "__main__":
     create_integration_instructions(cache_dir)
     
     print("\n" + "=" * 70)
-    print("✅ DONE! Cache ready for bundling with your app.")
+    print("[OK] DONE! Cache ready for bundling with your app.")
     print("=" * 70)

@@ -76,9 +76,9 @@ if os.path.isdir(matplotlib_cache_src):
     # Bundle with platform identifier for cross-platform builds
     system = platform.system().lower()
     datas_list.append((matplotlib_cache_src, os.path.join('assets', f'matplotlib_cache_{system}')))
-    print(f"✓ Bundling matplotlib cache for {system} ({os.path.getsize(os.path.join(matplotlib_cache_src, 'fontlist-v390.json'))/1024:.1f} KB)")
+    print(f"[OK] Bundling matplotlib cache for {system} ({os.path.getsize(os.path.join(matplotlib_cache_src, 'fontlist-v390.json'))/1024:.1f} KB)")
 else:
-    print("⚠️  Matplotlib cache not found. Run 'python prebuild_matplotlib_cache.py' in pyinstaller/ to generate it.")
+    print("[WARNING] Matplotlib cache not found. Run 'python prebuild_matplotlib_cache.py' in pyinstaller/ to generate it.")
     print("   Without cache, first-time users will experience ~5s startup delay.")
 
 
