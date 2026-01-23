@@ -95,7 +95,7 @@ def apply_savgol_smoothing(intensity, window_length=7, polyorder=2):
     else:
         smoothed = _savgol_filter_numpy(intensity, window_length, polyorder)
 
-    return np.maximum(smoothed, 0)
+    return np.maximum(smoothed, 1.0)
 
 
 def apply_lttb_downsampling(scan_time, intensity, n_out=100):

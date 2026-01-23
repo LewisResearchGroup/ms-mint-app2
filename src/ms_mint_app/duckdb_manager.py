@@ -124,7 +124,7 @@ def _apply_savgol_smoothing(intensity,
     else:
         smoothed = _savgol_filter_numpy(intensity, window_length, polyorder)
 
-    return np.maximum(smoothed, 0)
+    return np.maximum(smoothed, 1.0)
 
 
 def get_physical_cores() -> int:
