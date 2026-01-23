@@ -1,0 +1,244 @@
+name: Build Executables (All Platforms)
+
+on:
+  push:
+    branches:
+      - develop  # Development builds
+      - main     # Only when merging develop -> main
+    tags:
+      - 'v*'     # All version tags (beta and stable)
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        include:
+          - os: ubuntu-latest
+            platform: Linux
+            executable: Mint
+            asari_path: asari_env/bin/asari
+            cache_subdir: linux
+            archive_name: Mint-Linux-x64.tar.gz
+            archive_cmd: tar -czf Mint-Linux-x64.tar.gz Mint/
+          - os: windows-latest
+            platform: Windows
+            executable: Mint.exe
+            asari_path: asari_env/Scripts/asari.exe
+            cache_subdir: windows
+            archive_name: Mint-Windows-x64.zip
+            archive_cmd: Compress-Archive -Path Mint -DestinationPath Mint-Windows-x64.zip
+          - os: macos-latest
+            platform: macOS
+            executable: Mint
+            asari_path: asari_env/bin/asari
+            cache_subdir: darwin
+            archive_name: Mint-macOS-x64.tar.gz
+            archive_cmd: tar -czf Mint-macOS-x64.tar.gz Mint/
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Cache pip (Linux/macOS)
+        if: runner.os != 'Windows'
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('**/pyproject.toml', '**/requirements-dev.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
+
+      - name: Cache pip (Windows)
+        if: runner.os == 'Windows'
+        uses: actions/cache@v4
+        with:
+          path: ~\AppData\Local\pip\Cache
+          key: ${{ runner.os }}-pip-${{ hashFiles('**/pyproject.toml', '**/requirements-dev.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pyinstaller
+          pip install "matplotlib>=3.10.8"
+          pip install -e .
+        shell: bash
+
+      - name: Create Asari environment
+        run: |
+          cd pyinstaller
+          python create_asari_env.py
+        shell: bash
+
+      - name: Generate matplotlib font cache
+        run: |
+          cd pyinstaller
+          python prebuild_matplotlib_cache.py
+        shell: bash
+
+      - name: Build executable with PyInstaller
+        run: |
+          cd pyinstaller
+          pyinstaller Mint.spec
+        shell: bash
+
+      - name: Verify build (Linux/macOS)
+        if: runner.os != 'Windows'
+        run: |
+          if [ -f "pyinstaller/dist/Mint/${{ matrix.executable }}" ]; then
+            echo "✓ Executable built successfully!"
+            chmod +x pyinstaller/dist/Mint/${{ matrix.executable }}
+            
+            if [ -f "pyinstaller/dist/Mint/${{ matrix.asari_path }}" ]; then
+              echo "✓ Asari environment bundled"
+            else
+              echo "✗ Asari environment missing"
+              exit 1
+            fi
+            
+            if [ -f "pyinstaller/dist/Mint/assets/matplotlib_cache_${{ matrix.cache_subdir }}/fontlist-v390.json" ]; then
+              echo "✓ Matplotlib cache bundled"
+            else
+              echo "⚠ Matplotlib cache not found"
+            fi
+          else
+            echo "✗ Build failed"
+            exit 1
+          fi
+
+      - name: Verify build (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          if (Test-Path "pyinstaller\dist\Mint\${{ matrix.executable }}") {
+            Write-Host "✓ Executable built successfully!"
+            
+            if (Test-Path "pyinstaller\dist\Mint\${{ matrix.asari_path }}") {
+              Write-Host "✓ Asari environment bundled"
+            } else {
+              Write-Host "✗ Asari environment missing"
+              exit 1
+            }
+            
+            if (Test-Path "pyinstaller\dist\Mint\assets\matplotlib_cache_${{ matrix.cache_subdir }}\fontlist-v390.json") {
+              Write-Host "✓ Matplotlib cache bundled"
+            } else {
+              Write-Host "⚠ Matplotlib cache not found"
+            }
+          } else {
+            Write-Host "✗ Build failed"
+            exit 1
+          }
+        shell: powershell
+
+      - name: Create archive (Linux/macOS)
+        if: runner.os != 'Windows'
+        run: |
+          cd pyinstaller/dist
+          ${{ matrix.archive_cmd }}
+
+      - name: Create archive (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          cd pyinstaller/dist
+          Compress-Archive -Path Mint -DestinationPath Mint-Windows-x64.zip
+        shell: powershell
+
+      - name: Get version and build type
+        id: get_version
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            version=${GITHUB_REF#refs/tags/}
+            
+            # Check if it's a pre-release (beta, rc, alpha, etc.)
+            if [[ "$version" =~ (alpha|beta|rc|preview) ]]; then
+              is_prerelease=true
+              echo "Build type: Pre-release"
+            else
+              is_prerelease=false
+              echo "Build type: Stable release"
+            fi
+          else
+            # Development build from branch
+            version="dev-$(git rev-parse --short HEAD)"
+            is_prerelease=true
+            echo "Build type: Development build"
+          fi
+          
+          echo "version=$version" >> $GITHUB_OUTPUT
+          echo "is_prerelease=$is_prerelease" >> $GITHUB_OUTPUT
+        shell: bash
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Mint-${{ matrix.platform }}-x64-${{ steps.get_version.outputs.version }}
+          path: pyinstaller/dist/${{ matrix.archive_name }}
+          retention-days: 30
+
+      - name: Create Pre-release (beta/rc/dev)
+        if: startsWith(github.ref, 'refs/tags/') && steps.get_version.outputs.is_prerelease == 'true'
+        uses: softprops/action-gh-release@v1
+        with:
+          files: pyinstaller/dist/${{ matrix.archive_name }}
+          draft: false
+          prerelease: true  # Mark as pre-release
+          generate_release_notes: true
+          body: |
+            ## ⚠️ Pre-release / Beta Version
+            
+            This is a **pre-release version** for public testing and feedback.
+            
+            **Not recommended for production use.**
+            
+            Please report any issues you encounter at: https://github.com/${{ github.repository }}/issues
+            
+            ### Testing Instructions
+            1. Download the appropriate executable for your platform
+            2. Extract the archive
+            3. Run the executable
+            4. Report bugs or feedback in GitHub Issues
+            
+            ---
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create Stable Release
+        if: startsWith(github.ref, 'refs/tags/') && steps.get_version.outputs.is_prerelease == 'false'
+        uses: softprops/action-gh-release@v1
+        with:
+          files: pyinstaller/dist/${{ matrix.archive_name }}
+          draft: false
+          prerelease: false  # Mark as stable
+          generate_release_notes: true
+          body: |
+            ## 🎉 Stable Release
+            
+            This is a **stable release** ready for production use.
+            
+            ### Installation
+            1. Download the appropriate executable for your platform:
+               - **Windows**: `Mint-Windows-x64.zip`
+               - **Linux**: `Mint-Linux-x64.tar.gz`
+               - **macOS**: `Mint-macOS-x64.tar.gz`
+            2. Extract the archive
+            3. Run the `Mint` executable
+            
+            ### Documentation
+            - [Full Documentation](https://LewisResearchGroup.github.io/ms-mint-app2/)
+            - [Quick Start Guide](https://LewisResearchGroup.github.io/ms-mint-app2/quickstart/)
+            
+            ---
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
