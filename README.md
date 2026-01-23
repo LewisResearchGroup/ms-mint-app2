@@ -32,7 +32,7 @@ A powerful post-processing tool for **LC-MS based metabolomics** that simplifies
 ### Installation (pip)
 
 ```bash
-pip install ms-mint-app
+pip install ms-mint-app2
 ```
 
 ### Run MINT
