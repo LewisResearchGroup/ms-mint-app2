@@ -861,7 +861,7 @@ def get_corruption_notification():
     Returns a dict suitable for fac.AntdNotification or None if not applicable.
     """
     return {
-        'message': "⚠️ Database Corrupted",
+        'message': "[!] Database Corrupted",
         'description': "This workspace has a corrupted database. Please delete it and restore from backup or recreate the workspace.",
         'type': "error",
         'duration': 10,
@@ -919,7 +919,7 @@ def duckdb_connection(workspace_path: Path | str, register_activity=True, n_cpus
             if "Corrupt database file" in str(e):
                 _mark_corrupted(workspace_path)  # Mark for UI notification
                 logger.critical(
-                    f"⚠️ DATABASE CORRUPTION DETECTED in {db_file}: {e}\n"
+                    f"[!] DATABASE CORRUPTION DETECTED in {db_file}: {e}\n"
                     "This usually happens due to a system crash or forced termination during a write operation.\n"
                     "Please delete this workspace and restore from backup or recreate it."
                 )
@@ -3606,6 +3606,14 @@ def get_chromatogram_envelope(conn, target_label, ms_type='ms1', bins=500, full_
     [sample_type, color, bin_idx, rt, min_int, max_int, mean_int, count]
     """
     
+    # Full-range downsampled chromatograms are only available for MS1.
+    if full_range and ms_type != 'ms1':
+        logger.warning(
+            "Full-range envelope requested for ms_type=%s; falling back to sliced range.",
+            ms_type,
+        )
+        full_range = False
+
     # Determine which columns to use
     if full_range:
         time_col = "scan_time_full_ds"
@@ -3663,4 +3671,15 @@ def get_chromatogram_envelope(conn, target_label, ms_type='ms1', bins=500, full_
     SELECT * FROM aggregated ORDER BY sample_type, bin_idx
     """
     
-    return conn.execute(query, [target_label, ms_type]).pl()
+    df = conn.execute(query, [target_label, ms_type]).pl()
+
+    # Fallback: if no MS2 chromatograms exist for this target, try MS1 so UI isn't blank.
+    if df.is_empty() and ms_type == 'ms2':
+        df = conn.execute(query, [target_label, 'ms1']).pl()
+        if not df.is_empty():
+            logger.warning(
+                "No MS2 chromatograms found for target '%s'; using MS1 envelope instead.",
+                target_label,
+            )
+
+    return df

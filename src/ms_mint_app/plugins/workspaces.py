@@ -856,7 +856,7 @@ def callbacks(app, fsc, cache):
                             [
                                 path_info,
                                 fac.AntdAlert(
-                                    message="⚠️ Database Corrupted",
+                                    message="[!] Database Corrupted",
                                     description="This workspace's database is corrupted. Please delete this workspace and restore from backup or recreate it.",
                                     type='error',
                                     showIcon=True,
@@ -953,7 +953,7 @@ def callbacks(app, fsc, cache):
             except DatabaseCorruptionError as e:
                 logger.error(f"Database corruption detected during activation: {e}")
                 notification = fac.AntdNotification(
-                    message="⚠️ Database Corrupted",
+                    message="[!] Database Corrupted",
                     description="This workspace's database is corrupted. Please delete and restore from backup or recreate it.",
                     type="error",
                     duration=10,

@@ -359,7 +359,7 @@ def register_callbacks(app, cache, fsc, args, *, plugins, file_explorer):
             raise PreventUpdate
         if is_workspace_corrupted(wdir):
             return fac.AntdNotification(
-                message="⚠️ Database Corrupted",
+                message="[!] Database Corrupted",
                 description="This workspace's database is corrupted. Please go to Workspaces tab and delete this workspace, then restore from backup or recreate it.",
                 type="error",
                 duration=15,
