@@ -882,53 +882,63 @@ def duckdb_connection(workspace_path: Path | str, register_activity=True, n_cpus
     if not workspace_path:
         yield None
         return
-    workspace_path = Path(workspace_path)
+    workspace_path = Path(workspace_path).resolve()
     db_file = Path(workspace_path, 'workspace_mint.db')
     # print(f"Connecting to DuckDB at: {db_file}")
     con = None
-    try:
-        con = duckdb.connect(database=str(db_file), read_only=False)
-        con.execute("PRAGMA enable_checkpoint_on_shutdown")
-        con.execute("SET enable_progress_bar = true")
-        con.execute("SET enable_progress_bar_print = false")
-        con.execute("SET progress_bar_time = 0")
-        # Try to set temp_directory, but don't fail if it can't be changed
+    max_retries = 3
+    retry_delay = 0.5
+    for attempt in range(max_retries):
         try:
-            con.execute(f"SET temp_directory = '{workspace_path.as_posix()}';")
-        except Exception:
-            pass  # temp_directory already set or can't be changed - not critical
-        if n_cpus:
-            # Cap CPUs at RAM (1GB per CPU minimum to prevent resource imbalance)
-            effective_cpus = get_effective_cpus(n_cpus, ram) if ram else n_cpus
-            con.execute(f"SET threads = {effective_cpus}")
-            if effective_cpus != n_cpus:
-                logger.info(f"DuckDB threads capped at {effective_cpus} (requested {n_cpus}, RAM limit {ram}GB)")
+            con = duckdb.connect(database=str(db_file), read_only=False)
+            con.execute("PRAGMA enable_checkpoint_on_shutdown")
+            con.execute("SET enable_progress_bar = true")
+            con.execute("SET enable_progress_bar_print = false")
+            con.execute("SET progress_bar_time = 0")
+            # Try to set temp_directory, but don't fail if it can't be changed
+            try:
+                con.execute(f"SET temp_directory = '{workspace_path.as_posix()}';")
+            except Exception:
+                pass  # temp_directory already set or can't be changed - not critical
+            if n_cpus:
+                # Cap CPUs at RAM (1GB per CPU minimum to prevent resource imbalance)
+                effective_cpus = get_effective_cpus(n_cpus, ram) if ram else n_cpus
+                con.execute(f"SET threads = {effective_cpus}")
+                if effective_cpus != n_cpus:
+                    logger.info(f"DuckDB threads capped at {effective_cpus} (requested {n_cpus}, RAM limit {ram}GB)")
+                else:
+                    logger.debug(f"DuckDB threads set to {effective_cpus}")
+            if ram:
+                con.execute(f"SET memory_limit = '{ram}GB'")
+                # Verify the setting was applied
+                actual_limit = con.execute("SELECT current_setting('memory_limit')").fetchone()[0]
+                logger.info(f"DuckDB memory_limit set to {ram}GB (verified: {actual_limit})")
+            _create_tables(con)
+            break # Success
+        except (duckdb.IOException, duckdb.BinderException) as e:
+            if "Corrupt database file" in str(e):
+                _mark_corrupted(workspace_path)  # Mark for UI notification
+                logger.critical(
+                    f"⚠️ DATABASE CORRUPTION DETECTED in {db_file}: {e}\n"
+                    "This usually happens due to a system crash or forced termination during a write operation.\n"
+                    "Please delete this workspace and restore from backup or recreate it."
+                )
+                yield None
+                return
+            
+            if attempt < max_retries - 1:
+                logger.warning(f"Error connecting to DuckDB (attempt {attempt + 1}/{max_retries}): {e}. Retrying in {retry_delay}s...")
+                time.sleep(retry_delay)
+                retry_delay *= 2 # Exponential backoff
             else:
-                logger.debug(f"DuckDB threads set to {effective_cpus}")
-        if ram:
-            con.execute(f"SET memory_limit = '{ram}GB'")
-            # Verify the setting was applied
-            actual_limit = con.execute("SELECT current_setting('memory_limit')").fetchone()[0]
-            logger.info(f"DuckDB memory_limit set to {ram}GB (verified: {actual_limit})")
-        _create_tables(con)
-    except duckdb.IOException as e:
-        if "Corrupt database file" in str(e):
-            _mark_corrupted(workspace_path)  # Mark for UI notification
-            logger.critical(
-                f"⚠️ DATABASE CORRUPTION DETECTED in {db_file}: {e}\n"
-                "This usually happens due to a system crash or forced termination during a write operation.\n"
-                "Please delete this workspace and restore from backup or recreate it."
-            )
-            # Return None so that all existing "if conn is None" checks handle this gracefully
+                logger.error(f"Failed to connect to DuckDB after {max_retries} attempts: {e}")
+                yield None
+                return
+        except Exception as e:
+            logger.error(f"Unexpected error connecting to DuckDB: {e}")
             yield None
             return
-        logger.error(f"Error connecting to DuckDB: {e}")
-        yield None
-        return
-    except Exception as e:
-        logger.error(f"Error connecting to DuckDB: {e}")
-        yield None
-        return
+
     try:
         yield con
     finally:
@@ -3587,3 +3597,70 @@ def compute_and_insert_chromatograms_iteratively(con: duckdb.DuckDBPyConnection,
         set_progress(100)
 
     logger.info("Iterative chromatogram computation complete.")
+
+
+def get_chromatogram_envelope(conn, target_label, ms_type='ms1', bins=500, full_range=False):
+    """
+    Computes Min/Max/Mean envelope for chromatograms, binned by time.
+    Returns a Polars DataFrame with columns: 
+    [sample_type, color, bin_idx, rt, min_int, max_int, mean_int, count]
+    """
+    
+    # Determine which columns to use
+    if full_range:
+        time_col = "scan_time_full_ds"
+        int_col = "intensity_full_ds"
+    else:
+        time_col = "scan_time"
+        int_col = "intensity"
+
+    query = f"""
+    WITH picked_samples AS (
+        SELECT ms_file_label, sample_type, color
+        FROM samples
+        WHERE use_for_optimization = TRUE
+    ),
+    raw_points AS (
+        SELECT 
+            s.sample_type,
+            s.color,
+            UNNEST(c.{time_col}) as rt,
+            UNNEST(c.{int_col}) as intens
+        FROM chromatograms c
+        JOIN picked_samples s ON c.ms_file_label = s.ms_file_label
+        WHERE c.peak_label = ? 
+          AND c.ms_type = ?
+          AND c.{time_col} IS NOT NULL
+          AND c.{int_col} IS NOT NULL
+    ),
+    bounds AS (
+        -- Calculate bounds but ignore extreme outliers if any (though data should be sliced to 30s)
+        SELECT MIN(rt) as min_rt, MAX(rt) as max_rt FROM raw_points
+    ),
+    binned AS (
+        SELECT
+            p.sample_type,
+            p.color,
+            p.rt,
+            p.intens,
+            -- Increase bins to 500 for higher resolution
+            CAST(FLOOR((p.rt - b.min_rt) / (b.max_rt - b.min_rt + 1e-9) * 500) AS INTEGER) as bin_idx
+        FROM raw_points p, bounds b
+    ),
+    aggregated AS (
+        SELECT
+            sample_type,
+            color,
+            bin_idx,
+            AVG(rt) as rt,
+            MIN(intens) as min_int,
+            MAX(intens) as max_int,
+            AVG(intens) as mean_int,
+            COUNT(*) as count
+        FROM binned
+        GROUP BY sample_type, color, bin_idx
+    )
+    SELECT * FROM aggregated ORDER BY sample_type, bin_idx
+    """
+    
+    return conn.execute(query, [target_label, ms_type]).pl()

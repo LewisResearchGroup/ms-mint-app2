@@ -452,3 +452,110 @@ def generate_chromatogram_traces(
     if y_max == float('-inf'): y_max = 1
             
     return traces, x_min, x_max, y_min, y_max
+
+
+def generate_envelope_traces(envelope_df):
+    """
+    Generate Plotly traces for chromatogram envelopes (Min/Max/Mean).
+    Expects Polars DataFrame with columns: 
+    [sample_type, color, bin_idx, rt, min_int, max_int, mean_int, count]
+    """
+    traces = []
+    x_min = float('inf')
+    x_max = float('-inf')
+    y_min = float('inf')
+    y_max = float('-inf')
+
+    if envelope_df is None or envelope_df.is_empty():
+        return traces, x_min, x_max, y_min, y_max
+
+    # Determine groups and sort by sample count (highest count first)
+    type_counts = []
+    for stype in envelope_df['sample_type'].unique().to_list():
+        # 'count' is the number of samples in the bin. Max count represents the total samples.
+        max_c = envelope_df.filter(envelope_df['sample_type'] == stype)['count'].max()
+        type_counts.append((stype, max_c))
+    
+    # Sort by count descending
+    type_counts.sort(key=lambda x: x[1], reverse=True)
+    sample_types = [x[0] for x in type_counts]
+
+    for stype in sample_types:
+        # Filter for this sample type
+        group_df = envelope_df.filter(envelope_df['sample_type'] == stype).sort('bin_idx')
+        
+        if group_df.is_empty():
+            continue
+
+        rts = group_df['rt'].to_list()
+        mins = group_df['min_int'].to_list()
+        maxs = group_df['max_int'].to_list()
+        means = group_df['mean_int'].to_list()
+        counts = group_df['count'].to_list()
+        color = group_df['color'][0] or 'grey'
+
+        # Estimate sample count (max number of points in any bin for this sample type)
+        # Assuming binning is fine enough, or just use the max count observed
+        estimated_count = max(counts) if counts else 0
+        label_with_count = f"{stype} ({estimated_count})"
+
+        # Update bounds
+        curr_min_x = min(rts) if rts else x_min
+        curr_max_x = max(rts) if rts else x_max
+        curr_min_y = min(mins) if mins else y_min
+        curr_max_y = max(maxs) if maxs else y_max
+        
+        x_min = min(x_min, curr_min_x)
+        x_max = max(x_max, curr_max_x)
+        y_min = min(y_min, curr_min_y)
+        y_max = max(y_max, curr_max_y)
+
+        # 1. Envelope (Filled Area)
+        # Construct shape: forward along max, backward along min
+        x_poly = rts + rts[::-1]
+        y_poly = maxs + mins[::-1]
+        
+        # We need a valid CSS color for fill (rgba). Assuming 'color' is a hex or valid name.
+        # If it's hex, convert to rgba with opacity
+        fill_color = color
+        if color and color.startswith('#'):
+            # Simple hex to rgba conversion if needed, or rely on plotly's opacity
+            # Plotly doesn't support 'opacity' for fill directly in the same way as line?
+            # actually 'fillcolor' supports rgba.
+            pass
+            
+        traces.append({
+            'type': 'scattergl',
+            'x': x_poly,
+            'y': y_poly,
+            'fill': 'toself',
+            'fillcolor': color, # Plotly handles opacity if we used rgba, or we can rely on `opacity` prop
+            'opacity': 0.2,
+            'line': {'width': 0},
+            'mode': 'lines',
+            'name': f"{label_with_count} (Range)",
+            'legendgroup': stype,
+            'showlegend': False, # Linked to the main line
+            'hoverinfo': 'skip'
+        })
+
+        # 2. Max Line (was Mean, changed to Max for better distinguishability as per user request)
+        traces.append({
+            'type': 'scattergl',
+            'mode': 'lines',
+            'x': rts,
+            'y': maxs,
+            'line': {'color': color, 'width': 2},
+            'name': label_with_count,
+            'legendgroup': stype,
+            'showlegend': True
+        })
+
+    # Fix infinite values
+    if x_min == float('inf'): x_min = 0
+    if x_max == float('-inf'): x_max = 1
+    if y_min == float('inf'): y_min = 0
+    if y_max == float('-inf'): y_max = 1
+
+    return traces, x_min, x_max, y_min, y_max
+
