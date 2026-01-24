@@ -291,7 +291,7 @@ def generate_chromatogram_traces(
 
             if trace_logs < LOG_TRACE_POINT_LIMIT:
                 trace_label = row['label'] or row['ms_file_label']
-                logger.info(
+                logger.debug(
                     "Trace points %s: start=%d smooth=%d lttb=%d sparse=%d",
                     trace_label,
                     n_start,
@@ -379,7 +379,7 @@ def generate_chromatogram_traces(
 
             if trace_logs < LOG_TRACE_POINT_LIMIT:
                 trace_label = row['label'] or row['ms_file_label']
-                logger.info(
+                logger.debug(
                     "Trace points %s: start=%d smooth=%d lttb=%d sparse=%d",
                     trace_label,
                     n_start,
@@ -439,7 +439,7 @@ def generate_chromatogram_traces(
             traces.append(trace)
             
     if total_traces > LOG_TRACE_POINT_LIMIT:
-        logger.info(
+        logger.debug(
             "Trace points logging truncated: showing first %d of %d traces",
             LOG_TRACE_POINT_LIMIT,
             total_traces,

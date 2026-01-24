@@ -39,7 +39,6 @@ dependencies = [
   "feffery-antd-components==0.4.2",
   "feffery-utils-components==0.3.3",
   "flask-caching",
-  "flask-sqlalchemy",
   "flask_login",
   "lxml>=6.0.2",
   "lttbc",
@@ -58,7 +57,6 @@ dependencies = [
   "scikit-learn",
   "scipy>=1.16.3",
   "seaborn",
-  "sqlalchemy",
   "tqdm>=4.67.1",
   "waitress",
   "werkzeug==3.1.5",
@@ -79,7 +77,7 @@ where = ["src"]
 include = ["ms_mint_app*"]
 
 [tool.setuptools.package-data]
-"ms_mint_app" = ["assets/*", "static/*", "static/**/*"]
+"ms_mint_app" = ["assets/*"]
 
 [tool.versioneer]
 VCS = "git"
