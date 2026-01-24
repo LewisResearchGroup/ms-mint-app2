@@ -47,8 +47,11 @@ asari_env_dir = os.path.join(SPECPATH, 'asari_env')
 binaries_list = []
 datas_list = [
     (os.path.join(package_root, 'ms_mint_app', 'assets'), os.path.join('ms_mint_app', 'assets')),
-    (os.path.join(package_root, 'ms_mint_app', 'static'), os.path.join('ms_mint_app', 'static')),
 ]
+
+static_dir = os.path.join(package_root, 'ms_mint_app', 'static')
+if os.path.isdir(static_dir):
+    datas_list.append((static_dir, os.path.join('ms_mint_app', 'static')))
 
 # Add Asari environment if it exists
 if os.path.isdir(asari_env_dir):
@@ -97,6 +100,19 @@ a = Analysis(
     noarchive=False,
     optimize=0,
 )
+
+# Prefer a known-good libstdc++ from the active conda env to satisfy newer CXXABI symbols.
+a.binaries = [b for b in a.binaries if os.path.basename(b[0]) != "libstdc++.so.6"]
+conda_prefix = os.environ.get("CONDA_PREFIX")
+if not conda_prefix:
+    conda_prefix = os.path.dirname(os.path.dirname(sys.executable))
+conda_lib = os.path.join(conda_prefix, "lib")
+conda_libstdcpp = os.path.join(conda_lib, "libstdc++.so.6")
+conda_libgcc = os.path.join(conda_lib, "libgcc_s.so.1")
+if os.path.isfile(conda_libstdcpp):
+    a.binaries.append((os.path.basename(conda_libstdcpp), conda_libstdcpp, "BINARY"))
+if os.path.isfile(conda_libgcc):
+    a.binaries.append((os.path.basename(conda_libgcc), conda_libgcc, "BINARY"))
 
 pyz = PYZ(a.pure)
 
