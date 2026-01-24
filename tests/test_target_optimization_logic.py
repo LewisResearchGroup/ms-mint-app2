@@ -88,6 +88,21 @@ def test_toggle_bookmark_logic(monkeypatch):
     assert conn.execute("SELECT bookmark FROM targets WHERE peak_label='Peak1'").fetchone()[0] is True
 
 
+def test_toggle_bookmark_logic_off(monkeypatch):
+    conn = duckdb.connect(":memory:")
+    _create_tables(conn)
+    _seed_target_rows(conn)
+    conn.execute("UPDATE targets SET bookmark = TRUE WHERE peak_label = 'Peak1'")
+
+    monkeypatch.setattr(topt, "duckdb_connection", lambda _wdir: _conn_context(conn))
+    monkeypatch.setattr(topt.fac, "AntdIcon", lambda **kwargs: kwargs)
+
+    icon = topt._toggle_bookmark_logic("Peak1", "/tmp")
+
+    assert icon.get("style", {}).get("color") == "gray"
+    assert conn.execute("SELECT bookmark FROM targets WHERE peak_label='Peak1'").fetchone()[0] is False
+
+
 def test_cpu_ram_help_texts(monkeypatch):
     monkeypatch.setattr(topt, "cpu_count", lambda: 8)
 
@@ -172,3 +187,28 @@ def test_compute_chromatograms_logic_missing_db(monkeypatch):
     )
 
     assert result == "Could not connect to database."
+
+
+def test_compute_chromatograms_logic_optimize_failure(monkeypatch):
+    conn = object()
+
+    monkeypatch.setattr(topt, "duckdb_connection", lambda *args, **kwargs: _conn_context(conn))
+    monkeypatch.setattr(topt, "compute_chromatograms_in_batches", lambda *args, **kwargs: None)
+    monkeypatch.setattr(topt, "activate_workspace_logging", lambda _wdir: None)
+
+    def _raise(_conn):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(topt, "optimize_rt_spans_batch", _raise)
+
+    result = topt._compute_chromatograms_logic(
+        set_progress=None,
+        recompute_ms1=False,
+        recompute_ms2=False,
+        n_cpus=1,
+        ram=1,
+        batch_size=1,
+        wdir="/tmp",
+    )
+
+    assert result == (True, False)

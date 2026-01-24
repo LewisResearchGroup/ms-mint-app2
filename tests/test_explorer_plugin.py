@@ -123,6 +123,41 @@ class TestExplorerNavigation:
         assert new_path == str(temp_fs / "folder1")
         assert breadcrumb[-1]['title'] == "folder1"
 
+    def test_navigate_folders_click_file_noop(self, explorer, temp_fs):
+        modal_visible = True
+        recentlyCellClickRecord = {'key': str(temp_fs / "folder1" / "file1.mzML"), 'is_dir': False}
+        processing_type = {'extensions': ['.mzML']}
+
+        with patch('dash.callback_context') as mock_ctx:
+            mock_ctx.triggered = [{'prop_id': 'file-table.recentlyCellClickRecord'}]
+            data = _navigate_folders(
+                explorer, modal_visible, None, None, recentlyCellClickRecord, str(temp_fs), processing_type
+            )
+
+        assert data == (dash.no_update, dash.no_update, dash.no_update, dash.no_update)
+
+    def test_navigate_folders_windows_root(self, explorer, temp_fs, monkeypatch):
+        modal_visible = True
+        processing_type = {'extensions': ['.mzML']}
+
+        monkeypatch.setattr(platform, "system", lambda: "Windows")
+        with patch('dash.callback_context') as mock_ctx:
+            mock_ctx.triggered = [{'prop_id': 'current-path-modal.breadcrumb'}]
+            data = _navigate_folders(
+                explorer,
+                modal_visible,
+                {'itemKey': '::WIN_ROOT::'},
+                None,
+                None,
+                '::WIN_ROOT::',
+                processing_type
+            )
+
+        breadcrumb, table_data, new_path, table_data_dup = data
+        assert breadcrumb[0]['title'] == "My Computer"
+        assert new_path == '::WIN_ROOT::'
+        assert table_data == table_data_dup
+
 class TestExplorerProcessing:
     @patch('ms_mint_app.plugins.explorer.process_ms_files')
     @patch('ms_mint_app.plugins.explorer.activate_workspace_logging')

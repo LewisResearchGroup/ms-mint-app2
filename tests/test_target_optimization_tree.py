@@ -134,3 +134,88 @@ def test_update_sample_type_tree_section_context(monkeypatch):
     assert expanded is topt.dash.no_update
     assert show["display"] == "flex"
     assert hide["display"] == "none"
+
+
+def test_update_sample_type_tree_expand_collapse(monkeypatch):
+    conn = duckdb.connect(":memory:")
+    _create_tables(conn)
+    _seed_samples(conn)
+
+    monkeypatch.setattr(topt, "duckdb_connection", lambda _wdir: _conn_context(conn))
+
+    tree_data, checked, expanded, show, hide = topt._update_sample_type_tree(
+        {"page": "Optimization"},
+        None,
+        None,
+        None,
+        "ms1",
+        "/tmp",
+        "expand-tree-action",
+        workspace_status={"chromatograms_count": 1},
+    )
+
+    assert tree_data is topt.dash.no_update
+    assert checked is topt.dash.no_update
+    assert sorted(expanded) == ["TypeA"]
+
+    tree_data, checked, expanded, show, hide = topt._update_sample_type_tree(
+        {"page": "Optimization"},
+        None,
+        None,
+        None,
+        "ms1",
+        "/tmp",
+        "collapse-tree-action",
+        workspace_status={"chromatograms_count": 1},
+    )
+
+    assert tree_data is topt.dash.no_update
+    assert checked is topt.dash.no_update
+    assert expanded == []
+
+
+def test_update_sample_type_tree_filter_ms_type(monkeypatch):
+    conn = duckdb.connect(":memory:")
+    _create_tables(conn)
+    _seed_samples(conn)
+
+    monkeypatch.setattr(topt, "duckdb_connection", lambda _wdir: _conn_context(conn))
+
+    tree_data, checked, expanded, show, hide = topt._update_sample_type_tree(
+        {"page": "Optimization"},
+        None,
+        None,
+        None,
+        "ms2",
+        "/tmp",
+        "chromatogram-preview-filter-ms-type",
+        workspace_status={"chromatograms_count": 1},
+    )
+
+    assert isinstance(tree_data, list)
+    assert checked is topt.dash.no_update
+    assert expanded is topt.dash.no_update
+
+
+def test_update_sample_type_tree_empty_samples(monkeypatch):
+    conn = duckdb.connect(":memory:")
+    _create_tables(conn)
+
+    monkeypatch.setattr(topt, "duckdb_connection", lambda _wdir: _conn_context(conn))
+
+    tree_data, checked, expanded, show, hide = topt._update_sample_type_tree(
+        {"page": "Optimization"},
+        None,
+        None,
+        None,
+        "ms1",
+        "/tmp",
+        "section-context",
+        workspace_status={"chromatograms_count": 1},
+    )
+
+    assert tree_data == []
+    assert checked == []
+    assert expanded == []
+    assert show["display"] == "none"
+    assert hide["display"] == "block"
