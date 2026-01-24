@@ -8,7 +8,7 @@ Download an executable compatible with your OS and open MINT (see other installa
 Once the app starts, you should see the `Workspaces` tab.
 
 ## 2. Create a workspace
-On first launch, MINT creates an **Explore** workspace with sample data so you can tour the interface immediately. You can keep it for reference or create a new workspace for your project. A workspace provides easy access to all data files and results for a given project.
+On first launch, MINT creates a **My first Workspace** workspace with sample data so you can tour the interface immediately. You can keep it for reference or create a new workspace for your project. A workspace provides easy access to all data files and results for a given project.
 
 ![](quickstart/first-start.png)
 
@@ -25,7 +25,7 @@ Now you have created your first workspace, but it is empty. You will need some i
 
 ## 3. Download the demo files
 
-If you only want to explore the UI quickly, you can use the pre-seeded **Explore** workspace and jump ahead to the analysis section. For a full end-to-end walkthrough with real files, download the demo files below.
+If you only want to explore the UI quickly, you can use the pre-seeded **My first Workspace** workspace and jump ahead to the analysis section. For a full end-to-end walkthrough with real files, download the demo files below.
 
 Some demo files are available for download on the MINT Google Drive. Download the files from [Google Drive](https://drive.google.com/drive/folders/1U4xMy5lfETk93sSVXPI79cCWyIMcAjeZ?usp=drive_link) and extract the archive.
 
