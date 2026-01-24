@@ -12,6 +12,7 @@ build
 dist
 site
 htmlcov
+benchmark_results
 Untitled*.ipynb
 "nohup.out" 
 nohup.out

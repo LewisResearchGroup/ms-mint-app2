@@ -191,7 +191,7 @@ def normalize_column_names(df: pd.DataFrame) -> pd.DataFrame:
     if mapped_info:
         # Detect source format based on mapped columns
         if needs_rt_conversion:
-            logging.info(f"Detected EL-MAVEN format file")
+            logging.info("Detected EL-MAVEN format file")
         logging.info(f"Auto-mapped columns: {', '.join(mapped_info)}")
         df = df.rename(columns=new_columns)
     
@@ -1015,7 +1015,7 @@ def convert_mzxml_to_parquet_fast_batches(
     total_points = 0  # Counter within current batch
 
     def flush_batch() -> None:
-        nonlocal current_lists, parquet_writer, total_points, wrote_data
+        nonlocal parquet_writer, total_points, wrote_data
         if not current_lists['mzs']:
             return
         table = _build_table_from_lists(current_lists, ms_level or 1)
@@ -1187,7 +1187,7 @@ def convert_mzml_to_parquet_fast_batches(
     total_points = 0  # Counter within current batch
 
     def flush_batch() -> None:
-        nonlocal current_lists, parquet_writer, total_points, wrote_data
+        nonlocal parquet_writer, total_points, wrote_data
         if not current_lists['mzs']:
             return
         table = _build_table_from_lists(current_lists, ms_level or 1)
@@ -1835,7 +1835,7 @@ def process_ms_files(wdir, set_progress, selected_files, n_cpus):
 
             # Helper to handle DB result processing
             def process_db_result(future):
-                nonlocal total_processed, failed_files
+                nonlocal total_processed
                 try:
                     b_processed, b_failed = future.result()
                     total_processed += b_processed
@@ -2262,6 +2262,7 @@ def proportional_min1_selection(df, group_col, list_col, total_select, seed=None
 
 
 def fig_to_src(fig, dpi=100):
+    import matplotlib.pyplot as plt
     out_img = io.BytesIO()
     fig.savefig(out_img, format="jpeg", bbox_inches="tight", dpi=dpi)
     plt.close(fig)

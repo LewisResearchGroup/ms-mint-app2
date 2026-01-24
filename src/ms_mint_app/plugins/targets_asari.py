@@ -189,9 +189,9 @@ def run_asari_workflow(wdir, params, set_progress=None):
         temp_dir = os.path.join(wdir, run_id)
         os.makedirs(temp_dir, exist_ok=True)
     
-    logger.info(f"==========================================")
+    logger.info("==========================================")
     logger.info(f"Asari working directory: {temp_dir}")
-    logger.info(f"==========================================")
+    logger.info("==========================================")
     
     logs.append(f"Working directory: {temp_dir}")
 

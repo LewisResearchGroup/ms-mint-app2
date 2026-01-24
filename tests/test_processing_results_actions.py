@@ -57,6 +57,24 @@ def test_download_all_results_fallback_small_file(monkeypatch, tmp_path):
     assert download["filename"].startswith("2026-01-23-MINT__WS")
 
 
+def test_download_all_results_large_file_modal(monkeypatch, tmp_path):
+    tmp_csv = tmp_path / "results.csv"
+    tmp_csv.write_text("peak_label,ms_file_label,peak_area\nPeak1,S1,1\n")
+
+    monkeypatch.setattr(proc, "_generate_csv_from_db", lambda _wdir, _ws, _cols: str(tmp_csv))
+    monkeypatch.setattr(proc, "T", type("T", (), {"today": staticmethod(lambda: "2026-01-23")})())
+    monkeypatch.setattr(proc.fac, "AntdModal", lambda **kwargs: kwargs)
+    monkeypatch.setattr(proc.fac, "AntdButton", lambda *args, **kwargs: {"href": kwargs.get("href")})
+    monkeypatch.setattr(proc.fac, "AntdIcon", lambda **kwargs: kwargs)
+    import os
+    monkeypatch.setattr(os.path, "getsize", lambda _p: 60 * 1024 * 1024)
+
+    download, notice = proc._download_all_results(str(tmp_path), "WS", ["peak_area"])
+
+    assert download is proc.dash.no_update
+    assert notice.get("visible") is True
+
+
 def test_download_dense_matrix_validation(monkeypatch, tmp_path):
     monkeypatch.setattr(proc.fac, "AntdNotification", lambda **kwargs: kwargs)
 

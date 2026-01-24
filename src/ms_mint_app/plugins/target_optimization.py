@@ -19,6 +19,7 @@ from ..duckdb_manager import (
     compute_chromatograms_in_batches,
     calculate_optimal_batch_size,
     populate_full_range_downsampled_chromatograms_for_target,
+    get_chromatogram_envelope,
 )
 from ..plugin_interface import PluginInterface
 from ..tools import sparsify_chrom, proportional_min1_selection
@@ -28,6 +29,7 @@ from ..plugins.analysis_tools.trace_helper import (
     calculate_shifts_per_sample_type,
     apply_savgol_smoothing,
     apply_lttb_downsampling,
+    generate_envelope_traces,
 )
 from ..rt_span_optimizer import optimize_rt_spans_batch
 from .workspaces import activate_workspace_logging
@@ -940,6 +942,43 @@ _layout = fac.AntdLayout(
                                 ),
                                 fac.AntdSpace(
                                     [
+                                        html.Div(
+                                            [
+                                                html.Div(
+                                                    [
+                                                        html.Span('View Mode:'),
+                                                        fac.AntdTooltip(
+                                                            fac.AntdIcon(
+                                                                icon='antd-question-circle',
+                                                                style={'marginLeft': '5px', 'color': 'gray'}
+                                                            ),
+                                                            title='Envelope (range per sample type) vs Detailed (individual traces)'
+                                                        )
+                                                    ],
+                                                    style={
+                                                        'display': 'flex',
+                                                        'alignItems': 'center',
+                                                        'width': '170px',
+                                                        'paddingRight': '8px'
+                                                    }
+                                                ),
+                                                html.Div(
+                                                    fac.AntdSwitch(
+                                                        id='chromatogram-view-envelope',
+                                                        checked=True,
+                                                        checkedChildren='Env',
+                                                        unCheckedChildren='Det',
+                                                        style={'width': '60px'}
+                                                    ),
+                                                    style={
+                                                        'width': '110px',
+                                                        'display': 'flex',
+                                                        'justifyContent': 'flex-start'
+                                                    }
+                                                ),
+                                            ],
+                                            style={'display': 'flex', 'alignItems': 'center'}
+                                        ),
                                         html.Div(
                                             [
                                                 html.Div(
@@ -2369,7 +2408,7 @@ def callbacks(app, fsc, cache, cpu=None):
             except Exception:
                 pass
 
-            query = f"""
+            query = """
                                 WITH picked_samples AS (
                                     SELECT ms_file_label, color, label, sample_type
                                     FROM samples
@@ -2984,30 +3023,40 @@ def callbacks(app, fsc, cache, cpu=None):
 
     @app.callback(
         Output('chromatogram-view-plot', 'figure', allow_duplicate=True),
+        Output('chromatogram-view-megatrace', 'disabled', allow_duplicate=True),
+        Output('chromatogram-view-savgol', 'disabled', allow_duplicate=True),
         Input('chromatogram-view-megatrace', 'checked'),
         Input('chromatogram-view-full-range', 'checked'),
         Input('chromatogram-view-savgol', 'checked'),
+        Input('chromatogram-view-envelope', 'checked'),
         State('chromatogram-view-plot', 'figure'),
         State('target-preview-clicked', 'data'),
         State('wdir', 'data'),
         State('rt-alignment-data', 'data'),  # Check if RT alignment is active
         prevent_initial_call=True
     )
-    def update_megatrace_mode(use_megatrace, full_range, use_savgol, figure, target_clicked, wdir, rt_alignment_data):
+    def update_megatrace_mode(use_megatrace, full_range, use_savgol, use_envelope, figure, target_clicked, wdir, rt_alignment_data):
         if not wdir or not target_clicked:
             logger.debug("update_megatrace_mode: No workspace directory or target clicked, preventing update")
             raise PreventUpdate
         
         with duckdb_connection(wdir) as conn:
-            chrom_df = get_chromatogram_dataframe(
-                conn, target_clicked, full_range=full_range, wdir=wdir
-            )
-            
+            if conn is None:
+                 raise PreventUpdate
             # Fetch ms_type for this target
             target_ms_type = conn.execute(
                 "SELECT ms_type FROM targets WHERE peak_label = ?", [target_clicked]
             ).fetchone()
             target_ms_type = target_ms_type[0] if target_ms_type else None
+
+            if use_envelope:
+                 chrom_df = get_chromatogram_envelope(
+                     conn, target_clicked, ms_type=target_ms_type or 'ms1', full_range=full_range
+                 )
+            else:
+                chrom_df = get_chromatogram_dataframe(
+                    conn, target_clicked, full_range=full_range, wdir=wdir
+                )
         
         # Apply RT alignment if active
         rt_alignment_shifts = None
@@ -3035,14 +3084,17 @@ def callbacks(app, fsc, cache, cpu=None):
                 'n_out': LTTB_TARGET_POINTS
             }
 
-        traces, x_min, x_max, y_min, y_max = generate_chromatogram_traces(
-            chrom_df, 
-            use_megatrace=use_megatrace,
-            rt_alignment_shifts=rt_alignment_shifts,
-            ms_type=target_ms_type,
-            smoothing_params=smoothing_params,
-            downsample_params=downsample_params
-        )
+        if use_envelope:
+             traces, x_min, x_max, y_min, y_max = generate_envelope_traces(chrom_df)
+        else:
+            traces, x_min, x_max, y_min, y_max = generate_chromatogram_traces(
+                chrom_df, 
+                use_megatrace=use_megatrace,
+                rt_alignment_shifts=rt_alignment_shifts,
+                ms_type=target_ms_type,
+                smoothing_params=smoothing_params,
+                downsample_params=downsample_params
+            )
         
         fig = Patch()
         fig['data'] = traces
@@ -3070,11 +3122,14 @@ def callbacks(app, fsc, cache, cpu=None):
         # but to be consistent with main load, we might want to. 
         # For now let's update data only, or update everything if user expects a "reset" view.
         # Given this is a toggle, replacing data is key.
-        if use_megatrace:
+        if use_envelope:
+             fig['layout']['hovermode'] = False
+        elif use_megatrace:
              fig['layout']['hovermode'] = False
         else:
              fig['layout']['hovermode'] = 'closest'
-        return fig
+        
+        return fig, use_envelope, use_envelope
 
     @app.callback(
         Output('chromatogram-view-plot', 'figure', allow_duplicate=True),
@@ -3305,7 +3360,6 @@ def callbacks(app, fsc, cache, cpu=None):
         Output('slider-data', 'data', allow_duplicate=True),  # make sure this is reset
         Output('chromatogram-view-plot-max', 'data'),
         Output('chromatogram-view-plot-points', 'data'),
-        Output('chromatogram-view-megatrace', 'checked', allow_duplicate=True),
         Output('chromatogram-view-log-y', 'checked', allow_duplicate=True),
         Output('chromatogram-view-groupclick', 'checked', allow_duplicate=True),
         Output('chromatogram-view-full-range', 'checked', allow_duplicate=True),
@@ -3317,8 +3371,13 @@ def callbacks(app, fsc, cache, cpu=None):
         Output('chromatogram-view-lock-range', 'checked', allow_duplicate=True), # Set initial lock state
         Output('bookmark-target-modal-btn', 'icon'),
 
+        Output('chromatogram-view-envelope', 'checked', allow_duplicate=True),
+        Output('chromatogram-view-megatrace', 'disabled'),
+        Output('chromatogram-view-savgol', 'disabled'),
+        Output('chromatogram-view-megatrace', 'checked', allow_duplicate=True), # Reset megatrace if envelope is on
+
         Input('target-preview-clicked', 'data'),
-        State('chromatogram-preview-log-y', 'checked'),
+        State('chromatogram-view-log-y', 'checked'),
         State('sample-type-tree', 'checkedKeys'),
         State('wdir', 'data'),
         State('chromatogram-view-modal', 'visible'),  # Check if modal is already open (navigation)
@@ -3327,15 +3386,18 @@ def callbacks(app, fsc, cache, cpu=None):
         State('chromatogram-view-groupclick', 'checked'),  # Current legend behavior state
         State('chromatogram-view-full-range', 'checked'),  # Current full range state
         State('chromatogram-view-savgol', 'checked'),
+        State('chromatogram-view-envelope', 'checked'),
         prevent_initial_call=True
     )
     def chromatogram_view_modal(target_clicked, log_scale, checkedKeys, wdir, 
                                  modal_already_open, current_megatrace, current_log_y, current_groupclick, current_full_range,
-                                 current_savgol):
+                                 current_savgol, current_envelope):
 
         if not wdir:
             raise PreventUpdate
         with duckdb_connection(wdir) as conn:
+            if conn is None:
+                raise PreventUpdate
             # Load target data including RT alignment columns
             d = conn.execute("""
             SELECT rt, rt_min, rt_max, COALESCE(notes, ''), ms_type,
@@ -3357,24 +3419,42 @@ def callbacks(app, fsc, cache, cpu=None):
                 align_rt_max = None
                 bookmark_state = False
 
-            # Use helper function to fetch data
-            chrom_df = get_chromatogram_dataframe(
-                conn,
-                target_clicked,
-                full_range=current_full_range if modal_already_open else False,
-                wdir=wdir,
-            )
-            
             # Count samples for optimization
             n_samples = conn.execute("SELECT COUNT(*) FROM samples WHERE use_for_optimization = TRUE").fetchone()[0]
-        
-        # Limit full range to 90 samples to prevent OOM
-        full_range_disabled = n_samples > 100
-        if full_range_disabled:
-            full_range = False
-            full_range_tooltip = f"Full Range disabled (>90 samples, total optimization samples: {n_samples}) to prevent OOM."
-        else:
-            full_range_tooltip = "Show entire chromatogram (slower) vs 30s window"
+            
+            # Limit full range to 90 samples to prevent OOM
+            full_range_disabled = n_samples > 100
+            if full_range_disabled:
+                full_range = False
+                full_range_tooltip = f"Full Range disabled (>90 samples, total optimization samples: {n_samples}) to prevent OOM."
+            else:
+                full_range_tooltip = "Show entire chromatogram (slower) vs 30s window"
+                if modal_already_open and current_full_range is not None:
+                     full_range = current_full_range
+                else:
+                     full_range = False
+
+            # Decide on Envelope Mode vs Detailed Mode
+            # If modal is already open, respect user's toggle state
+            # If new open, default to Envelope if n_samples > 200
+            if modal_already_open and current_envelope is not None:
+                use_envelope = current_envelope
+            else:
+                use_envelope = n_samples > 200
+
+            if use_envelope:
+                 # Fetch envelope data
+                 chrom_df = get_chromatogram_envelope(
+                     conn, target_clicked, ms_type=target_ms_type or 'ms1', full_range=full_range
+                 )
+            else:
+                # Use helper function to fetch data
+                chrom_df = get_chromatogram_dataframe(
+                    conn,
+                    target_clicked,
+                    full_range=full_range,
+                    wdir=wdir,
+                )
             
         try:
             n_sample_types = chrom_df['sample_type'].n_unique()
@@ -3440,14 +3520,17 @@ def callbacks(app, fsc, cache, cpu=None):
                 'n_out': LTTB_TARGET_POINTS
             }
 
-        traces, x_min, x_max, y_min, y_max = generate_chromatogram_traces(
-            chrom_df, 
-            use_megatrace=use_megatrace,
-            rt_alignment_shifts=rt_alignment_shifts_to_apply,
-            ms_type=target_ms_type,
-            smoothing_params=smoothing_params,
-            downsample_params=downsample_params
-        )
+        if use_envelope:
+             traces, x_min, x_max, y_min, y_max = generate_envelope_traces(chrom_df)
+        else:
+            traces, x_min, x_max, y_min, y_max = generate_chromatogram_traces(
+                chrom_df, 
+                use_megatrace=use_megatrace,
+                rt_alignment_shifts=rt_alignment_shifts_to_apply,
+                ms_type=target_ms_type,
+                smoothing_params=smoothing_params,
+                downsample_params=downsample_params
+            )
 
         if traces:
             total_points = sum(len(t['x']) for t in traces)
@@ -3640,9 +3723,14 @@ def callbacks(app, fsc, cache, cpu=None):
              # Let's check if I can assume 'antd-star' and just change color for now.
              pass
 
+        # If envelope is active, megatrace setting is effectively ignored in visualization
+        # but we preserve the 'use_megatrace' value so it's correct if user toggles Env off.
+        pass
+
         return (fig, f"{target_clicked}", False, slider_reference,
-                slider_dict, {"min_y": y_min, "max_y": y_max}, total_points, use_megatrace, log_scale, group_legend, 
-                full_range, full_range_disabled, full_range_tooltip, rt_align_toggle_state, rt_alignment_data_to_load, note, False, bookmark_icon_node)
+                slider_dict, {"min_y": y_min, "max_y": y_max}, total_points, log_scale, group_legend, 
+                full_range, full_range_disabled, full_range_tooltip, rt_align_toggle_state, rt_alignment_data_to_load, note, False, bookmark_icon_node, use_envelope,
+                use_envelope, use_envelope, use_megatrace)
 
     @app.callback(
         Output('chromatogram-view-plot', 'figure', allow_duplicate=True),
