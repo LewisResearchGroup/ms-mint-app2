@@ -2962,7 +2962,7 @@ def _plot_curve_fig(frame: pd.DataFrame, peak_label: str, units: pd.DataFrame = 
             ticks="outside",
         ),
         yaxis=dict(
-            title=f"Intensity (AU)",
+            title="Intensity (AU)",
             type="log",
             tickformat="~s",
             tickmode="auto",

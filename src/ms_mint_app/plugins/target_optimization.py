@@ -2408,7 +2408,7 @@ def callbacks(app, fsc, cache, cpu=None):
             except Exception:
                 pass
 
-            query = f"""
+            query = """
                                 WITH picked_samples AS (
                                     SELECT ms_file_label, color, label, sample_type
                                     FROM samples

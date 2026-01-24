@@ -549,7 +549,7 @@ def _exploration_workspace_description(manifest: dict | None) -> str:
     if not manifest:
         return "Auto-generated exploration workspace (synthetic demo data)."
     source = manifest.get("source_label") or "sampled real data"
-    return f"Auto-generated exploration workspace."
+    return f"Auto-generated exploration workspace ({source})."
 
 
 def _seed_exploration_workspace_from_bundle(
@@ -3197,7 +3197,7 @@ def compute_fitted_results(
         set_progress, 
         80, 
         stage="Peak Fitting", 
-        detail=f"Updating database..."
+        detail="Updating database..."
     )
     
     # Update database with fit results in batches for progress tracking

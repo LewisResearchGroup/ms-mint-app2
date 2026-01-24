@@ -1728,7 +1728,7 @@ def show_tab_content(section_context, tab_key, x_comp, y_comp, violin_comp_check
         )
         return dash.no_update, fig, dash.no_update, dash.no_update, compound_options, dash.no_update, dash.no_update, dash.no_update, dash.no_update
     elif tab_key == 'tsne':
-        logger.info(f"Generating t-SNE...")
+        logger.info("Generating t-SNE...")
         
         # CPU limit logic
         n_jobs = max(1, min((os.cpu_count() or 4) // 2, get_physical_cores()))
