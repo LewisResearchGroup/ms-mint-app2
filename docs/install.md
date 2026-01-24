@@ -1,10 +1,15 @@
    
 # Installation notes
 ## Executables
-Builds are provided with all dependencies integrated for Windows 10/11 and Ubuntu [here](https://github.com/soerendip/ms-mint/releases/latest). After double-clicking the executable, a terminal window will open, followed by the app in your default web browser. If the browser does not open automatically, please navigate to [http://localhost:9999](http://localhost:9999).
+Builds are provided with all dependencies integrated for Windows, Linux, and macOS on the GitHub releases page:  
+https://github.com/LewisResearchGroup/ms-mint-app2/releases/latest
+
+After double-clicking the executable, a terminal window will open, followed by the app in your default web browser. If the browser does not open automatically, navigate to `http://localhost:9999` (or the port printed in the terminal log).
+
+> **Note**: If port 9999 is already in use, MINT automatically selects a free port and prints a warning with the new URL.
 
 ## Installation with `pip` (Recommended for Users)
-The latest stable release can be installed in a standard Python 3 (>= 3.12) conda environment using `pip`:
+The latest stable release can be installed in a Python 3.12+ environment using `pip`:
 
 ```bash
 # Create conda environment
@@ -16,7 +21,7 @@ pip install ms-mint-app2
 
 ```
 
-Should download and install all necessary dependencies and Mint.
+This will download and install all necessary dependencies and MINT.  
 Start the app via:
 
 ```
@@ -38,7 +43,7 @@ The image can be started with:
 Then the tool is available in the browser at http://localhost:9999. -->
 
 ## Installation from source
-If you want to contribute to MINT or use the latest unreleased features, install from source. We recommend using [conda](https://docs.anaconda.com/free/miniconda/) or [mamba](https://conda-forge.org/miniforge/) to create a virtual environment settings.
+If you want to contribute to MINT or use the latest unreleased features, install from source. We recommend using [conda](https://docs.anaconda.com/free/miniconda/) or [mamba](https://conda-forge.org/miniforge/) to create a virtual environment.
 
 ```bash
 # Create conda environment
@@ -57,11 +62,11 @@ pip install -e .
 ```
 
 ## Options
-After installation Mint can be started by running `Mint`.
+After installation, MINT can be started by running `Mint`.
 
 ```console
 Mint --help
-usage: Mint [-h] [--no-browser] [--version] [--data-dir DATA_DIR] [--debug] [--port PORT] [--serve-path SERVE_PATH]
+usage: Mint [-h] [--no-browser] [--version] [--data-dir DATA_DIR] [--debug] [--port PORT] [--host HOST] [--ncpu NCPU] [--local] [--config CONFIG] [--repo-path REPO_PATH] [--fallback-repo-path FALLBACK_REPO_PATH] [--skip-update] [--serve-path SERVE_PATH]
 
 MINT frontend.
 
@@ -71,8 +76,23 @@ optional arguments:
   --version             print current version
   --data-dir            target directory for MINT data
   --debug               start MINT server in debug mode
-  --port                change the port
-  --serve-path          serve app at a different path e.g. '/mint/' to serve the app at 'localhost:9999/mint/'
+  --port                change the port (default: 9999)
+  --host                host binding address (default: 127.0.0.1)
+  --ncpu                number of CPUs to use for processing
+  --local               run locally and use the File System Access API (best for desktop usage)
+  --config              path to JSON config (auto-created if missing)
+  --repo-path           repo path or VCS URL for auto-update on launch
+  --fallback-repo-path  fallback repo path if the primary update fails
+  --skip-update         skip auto-update before launching
+  --serve-path          (deprecated) serve app at a different path, e.g. '/mint/'
 ```
 
-If the browser does not open automatically open it manually and navigate to `http://localhost:9999`. The app's frontend is build using [Plotly-Dash](https://plot.ly/dash/) and runs locally in a browser. The GUI is under active development and may be optimized in the future.
+If the browser does not open automatically, open it manually and navigate to `http://localhost:9999` (or the port shown in the terminal). The app's frontend is built using [Plotly-Dash](https://plot.ly/dash/) and runs locally in a browser. The GUI is under active development and may be optimized in the future.
+
+### Local file access
+MINT uses the File System Access API (when available) to select local files without uploading them to a server. This works best in Chromium-based browsers. If the API is not supported, use the built-in server file browser to select files from the machine running MINT.
+
+### Configuration file
+On first run, MINT creates a JSON config file (default: `~/.mint_config.json`) that can store:
+- `repo_path` and `fallback_repo_path` (for auto-update on launch)
+- `data_dir` (default MINT data directory)

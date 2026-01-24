@@ -5,34 +5,34 @@
 To build the source distribution and wheel for `ms-mint-app2`, follow these steps:
 
 1. Navigate to the root directory of the project.
-2. Run the following command to create the source distribution (`sdist`) and wheel (`bdist_wheel`):
+2. Run the following command to create the source distribution (`sdist`) and wheel (`wheel`):
 
 ```bash
-python3 setup.py sdist bdist_wheel
+python -m build
 ```
 
    This will generate distribution archives in the `dist` directory.
 
-3. To upload the built package to the `ms-mint` repository, use `twine`. Ensure you have `twine` installed (`pip install twine` if not). Then, run:
+3. To upload the built package, use `twine`. Ensure you have `twine` installed (`pip install twine` if not). Then, run:
 
 ```bash
-python3 -m twine upload --repository ms-mint dist/ms*mint-*
+python -m twine upload dist/*
 ```
 
-   This command will upload all matching distribution files to the specified repository.
+   If you use a custom repository, configure it in `~/.pypirc` and pass `--repository <name>`.
 
 ## Windows Executables
 
-To create Windows executables for the `ms-mint` application, use `pyinstaller`. Follow these steps:
-
-1. Navigate to the `specfiles` directory.
-2. Run the `pyinstaller` command with the provided specification file:
+To create Windows executables for the `ms-mint-app2` application, use `pyinstaller`. Follow the full guide in `pyinstaller/BUILD_GUIDE.md`. The short version is:
 
 ```bash
-cd specfiles && pyinstaller --noconfirm Mint.spec ..\scripts\Mint.py
+cd pyinstaller
+python create_asari_env.py
+python prebuild_matplotlib_cache.py
+pyinstaller Mint.spec
 ```
 
-   This will generate a standalone executable for Windows based on the `Mint.spec` file.
+This will generate a standalone executable based on `pyinstaller/Mint.spec`.
 
 ## Documentation Deployment
 
@@ -49,12 +49,12 @@ mkdocs build && mkdocs gh-deploy
 
 ## Example NGINX Configuration
 
-To run `ms-mint` on a remote server, you need to set up a reverse proxy using NGINX. Here is an example configuration:
+To run `ms-mint-app2` on a remote server, you need to set up a reverse proxy using NGINX. Here is an example configuration:
 
     server {
         ...
         location / {
-            proxy_pass              http://localhost:8000;
+            proxy_pass              http://localhost:9999;
             client_max_body_size    100G;
             proxy_set_header        X-Forwarded-Proto https;
             proxy_set_header        Host $host;
@@ -63,9 +63,9 @@ To run `ms-mint` on a remote server, you need to set up a reverse proxy using NG
 
 Explanation:
 
-  - `proxy_pass http://localhost:8000;`: Forwards all requests to the `ms-mint` application running on port 8000.
+  - `proxy_pass http://localhost:9999;`: Forwards all requests to the MINT application running on port 9999 (default).
   - `client_max_body_size 100G;`: Increases the maximum allowed size of client request bodies to 100GB.
   - `proxy_set_header X-Forwarded-Proto https;`: Sets the `X-Forwarded-Proto` header to `https`.
   - `proxy_set_header Host $host;`: Ensures the `Host` header from the original request is passed to the proxied server.
 
-Then start ms-mint via the `entrypoint.sh` script.
+Then start MINT with `Mint --host 0.0.0.0 --port 9999` (or your chosen port).

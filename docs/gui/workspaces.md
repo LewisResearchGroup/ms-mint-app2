@@ -6,6 +6,11 @@ Workspaces allow you to organize and separate different projects. Each workspace
 
 ![Workspaces](../image/workspaces_v1.1.1.png)
 
+### Explore Workspace (First Launch) {: #explore-workspace }
+On first launch, MINT auto-creates an **Explore** workspace with lightweight demo data so you can preview the interface without importing files. This workspace is only created if no other workspaces exist, and you can keep it or delete it like any other workspace.
+
+If you want to skip creating it, set the environment variable `MINT_DISABLE_EXPLORATION_WORKSPACE=1` before launching MINT. Advanced users can also point `MINT_EXPLORATION_BUNDLE_PATH` to a custom demo bundle to seed the Explore workspace with different sample data.
+
 ### Storage Location {: #storage-location }
 
 All files for a workspace are stored in a subdirectory within your MINT data folder (`--data-dir`).
