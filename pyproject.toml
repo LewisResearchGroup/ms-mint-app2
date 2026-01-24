@@ -3,7 +3,7 @@ requires = ["setuptools<80", "wheel", "versioneer[toml]"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "ms-mint-app"
+name = "ms-mint-app2"
 description = "Metabolomics Integrator Interactive Web-Application (Mint)"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -64,10 +64,10 @@ dependencies = [
 dynamic = ["version"]
 
 [project.urls]
-Homepage = "https://github.com/LewisResearchGroup/ms-mint-app"
-Documentation = "https://lewisresearchgroup.github.io/ms-mint-app/"
-Repository = "https://github.com/LewisResearchGroup/ms-mint-app.git"
-"Bug Tracker" = "https://github.com/LewisResearchGroup/ms-mint-app/issues"
+Homepage = "https://github.com/LewisResearchGroup/ms-mint-app2"
+Documentation = "https://lewisresearchgroup.github.io/ms-mint-app2/"
+Repository = "https://github.com/LewisResearchGroup/ms-mint-app2.git"
+"Bug Tracker" = "https://github.com/LewisResearchGroup/ms-mint-app2/issues"
 
 [project.scripts]
 Mint = "ms_mint_app.scripts.Mint:main"
@@ -84,7 +84,7 @@ VCS = "git"
 style = "pep440"
 versionfile_source = "src/ms_mint_app/_version.py"
 tag_prefix = "v"
-parentdir_prefix = ""
+parentdir_prefix = "ms_mint_app2-"
 
 [tool.setuptools.dynamic]
 version = { attr = "ms_mint_app.__version__" }

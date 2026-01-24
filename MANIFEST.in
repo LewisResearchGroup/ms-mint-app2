@@ -1,5 +1,4 @@
 include setup.cfg
-include versioneer.py
 include src/ms_mint_app/_version.py
 graft src/ms_mint_app/assets
 global-exclude *.py[cod]
