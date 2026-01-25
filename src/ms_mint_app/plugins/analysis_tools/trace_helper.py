@@ -265,7 +265,14 @@ def generate_chromatogram_traces(
             sample_type_counts[stype] = sample_type_counts.get(stype, 0) + 1
         
         # Sort rows: larger sample_type groups first, so smaller groups are drawn last (on top)
-        rows_sorted = sorted(rows_list, key=lambda r: sample_type_counts.get(r['sample_type'], 0), reverse=True)
+        rows_sorted = sorted(
+            rows_list,
+            key=lambda r: (
+                -sample_type_counts.get(r['sample_type'], 0),
+                str(r.get('sample_type') or '').lower(),
+                str(r.get('label') or r.get('ms_file_label') or '').lower(),
+            ),
+        )
         
         total_traces = len(rows_sorted)
         for i, row in enumerate(rows_sorted):
@@ -410,7 +417,13 @@ def generate_chromatogram_traces(
                 y_max = max(y_max, row['intensity_max_in_range'])
 
         # Build traces - sort by count descending so smaller groups are drawn last (on top)
-        sorted_groups = sorted(grouped.items(), key=lambda x: x[1]['count'], reverse=True)
+        sorted_groups = sorted(
+            grouped.items(),
+            key=lambda item: (
+                -item[1]['count'],
+                str(item[0] or '').lower(),
+            ),
+        )
         for stype, data in sorted_groups:
             # Flatten arrays
             x_flat = list(itertools.chain(*data['x']))
@@ -458,7 +471,7 @@ def generate_envelope_traces(envelope_df):
     """
     Generate Plotly traces for chromatogram envelopes (Min/Max/Mean).
     Expects Polars DataFrame with columns: 
-    [sample_type, color, bin_idx, rt, min_int, max_int, mean_int, count]
+    [sample_type, color, bin_idx, rt, min_int, max_int, mean_int, count, sample_count?]
     """
     traces = []
     x_min = float('inf')
@@ -469,15 +482,24 @@ def generate_envelope_traces(envelope_df):
     if envelope_df is None or envelope_df.is_empty():
         return traces, x_min, x_max, y_min, y_max
 
+    has_sample_count = 'sample_count' in envelope_df.columns
+
     # Determine groups and sort by sample count (highest count first)
     type_counts = []
     for stype in envelope_df['sample_type'].unique().to_list():
-        # 'count' is the number of samples in the bin. Max count represents the total samples.
-        max_c = envelope_df.filter(envelope_df['sample_type'] == stype)['count'].max()
+        if has_sample_count:
+            sample_count_val = envelope_df.filter(envelope_df['sample_type'] == stype)['sample_count'].max()
+            if sample_count_val is None:
+                max_c = envelope_df.filter(envelope_df['sample_type'] == stype)['count'].max()
+            else:
+                max_c = int(sample_count_val)
+        else:
+            # 'count' is the number of points in the bin. Max count is only a proxy for sample count.
+            max_c = envelope_df.filter(envelope_df['sample_type'] == stype)['count'].max()
         type_counts.append((stype, max_c))
     
     # Sort by count descending
-    type_counts.sort(key=lambda x: x[1], reverse=True)
+    type_counts.sort(key=lambda item: (-item[1], str(item[0] or '').lower()))
     sample_types = [x[0] for x in type_counts]
 
     for stype in sample_types:
@@ -495,8 +517,12 @@ def generate_envelope_traces(envelope_df):
         color = group_df['color'][0] or 'grey'
 
         # Estimate sample count (max number of points in any bin for this sample type)
-        # Assuming binning is fine enough, or just use the max count observed
-        estimated_count = max(counts) if counts else 0
+        if has_sample_count:
+            sample_count_val = group_df['sample_count'][0] if len(group_df) > 0 else None
+            estimated_count = int(sample_count_val) if sample_count_val is not None else (max(counts) if counts else 0)
+        else:
+            # Assuming binning is fine enough, or just use the max count observed
+            estimated_count = max(counts) if counts else 0
         label_with_count = f"{stype} ({estimated_count})"
 
         # Update bounds
@@ -558,4 +584,3 @@ def generate_envelope_traces(envelope_df):
     if y_max == float('-inf'): y_max = 1
 
     return traces, x_min, x_max, y_min, y_max
-

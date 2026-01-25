@@ -3603,7 +3603,7 @@ def get_chromatogram_envelope(conn, target_label, ms_type='ms1', bins=500, full_
     """
     Computes Min/Max/Mean envelope for chromatograms, binned by time.
     Returns a Polars DataFrame with columns: 
-    [sample_type, color, bin_idx, rt, min_int, max_int, mean_int, count]
+    [sample_type, color, bin_idx, rt, min_int, max_int, mean_int, count, sample_count]
     """
     
     # Full-range downsampled chromatograms are only available for MS1.
@@ -3622,11 +3622,27 @@ def get_chromatogram_envelope(conn, target_label, ms_type='ms1', bins=500, full_
         time_col = "scan_time"
         int_col = "intensity"
 
+    try:
+        bins = int(bins)
+    except (TypeError, ValueError):
+        bins = 500
+    bins = max(10, min(bins, 2000))
+
     query = f"""
     WITH picked_samples AS (
         SELECT ms_file_label, sample_type, color
         FROM samples
         WHERE use_for_optimization = TRUE
+    ),
+    sample_counts AS (
+        SELECT
+            s.sample_type,
+            COUNT(DISTINCT s.ms_file_label) AS sample_count
+        FROM chromatograms c
+        JOIN picked_samples s ON c.ms_file_label = s.ms_file_label
+        WHERE c.peak_label = ?
+          AND c.ms_type = ?
+        GROUP BY s.sample_type
     ),
     raw_points AS (
         SELECT 
@@ -3652,7 +3668,15 @@ def get_chromatogram_envelope(conn, target_label, ms_type='ms1', bins=500, full_
             p.rt,
             p.intens,
             -- Increase bins to 500 for higher resolution
-            CAST(FLOOR((p.rt - b.min_rt) / (b.max_rt - b.min_rt + 1e-9) * 500) AS INTEGER) as bin_idx
+            CAST(
+                LEAST(
+                    {bins - 1},
+                    GREATEST(
+                        0,
+                        FLOOR((p.rt - b.min_rt) / (b.max_rt - b.min_rt + 1e-9) * {bins})
+                    )
+                ) AS INTEGER
+            ) as bin_idx
         FROM raw_points p, bounds b
     ),
     aggregated AS (
@@ -3668,14 +3692,19 @@ def get_chromatogram_envelope(conn, target_label, ms_type='ms1', bins=500, full_
         FROM binned
         GROUP BY sample_type, color, bin_idx
     )
-    SELECT * FROM aggregated ORDER BY sample_type, bin_idx
+    SELECT
+        a.*,
+        sc.sample_count
+    FROM aggregated a
+    LEFT JOIN sample_counts sc USING (sample_type)
+    ORDER BY a.sample_type, a.bin_idx
     """
     
-    df = conn.execute(query, [target_label, ms_type]).pl()
+    df = conn.execute(query, [target_label, ms_type, target_label, ms_type]).pl()
 
     # Fallback: if no MS2 chromatograms exist for this target, try MS1 so UI isn't blank.
     if df.is_empty() and ms_type == 'ms2':
-        df = conn.execute(query, [target_label, 'ms1']).pl()
+        df = conn.execute(query, [target_label, 'ms1', target_label, 'ms1']).pl()
         if not df.is_empty():
             logger.warning(
                 "No MS2 chromatograms found for target '%s'; using MS1 envelope instead.",

@@ -3025,6 +3025,7 @@ def callbacks(app, fsc, cache, cpu=None):
         Output('chromatogram-view-plot', 'figure', allow_duplicate=True),
         Output('chromatogram-view-megatrace', 'disabled', allow_duplicate=True),
         Output('chromatogram-view-savgol', 'disabled', allow_duplicate=True),
+        Output('chromatogram-view-megatrace', 'checked', allow_duplicate=True),
         Input('chromatogram-view-megatrace', 'checked'),
         Input('chromatogram-view-full-range', 'checked'),
         Input('chromatogram-view-savgol', 'checked'),
@@ -3039,7 +3040,10 @@ def callbacks(app, fsc, cache, cpu=None):
         if not wdir or not target_clicked:
             logger.debug("update_megatrace_mode: No workspace directory or target clicked, preventing update")
             raise PreventUpdate
-        
+
+        # Envelope is only valid when megatrace is active.
+        use_megatrace_effective = bool(use_megatrace or use_envelope)
+
         with duckdb_connection(wdir) as conn:
             if conn is None:
                  raise PreventUpdate
@@ -3089,7 +3093,7 @@ def callbacks(app, fsc, cache, cpu=None):
         else:
             traces, x_min, x_max, y_min, y_max = generate_chromatogram_traces(
                 chrom_df, 
-                use_megatrace=use_megatrace,
+                use_megatrace=use_megatrace_effective,
                 rt_alignment_shifts=rt_alignment_shifts,
                 ms_type=target_ms_type,
                 smoothing_params=smoothing_params,
@@ -3124,12 +3128,12 @@ def callbacks(app, fsc, cache, cpu=None):
         # Given this is a toggle, replacing data is key.
         if use_envelope:
              fig['layout']['hovermode'] = False
-        elif use_megatrace:
+        elif use_megatrace_effective:
              fig['layout']['hovermode'] = False
         else:
              fig['layout']['hovermode'] = 'closest'
-        
-        return fig, use_envelope, use_envelope
+
+        return fig, use_envelope, use_envelope, use_megatrace_effective
 
     @app.callback(
         Output('chromatogram-view-plot', 'figure', allow_duplicate=True),
@@ -3494,9 +3498,13 @@ def callbacks(app, fsc, cache, cpu=None):
             if current_full_range is not None:
                 full_range = current_full_range
             else:
-                full_range = False # Default off
+                 full_range = False # Default off
         else:
              full_range = False # Reset if new open
+
+        # Envelope requires megatrace to be active.
+        if use_envelope:
+            use_megatrace = True
 
         # Calculate RT alignment shifts if enabled in database
         rt_alignment_shifts_to_apply = None
