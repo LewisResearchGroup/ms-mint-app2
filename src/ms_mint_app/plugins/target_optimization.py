@@ -965,43 +965,8 @@ _layout = fac.AntdLayout(
                                 ),
                                 fac.AntdSpace(
                                     [
-                                        html.Div(
-                                            [
-                                                html.Div(
-                                                    [
-                                                        html.Span('View Mode:'),
-                                                        fac.AntdTooltip(
-                                                            fac.AntdIcon(
-                                                                icon='antd-question-circle',
-                                                                style={'marginLeft': '5px', 'color': 'gray'}
-                                                            ),
-                                                            title='Envelope (range per sample type) vs Detailed (individual traces)'
-                                                        )
-                                                    ],
-                                                    style={
-                                                        'display': 'flex',
-                                                        'alignItems': 'center',
-                                                        'width': '170px',
-                                                        'paddingRight': '8px'
-                                                    }
-                                                ),
-                                                html.Div(
-                                                    fac.AntdSwitch(
-                                                        id='chromatogram-view-envelope',
-                                                        checked=True,
-                                                        checkedChildren='Env',
-                                                        unCheckedChildren='Det',
-                                                        style={'width': '60px'}
-                                                    ),
-                                                    style={
-                                                        'width': '110px',
-                                                        'display': 'flex',
-                                                        'justifyContent': 'flex-start'
-                                                    }
-                                                ),
-                                            ],
-                                            style={'display': 'flex', 'alignItems': 'center'}
-                                        ),
+                                        # View Mode Toggle removed
+
                                         html.Div(
                                             [
                                                 html.Div(
@@ -3062,12 +3027,12 @@ def callbacks(app, fsc, cache, cpu=None):
         Output('chromatogram-view-plot', 'figure', allow_duplicate=True),
         Output('chromatogram-view-megatrace', 'disabled', allow_duplicate=True),
         Output('chromatogram-view-savgol', 'disabled', allow_duplicate=True),
-        Output('chromatogram-view-envelope', 'checked', allow_duplicate=True),
+        # Output('chromatogram-view-envelope', 'checked', allow_duplicate=True),
         Output('chromatogram-view-megatrace', 'checked', allow_duplicate=True),
         Input('chromatogram-view-megatrace', 'checked'),
         Input('chromatogram-view-full-range', 'checked'),
         Input('chromatogram-view-savgol', 'checked'),
-        Input('chromatogram-view-envelope', 'checked'),
+        # Input('chromatogram-view-envelope', 'checked'),
         State('chromatogram-view-plot', 'figure'),
         State('target-preview-clicked', 'data'),
         State('wdir', 'data'),
@@ -3075,7 +3040,7 @@ def callbacks(app, fsc, cache, cpu=None):
         State('session-id-store', 'data'),
         prevent_initial_call=True
     )
-    def update_megatrace_mode(use_megatrace, full_range, use_savgol, use_envelope, figure, target_clicked, wdir, rt_alignment_data, session_id):
+    def update_megatrace_mode(use_megatrace, full_range, use_savgol, figure, target_clicked, wdir, rt_alignment_data, session_id):
         if not wdir or not target_clicked:
             logger.debug("update_megatrace_mode: No workspace directory or target clicked, preventing update")
             raise PreventUpdate
@@ -3091,27 +3056,20 @@ def callbacks(app, fsc, cache, cpu=None):
         current_full_range = current_layout.get('_full_range')
         current_target = current_layout.get('_target')
 
-        # Envelope is only valid when megatrace is active.
-        use_megatrace_effective = bool(use_megatrace or use_envelope)
-        use_envelope_effective = bool(use_envelope)
+        use_megatrace = use_envelope = bool(use_megatrace)
         envelope_output_value = dash.no_update
         megatrace_output_value = dash.no_update
         envelope_precomputed = None
 
-        # When envelope is on, megatrace is forced on programmatically; ignore that
-        # self-trigger to avoid a second render that can flicker.
-        if trigger_id == 'chromatogram-view-megatrace' and use_envelope_effective:
-            raise PreventUpdate
-
         # Guard against self-triggered duplicate updates that cause flicker.
-        if trigger_id in ('chromatogram-view-megatrace', 'chromatogram-view-envelope'):
-            desired_view_mode = 'envelope' if use_envelope_effective else 'detailed'
+        if trigger_id in ('chromatogram-view-megatrace',):
+            desired_view_mode = 'envelope' if use_envelope else 'detailed'
             if (
                 current_target == target_clicked
                 and current_full_range == bool(full_range)
                 and current_view_mode == desired_view_mode
-                and current_megatrace_effective == bool(use_megatrace_effective)
-                and current_envelope_effective == bool(use_envelope_effective)
+                and current_megatrace_effective == bool(use_megatrace)
+                and current_envelope_effective == bool(use_envelope)
             ):
                 raise PreventUpdate
 
@@ -3128,7 +3086,7 @@ def callbacks(app, fsc, cache, cpu=None):
             if target_ms_type is None:
                 target_ms_type = 'ms1'
 
-            if use_envelope_effective:
+            if use_envelope:
                 ms_type_use = target_ms_type or 'ms1'
                 if full_range and ms_type_use == 'ms1':
                     has_full_ds = conn.execute(
@@ -3159,7 +3117,7 @@ def callbacks(app, fsc, cache, cpu=None):
                         ms_type_use,
                         full_range,
                     )
-                    use_envelope_effective = False
+                    use_envelope = False
                     envelope_output_value = False
                     chrom_df = get_chromatogram_dataframe(
                         conn, target_clicked, full_range=full_range, wdir=wdir
@@ -3177,7 +3135,7 @@ def callbacks(app, fsc, cache, cpu=None):
             )
             raise PreventUpdate
 
-        if use_envelope_effective:
+        if use_envelope:
             envelope_precomputed = generate_envelope_traces(chrom_df)
             if not envelope_precomputed[0]:
                 logger.warning(
@@ -3185,7 +3143,7 @@ def callbacks(app, fsc, cache, cpu=None):
                     target_clicked,
                     full_range,
                 )
-                use_envelope_effective = False
+                use_envelope = False
                 envelope_output_value = False
                 envelope_precomputed = None
                 with duckdb_connection(wdir) as conn:
@@ -3203,15 +3161,15 @@ def callbacks(app, fsc, cache, cpu=None):
                     raise PreventUpdate
 
         # Recompute effective megatrace state after any envelope fallback logic.
-        use_megatrace_effective = bool(use_megatrace or use_envelope_effective)
+        use_megatrace_effective = bool(use_megatrace or use_envelope)
 
         # Only force megatrace ON when envelope is enabled and megatrace is currently off.
-        if use_envelope_effective and not use_megatrace:
+        if use_envelope and not use_megatrace:
             megatrace_output_value = True
 
         # Apply RT alignment if active
         rt_alignment_shifts = None
-        if (not use_envelope_effective) and rt_alignment_data and rt_alignment_data.get('enabled'):
+        if (not use_envelope) and rt_alignment_data and rt_alignment_data.get('enabled'):
             rt_alignment_shifts = calculate_rt_alignment(
                 chrom_df, 
                 rt_alignment_data['rt_min'], 
@@ -3237,7 +3195,7 @@ def callbacks(app, fsc, cache, cpu=None):
 
         if envelope_precomputed is not None:
             traces, x_min, x_max, y_min, y_max = envelope_precomputed
-        elif use_envelope_effective:
+        elif use_envelope:
             traces, x_min, x_max, y_min, y_max = generate_envelope_traces(chrom_df)
         else:
             traces, x_min, x_max, y_min, y_max = generate_chromatogram_traces(
@@ -3251,9 +3209,9 @@ def callbacks(app, fsc, cache, cpu=None):
         
         fig = Patch()
         fig['data'] = traces
-        fig['layout']['_view_mode'] = 'envelope' if use_envelope_effective else 'detailed'
+        fig['layout']['_view_mode'] = 'envelope' if use_envelope else 'detailed'
         fig['layout']['_use_megatrace_effective'] = bool(use_megatrace_effective)
-        fig['layout']['_use_envelope_effective'] = bool(use_envelope_effective)
+        fig['layout']['_use_envelope_effective'] = bool(use_envelope)
         fig['layout']['_full_range'] = bool(full_range)
         fig['layout']['_target'] = target_clicked
         fig['layout']['_render_rev'] = session_rev
@@ -3281,7 +3239,7 @@ def callbacks(app, fsc, cache, cpu=None):
         # but to be consistent with main load, we might want to. 
         # For now let's update data only, or update everything if user expects a "reset" view.
         # Given this is a toggle, replacing data is key.
-        if use_envelope_effective:
+        if use_envelope:
             fig['layout']['hovermode'] = False
         elif use_megatrace_effective:
             fig['layout']['hovermode'] = False
@@ -3293,10 +3251,9 @@ def callbacks(app, fsc, cache, cpu=None):
 
         return (
             fig,
-            use_envelope_effective,
-            use_envelope_effective,
-            envelope_output_value,
-            megatrace_output_value,
+            False, # megatrace disabled output - always enabled
+            use_megatrace, # savgol disabled output - disabled if megatrace is on
+            dash.no_update, # megatrace checked output - no change
         )
 
     @app.callback(
@@ -3555,7 +3512,7 @@ def callbacks(app, fsc, cache, cpu=None):
         Output('chromatogram-view-lock-range', 'checked', allow_duplicate=True), # Set initial lock state
         Output('bookmark-target-modal-btn', 'icon'),
 
-        Output('chromatogram-view-envelope', 'checked', allow_duplicate=True),
+        # Output('chromatogram-view-envelope', 'checked', allow_duplicate=True),
         Output('chromatogram-view-megatrace', 'disabled'),
         Output('chromatogram-view-savgol', 'disabled'),
         Output('chromatogram-view-megatrace', 'checked', allow_duplicate=True), # Reset megatrace if envelope is on
@@ -3570,13 +3527,13 @@ def callbacks(app, fsc, cache, cpu=None):
         State('chromatogram-view-groupclick', 'checked'),  # Current legend behavior state
         State('chromatogram-view-full-range', 'checked'),  # Current full range state
         State('chromatogram-view-savgol', 'checked'),
-        State('chromatogram-view-envelope', 'checked'),
+        # State('chromatogram-view-envelope', 'checked'),
         State('session-id-store', 'data'),
         prevent_initial_call=True
     )
     def chromatogram_view_modal(target_clicked, log_scale, checkedKeys, wdir, 
                                  modal_already_open, current_megatrace, current_log_y, current_groupclick, current_full_range,
-                                 current_savgol, current_envelope, session_id):
+                                 current_savgol, session_id):
 
         if not wdir:
             raise PreventUpdate
@@ -3616,7 +3573,7 @@ def callbacks(app, fsc, cache, cpu=None):
             full_range_disabled = n_samples > 100
             if full_range_disabled:
                 full_range = False
-                full_range_tooltip = f"Full Range disabled (>90 samples, total optimization samples: {n_samples}) to prevent OOM."
+                full_range_tooltip = f"Full Range disabled (>90 samples, total optimization samples: {n_samples})"
             else:
                 full_range_tooltip = "Show entire chromatogram (slower) vs 30s window"
                 if modal_already_open and current_full_range is not None:
@@ -3627,10 +3584,8 @@ def callbacks(app, fsc, cache, cpu=None):
             # Decide on Envelope Mode vs Detailed Mode
             # If modal is already open, respect user's toggle state
             # If new open, default to Envelope if n_samples > 200
-            if modal_already_open and current_envelope is not None:
-                use_envelope = current_envelope
-            else:
-                use_envelope = n_samples > 200
+            # Envelope mode is now tied to megatrace
+            use_envelope = bool(current_megatrace) if modal_already_open else (n_samples > 200)
 
             if use_envelope:
                 ms_type_use = target_ms_type or 'ms1'
@@ -3728,9 +3683,12 @@ def callbacks(app, fsc, cache, cpu=None):
         else:
              full_range = False # Reset if new open
 
-        # Envelope requires megatrace to be active.
         if use_envelope:
             use_megatrace = True
+            
+        # Enforce envelope mode if megatrace is used (User Request)
+        if use_megatrace:
+            use_envelope = True
 
         if use_envelope:
             envelope_precomputed = generate_envelope_traces(chrom_df)
@@ -4001,8 +3959,8 @@ def callbacks(app, fsc, cache, cpu=None):
 
         return (fig, f"{target_clicked}", False, slider_reference,
                 slider_dict, {"min_y": y_min, "max_y": y_max}, total_points, log_scale, group_legend, 
-                full_range, full_range_disabled, full_range_tooltip, rt_align_toggle_state, rt_alignment_data_to_load, note, False, bookmark_icon_node, use_envelope,
-                use_envelope, use_envelope, use_megatrace)
+                full_range, full_range_disabled, full_range_tooltip, rt_align_toggle_state, rt_alignment_data_to_load, note, False, bookmark_icon_node, 
+                False, use_envelope, use_megatrace)
 
     @app.callback(
         Output('chromatogram-view-plot', 'figure', allow_duplicate=True),
