@@ -1,6 +1,9 @@
 import json
 import logging
+import uuid
+from collections import defaultdict
 from os import cpu_count
+from threading import Lock
 
 import dash
 import feffery_antd_components as fac
@@ -41,6 +44,26 @@ LTTB_TARGET_POINTS = 100
 FULL_RANGE_DOWNSAMPLE_POINTS = 1000
 SAVGOL_WINDOW = 10
 SAVGOL_ORDER = 2
+
+_SESSION_RENDER_REVISIONS = defaultdict(int)
+_SESSION_RENDER_LOCK = Lock()
+
+
+def _bump_session_render_revision(session_id):
+    """Increment and return the render revision for this browser session."""
+    if not session_id:
+        return None
+    with _SESSION_RENDER_LOCK:
+        _SESSION_RENDER_REVISIONS[session_id] += 1
+        return _SESSION_RENDER_REVISIONS[session_id]
+
+
+def _get_session_render_revision(session_id):
+    """Return the latest known render revision for this browser session."""
+    if not session_id:
+        return None
+    with _SESSION_RENDER_LOCK:
+        return _SESSION_RENDER_REVISIONS.get(session_id, 0)
 
 
 class TargetOptimizationPlugin(PluginInterface):
@@ -1391,6 +1414,7 @@ _layout = fac.AntdLayout(
         dcc.Store(id='slider-reference-data'),
         dcc.Store(id='rt-alignment-data'),  # Stores RT alignment info for saving to notes
         dcc.Store(id='target-preview-clicked'),
+        dcc.Store(id='session-id-store', storage_type='session'),
 
         dcc.Store(id='chromatograms', data=True),
         dcc.Store(id='drop-chromatogram'),
@@ -1806,6 +1830,18 @@ def callbacks(app, fsc, cache, cpu=None):
         State('optimization-sidebar', 'collapsed'),
         prevent_initial_call=False,
     )
+
+    @app.callback(
+        Output('session-id-store', 'data'),
+        Input('session-id-store', 'data'),
+        prevent_initial_call=False,
+    )
+    def ensure_session_id(session_id):
+        if session_id:
+            raise PreventUpdate
+        new_session_id = str(uuid.uuid4())
+        _get_session_render_revision(new_session_id)
+        return new_session_id
 
     # Disable compute buttons when no targets or ms-files exist
     app.clientside_callback(
@@ -3025,6 +3061,7 @@ def callbacks(app, fsc, cache, cpu=None):
         Output('chromatogram-view-plot', 'figure', allow_duplicate=True),
         Output('chromatogram-view-megatrace', 'disabled', allow_duplicate=True),
         Output('chromatogram-view-savgol', 'disabled', allow_duplicate=True),
+        Output('chromatogram-view-envelope', 'checked', allow_duplicate=True),
         Output('chromatogram-view-megatrace', 'checked', allow_duplicate=True),
         Input('chromatogram-view-megatrace', 'checked'),
         Input('chromatogram-view-full-range', 'checked'),
@@ -3034,37 +3071,146 @@ def callbacks(app, fsc, cache, cpu=None):
         State('target-preview-clicked', 'data'),
         State('wdir', 'data'),
         State('rt-alignment-data', 'data'),  # Check if RT alignment is active
+        State('session-id-store', 'data'),
         prevent_initial_call=True
     )
-    def update_megatrace_mode(use_megatrace, full_range, use_savgol, use_envelope, figure, target_clicked, wdir, rt_alignment_data):
+    def update_megatrace_mode(use_megatrace, full_range, use_savgol, use_envelope, figure, target_clicked, wdir, rt_alignment_data, session_id):
         if not wdir or not target_clicked:
             logger.debug("update_megatrace_mode: No workspace directory or target clicked, preventing update")
             raise PreventUpdate
 
+        session_rev = None
+
+        ctx = dash.callback_context
+        trigger_id = ctx.triggered[0]['prop_id'].split('.')[0] if ctx.triggered else None
+        current_layout = (figure or {}).get('layout', {})
+        current_view_mode = current_layout.get('_view_mode')
+        current_megatrace_effective = current_layout.get('_use_megatrace_effective')
+        current_envelope_effective = current_layout.get('_use_envelope_effective')
+        current_full_range = current_layout.get('_full_range')
+        current_target = current_layout.get('_target')
+
         # Envelope is only valid when megatrace is active.
         use_megatrace_effective = bool(use_megatrace or use_envelope)
+        use_envelope_effective = bool(use_envelope)
+        envelope_output_value = dash.no_update
+        megatrace_output_value = dash.no_update
+        envelope_precomputed = None
+
+        # When envelope is on, megatrace is forced on programmatically; ignore that
+        # self-trigger to avoid a second render that can flicker.
+        if trigger_id == 'chromatogram-view-megatrace' and use_envelope_effective:
+            raise PreventUpdate
+
+        # Guard against self-triggered duplicate updates that cause flicker.
+        if trigger_id in ('chromatogram-view-megatrace', 'chromatogram-view-envelope'):
+            desired_view_mode = 'envelope' if use_envelope_effective else 'detailed'
+            if (
+                current_target == target_clicked
+                and current_full_range == bool(full_range)
+                and current_view_mode == desired_view_mode
+                and current_megatrace_effective == bool(use_megatrace_effective)
+                and current_envelope_effective == bool(use_envelope_effective)
+            ):
+                raise PreventUpdate
+
+        session_rev = _bump_session_render_revision(session_id)
 
         with duckdb_connection(wdir) as conn:
             if conn is None:
-                 raise PreventUpdate
+                raise PreventUpdate
             # Fetch ms_type for this target
             target_ms_type = conn.execute(
                 "SELECT ms_type FROM targets WHERE peak_label = ?", [target_clicked]
             ).fetchone()
             target_ms_type = target_ms_type[0] if target_ms_type else None
+            if target_ms_type is None:
+                target_ms_type = 'ms1'
 
-            if use_envelope:
-                 chrom_df = get_chromatogram_envelope(
-                     conn, target_clicked, ms_type=target_ms_type or 'ms1', full_range=full_range
-                 )
+            if use_envelope_effective:
+                ms_type_use = target_ms_type or 'ms1'
+                if full_range and ms_type_use == 'ms1':
+                    has_full_ds = conn.execute(
+                        """
+                        SELECT COUNT(*)
+                        FROM chromatograms
+                        WHERE peak_label = ?
+                          AND ms_type = 'ms1'
+                          AND scan_time_full_ds IS NOT NULL
+                        """,
+                        [target_clicked],
+                    ).fetchone()[0]
+                    if not has_full_ds and wdir:
+                        populate_full_range_downsampled_chromatograms_for_target(
+                            wdir,
+                            target_clicked,
+                            n_out=FULL_RANGE_DOWNSAMPLE_POINTS,
+                            conn=conn,
+                        )
+
+                chrom_df = get_chromatogram_envelope(
+                    conn, target_clicked, ms_type=ms_type_use, full_range=full_range
+                )
+                if chrom_df is None or chrom_df.is_empty():
+                    logger.warning(
+                        "Envelope requested but no data returned for target '%s' (ms_type=%s, full_range=%s). Falling back to detailed traces.",
+                        target_clicked,
+                        ms_type_use,
+                        full_range,
+                    )
+                    use_envelope_effective = False
+                    envelope_output_value = False
+                    chrom_df = get_chromatogram_dataframe(
+                        conn, target_clicked, full_range=full_range, wdir=wdir
+                    )
             else:
                 chrom_df = get_chromatogram_dataframe(
                     conn, target_clicked, full_range=full_range, wdir=wdir
                 )
-        
+
+        if chrom_df is None or chrom_df.is_empty():
+            logger.warning(
+                "No chromatogram data available for target '%s' (full_range=%s). Preventing update to avoid clearing the plot.",
+                target_clicked,
+                full_range,
+            )
+            raise PreventUpdate
+
+        if use_envelope_effective:
+            envelope_precomputed = generate_envelope_traces(chrom_df)
+            if not envelope_precomputed[0]:
+                logger.warning(
+                    "Envelope traces were empty for target '%s' (full_range=%s). Falling back to detailed traces.",
+                    target_clicked,
+                    full_range,
+                )
+                use_envelope_effective = False
+                envelope_output_value = False
+                envelope_precomputed = None
+                with duckdb_connection(wdir) as conn:
+                    if conn is None:
+                        raise PreventUpdate
+                    chrom_df = get_chromatogram_dataframe(
+                        conn, target_clicked, full_range=full_range, wdir=wdir
+                    )
+                if chrom_df is None or chrom_df.is_empty():
+                    logger.warning(
+                        "Fallback detailed chromatogram data was empty for target '%s' (full_range=%s). Preventing update.",
+                        target_clicked,
+                        full_range,
+                    )
+                    raise PreventUpdate
+
+        # Recompute effective megatrace state after any envelope fallback logic.
+        use_megatrace_effective = bool(use_megatrace or use_envelope_effective)
+
+        # Only force megatrace ON when envelope is enabled and megatrace is currently off.
+        if use_envelope_effective and not use_megatrace:
+            megatrace_output_value = True
+
         # Apply RT alignment if active
         rt_alignment_shifts = None
-        if rt_alignment_data and rt_alignment_data.get('enabled'):
+        if (not use_envelope_effective) and rt_alignment_data and rt_alignment_data.get('enabled'):
             rt_alignment_shifts = calculate_rt_alignment(
                 chrom_df, 
                 rt_alignment_data['rt_min'], 
@@ -3088,8 +3234,10 @@ def callbacks(app, fsc, cache, cpu=None):
                 'n_out': LTTB_TARGET_POINTS
             }
 
-        if use_envelope:
-             traces, x_min, x_max, y_min, y_max = generate_envelope_traces(chrom_df)
+        if envelope_precomputed is not None:
+            traces, x_min, x_max, y_min, y_max = envelope_precomputed
+        elif use_envelope_effective:
+            traces, x_min, x_max, y_min, y_max = generate_envelope_traces(chrom_df)
         else:
             traces, x_min, x_max, y_min, y_max = generate_chromatogram_traces(
                 chrom_df, 
@@ -3102,6 +3250,12 @@ def callbacks(app, fsc, cache, cpu=None):
         
         fig = Patch()
         fig['data'] = traces
+        fig['layout']['_view_mode'] = 'envelope' if use_envelope_effective else 'detailed'
+        fig['layout']['_use_megatrace_effective'] = bool(use_megatrace_effective)
+        fig['layout']['_use_envelope_effective'] = bool(use_envelope_effective)
+        fig['layout']['_full_range'] = bool(full_range)
+        fig['layout']['_target'] = target_clicked
+        fig['layout']['_render_rev'] = session_rev
         # Recompute y-range using RT span only
         is_log = figure and figure.get('layout', {}).get('yaxis', {}).get('type') == 'log'
         shape = (figure.get('layout', {}).get('shapes') or [{}])[0] if figure else {}
@@ -3126,14 +3280,23 @@ def callbacks(app, fsc, cache, cpu=None):
         # but to be consistent with main load, we might want to. 
         # For now let's update data only, or update everything if user expects a "reset" view.
         # Given this is a toggle, replacing data is key.
-        if use_envelope:
-             fig['layout']['hovermode'] = False
+        if use_envelope_effective:
+            fig['layout']['hovermode'] = False
         elif use_megatrace_effective:
-             fig['layout']['hovermode'] = False
+            fig['layout']['hovermode'] = False
         else:
-             fig['layout']['hovermode'] = 'closest'
+            fig['layout']['hovermode'] = 'closest'
 
-        return fig, use_envelope, use_envelope, use_megatrace_effective
+        if session_rev is not None and _get_session_render_revision(session_id) != session_rev:
+            raise PreventUpdate
+
+        return (
+            fig,
+            use_envelope_effective,
+            use_envelope_effective,
+            envelope_output_value,
+            megatrace_output_value,
+        )
 
     @app.callback(
         Output('chromatogram-view-plot', 'figure', allow_duplicate=True),
@@ -3147,9 +3310,10 @@ def callbacks(app, fsc, cache, cpu=None):
         State('target-preview-clicked', 'data'),
         State('wdir', 'data'),
         State('rt-alignment-data', 'data'),  # Check if this is a restoration
+        State('session-id-store', 'data'),
         prevent_initial_call=True
     )
-    def apply_rt_alignment(use_alignment, figure, use_megatrace, full_range, use_savgol, slider_current, target_clicked, wdir, existing_rt_data):
+    def apply_rt_alignment(use_alignment, figure, use_megatrace, full_range, use_savgol, slider_current, target_clicked, wdir, existing_rt_data, session_id):
         """Apply or remove RT alignment when toggle changes"""
         # logger.debug(f"RT Alignment callback triggered: use_alignment={use_alignment}")
         
@@ -3174,7 +3338,11 @@ def callbacks(app, fsc, cache, cpu=None):
             logger.warning("RT Alignment: rt_min or rt_max is None, raising PreventUpdate")
             raise PreventUpdate
         
+        session_rev = _bump_session_render_revision(session_id)
+
         with duckdb_connection(wdir) as conn:
+            if conn is None:
+                raise PreventUpdate
             query = """
                     WITH picked_samples AS (SELECT ms_file_label, color, label, sample_type
                                             FROM samples
@@ -3246,6 +3414,8 @@ def callbacks(app, fsc, cache, cpu=None):
                 "SELECT ms_type FROM targets WHERE peak_label = ?", [target_clicked]
             ).fetchone()
             target_ms_type = target_ms_type[0] if target_ms_type else None
+            if target_ms_type is None:
+                target_ms_type = 'ms1'
         
         # Calculate RT alignment shifts if alignment is enabled
         rt_alignment_shifts = None
@@ -3309,6 +3479,12 @@ def callbacks(app, fsc, cache, cpu=None):
         
         fig = Patch()
         fig['data'] = traces
+        fig['layout']['_view_mode'] = 'detailed'
+        fig['layout']['_use_megatrace_effective'] = bool(use_megatrace)
+        fig['layout']['_use_envelope_effective'] = False
+        fig['layout']['_full_range'] = bool(full_range)
+        fig['layout']['_target'] = target_clicked
+        fig['layout']['_render_rev'] = session_rev
         
         # Update x-axis range if alignment is applied
         if use_alignment and rt_alignment_shifts:
@@ -3320,6 +3496,9 @@ def callbacks(app, fsc, cache, cpu=None):
             if all_x_values:
                 fig['layout']['xaxis']['range'] = [min(all_x_values), max(all_x_values)]
         
+        if session_rev is not None and _get_session_render_revision(session_id) != session_rev:
+            raise PreventUpdate
+
         return fig, alignment_data
 
 
@@ -3391,14 +3570,17 @@ def callbacks(app, fsc, cache, cpu=None):
         State('chromatogram-view-full-range', 'checked'),  # Current full range state
         State('chromatogram-view-savgol', 'checked'),
         State('chromatogram-view-envelope', 'checked'),
+        State('session-id-store', 'data'),
         prevent_initial_call=True
     )
     def chromatogram_view_modal(target_clicked, log_scale, checkedKeys, wdir, 
                                  modal_already_open, current_megatrace, current_log_y, current_groupclick, current_full_range,
-                                 current_savgol, current_envelope):
+                                 current_savgol, current_envelope, session_id):
 
         if not wdir:
             raise PreventUpdate
+        session_rev = _bump_session_render_revision(session_id)
+        envelope_precomputed = None
         with duckdb_connection(wdir) as conn:
             if conn is None:
                 raise PreventUpdate
@@ -3422,6 +3604,9 @@ def callbacks(app, fsc, cache, cpu=None):
                 align_rt_min = None
                 align_rt_max = None
                 bookmark_state = False
+
+            if target_ms_type is None:
+                target_ms_type = 'ms1'
 
             # Count samples for optimization
             n_samples = conn.execute("SELECT COUNT(*) FROM samples WHERE use_for_optimization = TRUE").fetchone()[0]
@@ -3447,10 +3632,42 @@ def callbacks(app, fsc, cache, cpu=None):
                 use_envelope = n_samples > 200
 
             if use_envelope:
-                 # Fetch envelope data
-                 chrom_df = get_chromatogram_envelope(
-                     conn, target_clicked, ms_type=target_ms_type or 'ms1', full_range=full_range
-                 )
+                ms_type_use = target_ms_type or 'ms1'
+                if full_range and ms_type_use == 'ms1':
+                    has_full_ds = conn.execute(
+                        """
+                        SELECT COUNT(*)
+                        FROM chromatograms
+                        WHERE peak_label = ?
+                          AND ms_type = 'ms1'
+                          AND scan_time_full_ds IS NOT NULL
+                        """,
+                        [target_clicked],
+                    ).fetchone()[0]
+                    if not has_full_ds and wdir:
+                        populate_full_range_downsampled_chromatograms_for_target(
+                            wdir,
+                            target_clicked,
+                            n_out=FULL_RANGE_DOWNSAMPLE_POINTS,
+                            conn=conn,
+                        )
+                chrom_df = get_chromatogram_envelope(
+                    conn, target_clicked, ms_type=ms_type_use, full_range=full_range
+                )
+                if chrom_df is None or chrom_df.is_empty():
+                    logger.warning(
+                        "Modal open: envelope produced no data for target '%s' (ms_type=%s, full_range=%s). Falling back to detailed traces.",
+                        target_clicked,
+                        ms_type_use,
+                        full_range,
+                    )
+                    use_envelope = False
+                    chrom_df = get_chromatogram_dataframe(
+                        conn,
+                        target_clicked,
+                        full_range=full_range,
+                        wdir=wdir,
+                    )
             else:
                 # Use helper function to fetch data
                 chrom_df = get_chromatogram_dataframe(
@@ -3459,7 +3676,15 @@ def callbacks(app, fsc, cache, cpu=None):
                     full_range=full_range,
                     wdir=wdir,
                 )
-            
+
+        if chrom_df is None or chrom_df.is_empty():
+            logger.warning(
+                "Modal open: no chromatogram data available for target '%s' (full_range=%s). Preventing update.",
+                target_clicked,
+                full_range,
+            )
+            raise PreventUpdate
+
         try:
             n_sample_types = chrom_df['sample_type'].n_unique()
             group_legend = True if n_sample_types > 1 else False
@@ -3506,9 +3731,36 @@ def callbacks(app, fsc, cache, cpu=None):
         if use_envelope:
             use_megatrace = True
 
+        if use_envelope:
+            envelope_precomputed = generate_envelope_traces(chrom_df)
+            if not envelope_precomputed[0]:
+                logger.warning(
+                    "Modal open: envelope traces were empty for target '%s' (full_range=%s). Falling back to detailed traces.",
+                    target_clicked,
+                    full_range,
+                )
+                use_envelope = False
+                envelope_precomputed = None
+                with duckdb_connection(wdir) as conn:
+                    if conn is None:
+                        raise PreventUpdate
+                    chrom_df = get_chromatogram_dataframe(
+                        conn,
+                        target_clicked,
+                        full_range=full_range,
+                        wdir=wdir,
+                    )
+                if chrom_df is None or chrom_df.is_empty():
+                    logger.warning(
+                        "Modal open: fallback detailed data was empty for target '%s' (full_range=%s). Preventing update.",
+                        target_clicked,
+                        full_range,
+                    )
+                    raise PreventUpdate
+
         # Calculate RT alignment shifts if enabled in database
         rt_alignment_shifts_to_apply = None
-        if align_enabled and align_ref_rt is not None:
+        if (not use_envelope) and align_enabled and align_ref_rt is not None:
             # Calculate alignment shifts from stored data
             rt_alignment_shifts_to_apply = calculate_rt_alignment(chrom_df, align_rt_min, align_rt_max)
             logger.info(f"Applying saved RT alignment on modal open: ref={align_ref_rt:.2f}s")
@@ -3528,8 +3780,10 @@ def callbacks(app, fsc, cache, cpu=None):
                 'n_out': LTTB_TARGET_POINTS
             }
 
-        if use_envelope:
-             traces, x_min, x_max, y_min, y_max = generate_envelope_traces(chrom_df)
+        if envelope_precomputed is not None:
+            traces, x_min, x_max, y_min, y_max = envelope_precomputed
+        elif use_envelope:
+            traces, x_min, x_max, y_min, y_max = generate_envelope_traces(chrom_df)
         else:
             traces, x_min, x_max, y_min, y_max = generate_chromatogram_traces(
                 chrom_df, 
@@ -3552,6 +3806,12 @@ def callbacks(app, fsc, cache, cpu=None):
         fig['layout']['yaxis']['autorange'] = False
         fig['layout']['_initial_alignment_applied'] = (rt_alignment_shifts_to_apply is not None)  # Marker for debugging
         fig['data'] = traces
+        fig['layout']['_view_mode'] = 'envelope' if use_envelope else 'detailed'
+        fig['layout']['_use_megatrace_effective'] = bool(use_megatrace)
+        fig['layout']['_use_envelope_effective'] = bool(use_envelope)
+        fig['layout']['_full_range'] = bool(full_range)
+        fig['layout']['_target'] = target_clicked
+        fig['layout']['_render_rev'] = session_rev
         # fig['layout']['title'] = {'text': f"{target_clicked} (rt={rt})"}
         fig['layout']['shapes'] = []
         if use_megatrace:
@@ -3734,6 +3994,9 @@ def callbacks(app, fsc, cache, cpu=None):
         # If envelope is active, megatrace setting is effectively ignored in visualization
         # but we preserve the 'use_megatrace' value so it's correct if user toggles Env off.
         pass
+
+        if session_rev is not None and _get_session_render_revision(session_id) != session_rev:
+            raise PreventUpdate
 
         return (fig, f"{target_clicked}", False, slider_reference,
                 slider_dict, {"min_y": y_min, "max_y": y_max}, total_points, log_scale, group_legend, 

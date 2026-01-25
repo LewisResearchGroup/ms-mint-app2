@@ -3629,33 +3629,64 @@ def get_chromatogram_envelope(conn, target_label, ms_type='ms1', bins=500, full_
     bins = max(10, min(bins, 2000))
 
     query = f"""
-    WITH picked_samples AS (
+    WITH picked_target AS (
+        SELECT peak_label, intensity_threshold
+        FROM targets
+        WHERE peak_label = ?
+    ),
+    picked_samples AS (
         SELECT ms_file_label, sample_type, color
         FROM samples
         WHERE use_for_optimization = TRUE
     ),
-    sample_counts AS (
+    base AS (
         SELECT
-            s.sample_type,
-            COUNT(DISTINCT s.ms_file_label) AS sample_count
-        FROM chromatograms c
-        JOIN picked_samples s ON c.ms_file_label = s.ms_file_label
-        WHERE c.peak_label = ?
-          AND c.ms_type = ?
-        GROUP BY s.sample_type
-    ),
-    raw_points AS (
-        SELECT 
+            c.ms_file_label,
             s.sample_type,
             s.color,
-            UNNEST(c.{time_col}) as rt,
-            UNNEST(c.{int_col}) as intens
+            c.{time_col} AS scan_time_list,
+            c.{int_col} AS intensity_list,
+            COALESCE(t.intensity_threshold, 0) AS intensity_threshold
         FROM chromatograms c
         JOIN picked_samples s ON c.ms_file_label = s.ms_file_label
-        WHERE c.peak_label = ? 
+        JOIN picked_target t ON c.peak_label = t.peak_label
+        WHERE c.peak_label = ?
           AND c.ms_type = ?
           AND c.{time_col} IS NOT NULL
           AND c.{int_col} IS NOT NULL
+    ),
+    zipped AS (
+        SELECT
+            ms_file_label,
+            sample_type,
+            color,
+            intensity_threshold,
+            list_transform(
+                range(1, len(scan_time_list) + 1),
+                i -> struct_pack(
+                    rt := list_extract(scan_time_list, i),
+                    intens := list_extract(intensity_list, i)
+                )
+            ) AS pairs
+        FROM base
+    ),
+    raw_points AS (
+        SELECT
+            z.ms_file_label,
+            z.sample_type,
+            z.color,
+            u.pair.rt AS rt,
+            u.pair.intens AS intens
+        FROM zipped z
+        CROSS JOIN UNNEST(z.pairs) AS u(pair)
+        WHERE u.pair.intens >= z.intensity_threshold
+    ),
+    sample_counts AS (
+        SELECT
+            sample_type,
+            COUNT(DISTINCT ms_file_label) AS sample_count
+        FROM raw_points
+        GROUP BY sample_type
     ),
     bounds AS (
         -- Calculate bounds but ignore extreme outliers if any (though data should be sliced to 30s)
@@ -3700,11 +3731,12 @@ def get_chromatogram_envelope(conn, target_label, ms_type='ms1', bins=500, full_
     ORDER BY a.sample_type, a.bin_idx
     """
     
-    df = conn.execute(query, [target_label, ms_type, target_label, ms_type]).pl()
+    params = [target_label, target_label, ms_type]
+    df = conn.execute(query, params).pl()
 
     # Fallback: if no MS2 chromatograms exist for this target, try MS1 so UI isn't blank.
     if df.is_empty() and ms_type == 'ms2':
-        df = conn.execute(query, [target_label, 'ms1', target_label, 'ms1']).pl()
+        df = conn.execute(query, [target_label, target_label, 'ms1']).pl()
         if not df.is_empty():
             logger.warning(
                 "No MS2 chromatograms found for target '%s'; using MS1 envelope instead.",
