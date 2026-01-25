@@ -99,34 +99,46 @@ def _apply_savgol_smoothing(intensity,
     except (TypeError, ValueError):
         return intensity
 
-    if window_length < 3:
+    intensity = np.asarray(intensity, dtype=float)
+    n_points = intensity.size
+
+    # CHECK 1: No data to smooth
+    if n_points == 0:
         return intensity
 
+    # CHECK 2: Window too large for data size (MAVEN Rule: > n/3)
+    if window_length > n_points // 3:
+        window_length = int(n_points // 3)
+
+    # CHECK 3: Window too small to be useful
+    if window_length <= 1:
+        return intensity
+
+    # Ensure valid window for SavGol (must be odd)
     if window_length % 2 == 0:
         window_length -= 1
 
-    intensity = np.asarray(intensity, dtype=float)
-    n_points = intensity.size
-    if n_points < 3:
-        return intensity
-
-    if window_length > n_points:
-        window_length = n_points if n_points % 2 == 1 else n_points - 1
-
-    if window_length < 3:
+    # Re-check after odd adjustment
+    if window_length <= 1:
         return intensity
 
     if polyorder < 0:
         polyorder = 0
+    # Strict parameter bounds: Polynomial order cannot exceed window size
     if polyorder >= window_length:
         polyorder = window_length - 1
 
     if _savgol_filter is not None:
-        smoothed = _savgol_filter(intensity, window_length, polyorder, mode='interp')
+        try:
+            smoothed = _savgol_filter(intensity, window_length, polyorder, mode='interp')
+        except Exception:
+             # Fallback if scipy fails
+             smoothed = intensity
     else:
         smoothed = _savgol_filter_numpy(intensity, window_length, polyorder)
 
-    return np.maximum(smoothed, 1.0)
+    # Negative value clipping (0.0)
+    return np.maximum(smoothed, 0.0)
 
 
 def get_physical_cores() -> int:
