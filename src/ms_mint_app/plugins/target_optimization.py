@@ -1402,6 +1402,7 @@ _layout = fac.AntdLayout(
         dcc.Store(id='keyboard-nav-trigger', data={'key': None, 'timestamp': 0}),
         dcc.Store(id='spinner-start-time', data=None),  # Track when spinner started
         dcc.Store(id='chromatogram-container-width', data=None),  # Container width for auto-sizing
+        dcc.Store(id='background-load-trigger', data=None),  # Trigger for background loading of detailed traces
         dcc.Interval(id='container-width-interval', interval=300, n_intervals=0, max_intervals=1),  # One-time trigger
         dcc.Interval(id='spinner-timeout-interval', interval=1000, disabled=True),  # Check every second
         # Clientside keyboard listener for arrow key navigation
@@ -3511,6 +3512,8 @@ def callbacks(app, fsc, cache, cpu=None):
         Output('target-note', 'value', allow_duplicate=True),
         Output('chromatogram-view-lock-range', 'checked', allow_duplicate=True), # Set initial lock state
         Output('bookmark-target-modal-btn', 'icon'),
+        
+        Output('background-load-trigger', 'data'),
 
         # Output('chromatogram-view-envelope', 'checked', allow_duplicate=True),
         Output('chromatogram-view-megatrace', 'disabled'),
@@ -3960,7 +3963,106 @@ def callbacks(app, fsc, cache, cpu=None):
         return (fig, f"{target_clicked}", False, slider_reference,
                 slider_dict, {"min_y": y_min, "max_y": y_max}, total_points, log_scale, group_legend, 
                 full_range, full_range_disabled, full_range_tooltip, rt_align_toggle_state, rt_alignment_data_to_load, note, False, bookmark_icon_node, 
+                # Background trigger data (if megatrace/envelope is used)
+                {'target_clicked': target_clicked, 'full_range': full_range, 'ms_type': ms_type_use} if use_envelope else None,
                 False, use_envelope, use_megatrace)
+
+    @app.callback(
+        Output('chromatogram-view-plot', 'figure', allow_duplicate=True),
+        Input('background-load-trigger', 'data'),
+        State('chromatogram-view-plot', 'figure'),
+        State('chromatogram-view-megatrace', 'checked'),
+        State('chromatogram-view-savgol', 'checked'),
+        State('wdir', 'data'),
+        State('rt-alignment-data', 'data'),
+        State('session-id-store', 'data'),
+        prevent_initial_call=True
+    )
+    def load_detailed_traces(trigger_data, figure, use_megatrace, use_savgol, wdir, rt_alignment_data, session_id):
+        """
+        Background callback to load detailed/megatrace lines after Envelope is shown.
+        """
+        if not trigger_data or not wdir:
+            raise PreventUpdate
+
+        target_clicked = trigger_data.get('target_clicked')
+        full_range = trigger_data.get('full_range')
+        ms_type_use = trigger_data.get('ms_type', 'ms1')
+
+        # Check if we are still on the same target/view in the frontend? 
+        # (Though trigger_data comes from the modal opening, so it should be fresh)
+        # Note: If user quickly closes modal, this might still fire, but updating the figure 
+        # of a closed modal does nothing usually or might error if component unmounted.
+        
+        with duckdb_connection(wdir) as conn:
+            if conn is None:
+                raise PreventUpdate
+
+            # We want the Detailed/Megatrace lines now
+            chrom_df = get_chromatogram_dataframe(
+                conn,
+                target_clicked,
+                full_range=full_range,
+                wdir=wdir,
+            )
+
+        if chrom_df is None or chrom_df.is_empty():
+            raise PreventUpdate
+
+        # Generate the lines (Megatrace mode = Reduced Mode i.e. one trace per sample_type, which is what we want for 'lines')
+        # If user wants "detailed", they can switch off Megatrace, but here we assume the progression:
+        # Envelope -> + Megatrace Lines
+        
+        # We always want "Megatrace" (Reduced) lines here because "Detailed" (1000 traces) is too slow for background add
+        # and defeats the purpose of the optimization.
+        use_megatrace_lines = True 
+
+        # Apply RT alignment if active
+        rt_alignment_shifts = None
+        if rt_alignment_data and rt_alignment_data.get('enabled'):
+             rt_alignment_shifts = rt_alignment_data.get('shifts_per_file') # Or calculate? 
+             # Re-calculate to safely map shifts from df
+             if not rt_alignment_shifts:
+                 rt_alignment_shifts = calculate_rt_alignment(
+                    chrom_df, 
+                    rt_alignment_data['rt_min'], 
+                    rt_alignment_data['rt_max']
+                 )
+
+        smoothing_params = None
+        if use_savgol and (not full_range or ms_type_use != 'ms1'):
+            smoothing_params = {
+                'enabled': True,
+                'window_length': SAVGOL_WINDOW,
+                'polyorder': SAVGOL_ORDER
+            }
+        
+        downsample_params = None
+        if ms_type_use == 'ms1' and not full_range:
+            downsample_params = {
+                'enabled': True,
+                'n_out': LTTB_TARGET_POINTS
+            }
+
+        traces, _, _, _, _ = generate_chromatogram_traces(
+            chrom_df, 
+            use_megatrace=use_megatrace_lines,
+            rt_alignment_shifts=rt_alignment_shifts,
+            ms_type=ms_type_use,
+            smoothing_params=smoothing_params,
+            downsample_params=downsample_params
+        )
+
+        # We replace the Envelope traces with the Detailed/Megatrace lines
+        # We must use Patch to avoid resetting the view layout (zoom/pan)
+        fig_patch = Patch()
+        
+        # Replace data completely
+        fig_patch['data'] = traces
+        
+        # Don't update layout to preserve zoom/pan
+        
+        return fig_patch
 
     @app.callback(
         Output('chromatogram-view-plot', 'figure', allow_duplicate=True),
