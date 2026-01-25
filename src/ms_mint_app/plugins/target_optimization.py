@@ -1781,9 +1781,10 @@ def _calc_y_range_numpy(data, x_left, x_right, is_log=False):
         if len(ys_pos) == 0:
             return [math.log10(min_floor), math.log10(min_floor * 1.05)]
 
-        # Use median of the first 10 values > 1 (in data order) to avoid a "wall" from a single low outlier.
-        k = min(10, len(ys_pos))
-        y_min = np.median(ys_pos[:k])
+        # Use the median of the lowest 5 values > 1 within the RT span.
+        k = min(5, len(ys_pos))
+        lowest_k = np.partition(ys_pos, k - 1)[:k]
+        y_min = np.median(lowest_k)
         if y_min <= min_floor:
             y_min = min_floor
 
