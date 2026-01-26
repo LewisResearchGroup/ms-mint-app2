@@ -1,7 +1,7 @@
 from contextlib import contextmanager
 from datetime import datetime, timedelta
 from pathlib import Path
-from threading import Thread
+from threading import Thread, Lock
 
 import duckdb
 import logging
@@ -11,6 +11,12 @@ import time
 import numpy as np
 
 logger = logging.getLogger(__name__)
+_SAVGOL_SKIP_LOGS = 0
+_SAVGOL_APPLY_LOGS = 0
+_SAVGOL_SKIP_INFO_LOGS = 0
+_SAVGOL_APPLY_INFO_LOGS = 0
+_SAVGOL_LOG_LIMIT = 25
+_SCAN_LOOKUP_LOCK = Lock()
 
 try:
     import lttbc as _lttbc
@@ -29,7 +35,7 @@ FULL_RANGE_SAVGOL_WINDOW = 10
 FULL_RANGE_SAVGOL_ORDER = 2
 
 
-def _apply_lttb_downsampling(scan_time, intensity, n_out=FULL_RANGE_DOWNSAMPLE_POINTS):
+def _apply_lttb_downsampling(scan_time, intensity, n_out=FULL_RANGE_DOWNSAMPLE_POINTS, min_points=None):
     if n_out is None:
         n_out = FULL_RANGE_DOWNSAMPLE_POINTS
 
@@ -41,7 +47,16 @@ def _apply_lttb_downsampling(scan_time, intensity, n_out=FULL_RANGE_DOWNSAMPLE_P
     if _lttbc is None:
         return scan_time, intensity
 
+    if min_points is None:
+        min_points = max(n_out * 2, 10)
+    try:
+        min_points = int(min_points)
+    except (TypeError, ValueError):
+        min_points = 0
+
     if not scan_time or n_out <= 0 or len(scan_time) <= n_out:
+        return scan_time, intensity
+    if min_points > 0 and len(scan_time) < min_points:
         return scan_time, intensity
 
     downsampled_x, downsampled_y = _lttbc.downsample(scan_time, intensity, n_out)
@@ -87,7 +102,8 @@ def _savgol_filter_numpy(intensity, window_length, polyorder):
 
 def _apply_savgol_smoothing(intensity,
                             window_length=FULL_RANGE_SAVGOL_WINDOW,
-                            polyorder=FULL_RANGE_SAVGOL_ORDER):
+                            polyorder=FULL_RANGE_SAVGOL_ORDER,
+                            min_points=None):
     if window_length is None:
         window_length = FULL_RANGE_SAVGOL_WINDOW
     if polyorder is None:
@@ -99,34 +115,94 @@ def _apply_savgol_smoothing(intensity,
     except (TypeError, ValueError):
         return intensity
 
-    if window_length < 3:
+    intensity = np.asarray(intensity, dtype=float)
+    n_points = intensity.size
+
+    # CHECK 1: No data to smooth
+    if n_points == 0:
         return intensity
 
+    if min_points is None:
+        min_points = max(window_length * 2 + 1, 7)
+    try:
+        min_points = int(min_points)
+    except (TypeError, ValueError):
+        min_points = 0
+
+    # CHECK 1.5: Require a minimum number of points before smoothing
+    if min_points > 0 and n_points < min_points:
+        global _SAVGOL_SKIP_LOGS, _SAVGOL_SKIP_INFO_LOGS
+        if _SAVGOL_SKIP_INFO_LOGS < 5:
+            logger.info(
+                "Full-range savgol skipped: n_points=%d < min_points=%d (window=%d, order=%d)",
+                n_points,
+                min_points,
+                window_length,
+                polyorder,
+            )
+            _SAVGOL_SKIP_INFO_LOGS += 1
+        if _SAVGOL_SKIP_LOGS < _SAVGOL_LOG_LIMIT:
+            logger.debug(
+                "Full-range savgol skipped: n_points=%d < min_points=%d (window=%d, order=%d)",
+                n_points,
+                min_points,
+                window_length,
+                polyorder,
+            )
+            _SAVGOL_SKIP_LOGS += 1
+        return intensity
+
+    # CHECK 2: Window too large for data size (MAVEN Rule: > n/3)
+    if window_length > n_points // 3:
+        window_length = int(n_points // 3)
+
+    # CHECK 3: Window too small to be useful
+    if window_length <= 1:
+        return intensity
+
+    # Ensure valid window for SavGol (must be odd)
     if window_length % 2 == 0:
         window_length -= 1
 
-    intensity = np.asarray(intensity, dtype=float)
-    n_points = intensity.size
-    if n_points < 3:
-        return intensity
-
-    if window_length > n_points:
-        window_length = n_points if n_points % 2 == 1 else n_points - 1
-
-    if window_length < 3:
+    # Re-check after odd adjustment
+    if window_length <= 1:
         return intensity
 
     if polyorder < 0:
         polyorder = 0
+    # Strict parameter bounds: Polynomial order cannot exceed window size
     if polyorder >= window_length:
         polyorder = window_length - 1
 
     if _savgol_filter is not None:
-        smoothed = _savgol_filter(intensity, window_length, polyorder, mode='interp')
+        try:
+            smoothed = _savgol_filter(intensity, window_length, polyorder, mode='interp')
+        except Exception:
+             # Fallback if scipy fails
+             smoothed = intensity
     else:
         smoothed = _savgol_filter_numpy(intensity, window_length, polyorder)
 
-    return np.maximum(smoothed, 1.0)
+    global _SAVGOL_APPLY_LOGS, _SAVGOL_APPLY_INFO_LOGS
+    if _SAVGOL_APPLY_INFO_LOGS < 5:
+        logger.info(
+            "Full-range savgol applied: n_points=%d (window=%d, order=%d)",
+            n_points,
+            window_length,
+            polyorder,
+        )
+        _SAVGOL_APPLY_INFO_LOGS += 1
+    if _SAVGOL_APPLY_LOGS < _SAVGOL_LOG_LIMIT:
+        logger.debug(
+            "Full-range savgol applied: n_points=%d (window=%d, order=%d)",
+            n_points,
+            window_length,
+            polyorder,
+        )
+        _SAVGOL_APPLY_LOGS += 1
+
+    # Negative value clipping (0.0)
+    return np.maximum(smoothed, 0.0)
 
 
 def get_physical_cores() -> int:
@@ -861,7 +937,7 @@ def get_corruption_notification():
     Returns a dict suitable for fac.AntdNotification or None if not applicable.
     """
     return {
-        'message': "⚠️ Database Corrupted",
+        'message': "[!] Database Corrupted",
         'description': "This workspace has a corrupted database. Please delete it and restore from backup or recreate the workspace.",
         'type': "error",
         'duration': 10,
@@ -919,7 +995,7 @@ def duckdb_connection(workspace_path: Path | str, register_activity=True, n_cpus
             if "Corrupt database file" in str(e):
                 _mark_corrupted(workspace_path)  # Mark for UI notification
                 logger.critical(
-                    f"⚠️ DATABASE CORRUPTION DETECTED in {db_file}: {e}\n"
+                    f"[!] DATABASE CORRUPTION DETECTED in {db_file}: {e}\n"
                     "This usually happens due to a system crash or forced termination during a write operation.\n"
                     "Please delete this workspace and restore from backup or recreate it."
                 )
@@ -982,6 +1058,33 @@ def duckdb_connection_mint(mint_path: Path, workspace=None):
                 except Exception:
                     pass
             con.close()
+
+
+def get_workspace_name_from_wdir(wdir: Path | str | None) -> str | None:
+    if not wdir:
+        return None
+
+    try:
+        wdir_path = Path(wdir)
+    except Exception:
+        return None
+
+    ws_key = wdir_path.stem
+    mint_root = wdir_path.parent.parent
+    try:
+        with duckdb_connection_mint(mint_root) as mint_conn:
+            if mint_conn is None:
+                return None
+            ws_row = mint_conn.execute(
+                "SELECT name FROM workspaces WHERE key = ?",
+                [ws_key],
+            ).fetchone()
+            if ws_row is not None:
+                return ws_row[0]
+    except Exception:
+        return None
+
+    return None
 
 
 def compact_database(workspace_path: Path | str, max_retries: int = 5, initial_delay: float = 0.5) -> tuple[bool, str]:
@@ -2615,11 +2718,34 @@ def populate_full_range_downsampled_chromatograms_for_target(wdir: str | None,
             return True
 
         created_lookup = False
-        try:
+        with _SCAN_LOOKUP_LOCK:
+            try:
+                exists = conn.execute(
+                    """
+                    SELECT COUNT(*)
+                    FROM information_schema.tables
+                    WHERE table_name = 'ms_file_scans'
+                      AND table_schema = 'main'
+                    """
+                ).fetchone()[0]
+            except Exception:
+                exists = 0
+
+            if not exists:
+                for attempt in range(3):
+                    try:
+                        conn.execute(query_create_scan_lookup)
+                        created_lookup = True
+                        break
+                    except duckdb.TransactionException as exc:
+                        # Another connection is creating the table; wait and retry.
+                        if "Catalog write-write conflict" in str(exc) and attempt < 2:
+                            time.sleep(0.1 * (attempt + 1))
+                            continue
+                        raise
+
+            # Ensure table is visible before continuing.
             conn.execute("SELECT COUNT(*) FROM ms_file_scans").fetchone()
-        except Exception:
-            conn.execute(query_create_scan_lookup)
-            created_lookup = True
 
         logger.info("On-demand downsampling for target %s (%d chromatograms)", peak_label, missing)
         rows = conn.execute(query_full_range, [target[0], target[1], peak_label]).fetchall()
@@ -3603,9 +3729,17 @@ def get_chromatogram_envelope(conn, target_label, ms_type='ms1', bins=500, full_
     """
     Computes Min/Max/Mean envelope for chromatograms, binned by time.
     Returns a Polars DataFrame with columns: 
-    [sample_type, color, bin_idx, rt, min_int, max_int, mean_int, count]
+    [sample_type, color, bin_idx, rt, min_int, max_int, mean_int, count, sample_count]
     """
     
+    # Full-range downsampled chromatograms are only available for MS1.
+    if full_range and ms_type != 'ms1':
+        logger.warning(
+            "Full-range envelope requested for ms_type=%s; falling back to sliced range.",
+            ms_type,
+        )
+        full_range = False
+
     # Determine which columns to use
     if full_range:
         time_col = "scan_time_full_ds"
@@ -3614,24 +3748,71 @@ def get_chromatogram_envelope(conn, target_label, ms_type='ms1', bins=500, full_
         time_col = "scan_time"
         int_col = "intensity"
 
+    try:
+        bins = int(bins)
+    except (TypeError, ValueError):
+        bins = 500
+    bins = max(10, min(bins, 2000))
+
     query = f"""
-    WITH picked_samples AS (
+    WITH picked_target AS (
+        SELECT peak_label, intensity_threshold
+        FROM targets
+        WHERE peak_label = ?
+    ),
+    picked_samples AS (
         SELECT ms_file_label, sample_type, color
         FROM samples
         WHERE use_for_optimization = TRUE
     ),
-    raw_points AS (
-        SELECT 
+    base AS (
+        SELECT
+            c.ms_file_label,
             s.sample_type,
             s.color,
-            UNNEST(c.{time_col}) as rt,
-            UNNEST(c.{int_col}) as intens
+            c.{time_col} AS scan_time_list,
+            c.{int_col} AS intensity_list,
+            COALESCE(t.intensity_threshold, 0) AS intensity_threshold
         FROM chromatograms c
         JOIN picked_samples s ON c.ms_file_label = s.ms_file_label
-        WHERE c.peak_label = ? 
+        JOIN picked_target t ON c.peak_label = t.peak_label
+        WHERE c.peak_label = ?
           AND c.ms_type = ?
           AND c.{time_col} IS NOT NULL
           AND c.{int_col} IS NOT NULL
+    ),
+    zipped AS (
+        SELECT
+            ms_file_label,
+            sample_type,
+            color,
+            intensity_threshold,
+            list_transform(
+                range(1, len(scan_time_list) + 1),
+                i -> struct_pack(
+                    rt := list_extract(scan_time_list, i),
+                    intens := list_extract(intensity_list, i)
+                )
+            ) AS pairs
+        FROM base
+    ),
+    raw_points AS (
+        SELECT
+            z.ms_file_label,
+            z.sample_type,
+            z.color,
+            u.pair.rt AS rt,
+            u.pair.intens AS intens
+        FROM zipped z
+        CROSS JOIN UNNEST(z.pairs) AS u(pair)
+        WHERE u.pair.intens >= z.intensity_threshold
+    ),
+    sample_counts AS (
+        SELECT
+            sample_type,
+            COUNT(DISTINCT ms_file_label) AS sample_count
+        FROM raw_points
+        GROUP BY sample_type
     ),
     bounds AS (
         -- Calculate bounds but ignore extreme outliers if any (though data should be sliced to 30s)
@@ -3644,7 +3825,15 @@ def get_chromatogram_envelope(conn, target_label, ms_type='ms1', bins=500, full_
             p.rt,
             p.intens,
             -- Increase bins to 500 for higher resolution
-            CAST(FLOOR((p.rt - b.min_rt) / (b.max_rt - b.min_rt + 1e-9) * 500) AS INTEGER) as bin_idx
+            CAST(
+                LEAST(
+                    {bins - 1},
+                    GREATEST(
+                        0,
+                        FLOOR((p.rt - b.min_rt) / (b.max_rt - b.min_rt + 1e-9) * {bins})
+                    )
+                ) AS INTEGER
+            ) as bin_idx
         FROM raw_points p, bounds b
     ),
     aggregated AS (
@@ -3660,7 +3849,24 @@ def get_chromatogram_envelope(conn, target_label, ms_type='ms1', bins=500, full_
         FROM binned
         GROUP BY sample_type, color, bin_idx
     )
-    SELECT * FROM aggregated ORDER BY sample_type, bin_idx
+    SELECT
+        a.*,
+        sc.sample_count
+    FROM aggregated a
+    LEFT JOIN sample_counts sc USING (sample_type)
+    ORDER BY a.sample_type, a.bin_idx
     """
     
-    return conn.execute(query, [target_label, ms_type]).pl()
+    params = [target_label, target_label, ms_type]
+    df = conn.execute(query, params).pl()
+
+    # Fallback: if no MS2 chromatograms exist for this target, try MS1 so UI isn't blank.
+    if df.is_empty() and ms_type == 'ms2':
+        df = conn.execute(query, [target_label, target_label, 'ms1']).pl()
+        if not df.is_empty():
+            logger.warning(
+                "No MS2 chromatograms found for target '%s'; using MS1 envelope instead.",
+                target_label,
+            )
+
+    return df

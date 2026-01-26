@@ -1,6 +1,9 @@
 import json
 import logging
+import uuid
+from collections import defaultdict
 from os import cpu_count
+from threading import Lock
 
 import dash
 import feffery_antd_components as fac
@@ -41,6 +44,189 @@ LTTB_TARGET_POINTS = 100
 FULL_RANGE_DOWNSAMPLE_POINTS = 1000
 SAVGOL_WINDOW = 10
 SAVGOL_ORDER = 2
+SAVGOL_MIN_RT_SPAN = 30.0
+RT_FALLBACK_PAD_SECONDS = 30.0
+
+_SESSION_RENDER_REVISIONS = defaultdict(int)
+_SESSION_RENDER_LOCK = Lock()
+
+
+def _get_savgol_min_points(window_length):
+    try:
+        window_length = int(window_length)
+    except (TypeError, ValueError):
+        window_length = 0
+    if window_length <= 0:
+        return 7
+    return max(window_length * 2 + 1, 7)
+
+
+def _get_savgol_rt_window(rt_min, rt_max, full_range, min_span=SAVGOL_MIN_RT_SPAN):
+    if full_range:
+        return None, None
+    if rt_min is None or rt_max is None:
+        return None, None
+    try:
+        rt_min = float(rt_min)
+        rt_max = float(rt_max)
+    except (TypeError, ValueError):
+        return None, None
+    span = rt_max - rt_min
+    if span >= min_span:
+        return rt_min, rt_max
+    center = (rt_min + rt_max) / 2.0
+    half = min_span / 2.0
+    return center - half, center + half
+
+
+def _get_savgol_check_window(rt_min, rt_max, full_range):
+    # Prefer the expanded RT span for gating smoothing; fall back to full range if missing.
+    window_min, window_max = _get_savgol_rt_window(rt_min, rt_max, False)
+    if window_min is None or window_max is None:
+        return _get_savgol_rt_window(rt_min, rt_max, full_range)
+    return window_min, window_max
+
+
+def _get_rt_fallback_window(rt_value, rt_min, rt_max, pad_seconds=RT_FALLBACK_PAD_SECONDS):
+    center = None
+    if rt_value is not None:
+        center = rt_value
+    elif rt_min is not None and rt_max is not None:
+        center = (rt_min + rt_max) / 2.0
+    if center is None:
+        return None, None
+    return center - pad_seconds, center + pad_seconds
+
+
+def _get_rt_span_with_pad(rt_min, rt_max, pad_seconds=RT_FALLBACK_PAD_SECONDS):
+    if rt_min is None or rt_max is None:
+        return None, None
+    try:
+        rt_min = float(rt_min)
+        rt_max = float(rt_max)
+    except (TypeError, ValueError):
+        return None, None
+    return rt_min - pad_seconds, rt_max + pad_seconds
+
+
+def _has_visible_points(
+    chrom_df,
+    rt_min=None,
+    rt_max=None,
+    ms_type=None,
+    use_downsample=False,
+    downsample_n_out=None,
+):
+    if chrom_df is None or len(chrom_df) == 0:
+        return False
+    use_window = rt_min is not None and rt_max is not None
+    if ms_type == 'ms2':
+        sparsify_kwargs = {'w': 1, 'baseline': 10.0, 'eps': 0.0, 'min_peak_width': 1}
+    else:
+        sparsify_kwargs = {'w': 1, 'baseline': 1.0, 'eps': 0.0}
+    if downsample_n_out is None:
+        downsample_n_out = LTTB_TARGET_POINTS
+    for row in chrom_df.iter_rows(named=True):
+        scan_time = np.asarray(row.get('scan_time_sliced') or [], dtype=float)
+        intensity = np.asarray(row.get('intensity_sliced') or [], dtype=float)
+        if scan_time.size == 0:
+            continue
+        if use_window:
+            mask = (scan_time >= rt_min) & (scan_time <= rt_max)
+            if not np.any(mask):
+                continue
+            scan_time = scan_time[mask]
+            intensity = intensity[mask]
+        if intensity.size == 0:
+            continue
+        if use_downsample and ms_type == 'ms1':
+            scan_time, intensity = apply_lttb_downsampling(
+                scan_time, intensity, n_out=downsample_n_out
+            )
+        scan_time_sparse, _ = sparsify_chrom(
+            scan_time, intensity, **sparsify_kwargs
+        )
+        if len(scan_time_sparse) > 0:
+            return True
+    return False
+
+
+def _traces_have_points(traces):
+    if not traces:
+        return False
+    for trace in traces:
+        xs = trace.get('x')
+        if xs is None:
+            continue
+        for x in xs:
+            if x is not None:
+                return True
+    return False
+
+
+def _savgol_applicable_for_df(
+    chrom_df,
+    window_length,
+    rt_min=None,
+    rt_max=None,
+    ms_type=None,
+    use_downsample=False,
+    downsample_n_out=None,
+):
+    min_points = _get_savgol_min_points(window_length)
+    if chrom_df is None or len(chrom_df) == 0:
+        return False, min_points
+    if hasattr(chrom_df, "columns") and "intensity_sliced" not in chrom_df.columns:
+        return True, min_points
+    use_window = rt_min is not None and rt_max is not None
+    if ms_type == 'ms2':
+        sparsify_kwargs = {'w': 1, 'baseline': 10.0, 'eps': 0.0, 'min_peak_width': 1}
+    else:
+        sparsify_kwargs = {'w': 1, 'baseline': 1.0, 'eps': 0.0}
+    if downsample_n_out is None:
+        downsample_n_out = LTTB_TARGET_POINTS
+    for row in chrom_df.iter_rows(named=True):
+        intensity = row.get('intensity_sliced')
+        if intensity is None:
+            continue
+        scan_time = row.get('scan_time_sliced') or []
+        if use_window:
+            scan_time = np.asarray(scan_time, dtype=float)
+            intensity = np.asarray(intensity, dtype=float)
+            mask = (scan_time >= rt_min) & (scan_time <= rt_max)
+            if not np.any(mask):
+                continue
+            scan_time = scan_time[mask]
+            intensity = intensity[mask]
+        if len(intensity) == 0:
+            continue
+        if use_downsample and len(intensity) > 0:
+            scan_time, intensity = apply_lttb_downsampling(
+                scan_time, intensity, n_out=downsample_n_out
+            )
+        scan_time_sparse, _ = sparsify_chrom(
+            scan_time, intensity, **sparsify_kwargs
+        )
+        if len(scan_time_sparse) >= min_points:
+            return True, min_points
+    return False, min_points
+
+
+def _bump_session_render_revision(session_id):
+    """Increment and return the render revision for this browser session."""
+    if not session_id:
+        return None
+    with _SESSION_RENDER_LOCK:
+        _SESSION_RENDER_REVISIONS[session_id] += 1
+        return _SESSION_RENDER_REVISIONS[session_id]
+
+
+def _get_session_render_revision(session_id):
+    """Return the latest known render revision for this browser session."""
+    if not session_id:
+        return None
+    with _SESSION_RENDER_LOCK:
+        return _SESSION_RENDER_REVISIONS.get(session_id, 0)
 
 
 class TargetOptimizationPlugin(PluginInterface):
@@ -69,17 +255,113 @@ def _get_ram_help_text(ram):
     return f"Selected {ram}GB / {ram_max}GB available RAM"
 
 
-def downsample_for_preview(scan_time, intensity, max_points=100):
-    """Reduce puntos manteniendo la forma general"""
-    if len(scan_time) <= max_points:
-        return scan_time, intensity
+def _save_target_state(
+    conn,
+    target_label,
+    note_text,
+    slider_data=None,
+    reference_data=None,
+    check_slider_change=False,
+    save_rt_span=True,
+    rt_align_toggle=None,
+    rt_alignment_data=None,
+    save_rt_alignment=True,
+):
+    result = {
+        "saved_notes": False,
+        "saved_rt_span": False,
+        "saved_rt_alignment": False,
+        "cleared_rt_alignment": False,
+        "rt_min": None,
+        "rt_max": None,
+    }
 
-    indices = np.linspace(0, len(scan_time) - 1, max_points, dtype=int)
-    return scan_time[indices], intensity[indices]
+    note_text = "" if note_text is None else note_text
+    conn.execute(
+        "UPDATE targets SET notes = ? WHERE peak_label = ?",
+        (note_text, target_label),
+    )
+    result["saved_notes"] = True
+
+    if save_rt_span and slider_data is not None:
+        if not (check_slider_change and not reference_data):
+            slider_value = slider_data.get("value") if isinstance(slider_data, dict) else None
+            reference_value = (
+                reference_data.get("value") if isinstance(reference_data, dict) else None
+            )
+            if slider_value and isinstance(slider_value, dict):
+                if (not check_slider_change) or reference_value is None or slider_value != reference_value:
+                    rt_min = slider_value.get("rt_min")
+                    rt_max = slider_value.get("rt_max")
+                    rt = slider_value.get(
+                        "rt",
+                        (rt_min + rt_max) / 2 if rt_min is not None and rt_max is not None else None,
+                    )
+                    if rt_min is not None and rt_max is not None:
+                        conn.execute(
+                            """
+                            UPDATE targets
+                            SET rt_min = ?, rt_max = ?, rt = ?
+                            WHERE peak_label = ?
+                            """,
+                            [rt_min, rt_max, rt, target_label],
+                        )
+                        result["saved_rt_span"] = True
+                        result["rt_min"] = rt_min
+                        result["rt_max"] = rt_max
+
+    if save_rt_alignment:
+        if rt_align_toggle is True:
+            if rt_alignment_data and rt_alignment_data.get("enabled"):
+                shifts_json = json.dumps(
+                    rt_alignment_data.get("shifts_per_file", {})
+                )
+                conn.execute(
+                    """
+                    UPDATE targets
+                    SET rt_align_enabled = TRUE,
+                        rt_align_reference_rt = ?,
+                        rt_align_shifts = ?,
+                        rt_align_rt_min = ?,
+                        rt_align_rt_max = ?
+                    WHERE peak_label = ?
+                    """,
+                    [
+                        rt_alignment_data["reference_rt"],
+                        shifts_json,
+                        rt_alignment_data.get("rt_min"),
+                        rt_alignment_data.get("rt_max"),
+                        target_label,
+                    ],
+                )
+                result["saved_rt_alignment"] = True
+        elif rt_align_toggle is False:
+            conn.execute(
+                """
+                UPDATE targets
+                SET rt_align_enabled = FALSE,
+                    rt_align_reference_rt = NULL,
+                    rt_align_shifts = NULL,
+                    rt_align_rt_min = NULL,
+                    rt_align_rt_max = NULL
+                WHERE peak_label = ?
+                """,
+                [target_label],
+            )
+            result["cleared_rt_alignment"] = True
+
+    return result
 
 
-
-def get_chromatogram_dataframe(conn, target_label, full_range=False, wdir=None):
+def get_chromatogram_dataframe(
+    conn,
+    target_label,
+    full_range=False,
+    wdir=None,
+    window_min=None,
+    window_max=None,
+    apply_intensity_threshold=True,
+):
     """
     Fetches chromatogram data for a specific target.
     If full_range is True, queries the raw ms1/ms2_data tables (slower but complete).
@@ -131,6 +413,7 @@ def get_chromatogram_dataframe(conn, target_label, full_range=False, wdir=None):
                 ).fetchone()[0]
 
             if has_full_ds:
+                use_window = window_min is not None and window_max is not None
                 query = """
                     WITH picked_samples AS (
                         SELECT ms_file_label, color, label, sample_type
@@ -167,37 +450,52 @@ def get_chromatogram_dataframe(conn, target_label, full_range=False, wdir=None):
                             ) AS pairs
                         FROM base
                     ),
+                    filtered AS (
+                        SELECT
+                            ms_file_label,
+                            color,
+                            label,
+                            sample_type,
+                            CASE
+                                WHEN ? THEN list_filter(pairs, p -> p.t >= ? AND p.t <= ?)
+                                ELSE pairs
+                            END AS pairs_in
+                        FROM zipped
+                    ),
                     final AS (
                         SELECT
                             ms_file_label,
                             color,
                             label,
                             sample_type,
-                            list_transform(pairs, p -> p.t) AS scan_time_sliced,
-                            list_transform(pairs, p -> p.i) AS intensity_sliced,
+                            list_transform(pairs_in, p -> p.t) AS scan_time_sliced,
+                            list_transform(pairs_in, p -> p.i) AS intensity_sliced,
                             CASE
-                                WHEN len(pairs) = 0 THEN NULL
-                                ELSE list_max(list_transform(pairs, p -> p.i)) * 1.10
+                                WHEN len(pairs_in) = 0 THEN NULL
+                                ELSE list_max(list_transform(pairs_in, p -> p.i)) * 1.10
                             END AS intensity_max_in_range,
                             CASE
-                                WHEN len(pairs) = 0 THEN NULL
-                                ELSE list_min(list_transform(pairs, p -> p.i))
+                                WHEN len(pairs_in) = 0 THEN NULL
+                                ELSE list_min(list_transform(pairs_in, p -> p.i))
                             END AS intensity_min_in_range,
                             CASE
-                                WHEN len(pairs) = 0 THEN NULL
-                                ELSE list_max(list_transform(pairs, p -> p.t))
+                                WHEN len(pairs_in) = 0 THEN NULL
+                                ELSE list_max(list_transform(pairs_in, p -> p.t))
                             END AS scan_time_max_in_range,
                             CASE
-                                WHEN len(pairs) = 0 THEN NULL
-                                ELSE list_min(list_transform(pairs, p -> p.t))
+                                WHEN len(pairs_in) = 0 THEN NULL
+                                ELSE list_min(list_transform(pairs_in, p -> p.t))
                             END AS scan_time_min_in_range
-                        FROM zipped
+                        FROM filtered
                     )
                     SELECT *
                     FROM final
                     ORDER BY ms_file_label
                 """
-                return conn.execute(query, [target_label]).pl()
+                return conn.execute(
+                    query,
+                    [target_label, use_window, window_min, window_max],
+                ).pl()
 
         # Calculate m/z window
         delta_mz = mz_mean * mz_width_ppm / 1e6
@@ -209,6 +507,7 @@ def get_chromatogram_dataframe(conn, target_label, full_range=False, wdir=None):
         # 2. Query raw data
         # Note: We group by file and aggregate directly to match the format of the 'chromatograms' table query
         # We assume ms_file_scans has the timing info.
+        use_window = window_min is not None and window_max is not None
         query = f"""
         WITH picked_samples AS (
             SELECT ms_file_label, color, label, sample_type
@@ -222,6 +521,12 @@ def get_chromatogram_dataframe(conn, target_label, full_range=False, wdir=None):
             WHERE d.mz BETWEEN ? AND ?
               AND s.ms_type = ?
               AND d.ms_file_label IN (SELECT ms_file_label FROM picked_samples)
+              AND (
+                CASE
+                  WHEN ? THEN s.scan_time >= ? AND s.scan_time <= ?
+                  ELSE TRUE
+                END
+              )
         )
         SELECT 
             r.ms_file_label, 
@@ -240,10 +545,15 @@ def get_chromatogram_dataframe(conn, target_label, full_range=False, wdir=None):
         ORDER BY r.ms_file_label
         """
         
-        return conn.execute(query, [mz_lower, mz_upper, ms_type]).pl()
+        return conn.execute(
+            query,
+            [mz_lower, mz_upper, ms_type, use_window, window_min, window_max],
+        ).pl()
 
     else:
         # specific standard query for cached chromatograms
+        use_window = window_min is not None and window_max is not None
+        use_threshold = bool(apply_intensity_threshold)
         query = """
             WITH picked_samples AS (SELECT ms_file_label, color, label, sample_type
                                     FROM samples
@@ -280,7 +590,10 @@ def get_chromatogram_dataframe(conn, target_label, full_range=False, wdir=None):
                                label,
                                sample_type,
                                pairs,
-                               list_filter(pairs, p -> p.i >= COALESCE(intensity_threshold, 0)) AS pairs_in
+                               CASE
+                                   WHEN ? THEN list_filter(pairs, p -> p.i >= COALESCE(intensity_threshold, 0))
+                                   ELSE pairs
+                               END AS pairs_in
                         FROM zipped),
              final AS (SELECT ms_file_label,
                               color,
@@ -289,25 +602,28 @@ def get_chromatogram_dataframe(conn, target_label, full_range=False, wdir=None):
                               list_transform(pairs_in, p -> p.t)                            AS scan_time_sliced,
                               list_transform(pairs_in, p -> p.i)                            AS intensity_sliced,
                               CASE
-                                  WHEN len(pairs) = 0 THEN NULL
-                                  ELSE list_max(list_transform(pairs, p -> p.i)) * 1.10 END AS
+                                  WHEN len(pairs_in) = 0 THEN NULL
+                                  ELSE list_max(list_transform(pairs_in, p -> p.i)) * 1.10 END AS
                                                                                                intensity_max_in_range,
                               CASE
-                                  WHEN len(pairs) = 0 THEN NULL
-                                  ELSE list_min(list_transform(pairs, p -> p.i)) END        AS intensity_min_in_range,
+                                  WHEN len(pairs_in) = 0 THEN NULL
+                                  ELSE list_min(list_transform(pairs_in, p -> p.i)) END        AS intensity_min_in_range,
                               CASE
-                                  WHEN len(pairs) = 0 THEN NULL
-                                  ELSE list_max(list_transform(pairs, p -> p.t)) END        AS scan_time_max_in_range,
+                                  WHEN len(pairs_in) = 0 THEN NULL
+                                  ELSE list_max(list_transform(pairs_in, p -> p.t)) END        AS scan_time_max_in_range,
                               CASE
-                                  WHEN len(pairs) = 0 THEN NULL
-                                  ELSE list_min(list_transform(pairs, p -> p.t)) END        AS scan_time_min_in_range
+                                  WHEN len(pairs_in) = 0 THEN NULL
+                                  ELSE list_min(list_transform(pairs_in, p -> p.t)) END        AS scan_time_min_in_range
 
                        FROM sliced)
         SELECT *
         FROM final
         ORDER BY ms_file_label;
             """
-        return conn.execute(query, [target_label]).pl()
+        return conn.execute(
+            query,
+            [target_label, use_threshold],
+        ).pl()
 
 
 MAX_NUM_CARDS = 20  # Support up to 20 cards/page while keeping load time reasonable
@@ -942,43 +1258,8 @@ _layout = fac.AntdLayout(
                                 ),
                                 fac.AntdSpace(
                                     [
-                                        html.Div(
-                                            [
-                                                html.Div(
-                                                    [
-                                                        html.Span('View Mode:'),
-                                                        fac.AntdTooltip(
-                                                            fac.AntdIcon(
-                                                                icon='antd-question-circle',
-                                                                style={'marginLeft': '5px', 'color': 'gray'}
-                                                            ),
-                                                            title='Envelope (range per sample type) vs Detailed (individual traces)'
-                                                        )
-                                                    ],
-                                                    style={
-                                                        'display': 'flex',
-                                                        'alignItems': 'center',
-                                                        'width': '170px',
-                                                        'paddingRight': '8px'
-                                                    }
-                                                ),
-                                                html.Div(
-                                                    fac.AntdSwitch(
-                                                        id='chromatogram-view-envelope',
-                                                        checked=True,
-                                                        checkedChildren='Env',
-                                                        unCheckedChildren='Det',
-                                                        style={'width': '60px'}
-                                                    ),
-                                                    style={
-                                                        'width': '110px',
-                                                        'display': 'flex',
-                                                        'justifyContent': 'flex-start'
-                                                    }
-                                                ),
-                                            ],
-                                            style={'display': 'flex', 'alignItems': 'center'}
-                                        ),
+                                        # View Mode Toggle removed
+
                                         html.Div(
                                             [
                                                 html.Div(
@@ -1391,6 +1672,7 @@ _layout = fac.AntdLayout(
         dcc.Store(id='slider-reference-data'),
         dcc.Store(id='rt-alignment-data'),  # Stores RT alignment info for saving to notes
         dcc.Store(id='target-preview-clicked'),
+        dcc.Store(id='session-id-store', storage_type='session'),
 
         dcc.Store(id='chromatograms', data=True),
         dcc.Store(id='drop-chromatogram'),
@@ -1413,6 +1695,7 @@ _layout = fac.AntdLayout(
         dcc.Store(id='keyboard-nav-trigger', data={'key': None, 'timestamp': 0}),
         dcc.Store(id='spinner-start-time', data=None),  # Track when spinner started
         dcc.Store(id='chromatogram-container-width', data=None),  # Container width for auto-sizing
+        dcc.Store(id='background-load-trigger', data=None),  # Trigger for background loading of detailed traces
         dcc.Interval(id='container-width-interval', interval=300, n_intervals=0, max_intervals=1),  # One-time trigger
         dcc.Interval(id='spinner-timeout-interval', interval=1000, disabled=True),  # Check every second
         # Clientside keyboard listener for arrow key navigation
@@ -1757,9 +2040,10 @@ def _calc_y_range_numpy(data, x_left, x_right, is_log=False):
         if len(ys_pos) == 0:
             return [math.log10(min_floor), math.log10(min_floor * 1.05)]
 
-        # Use median of the first 10 values > 1 (in data order) to avoid a "wall" from a single low outlier.
-        k = min(10, len(ys_pos))
-        y_min = np.median(ys_pos[:k])
+        # Use the median of the lowest 5 values > 1 within the RT span.
+        k = min(5, len(ys_pos))
+        lowest_k = np.partition(ys_pos, k - 1)[:k]
+        y_min = np.median(lowest_k)
         if y_min <= min_floor:
             y_min = min_floor
 
@@ -1806,6 +2090,18 @@ def callbacks(app, fsc, cache, cpu=None):
         State('optimization-sidebar', 'collapsed'),
         prevent_initial_call=False,
     )
+
+    @app.callback(
+        Output('session-id-store', 'data'),
+        Input('session-id-store', 'data'),
+        prevent_initial_call=False,
+    )
+    def ensure_session_id(session_id):
+        if session_id:
+            raise PreventUpdate
+        new_session_id = str(uuid.uuid4())
+        _get_session_render_revision(new_session_id)
+        return new_session_id
 
     # Disable compute buttons when no targets or ms-files exist
     app.clientside_callback(
@@ -2408,7 +2704,8 @@ def callbacks(app, fsc, cache, cpu=None):
             except Exception:
                 pass
 
-            query = """
+            preview_pad = RT_FALLBACK_PAD_SECONDS
+            query = f"""
                                 WITH picked_samples AS (
                                     SELECT ms_file_label, color, label, sample_type
                                     FROM samples
@@ -2509,8 +2806,12 @@ def callbacks(app, fsc, cache, cpu=None):
                                                    )
                                                )
                                            AS pairs_raw,
-                                           -- Filter to RT window for preview (no margin needed - display is fixed to this range)
-                                           list_filter(pairs_raw, p -> p.t >= rt_min AND p.t <= rt_max) AS pairs_in
+                                           -- Filter to RT window for preview (match modal +/- pad seconds)
+                                           list_filter(
+                                               pairs_raw,
+                                               p -> p.t >= (rt_min - {preview_pad})
+                                                    AND p.t <= (rt_max + {preview_pad})
+                                           ) AS pairs_in
                                     FROM base
                                 ),
                                 final AS (
@@ -2571,6 +2872,14 @@ def callbacks(app, fsc, cache, cpu=None):
             traces = []
             y_max = 0.0
             y_min_pos = None
+            savgol_trace_total = 0
+            savgol_applied = 0
+            savgol_skipped = 0
+            try:
+                savgol_window = int(SAVGOL_WINDOW)
+            except (TypeError, ValueError):
+                savgol_window = 10
+            savgol_min_points = max(savgol_window * 2 + 1, 7)
             # Count samples per sample_type to sort by group size
             rows_list = list(peak_data.iter_rows(named=True))
             sample_type_counts = {}
@@ -2593,13 +2902,23 @@ def callbacks(app, fsc, cache, cpu=None):
                     if shift != 0:
                         scan_time = scan_time + shift
                 
-                # Filter by rt_min/rt_max (since we fetched full traces)
-                mask = (scan_time >= rt_min) & (scan_time <= rt_max)
+                window_min, window_max = _get_rt_span_with_pad(rt_min, rt_max)
+                if window_min is None or window_max is None:
+                    continue
+
+                # Filter by padded RT window (matches modal preview)
+                mask = (scan_time >= window_min) & (scan_time <= window_max)
                 if not np.any(mask):
                     continue
                 
                 scan_time_sliced = scan_time[mask]
                 intensity_sliced = intensity[mask]
+
+                savgol_trace_total += 1
+                if len(intensity_sliced) >= savgol_min_points:
+                    savgol_applied += 1
+                else:
+                    savgol_skipped += 1
 
                 intensity_sliced = apply_savgol_smoothing(
                     intensity_sliced, window_length=SAVGOL_WINDOW, polyorder=SAVGOL_ORDER
@@ -2642,6 +2961,17 @@ def callbacks(app, fsc, cache, cpu=None):
                     'line': {'color': row['color'], 'width': 1.5},
                 })
 
+            if savgol_trace_total > 0:
+                logger.info(
+                    "Preview savgol summary: target=%s ms_type=%s traces=%d applied=%d skipped=%d (min_points=%d)",
+                    peak_label,
+                    ms_type,
+                    savgol_trace_total,
+                    savgol_applied,
+                    savgol_skipped,
+                    savgol_min_points,
+                )
+
             fig['data'] = traces
 
             fig['layout']['shapes'] = [
@@ -2671,7 +3001,7 @@ def callbacks(app, fsc, cache, cpu=None):
             fig['layout']['xaxis']['title'] = dict(text="Retention Time [s]", font={'size': 10})
             fig['layout']['xaxis']['autorange'] = False
             fig['layout']['xaxis']['fixedrange'] = True
-            fig['layout']['xaxis']['range'] = [rt_min, rt_max]
+            fig['layout']['xaxis']['range'] = [window_min, window_max]
 
             fig['layout']['yaxis']['title'] = dict(text="Intensity", font={'size': 10})
             fig['layout']['yaxis']['autorange'] = True
@@ -2842,108 +3172,6 @@ def callbacks(app, fsc, cache, cpu=None):
         if trigger_id == 'target-preview-clicked':
             return True, dash.no_update, dash.no_update
             # if not has_changes, close it
-        elif False: # trigger_id == 'chromatogram-view-close':
-            with duckdb_connection(wdir) as conn:
-                if conn is None:
-                    return dash.no_update, dash.no_update, dash.no_update
-                
-                # Always save the current RT alignment toggle state
-                if rt_align_toggle:
-                    # Toggle is ON - save alignment data
-                    if rt_alignment_data and rt_alignment_data.get('enabled'):
-                        # We have valid alignment data to save
-                        import json
-                        # Save per-file shifts for accurate processing (not sample-type averages)
-                        shifts_json = json.dumps(rt_alignment_data.get('shifts_per_file', {}))
-                       
-                        conn.execute("""
-                            UPDATE targets 
-                            SET rt_align_enabled = TRUE,
-                                rt_align_reference_rt = ?,
-                                rt_align_shifts = ?,
-                                rt_align_rt_min = ?,
-                                rt_align_rt_max = ?
-                            WHERE peak_label = ?
-                        """, [
-                            rt_alignment_data['reference_rt'],
-                            shifts_json,
-                            rt_alignment_data['rt_min'],
-                            rt_alignment_data['rt_max'],
-
-                            target_clicked
-                        ])
-                        logger.debug(f"Saved RT alignment: enabled=TRUE, ref={rt_alignment_data['reference_rt']:.2f}s")
-                    else:
-                        logger.warning("RT align toggle is ON but no alignment data available - not saving")
-                else:
-                    # Toggle is OFF - clear alignment data
-                    conn.execute("""
-                        UPDATE targets 
-                        SET rt_align_enabled = FALSE,
-                            rt_align_reference_rt = NULL,
-                            rt_align_shifts = NULL,
-                            rt_align_rt_min = NULL,
-                            rt_align_rt_max = NULL
-                        WHERE peak_label = ?
-                    """, [target_clicked])
-                    logger.debug("Saved RT alignment: enabled=FALSE (cleared all data)")
-                
-                # Prepare final notes:
-                # 1. Remove any existing auto-generated RT Alignment note to prevent duplication
-                #    or persistence when disabled.
-                raw_note = target_note or ''
-                # Split by double newline to find blocks
-                note_parts = raw_note.split('\n\n')
-                # Filter out lines starting with our specific prefix
-                clean_parts = [p for p in note_parts if not p.startswith("RT Alignment: ✓ Applied")]
-                final_note = '\n\n'.join(clean_parts)
-                
-                if rt_align_toggle and rt_alignment_data and rt_alignment_data.get('enabled'):
-                    # Generate human-readable alignment note
-                    ref_rt = rt_alignment_data['reference_rt']
-                    shifts = rt_alignment_data.get('shifts_by_sample_type', {})
-                    shift_str = ', '.join([f"{st}: {shift:+.1f}s" for st, shift in sorted(shifts.items())])
-                    alignment_note = f"RT Alignment: ✓ Applied, ref={ref_rt:.2f}s | {shift_str}"
-                    
-                    # Prepend alignment note (so it's always at top)
-                    if final_note:
-                        final_note = f"{alignment_note}\n\n{final_note}"
-                    else:
-                        final_note = alignment_note
-                
-                # Save notes
-                conn.execute("UPDATE targets SET notes = ? WHERE peak_label = ?",
-                             (final_note, target_clicked))
-
-                # Auto-save RT-span if changed (no more confirmation modal)
-                # This must be inside the 'with' block to have valid connection
-                if slider_data and slider_ref:
-                    slider_value = slider_data.get('value') if isinstance(slider_data, dict) else None
-                    reference_value = slider_ref.get('value') if isinstance(slider_ref, dict) else None
-                    
-                    if slider_value and isinstance(slider_value, dict):
-                        # Check if values changed
-                        if reference_value is None or slider_value != reference_value:
-                            rt_min = slider_value.get('rt_min')
-                            rt_max = slider_value.get('rt_max')
-                            rt = slider_value.get('rt', (rt_min + rt_max) / 2 if rt_min and rt_max else None)
-                            
-                            if rt_min is not None and rt_max is not None:
-                                conn.execute("""
-                                    UPDATE targets 
-                                    SET rt_min = ?, rt_max = ?, rt = ?
-                                    WHERE peak_label = ?
-                                """, [rt_min, rt_max, rt, target_clicked])
-                                logger.info(f"Auto-saved RT-span for '{target_clicked}' on close: [{rt_min:.2f}, {rt_max:.2f}]")
-
-            # Always refresh preview when RT alignment was changed
-            # Use a timestamp to trigger the chromatograms_preview callback
-            import time
-            refresh_signal = update_chromatograms or {'refresh': time.time()}
-
-            
-            # Always close the modal
-            return False, None, refresh_signal
         elif trigger_id == 'confirm-unsave-modal':
             # Close modal without saving changes - but still refresh preview
             if close_without_save_clicks:
@@ -3025,42 +3253,242 @@ def callbacks(app, fsc, cache, cpu=None):
         Output('chromatogram-view-plot', 'figure', allow_duplicate=True),
         Output('chromatogram-view-megatrace', 'disabled', allow_duplicate=True),
         Output('chromatogram-view-savgol', 'disabled', allow_duplicate=True),
+        Output('chromatogram-view-savgol', 'checked', allow_duplicate=True),
+        # Output('chromatogram-view-envelope', 'checked', allow_duplicate=True),
+        Output('chromatogram-view-megatrace', 'checked', allow_duplicate=True),
         Input('chromatogram-view-megatrace', 'checked'),
         Input('chromatogram-view-full-range', 'checked'),
         Input('chromatogram-view-savgol', 'checked'),
-        Input('chromatogram-view-envelope', 'checked'),
+        # Input('chromatogram-view-envelope', 'checked'),
         State('chromatogram-view-plot', 'figure'),
         State('target-preview-clicked', 'data'),
         State('wdir', 'data'),
         State('rt-alignment-data', 'data'),  # Check if RT alignment is active
+        State('session-id-store', 'data'),
         prevent_initial_call=True
     )
-    def update_megatrace_mode(use_megatrace, full_range, use_savgol, use_envelope, figure, target_clicked, wdir, rt_alignment_data):
+    def update_megatrace_mode(use_megatrace, full_range, use_savgol, figure, target_clicked, wdir, rt_alignment_data, session_id):
         if not wdir or not target_clicked:
             logger.debug("update_megatrace_mode: No workspace directory or target clicked, preventing update")
             raise PreventUpdate
-        
+
+        session_rev = None
+
+        ctx = dash.callback_context
+        trigger_id = ctx.triggered[0]['prop_id'].split('.')[0] if ctx.triggered else None
+        current_layout = (figure or {}).get('layout', {})
+        current_view_mode = current_layout.get('_view_mode')
+        current_megatrace_effective = current_layout.get('_use_megatrace_effective')
+        current_envelope_effective = current_layout.get('_use_envelope_effective')
+        current_full_range = current_layout.get('_full_range')
+        current_target = current_layout.get('_target')
+
+        use_megatrace = use_envelope = bool(use_megatrace)
+        envelope_output_value = dash.no_update
+        megatrace_output_value = dash.no_update
+        envelope_precomputed = None
+
+        # Guard against self-triggered duplicate updates that cause flicker.
+        if trigger_id in ('chromatogram-view-megatrace',):
+            desired_view_mode = 'envelope' if use_envelope else 'detailed'
+            if (
+                current_target == target_clicked
+                and current_full_range == bool(full_range)
+                and current_view_mode == desired_view_mode
+                and current_megatrace_effective == bool(use_megatrace)
+                and current_envelope_effective == bool(use_envelope)
+            ):
+                raise PreventUpdate
+
+        session_rev = _bump_session_render_revision(session_id)
+
         with duckdb_connection(wdir) as conn:
             if conn is None:
-                 raise PreventUpdate
+                raise PreventUpdate
             # Fetch ms_type for this target
-            target_ms_type = conn.execute(
-                "SELECT ms_type FROM targets WHERE peak_label = ?", [target_clicked]
+            target_row = conn.execute(
+                "SELECT ms_type, rt, rt_min, rt_max FROM targets WHERE peak_label = ?", [target_clicked]
             ).fetchone()
-            target_ms_type = target_ms_type[0] if target_ms_type else None
+            target_ms_type = target_row[0] if target_row else None
+            target_rt = target_row[1] if target_row else None
+            target_rt_min = target_row[2] if target_row else None
+            target_rt_max = target_row[3] if target_row else None
+            if target_ms_type is None:
+                target_ms_type = 'ms1'
+            if target_rt_min is None or target_rt_max is None:
+                target_rt_min = None
+                target_rt_max = None
+            if target_rt is None:
+                target_rt = None
 
             if use_envelope:
-                 chrom_df = get_chromatogram_envelope(
-                     conn, target_clicked, ms_type=target_ms_type or 'ms1', full_range=full_range
-                 )
-            else:
-                chrom_df = get_chromatogram_dataframe(
-                    conn, target_clicked, full_range=full_range, wdir=wdir
+                ms_type_use = target_ms_type or 'ms1'
+                if full_range and ms_type_use == 'ms1':
+                    has_full_ds = conn.execute(
+                        """
+                        SELECT COUNT(*)
+                        FROM chromatograms
+                        WHERE peak_label = ?
+                          AND ms_type = 'ms1'
+                          AND scan_time_full_ds IS NOT NULL
+                        """,
+                        [target_clicked],
+                    ).fetchone()[0]
+                    if not has_full_ds and wdir:
+                        populate_full_range_downsampled_chromatograms_for_target(
+                            wdir,
+                            target_clicked,
+                            n_out=FULL_RANGE_DOWNSAMPLE_POINTS,
+                            conn=conn,
+                        )
+
+                chrom_df = get_chromatogram_envelope(
+                    conn, target_clicked, ms_type=ms_type_use, full_range=full_range
                 )
-        
+                if chrom_df is None or chrom_df.is_empty():
+                    logger.warning(
+                        "Envelope requested but no data returned for target '%s' (ms_type=%s, full_range=%s). Falling back to detailed traces.",
+                        target_clicked,
+                        ms_type_use,
+                        full_range,
+                    )
+                    use_envelope = False
+                    envelope_output_value = False
+                    window_min, window_max = (None, None)
+                    if not full_range:
+                        window_min, window_max = _get_rt_span_with_pad(target_rt_min, target_rt_max)
+                    chrom_df = get_chromatogram_dataframe(
+                        conn,
+                        target_clicked,
+                        full_range=full_range,
+                        wdir=wdir,
+                        window_min=window_min,
+                        window_max=window_max,
+                    )
+                    if (not full_range) and window_min is not None and window_max is not None:
+                        visible = _has_visible_points(
+                            chrom_df,
+                            rt_min=window_min,
+                            rt_max=window_max,
+                            ms_type=target_ms_type,
+                            use_downsample=(target_ms_type == 'ms1'),
+                            downsample_n_out=LTTB_TARGET_POINTS,
+                        )
+                        if not visible:
+                            chrom_df = get_chromatogram_dataframe(
+                                conn,
+                                target_clicked,
+                                full_range=full_range,
+                                wdir=wdir,
+                                window_min=window_min,
+                                window_max=window_max,
+                                apply_intensity_threshold=False,
+                            )
+                            visible = _has_visible_points(
+                                chrom_df,
+                                rt_min=window_min,
+                                rt_max=window_max,
+                                ms_type=target_ms_type,
+                                use_downsample=(target_ms_type == 'ms1'),
+                                downsample_n_out=LTTB_TARGET_POINTS,
+                            )
+            else:
+                window_min, window_max = (None, None)
+                if not full_range:
+                    window_min, window_max = _get_rt_span_with_pad(target_rt_min, target_rt_max)
+                chrom_df = get_chromatogram_dataframe(
+                    conn,
+                    target_clicked,
+                    full_range=full_range,
+                    wdir=wdir,
+                    window_min=window_min,
+                    window_max=window_max,
+                )
+                visible = True
+                if (not full_range) and window_min is not None and window_max is not None:
+                    visible = _has_visible_points(
+                        chrom_df,
+                        rt_min=window_min,
+                        rt_max=window_max,
+                        ms_type=target_ms_type,
+                        use_downsample=(target_ms_type == 'ms1'),
+                        downsample_n_out=LTTB_TARGET_POINTS,
+                    )
+                    if not visible:
+                        chrom_df = get_chromatogram_dataframe(
+                            conn,
+                            target_clicked,
+                            full_range=full_range,
+                            wdir=wdir,
+                            window_min=window_min,
+                            window_max=window_max,
+                            apply_intensity_threshold=False,
+                        )
+                        visible = _has_visible_points(
+                            chrom_df,
+                            rt_min=window_min,
+                            rt_max=window_max,
+                            ms_type=target_ms_type,
+                            use_downsample=(target_ms_type == 'ms1'),
+                            downsample_n_out=LTTB_TARGET_POINTS,
+                        )
+                if (not full_range) and not visible:
+                    fallback_min, fallback_max = _get_rt_fallback_window(
+                        target_rt, target_rt_min, target_rt_max
+                    )
+                    if fallback_min is not None and fallback_max is not None:
+                        chrom_df = get_chromatogram_dataframe(
+                            conn,
+                            target_clicked,
+                            full_range=True,
+                            wdir=wdir,
+                            window_min=fallback_min,
+                            window_max=fallback_max,
+                        )
+
+        if chrom_df is None or chrom_df.is_empty():
+            logger.warning(
+                "No chromatogram data available for target '%s' (full_range=%s). Preventing update to avoid clearing the plot.",
+                target_clicked,
+                full_range,
+            )
+            raise PreventUpdate
+
+        if use_envelope:
+            envelope_precomputed = generate_envelope_traces(chrom_df)
+            if not envelope_precomputed[0]:
+                logger.warning(
+                    "Envelope traces were empty for target '%s' (full_range=%s). Falling back to detailed traces.",
+                    target_clicked,
+                    full_range,
+                )
+                use_envelope = False
+                envelope_output_value = False
+                envelope_precomputed = None
+                with duckdb_connection(wdir) as conn:
+                    if conn is None:
+                        raise PreventUpdate
+                    chrom_df = get_chromatogram_dataframe(
+                        conn, target_clicked, full_range=full_range, wdir=wdir
+                    )
+                if chrom_df is None or chrom_df.is_empty():
+                    logger.warning(
+                        "Fallback detailed chromatogram data was empty for target '%s' (full_range=%s). Preventing update.",
+                        target_clicked,
+                        full_range,
+                    )
+                    raise PreventUpdate
+
+        # Recompute effective megatrace state after any envelope fallback logic.
+        use_megatrace_effective = bool(use_megatrace or use_envelope)
+
+        # Only force megatrace ON when envelope is enabled and megatrace is currently off.
+        if use_envelope and not use_megatrace:
+            megatrace_output_value = True
+
         # Apply RT alignment if active
         rt_alignment_shifts = None
-        if rt_alignment_data and rt_alignment_data.get('enabled'):
+        if (not use_envelope) and rt_alignment_data and rt_alignment_data.get('enabled'):
             rt_alignment_shifts = calculate_rt_alignment(
                 chrom_df, 
                 rt_alignment_data['rt_min'], 
@@ -3069,8 +3497,23 @@ def callbacks(app, fsc, cache, cpu=None):
 
             # logger.debug(f"Megatrace callback: Applying RT alignment with {len(rt_alignment_shifts)} shifts")
         
+        window_min, window_max = _get_savgol_check_window(target_rt_min, target_rt_max, full_range)
+        downsample_enabled = target_ms_type == 'ms1' and not full_range
+        savgol_data_applicable, _ = _savgol_applicable_for_df(
+            chrom_df,
+            SAVGOL_WINDOW,
+            rt_min=window_min,
+            rt_max=window_max,
+            ms_type=target_ms_type,
+            use_downsample=downsample_enabled,
+            downsample_n_out=LTTB_TARGET_POINTS,
+        )
+        savgol_applicable = savgol_data_applicable and not full_range
+        savgol_disabled = bool(use_megatrace_effective) or not savgol_applicable
+        savgol_checked_output = False if not savgol_applicable else dash.no_update
+
         smoothing_params = None
-        if use_savgol and (not full_range or target_ms_type != 'ms1'):
+        if use_savgol and savgol_data_applicable and not full_range:
             smoothing_params = {
                 'enabled': True,
                 'window_length': SAVGOL_WINDOW,
@@ -3078,26 +3521,43 @@ def callbacks(app, fsc, cache, cpu=None):
             }
 
         downsample_params = None
-        if target_ms_type == 'ms1' and not full_range:
+        if downsample_enabled:
             downsample_params = {
                 'enabled': True,
                 'n_out': LTTB_TARGET_POINTS
             }
 
-        if use_envelope:
-             traces, x_min, x_max, y_min, y_max = generate_envelope_traces(chrom_df)
+        if envelope_precomputed is not None:
+            traces, x_min, x_max, y_min, y_max = envelope_precomputed
+        elif use_envelope:
+            traces, x_min, x_max, y_min, y_max = generate_envelope_traces(chrom_df)
         else:
             traces, x_min, x_max, y_min, y_max = generate_chromatogram_traces(
                 chrom_df, 
-                use_megatrace=use_megatrace,
+                use_megatrace=use_megatrace_effective,
                 rt_alignment_shifts=rt_alignment_shifts,
                 ms_type=target_ms_type,
                 smoothing_params=smoothing_params,
                 downsample_params=downsample_params
             )
+
+        if not _traces_have_points(traces):
+            logger.warning(
+                "update_megatrace_mode: Generated empty traces for target '%s' (full_range=%s). Preventing update.",
+                target_clicked,
+                full_range,
+            )
+            raise PreventUpdate
         
         fig = Patch()
         fig['data'] = traces
+        fig['layout']['_view_mode'] = 'envelope' if use_envelope else 'detailed'
+        fig['layout']['_use_megatrace_effective'] = bool(use_megatrace_effective)
+        fig['layout']['_use_envelope_effective'] = bool(use_envelope)
+        fig['layout']['_full_range'] = bool(full_range)
+        fig['layout']['_target'] = target_clicked
+        fig['layout']['_render_rev'] = session_rev
+        fig['layout']['_savgol_forced_off'] = bool(not savgol_applicable)
         # Recompute y-range using RT span only
         is_log = figure and figure.get('layout', {}).get('yaxis', {}).get('type') == 'log'
         shape = (figure.get('layout', {}).get('shapes') or [{}])[0] if figure else {}
@@ -3123,13 +3583,22 @@ def callbacks(app, fsc, cache, cpu=None):
         # For now let's update data only, or update everything if user expects a "reset" view.
         # Given this is a toggle, replacing data is key.
         if use_envelope:
-             fig['layout']['hovermode'] = False
-        elif use_megatrace:
-             fig['layout']['hovermode'] = False
+            fig['layout']['hovermode'] = False
+        elif use_megatrace_effective:
+            fig['layout']['hovermode'] = False
         else:
-             fig['layout']['hovermode'] = 'closest'
-        
-        return fig, use_envelope, use_envelope
+            fig['layout']['hovermode'] = 'closest'
+
+        if session_rev is not None and _get_session_render_revision(session_id) != session_rev:
+            raise PreventUpdate
+
+        return (
+            fig,
+            False, # megatrace disabled output - always enabled
+            savgol_disabled,
+            savgol_checked_output,
+            dash.no_update, # megatrace checked output - no change
+        )
 
     @app.callback(
         Output('chromatogram-view-plot', 'figure', allow_duplicate=True),
@@ -3143,9 +3612,10 @@ def callbacks(app, fsc, cache, cpu=None):
         State('target-preview-clicked', 'data'),
         State('wdir', 'data'),
         State('rt-alignment-data', 'data'),  # Check if this is a restoration
+        State('session-id-store', 'data'),
         prevent_initial_call=True
     )
-    def apply_rt_alignment(use_alignment, figure, use_megatrace, full_range, use_savgol, slider_current, target_clicked, wdir, existing_rt_data):
+    def apply_rt_alignment(use_alignment, figure, use_megatrace, full_range, use_savgol, slider_current, target_clicked, wdir, existing_rt_data, session_id):
         """Apply or remove RT alignment when toggle changes"""
         # logger.debug(f"RT Alignment callback triggered: use_alignment={use_alignment}")
         
@@ -3170,78 +3640,84 @@ def callbacks(app, fsc, cache, cpu=None):
             logger.warning("RT Alignment: rt_min or rt_max is None, raising PreventUpdate")
             raise PreventUpdate
         
+        session_rev = _bump_session_render_revision(session_id)
+
         with duckdb_connection(wdir) as conn:
-            query = """
-                    WITH picked_samples AS (SELECT ms_file_label, color, label, sample_type
-                                            FROM samples
-                                            WHERE use_for_optimization = TRUE
-                    ),
-                         picked_target AS (SELECT peak_label,
-                                                  intensity_threshold
-                                           FROM targets
-                                           WHERE peak_label = ?),
-                         base AS (SELECT c.*,
-                                         s.color,
-                                         s.label,
-                                         s.sample_type,
-                                         t.intensity_threshold
-                                  FROM chromatograms c
-                                           JOIN picked_samples s USING (ms_file_label)
-                                           JOIN picked_target t USING (peak_label)),
-                         zipped AS (SELECT ms_file_label,
-                                           color,
-                                           label,
-                                           sample_type,
-                                           intensity_threshold,
-                                           list_transform(
-                                                   range(1, len(scan_time) + 1),
-                                                   i -> struct_pack(
-                                                           t := list_extract(scan_time, i),
-                                                           i := list_extract(intensity,  i)
-                                                        )
-                                           ) AS pairs
-                                    FROM base),
+            if conn is None:
+                raise PreventUpdate
 
-                         sliced AS (SELECT ms_file_label,
-                                           color,
-                                           label,
-                                           sample_type,
-                                           pairs,
-                                           list_filter(pairs, p -> p.i >= COALESCE(intensity_threshold, 0)) AS pairs_in
-                                    FROM zipped),
-                         final AS (SELECT ms_file_label,
-                                          color,
-                                          label,
-                                          sample_type,
-                                          list_transform(pairs_in, p -> p.t)                            AS scan_time_sliced,
-                                          list_transform(pairs_in, p -> p.i)                            AS intensity_sliced,
-                                          CASE
-                                              WHEN len(pairs) = 0 THEN NULL
-                                              ELSE list_max(list_transform(pairs, p -> p.i)) * 1.10 END AS
-                                                                                                           intensity_max_in_range,
-                                          CASE
-                                              WHEN len(pairs) = 0 THEN NULL
-                                              ELSE list_min(list_transform(pairs, p -> p.i)) END        AS intensity_min_in_range,
-                                          CASE
-                                              WHEN len(pairs) = 0 THEN NULL
-                                              ELSE list_max(list_transform(pairs, p -> p.t)) END        AS scan_time_max_in_range,
-                                          CASE
-                                              WHEN len(pairs) = 0 THEN NULL
-                                              ELSE list_min(list_transform(pairs, p -> p.t)) END        AS scan_time_min_in_range
-
-                                   FROM sliced)
-                    SELECT *
-                    FROM final
-                    ORDER BY ms_file_label;
-                    """
-
-            chrom_df = conn.execute(query, [target_clicked]).pl()
-            
-            # Fetch ms_type for this target
             target_ms_type = conn.execute(
                 "SELECT ms_type FROM targets WHERE peak_label = ?", [target_clicked]
             ).fetchone()
             target_ms_type = target_ms_type[0] if target_ms_type else None
+            if target_ms_type is None:
+                target_ms_type = 'ms1'
+
+            window_min, window_max = (None, None)
+            if not full_range:
+                window_min, window_max = _get_rt_span_with_pad(rt_min, rt_max)
+
+            chrom_df = get_chromatogram_dataframe(
+                conn,
+                target_clicked,
+                full_range=full_range,
+                wdir=wdir,
+                window_min=window_min,
+                window_max=window_max,
+            )
+
+            visible = True
+            if (not full_range) and window_min is not None and window_max is not None:
+                visible = _has_visible_points(
+                    chrom_df,
+                    rt_min=window_min,
+                    rt_max=window_max,
+                    ms_type=target_ms_type,
+                    use_downsample=(target_ms_type == 'ms1'),
+                    downsample_n_out=LTTB_TARGET_POINTS,
+                )
+                if not visible:
+                    chrom_df = get_chromatogram_dataframe(
+                        conn,
+                        target_clicked,
+                        full_range=full_range,
+                        wdir=wdir,
+                        window_min=window_min,
+                        window_max=window_max,
+                        apply_intensity_threshold=False,
+                    )
+                    visible = _has_visible_points(
+                        chrom_df,
+                        rt_min=window_min,
+                        rt_max=window_max,
+                        ms_type=target_ms_type,
+                        use_downsample=(target_ms_type == 'ms1'),
+                        downsample_n_out=LTTB_TARGET_POINTS,
+                    )
+
+            if (not full_range) and not visible:
+                fallback_min, fallback_max = _get_rt_fallback_window(
+                    (rt_min + rt_max) / 2.0 if rt_min is not None and rt_max is not None else None,
+                    rt_min,
+                    rt_max,
+                )
+                if fallback_min is not None and fallback_max is not None:
+                    chrom_df = get_chromatogram_dataframe(
+                        conn,
+                        target_clicked,
+                        full_range=True,
+                        wdir=wdir,
+                        window_min=fallback_min,
+                        window_max=fallback_max,
+                    )
+
+        if chrom_df is None or chrom_df.is_empty():
+            logger.warning(
+                "apply_rt_alignment: No chromatogram data for target '%s' (full_range=%s). Preventing update.",
+                target_clicked,
+                full_range,
+            )
+            raise PreventUpdate
         
         # Calculate RT alignment shifts if alignment is enabled
         rt_alignment_shifts = None
@@ -3280,7 +3756,7 @@ def callbacks(app, fsc, cache, cpu=None):
         
         # Regenerate traces with or without alignment
         smoothing_params = None
-        if use_savgol and (not full_range or target_ms_type != 'ms1'):
+        if use_savgol and not full_range:
             smoothing_params = {
                 'enabled': True,
                 'window_length': SAVGOL_WINDOW,
@@ -3302,9 +3778,23 @@ def callbacks(app, fsc, cache, cpu=None):
             smoothing_params=smoothing_params,
             downsample_params=downsample_params
         )
+
+        if not _traces_have_points(traces):
+            logger.warning(
+                "apply_rt_alignment: Generated empty traces for target '%s' (full_range=%s). Preventing update.",
+                target_clicked,
+                full_range,
+            )
+            raise PreventUpdate
         
         fig = Patch()
         fig['data'] = traces
+        fig['layout']['_view_mode'] = 'detailed'
+        fig['layout']['_use_megatrace_effective'] = bool(use_megatrace)
+        fig['layout']['_use_envelope_effective'] = False
+        fig['layout']['_full_range'] = bool(full_range)
+        fig['layout']['_target'] = target_clicked
+        fig['layout']['_render_rev'] = session_rev
         
         # Update x-axis range if alignment is applied
         if use_alignment and rt_alignment_shifts:
@@ -3316,40 +3806,10 @@ def callbacks(app, fsc, cache, cpu=None):
             if all_x_values:
                 fig['layout']['xaxis']['range'] = [min(all_x_values), max(all_x_values)]
         
+        if session_rev is not None and _get_session_render_revision(session_id) != session_rev:
+            raise PreventUpdate
+
         return fig, alignment_data
-
-
-    @app.callback(
-        Output('chromatogram-view-lock-range', 'checked', allow_duplicate=True),
-        Input('chromatogram-view-rt-align', 'checked'),
-        prevent_initial_call=True
-    )
-    def lock_rt_span_when_aligning(rt_align_on):
-        """Force RT span to Lock mode when RT alignment is ON"""
-        # TEMPORARILY DISABLED FOR TESTING
-        raise PreventUpdate
-        # if not rt_align_on:
-        #     logger.debug("lock_rt_span_when_aligning: RT alignment is off, preventing update")
-        #     raise PreventUpdate
-        # # logger.debug(f"Lock RT span callback: rt_align_on={rt_align_on}, setting Lock mode (checked={rt_align_on})")
-        # return rt_align_on  # True = Lock mode, False = Edit mode
-
-
-    @app.callback(
-        Output('chromatogram-view-rt-align', 'checked', allow_duplicate=True),
-        Input('chromatogram-view-lock-range', 'checked'),
-        State('chromatogram-view-rt-align', 'checked'),
-        prevent_initial_call=True
-    )
-    def turn_off_alignment_when_editing(is_locked, rt_align_on):
-        """Turn OFF RT alignment when user switches from Lock to Edit mode"""
-        # TEMPORARILY DISABLED FOR TESTING
-        raise PreventUpdate
-        # # When switching to Edit mode (is_locked=False), turn off alignment
-        # if not is_locked and rt_align_on:
-        #     logger.debug("RT span switched to Edit mode - turning OFF RT alignment")
-        #     return False
-        # raise PreventUpdate
 
 
     @app.callback(
@@ -3370,10 +3830,13 @@ def callbacks(app, fsc, cache, cpu=None):
         Output('target-note', 'value', allow_duplicate=True),
         Output('chromatogram-view-lock-range', 'checked', allow_duplicate=True), # Set initial lock state
         Output('bookmark-target-modal-btn', 'icon'),
+        
+        Output('background-load-trigger', 'data'),
 
-        Output('chromatogram-view-envelope', 'checked', allow_duplicate=True),
+        # Output('chromatogram-view-envelope', 'checked', allow_duplicate=True),
         Output('chromatogram-view-megatrace', 'disabled'),
         Output('chromatogram-view-savgol', 'disabled'),
+        Output('chromatogram-view-savgol', 'checked', allow_duplicate=True),
         Output('chromatogram-view-megatrace', 'checked', allow_duplicate=True), # Reset megatrace if envelope is on
 
         Input('target-preview-clicked', 'data'),
@@ -3381,20 +3844,24 @@ def callbacks(app, fsc, cache, cpu=None):
         State('sample-type-tree', 'checkedKeys'),
         State('wdir', 'data'),
         State('chromatogram-view-modal', 'visible'),  # Check if modal is already open (navigation)
+        State('chromatogram-view-plot', 'figure'),
         State('chromatogram-view-megatrace', 'checked'),  # Current megatrace state
         State('chromatogram-view-log-y', 'checked'),  # Current log-y state  
         State('chromatogram-view-groupclick', 'checked'),  # Current legend behavior state
         State('chromatogram-view-full-range', 'checked'),  # Current full range state
         State('chromatogram-view-savgol', 'checked'),
-        State('chromatogram-view-envelope', 'checked'),
+        # State('chromatogram-view-envelope', 'checked'),
+        State('session-id-store', 'data'),
         prevent_initial_call=True
     )
     def chromatogram_view_modal(target_clicked, log_scale, checkedKeys, wdir, 
-                                 modal_already_open, current_megatrace, current_log_y, current_groupclick, current_full_range,
-                                 current_savgol, current_envelope):
+                                 modal_already_open, current_figure, current_megatrace, current_log_y, current_groupclick, current_full_range,
+                                 current_savgol, session_id):
 
         if not wdir:
             raise PreventUpdate
+        session_rev = _bump_session_render_revision(session_id)
+        envelope_precomputed = None
         with duckdb_connection(wdir) as conn:
             if conn is None:
                 raise PreventUpdate
@@ -3419,6 +3886,9 @@ def callbacks(app, fsc, cache, cpu=None):
                 align_rt_max = None
                 bookmark_state = False
 
+            if target_ms_type is None:
+                target_ms_type = 'ms1'
+
             # Count samples for optimization
             n_samples = conn.execute("SELECT COUNT(*) FROM samples WHERE use_for_optimization = TRUE").fetchone()[0]
             
@@ -3426,7 +3896,7 @@ def callbacks(app, fsc, cache, cpu=None):
             full_range_disabled = n_samples > 100
             if full_range_disabled:
                 full_range = False
-                full_range_tooltip = f"Full Range disabled (>90 samples, total optimization samples: {n_samples}) to prevent OOM."
+                full_range_tooltip = f"Full Range disabled (>90 samples, total optimization samples: {n_samples})"
             else:
                 full_range_tooltip = "Show entire chromatogram (slower) vs 30s window"
                 if modal_already_open and current_full_range is not None:
@@ -3437,25 +3907,140 @@ def callbacks(app, fsc, cache, cpu=None):
             # Decide on Envelope Mode vs Detailed Mode
             # If modal is already open, respect user's toggle state
             # If new open, default to Envelope if n_samples > 200
-            if modal_already_open and current_envelope is not None:
-                use_envelope = current_envelope
-            else:
-                use_envelope = n_samples > 200
+            # Envelope mode is now tied to megatrace
+            use_envelope = bool(current_megatrace) if modal_already_open else (n_samples > 200)
 
             if use_envelope:
-                 # Fetch envelope data
-                 chrom_df = get_chromatogram_envelope(
-                     conn, target_clicked, ms_type=target_ms_type or 'ms1', full_range=full_range
-                 )
+                ms_type_use = target_ms_type or 'ms1'
+                if full_range and ms_type_use == 'ms1':
+                    has_full_ds = conn.execute(
+                        """
+                        SELECT COUNT(*)
+                        FROM chromatograms
+                        WHERE peak_label = ?
+                          AND ms_type = 'ms1'
+                          AND scan_time_full_ds IS NOT NULL
+                        """,
+                        [target_clicked],
+                    ).fetchone()[0]
+                    if not has_full_ds and wdir:
+                        populate_full_range_downsampled_chromatograms_for_target(
+                            wdir,
+                            target_clicked,
+                            n_out=FULL_RANGE_DOWNSAMPLE_POINTS,
+                            conn=conn,
+                        )
+                chrom_df = get_chromatogram_envelope(
+                    conn, target_clicked, ms_type=ms_type_use, full_range=full_range
+                )
+                if chrom_df is None or chrom_df.is_empty():
+                    logger.warning(
+                        "Modal open: envelope produced no data for target '%s' (ms_type=%s, full_range=%s). Falling back to detailed traces.",
+                        target_clicked,
+                        ms_type_use,
+                        full_range,
+                    )
+                    use_envelope = False
+                if not use_envelope:
+                    window_min, window_max = (None, None)
+                    if not full_range:
+                        window_min, window_max = _get_rt_span_with_pad(rt_min, rt_max)
+                    chrom_df = get_chromatogram_dataframe(
+                        conn,
+                        target_clicked,
+                        full_range=full_range,
+                        wdir=wdir,
+                        window_min=window_min,
+                        window_max=window_max,
+                    )
+                    if (not full_range) and window_min is not None and window_max is not None:
+                        visible = _has_visible_points(
+                            chrom_df,
+                            rt_min=window_min,
+                            rt_max=window_max,
+                            ms_type=target_ms_type,
+                            use_downsample=(target_ms_type == 'ms1'),
+                            downsample_n_out=LTTB_TARGET_POINTS,
+                        )
+                        if not visible:
+                            chrom_df = get_chromatogram_dataframe(
+                                conn,
+                                target_clicked,
+                                full_range=full_range,
+                                wdir=wdir,
+                                window_min=window_min,
+                                window_max=window_max,
+                                apply_intensity_threshold=False,
+                            )
+                            visible = _has_visible_points(
+                                chrom_df,
+                                rt_min=window_min,
+                                rt_max=window_max,
+                                ms_type=target_ms_type,
+                                use_downsample=(target_ms_type == 'ms1'),
+                                downsample_n_out=LTTB_TARGET_POINTS,
+                            )
             else:
                 # Use helper function to fetch data
+                window_min, window_max = (None, None)
+                if not full_range:
+                    window_min, window_max = _get_rt_span_with_pad(rt_min, rt_max)
                 chrom_df = get_chromatogram_dataframe(
                     conn,
                     target_clicked,
                     full_range=full_range,
                     wdir=wdir,
+                    window_min=window_min,
+                    window_max=window_max,
                 )
-            
+                visible = True
+                if (not full_range) and window_min is not None and window_max is not None:
+                    visible = _has_visible_points(
+                        chrom_df,
+                        rt_min=window_min,
+                        rt_max=window_max,
+                        ms_type=target_ms_type,
+                        use_downsample=(target_ms_type == 'ms1'),
+                        downsample_n_out=LTTB_TARGET_POINTS,
+                    )
+                    if not visible:
+                        chrom_df = get_chromatogram_dataframe(
+                            conn,
+                            target_clicked,
+                            full_range=full_range,
+                            wdir=wdir,
+                            window_min=window_min,
+                            window_max=window_max,
+                            apply_intensity_threshold=False,
+                        )
+                        visible = _has_visible_points(
+                            chrom_df,
+                            rt_min=window_min,
+                            rt_max=window_max,
+                            ms_type=target_ms_type,
+                            use_downsample=(target_ms_type == 'ms1'),
+                            downsample_n_out=LTTB_TARGET_POINTS,
+                        )
+                if (not full_range) and (not visible):
+                    fallback_min, fallback_max = _get_rt_fallback_window(rt, rt_min, rt_max)
+                    if fallback_min is not None and fallback_max is not None:
+                        chrom_df = get_chromatogram_dataframe(
+                            conn,
+                            target_clicked,
+                            full_range=True,
+                            wdir=wdir,
+                            window_min=fallback_min,
+                            window_max=fallback_max,
+                        )
+
+        if chrom_df is None or chrom_df.is_empty():
+            logger.warning(
+                "Modal open: no chromatogram data available for target '%s' (full_range=%s). Preventing update.",
+                target_clicked,
+                full_range,
+            )
+            raise PreventUpdate
+
         try:
             n_sample_types = chrom_df['sample_type'].n_unique()
             group_legend = True if n_sample_types > 1 else False
@@ -3494,19 +4079,79 @@ def callbacks(app, fsc, cache, cpu=None):
             if current_full_range is not None:
                 full_range = current_full_range
             else:
-                full_range = False # Default off
+                 full_range = False # Default off
         else:
              full_range = False # Reset if new open
 
+        if use_envelope:
+            use_megatrace = True
+            
+        # Enforce envelope mode if megatrace is used (User Request)
+        if use_megatrace:
+            use_envelope = True
+
+        if use_envelope:
+            envelope_precomputed = generate_envelope_traces(chrom_df)
+            if not envelope_precomputed[0]:
+                logger.warning(
+                    "Modal open: envelope traces were empty for target '%s' (full_range=%s). Falling back to detailed traces.",
+                    target_clicked,
+                    full_range,
+                )
+                use_envelope = False
+                envelope_precomputed = None
+                with duckdb_connection(wdir) as conn:
+                    if conn is None:
+                        raise PreventUpdate
+                window_min, window_max = (None, None)
+                if not full_range:
+                    window_min, window_max = _get_rt_span_with_pad(rt_min, rt_max)
+                chrom_df = get_chromatogram_dataframe(
+                    conn,
+                    target_clicked,
+                    full_range=full_range,
+                    wdir=wdir,
+                    window_min=window_min,
+                    window_max=window_max,
+                )
+                if chrom_df is None or chrom_df.is_empty():
+                    logger.warning(
+                        "Modal open: fallback detailed data was empty for target '%s' (full_range=%s). Preventing update.",
+                        target_clicked,
+                        full_range,
+                    )
+                    raise PreventUpdate
+
         # Calculate RT alignment shifts if enabled in database
         rt_alignment_shifts_to_apply = None
-        if align_enabled and align_ref_rt is not None:
+        if (not use_envelope) and align_enabled and align_ref_rt is not None:
             # Calculate alignment shifts from stored data
             rt_alignment_shifts_to_apply = calculate_rt_alignment(chrom_df, align_rt_min, align_rt_max)
             logger.info(f"Applying saved RT alignment on modal open: ref={align_ref_rt:.2f}s")
         
+        window_min, window_max = _get_savgol_check_window(rt_min, rt_max, full_range)
+        downsample_enabled = target_ms_type == 'ms1' and not full_range
+        savgol_data_applicable, _ = _savgol_applicable_for_df(
+            chrom_df,
+            SAVGOL_WINDOW,
+            rt_min=window_min,
+            rt_max=window_max,
+            ms_type=target_ms_type,
+            use_downsample=downsample_enabled,
+            downsample_n_out=LTTB_TARGET_POINTS,
+        )
+        savgol_applicable = savgol_data_applicable and not full_range
+
+        savgol_checked = bool(current_savgol) if current_savgol is not None else True
+        if not savgol_applicable:
+            savgol_checked = False
+        else:
+            prev_forced_off = bool((current_figure or {}).get('layout', {}).get('_savgol_forced_off'))
+            if prev_forced_off and current_savgol is False:
+                savgol_checked = True
+
         smoothing_params = None
-        if current_savgol and (not full_range or target_ms_type != 'ms1'):
+        if savgol_checked and savgol_data_applicable and not full_range:
             smoothing_params = {
                 'enabled': True,
                 'window_length': SAVGOL_WINDOW,
@@ -3514,14 +4159,16 @@ def callbacks(app, fsc, cache, cpu=None):
             }
 
         downsample_params = None
-        if target_ms_type == 'ms1' and not full_range:
+        if downsample_enabled:
             downsample_params = {
                 'enabled': True,
                 'n_out': LTTB_TARGET_POINTS
             }
 
-        if use_envelope:
-             traces, x_min, x_max, y_min, y_max = generate_envelope_traces(chrom_df)
+        if envelope_precomputed is not None:
+            traces, x_min, x_max, y_min, y_max = envelope_precomputed
+        elif use_envelope:
+            traces, x_min, x_max, y_min, y_max = generate_envelope_traces(chrom_df)
         else:
             traces, x_min, x_max, y_min, y_max = generate_chromatogram_traces(
                 chrom_df, 
@@ -3544,6 +4191,13 @@ def callbacks(app, fsc, cache, cpu=None):
         fig['layout']['yaxis']['autorange'] = False
         fig['layout']['_initial_alignment_applied'] = (rt_alignment_shifts_to_apply is not None)  # Marker for debugging
         fig['data'] = traces
+        fig['layout']['_view_mode'] = 'envelope' if use_envelope else 'detailed'
+        fig['layout']['_use_megatrace_effective'] = bool(use_megatrace)
+        fig['layout']['_use_envelope_effective'] = bool(use_envelope)
+        fig['layout']['_full_range'] = bool(full_range)
+        fig['layout']['_target'] = target_clicked
+        fig['layout']['_render_rev'] = session_rev
+        fig['layout']['_savgol_forced_off'] = bool(not savgol_applicable)
         # fig['layout']['title'] = {'text': f"{target_clicked} (rt={rt})"}
         fig['layout']['shapes'] = []
         if use_megatrace:
@@ -3727,10 +4381,177 @@ def callbacks(app, fsc, cache, cpu=None):
         # but we preserve the 'use_megatrace' value so it's correct if user toggles Env off.
         pass
 
+        if session_rev is not None and _get_session_render_revision(session_id) != session_rev:
+            raise PreventUpdate
+
+        savgol_disabled = bool(use_envelope) or not savgol_applicable
+
         return (fig, f"{target_clicked}", False, slider_reference,
                 slider_dict, {"min_y": y_min, "max_y": y_max}, total_points, log_scale, group_legend, 
-                full_range, full_range_disabled, full_range_tooltip, rt_align_toggle_state, rt_alignment_data_to_load, note, False, bookmark_icon_node, use_envelope,
-                use_envelope, use_envelope, use_megatrace)
+                full_range, full_range_disabled, full_range_tooltip, rt_align_toggle_state, rt_alignment_data_to_load, note, False, bookmark_icon_node, 
+                # Background trigger data (if megatrace/envelope is used)
+                {'target_clicked': target_clicked, 'full_range': full_range, 'ms_type': ms_type_use} if use_envelope else None,
+                False, savgol_disabled, savgol_checked, use_megatrace)
+
+    @app.callback(
+        Output('chromatogram-view-plot', 'figure', allow_duplicate=True),
+        Input('background-load-trigger', 'data'),
+        State('chromatogram-view-plot', 'figure'),
+        State('chromatogram-view-megatrace', 'checked'),
+        State('chromatogram-view-savgol', 'checked'),
+        State('wdir', 'data'),
+        State('rt-alignment-data', 'data'),
+        State('session-id-store', 'data'),
+        prevent_initial_call=True
+    )
+    def load_detailed_traces(trigger_data, figure, use_megatrace, use_savgol, wdir, rt_alignment_data, session_id):
+        """
+        Background callback to load detailed/megatrace lines after Envelope is shown.
+        """
+        if not trigger_data or not wdir:
+            raise PreventUpdate
+
+        target_clicked = trigger_data.get('target_clicked')
+        full_range = trigger_data.get('full_range')
+        ms_type_use = trigger_data.get('ms_type', 'ms1')
+
+        # Check if we are still on the same target/view in the frontend? 
+        # (Though trigger_data comes from the modal opening, so it should be fresh)
+        # Note: If user quickly closes modal, this might still fire, but updating the figure 
+        # of a closed modal does nothing usually or might error if component unmounted.
+        
+        window_min, window_max = (None, None)
+        rt_min = rt_max = None
+        if not full_range:
+            shape = (figure or {}).get('layout', {}).get('shapes') or []
+            if shape:
+                rt_min = shape[0].get('x0')
+                rt_max = shape[0].get('x1')
+                window_min, window_max = _get_rt_span_with_pad(rt_min, rt_max)
+
+        with duckdb_connection(wdir) as conn:
+            if conn is None:
+                raise PreventUpdate
+
+            # We want the Detailed/Megatrace lines now
+            chrom_df = get_chromatogram_dataframe(
+                conn,
+                target_clicked,
+                full_range=full_range,
+                wdir=wdir,
+                window_min=window_min,
+                window_max=window_max,
+            )
+            if (not full_range) and window_min is not None and window_max is not None:
+                visible = _has_visible_points(
+                    chrom_df,
+                    rt_min=window_min,
+                    rt_max=window_max,
+                    ms_type=ms_type_use,
+                    use_downsample=(ms_type_use == 'ms1'),
+                    downsample_n_out=LTTB_TARGET_POINTS,
+                )
+                if not visible:
+                    chrom_df = get_chromatogram_dataframe(
+                        conn,
+                        target_clicked,
+                        full_range=full_range,
+                        wdir=wdir,
+                        window_min=window_min,
+                        window_max=window_max,
+                        apply_intensity_threshold=False,
+                    )
+                    visible = _has_visible_points(
+                        chrom_df,
+                        rt_min=window_min,
+                        rt_max=window_max,
+                        ms_type=ms_type_use,
+                        use_downsample=(ms_type_use == 'ms1'),
+                        downsample_n_out=LTTB_TARGET_POINTS,
+                    )
+                if not visible:
+                    rt_center = None
+                    if rt_min is not None and rt_max is not None:
+                        rt_center = (rt_min + rt_max) / 2.0
+                    fallback_min, fallback_max = _get_rt_fallback_window(
+                        rt_center, rt_min, rt_max
+                    )
+                    if fallback_min is not None and fallback_max is not None:
+                        chrom_df = get_chromatogram_dataframe(
+                            conn,
+                            target_clicked,
+                            full_range=True,
+                            wdir=wdir,
+                            window_min=fallback_min,
+                            window_max=fallback_max,
+                        )
+
+        if chrom_df is None or chrom_df.is_empty():
+            raise PreventUpdate
+
+        # Generate the lines (Megatrace mode = Reduced Mode i.e. one trace per sample_type, which is what we want for 'lines')
+        # If user wants "detailed", they can switch off Megatrace, but here we assume the progression:
+        # Envelope -> + Megatrace Lines
+        
+        # We always want "Megatrace" (Reduced) lines here because "Detailed" (1000 traces) is too slow for background add
+        # and defeats the purpose of the optimization.
+        use_megatrace_lines = True 
+
+        # Apply RT alignment if active
+        rt_alignment_shifts = None
+        if rt_alignment_data and rt_alignment_data.get('enabled'):
+             rt_alignment_shifts = rt_alignment_data.get('shifts_per_file') # Or calculate? 
+             # Re-calculate to safely map shifts from df
+             if not rt_alignment_shifts:
+                 rt_alignment_shifts = calculate_rt_alignment(
+                    chrom_df, 
+                    rt_alignment_data['rt_min'], 
+                    rt_alignment_data['rt_max']
+                 )
+
+        smoothing_params = None
+        if use_savgol and not full_range:
+            smoothing_params = {
+                'enabled': True,
+                'window_length': SAVGOL_WINDOW,
+                'polyorder': SAVGOL_ORDER
+            }
+        
+        downsample_params = None
+        if ms_type_use == 'ms1' and not full_range:
+            downsample_params = {
+                'enabled': True,
+                'n_out': LTTB_TARGET_POINTS
+            }
+
+        traces, _, _, _, _ = generate_chromatogram_traces(
+            chrom_df, 
+            use_megatrace=use_megatrace_lines,
+            rt_alignment_shifts=rt_alignment_shifts,
+            ms_type=ms_type_use,
+            smoothing_params=smoothing_params,
+            downsample_params=downsample_params
+        )
+
+        has_points = False
+        for trace in traces:
+            xs = trace.get('x') or []
+            if any(x is not None for x in xs):
+                has_points = True
+                break
+        if not has_points:
+            raise PreventUpdate
+
+        # We replace the Envelope traces with the Detailed/Megatrace lines
+        # We must use Patch to avoid resetting the view layout (zoom/pan)
+        fig_patch = Patch()
+        
+        # Replace data completely
+        fig_patch['data'] = traces
+        
+        # Don't update layout to preserve zoom/pan
+        
+        return fig_patch
 
     @app.callback(
         Output('chromatogram-view-plot', 'figure', allow_duplicate=True),
@@ -4545,61 +5366,33 @@ def callbacks(app, fsc, cache, cpu=None):
             try:
                 with duckdb_connection(wdir) as conn:
                     if conn is not None:
-                        # Save notes
-                        conn.execute("UPDATE targets SET notes = ? WHERE peak_label = ?",
-                                    (current_note or '', current_target))
-                        logger.debug(f"Auto-saved notes for '{current_target}' before navigation")
-                        
-                        # Auto-save RT-span if changed
-                        if slider_data:
-                            slider_value = slider_data.get('value') if isinstance(slider_data, dict) else None
-                            if slider_value and isinstance(slider_value, dict):
-                                rt_min = slider_value.get('rt_min')
-                                rt_max = slider_value.get('rt_max')
-                                rt = slider_value.get('rt', (rt_min + rt_max) / 2 if rt_min is not None and rt_max is not None else None)
-                                
-                                if rt_min is not None and rt_max is not None:
-                                    conn.execute("""
-                                        UPDATE targets 
-                                        SET rt_min = ?, rt_max = ?, rt = ?
-                                        WHERE peak_label = ?
-                                    """, [rt_min, rt_max, rt, current_target])
-                                    logger.info(f"Auto-saved RT-span for '{current_target}': [{rt_min:.2f}, {rt_max:.2f}]")
-                        
-                        # Save RT alignment state
-                        if rt_align_toggle:
-                            # Toggle is ON - save alignment data
-                            if rt_alignment_data and rt_alignment_data.get('enabled'):
-                                import json
-                                shifts_json = json.dumps(rt_alignment_data.get('shifts_per_file', {}))
-                                conn.execute("""
-                                    UPDATE targets 
-                                    SET rt_align_enabled = TRUE,
-                                        rt_align_reference_rt = ?,
-                                        rt_align_shifts = ?,
-                                        rt_align_rt_min = ?,
-                                        rt_align_rt_max = ?
-                                    WHERE peak_label = ?
-                                """, [
-                                    rt_alignment_data['reference_rt'],
-                                    shifts_json,
-                                    rt_alignment_data.get('rt_min'),
-                                    rt_alignment_data.get('rt_max'),
-                                    current_target
-                                ])
-                                logger.debug(f"Auto-saved RT alignment for '{current_target}' before navigation")
-                        else:
-                            # Toggle is OFF - clear alignment data
-                            conn.execute("""
-                                UPDATE targets 
-                                SET rt_align_enabled = FALSE,
-                                    rt_align_reference_rt = NULL,
-                                    rt_align_shifts = NULL,
-                                    rt_align_rt_min = NULL,
-                                    rt_align_rt_max = NULL
-                                WHERE peak_label = ?
-                            """, [current_target])
-                            logger.debug(f"Cleared RT alignment for '{current_target}' before navigation")
+                        save_result = _save_target_state(
+                            conn,
+                            current_target,
+                            current_note,
+                            slider_data=slider_data,
+                            rt_align_toggle=rt_align_toggle,
+                            rt_alignment_data=rt_alignment_data,
+                        )
+                        if save_result["saved_notes"]:
+                            logger.debug(
+                                f"Auto-saved notes for '{current_target}' before navigation"
+                            )
+                        if save_result["saved_rt_span"]:
+                            logger.info(
+                                "Auto-saved RT-span for '%s': [%.2f, %.2f]",
+                                current_target,
+                                save_result["rt_min"],
+                                save_result["rt_max"],
+                            )
+                        if save_result["saved_rt_alignment"]:
+                            logger.debug(
+                                f"Auto-saved RT alignment for '{current_target}' before navigation"
+                            )
+                        if save_result["cleared_rt_alignment"]:
+                            logger.debug(
+                                f"Cleared RT alignment for '{current_target}' before navigation"
+                            )
             except Exception as e:
                 logger.warning(f"Failed to auto-save data for '{current_target}': {e}")
         
@@ -4629,9 +5422,17 @@ def callbacks(app, fsc, cache, cpu=None):
             try:
                 with duckdb_connection(wdir) as conn:
                     if conn is not None:
-                        conn.execute("UPDATE targets SET notes = ? WHERE peak_label = ?",
-                                    (current_note or '', current_target))
-                        logger.debug(f"Auto-saved notes for '{current_target}' on confirm navigation")
+                        save_result = _save_target_state(
+                            conn,
+                            current_target,
+                            current_note,
+                            save_rt_span=False,
+                            save_rt_alignment=False,
+                        )
+                        if save_result["saved_notes"]:
+                            logger.debug(
+                                f"Auto-saved notes for '{current_target}' on confirm navigation"
+                            )
             except Exception as e:
                 logger.warning(f"Failed to auto-save notes for '{current_target}': {e}")
         
@@ -4703,65 +5504,25 @@ def callbacks(app, fsc, cache, cpu=None):
             with duckdb_connection(wdir) as conn:
                 if conn is None:
                     raise PreventUpdate
-                
-                # Auto-save RT-span if changed
-                if slider_data and reference_data:
-                    slider_value = slider_data.get('value') if isinstance(slider_data, dict) else None
-                    reference_value = reference_data.get('value') if isinstance(reference_data, dict) else None
-                    
-                    if slider_value and isinstance(slider_value, dict):
-                        # Check if values changed
-                        if reference_value is None or slider_value != reference_value:
-                            rt_min = slider_value.get('rt_min')
-                            rt_max = slider_value.get('rt_max')
-                            rt = slider_value.get('rt', (rt_min + rt_max) / 2 if rt_min and rt_max else None)
-                            
-                            if rt_min is not None and rt_max is not None:
-                                conn.execute("""
-                                    UPDATE targets 
-                                    SET rt_min = ?, rt_max = ?, rt = ?
-                                    WHERE peak_label = ?
-                                """, [rt_min, rt_max, rt, current_target])
-                                logger.info(f"Auto-saved RT-span for '{current_target}' on modal close")
-                                saved_items.append("RT-span")
 
-                
-                # Save notes
-                conn.execute("UPDATE targets SET notes = ? WHERE peak_label = ?",
-                            (current_note or '', current_target))
-                
-                # Save RT alignment state
-                if rt_align_toggle:
-                    if rt_alignment_data and rt_alignment_data.get('enabled'):
-                        import json
-                        shifts_json = json.dumps(rt_alignment_data.get('shifts_per_file', {}))
-                        conn.execute("""
-                            UPDATE targets 
-                            SET rt_align_enabled = TRUE,
-                                rt_align_reference_rt = ?,
-                                rt_align_shifts = ?,
-                                rt_align_rt_min = ?,
-                                rt_align_rt_max = ?
-                            WHERE peak_label = ?
-                        """, [
-                            rt_alignment_data['reference_rt'],
-                            shifts_json,
-                            rt_alignment_data.get('rt_min'),
-                            rt_alignment_data.get('rt_max'),
-                            current_target
-                        ])
-                        saved_items.append("RT alignment")
-                else:
-                    conn.execute("""
-                        UPDATE targets 
-                        SET rt_align_enabled = FALSE,
-                            rt_align_reference_rt = NULL,
-                            rt_align_shifts = NULL,
-                            rt_align_rt_min = NULL,
-                            rt_align_rt_max = NULL
-                        WHERE peak_label = ?
-                    """, [current_target])
-                
+                save_result = _save_target_state(
+                    conn,
+                    current_target,
+                    current_note,
+                    slider_data=slider_data,
+                    reference_data=reference_data,
+                    check_slider_change=True,
+                    rt_align_toggle=rt_align_toggle,
+                    rt_alignment_data=rt_alignment_data,
+                )
+                if save_result["saved_rt_span"]:
+                    logger.info(
+                        f"Auto-saved RT-span for '{current_target}' on modal close"
+                    )
+                    saved_items.append("RT-span")
+                if save_result["saved_rt_alignment"]:
+                    saved_items.append("RT alignment")
+
                 logger.debug(f"Auto-saved data for '{current_target}' on modal close")
         
         except Exception as e:

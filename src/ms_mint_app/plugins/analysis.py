@@ -1409,7 +1409,7 @@ def show_tab_content(section_context, tab_key, x_comp, y_comp, violin_comp_check
         if metric_value == 'scalir_conc' or metric_value in allowed_metrics:
             metric = metric_value
         
-        logger.info(f"DEBUG: metric_value={metric_value}, metric={metric}")
+        logger.debug(f"DEBUG: metric_value={metric_value}, metric={metric}")
         
         target_table = 'results'
         if metric == 'scalir_conc':

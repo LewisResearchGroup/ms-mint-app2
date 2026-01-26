@@ -18,6 +18,10 @@ except Exception:
 logger = logging.getLogger(__name__)
 LOG_TRACE_POINT_LIMIT = 50
 _LTTBC_MISSING_WARNED = False
+_SAVGOL_SKIP_LOGS = 0
+_SAVGOL_APPLY_LOGS = 0
+_SAVGOL_SKIP_INFO_LOGS = 0
+_SAVGOL_APPLY_INFO_LOGS = 0
 
 
 def _savgol_coeffs_numpy(window_length, polyorder, deriv=0, delta=1.0):
@@ -56,7 +60,7 @@ def _savgol_filter_numpy(intensity, window_length, polyorder):
     return filtered
 
 
-def apply_savgol_smoothing(intensity, window_length=7, polyorder=2):
+def apply_savgol_smoothing(intensity, window_length=7, polyorder=2, min_points=None):
     if window_length is None:
         window_length = 7
     if polyorder is None:
@@ -68,37 +72,97 @@ def apply_savgol_smoothing(intensity, window_length=7, polyorder=2):
     except (TypeError, ValueError):
         return intensity
 
-    if window_length < 3:
+    intensity = np.asarray(intensity, dtype=float)
+    n_points = intensity.size
+
+    # CHECK 1: No data to smooth
+    if n_points == 0:
         return intensity
 
+    if min_points is None:
+        min_points = max(window_length * 2 + 1, 7)
+    try:
+        min_points = int(min_points)
+    except (TypeError, ValueError):
+        min_points = 0
+
+    # CHECK 1.5: Require a minimum number of points before smoothing
+    if min_points > 0 and n_points < min_points:
+        global _SAVGOL_SKIP_LOGS, _SAVGOL_SKIP_INFO_LOGS
+        if _SAVGOL_SKIP_INFO_LOGS < 5:
+            logger.info(
+                "Savgol skipped: n_points=%d < min_points=%d (window=%d, order=%d)",
+                n_points,
+                min_points,
+                window_length,
+                polyorder,
+            )
+            _SAVGOL_SKIP_INFO_LOGS += 1
+        if _SAVGOL_SKIP_LOGS < LOG_TRACE_POINT_LIMIT:
+            logger.debug(
+                "Savgol skipped: n_points=%d < min_points=%d (window=%d, order=%d)",
+                n_points,
+                min_points,
+                window_length,
+                polyorder,
+            )
+            _SAVGOL_SKIP_LOGS += 1
+        return intensity
+
+    # CHECK 2: Window too large for data size (MAVEN Rule: > n/3)
+    if window_length > n_points // 3:
+        window_length = int(n_points // 3)
+
+    # CHECK 3: Window too small to be useful
+    if window_length <= 1:
+        return intensity
+
+    # Ensure valid window for SavGol (must be odd)
     if window_length % 2 == 0:
         window_length -= 1
 
-    intensity = np.asarray(intensity, dtype=float)
-    n_points = intensity.size
-    if n_points < 3:
-        return intensity
-
-    if window_length > n_points:
-        window_length = n_points if n_points % 2 == 1 else n_points - 1
-
-    if window_length < 3:
+    # Re-check after odd adjustment
+    if window_length <= 1:
         return intensity
 
     if polyorder < 0:
         polyorder = 0
+    # Strict parameter bounds: Polynomial order cannot exceed window size
     if polyorder >= window_length:
         polyorder = window_length - 1
 
     if _savgol_filter is not None:
-        smoothed = _savgol_filter(intensity, window_length, polyorder, mode='interp')
+        try:
+            smoothed = _savgol_filter(intensity, window_length, polyorder, mode='interp')
+        except Exception:
+             # Fallback if scipy fails despite checks
+             smoothed = intensity
     else:
         smoothed = _savgol_filter_numpy(intensity, window_length, polyorder)
 
-    return np.maximum(smoothed, 1.0)
+    global _SAVGOL_APPLY_LOGS, _SAVGOL_APPLY_INFO_LOGS
+    if _SAVGOL_APPLY_INFO_LOGS < 5:
+        logger.info(
+            "Savgol applied: n_points=%d (window=%d, order=%d)",
+            n_points,
+            window_length,
+            polyorder,
+        )
+        _SAVGOL_APPLY_INFO_LOGS += 1
+    if _SAVGOL_APPLY_LOGS < LOG_TRACE_POINT_LIMIT:
+        logger.debug(
+            "Savgol applied: n_points=%d (window=%d, order=%d)",
+            n_points,
+            window_length,
+            polyorder,
+        )
+        _SAVGOL_APPLY_LOGS += 1
+
+    # Negative value clipping: Prevents non-physical negative smoothed intensities
+    return np.maximum(smoothed, 0.0)
 
 
-def apply_lttb_downsampling(scan_time, intensity, n_out=100):
+def apply_lttb_downsampling(scan_time, intensity, n_out=100, min_points=None):
     global _LTTBC_MISSING_WARNED
 
     if n_out is None:
@@ -113,7 +177,16 @@ def apply_lttb_downsampling(scan_time, intensity, n_out=100):
     intensity = np.asarray(intensity, dtype=float)
 
     n_points = scan_time.size
+    if min_points is None:
+        min_points = max(n_out * 2, 10)
+    try:
+        min_points = int(min_points)
+    except (TypeError, ValueError):
+        min_points = 0
+
     if n_points == 0 or n_out <= 0 or n_points <= n_out:
+        return scan_time, intensity
+    if min_points > 0 and n_points < min_points:
         return scan_time, intensity
 
     if _lttbc is None:
@@ -265,7 +338,14 @@ def generate_chromatogram_traces(
             sample_type_counts[stype] = sample_type_counts.get(stype, 0) + 1
         
         # Sort rows: larger sample_type groups first, so smaller groups are drawn last (on top)
-        rows_sorted = sorted(rows_list, key=lambda r: sample_type_counts.get(r['sample_type'], 0), reverse=True)
+        rows_sorted = sorted(
+            rows_list,
+            key=lambda r: (
+                -sample_type_counts.get(r['sample_type'], 0),
+                str(r.get('sample_type') or '').lower(),
+                str(r.get('label') or r.get('ms_file_label') or '').lower(),
+            ),
+        )
         
         total_traces = len(rows_sorted)
         for i, row in enumerate(rows_sorted):
@@ -410,7 +490,13 @@ def generate_chromatogram_traces(
                 y_max = max(y_max, row['intensity_max_in_range'])
 
         # Build traces - sort by count descending so smaller groups are drawn last (on top)
-        sorted_groups = sorted(grouped.items(), key=lambda x: x[1]['count'], reverse=True)
+        sorted_groups = sorted(
+            grouped.items(),
+            key=lambda item: (
+                -item[1]['count'],
+                str(item[0] or '').lower(),
+            ),
+        )
         for stype, data in sorted_groups:
             # Flatten arrays
             x_flat = list(itertools.chain(*data['x']))
@@ -458,7 +544,7 @@ def generate_envelope_traces(envelope_df):
     """
     Generate Plotly traces for chromatogram envelopes (Min/Max/Mean).
     Expects Polars DataFrame with columns: 
-    [sample_type, color, bin_idx, rt, min_int, max_int, mean_int, count]
+    [sample_type, color, bin_idx, rt, min_int, max_int, mean_int, count, sample_count?]
     """
     traces = []
     x_min = float('inf')
@@ -469,15 +555,24 @@ def generate_envelope_traces(envelope_df):
     if envelope_df is None or envelope_df.is_empty():
         return traces, x_min, x_max, y_min, y_max
 
+    has_sample_count = 'sample_count' in envelope_df.columns
+
     # Determine groups and sort by sample count (highest count first)
     type_counts = []
     for stype in envelope_df['sample_type'].unique().to_list():
-        # 'count' is the number of samples in the bin. Max count represents the total samples.
-        max_c = envelope_df.filter(envelope_df['sample_type'] == stype)['count'].max()
+        if has_sample_count:
+            sample_count_val = envelope_df.filter(envelope_df['sample_type'] == stype)['sample_count'].max()
+            if sample_count_val is None:
+                max_c = envelope_df.filter(envelope_df['sample_type'] == stype)['count'].max()
+            else:
+                max_c = int(sample_count_val)
+        else:
+            # 'count' is the number of points in the bin. Max count is only a proxy for sample count.
+            max_c = envelope_df.filter(envelope_df['sample_type'] == stype)['count'].max()
         type_counts.append((stype, max_c))
     
     # Sort by count descending
-    type_counts.sort(key=lambda x: x[1], reverse=True)
+    type_counts.sort(key=lambda item: (-item[1], str(item[0] or '').lower()))
     sample_types = [x[0] for x in type_counts]
 
     for stype in sample_types:
@@ -495,8 +590,12 @@ def generate_envelope_traces(envelope_df):
         color = group_df['color'][0] or 'grey'
 
         # Estimate sample count (max number of points in any bin for this sample type)
-        # Assuming binning is fine enough, or just use the max count observed
-        estimated_count = max(counts) if counts else 0
+        if has_sample_count:
+            sample_count_val = group_df['sample_count'][0] if len(group_df) > 0 else None
+            estimated_count = int(sample_count_val) if sample_count_val is not None else (max(counts) if counts else 0)
+        else:
+            # Assuming binning is fine enough, or just use the max count observed
+            estimated_count = max(counts) if counts else 0
         label_with_count = f"{stype} ({estimated_count})"
 
         # Update bounds
@@ -558,4 +657,3 @@ def generate_envelope_traces(envelope_df):
     if y_max == float('-inf'): y_max = 1
 
     return traces, x_min, x_max, y_min, y_max
-

@@ -3,10 +3,10 @@ import numpy as np
 import duckdb
 
 from ms_mint_app.plugins.target_optimization import (
-    downsample_for_preview,
     _calc_y_range_numpy,
     get_chromatogram_dataframe,
 )
+from ms_mint_app.plugins.analysis_tools.trace_helper import apply_lttb_downsampling
 from ms_mint_app.duckdb_manager import _create_tables
 
 
@@ -14,7 +14,7 @@ def test_downsample_for_preview_no_change():
     scan_time = np.arange(50)
     intensity = np.arange(50) * 2
 
-    out_time, out_intensity = downsample_for_preview(scan_time, intensity, max_points=100)
+    out_time, out_intensity = apply_lttb_downsampling(scan_time, intensity, n_out=100)
 
     assert np.array_equal(out_time, scan_time)
     assert np.array_equal(out_intensity, intensity)
@@ -24,7 +24,7 @@ def test_downsample_for_preview_reduces():
     scan_time = np.arange(1000)
     intensity = np.arange(1000) * 2
 
-    out_time, out_intensity = downsample_for_preview(scan_time, intensity, max_points=100)
+    out_time, out_intensity = apply_lttb_downsampling(scan_time, intensity, n_out=100)
 
     assert len(out_time) == 100
     assert len(out_intensity) == 100

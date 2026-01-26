@@ -8,7 +8,7 @@ Download an executable compatible with your OS and open MINT (see other installa
 Once the app starts, you should see the `Workspaces` tab.
 
 ## 2. Create a workspace
-If you have never started the application before, you will not have any workspaces yet. A workspace provides easy access to all data files and results for a given project.
+On first launch, MINT creates a **My first Workspace** workspace with sample data so you can tour the interface immediately. You can keep it for reference or create a new workspace for your project. A workspace provides easy access to all data files and results for a given project.
 
 ![](quickstart/first-start.png)
 
@@ -25,7 +25,9 @@ Now you have created your first workspace, but it is empty. You will need some i
 
 ## 3. Download the demo files
 
-Some demo files are available for download on the `ms-mint` Google Drive. Download the files from [Google Drive](https://drive.google.com/drive/folders/1U4xMy5lfETk93sSVXPI79cCWyIMcAjeZ?usp=drive_link) and extract the archive.
+If you only want to explore the UI quickly, you can use the pre-seeded **My first Workspace** workspace and jump ahead to the analysis section. For a full end-to-end walkthrough with real files, download the demo files below.
+
+Some demo files are available for download on the MINT Google Drive. Download the files from [Google Drive](https://drive.google.com/drive/folders/1U4xMy5lfETk93sSVXPI79cCWyIMcAjeZ?usp=drive_link) and extract the archive.
 
 This is the directory tree of the demo files:
 
@@ -159,30 +161,33 @@ Now, you can download the results in long format or dense `peak_max` values by c
 
 ## 9. Analyze the results
 
-Once the results are generated, there are several analyses you can perform. In the analysis section you can see four tabs, each corresponding to a different analysis. If you are new, start with the Clustermap to quickly spot outliers or batch effects.
+Once the results are generated, there are several analyses you can perform. The Analysis section includes **QC**, **PCA**, **t-SNE**, **Violin**, **Bar**, and **Clustermap** views. If you are new, start with QC to validate retention times and m/z stability, then use the Clustermap to quickly spot outliers or batch effects.
 
 ![](quickstart/analysis-1.png)
+
+=== "QC"
+    Quality control plots for a selected target. You can review retention-time and m/z stability across samples (left) and inspect the chromatogram of any clicked sample (right).
 
 === "PCA"
     Principal component analysis plot for sample-level patterns. Includes a score plot (PC1 to PC5) on the left side, cumulative variance (top right), and absolute loading values for a selected PC on the x-axis (bottom right).
 
     ![](quickstart/analysis-3.png)
 
+=== "t-SNE"
+    Nonlinear dimensionality reduction for visualizing local sample neighborhoods. Use the regenerate button to recompute and choose which t-SNE dimensions to display.
 
 === "Violin"
     Distribution plots by group (for example, Sample type, Group 1, Group 2) to compare target values. Includes a hypothesis test result (t-test for two samples, ANOVA for more than two samples) on the top right corner.
 
     ![](quickstart/analysis-4.png)
 
+=== "Bar"
+    Summary view that aggregates values by group and shows mean ± SEM with individual sample points overlaid. Click a sample point to inspect its chromatogram.
+
 === "Clustermap"
     Clustered heatmap showing relationships between samples and targets. In this tab you can select different metrics (for example, peak_area, peak_top3), transformations (for example, z-score, log2), and groupings (for example, Sample type, Group 1, Group 2).
 
     ![](quickstart/analysis-2.png)
-
-=== "Scalir"
-    Summary view for calculating concentrations.
-
-    ![](quickstart/analysis-5.png)
 
 ## Next steps
 For a deeper tour of the interface, see the [GUI guide](gui/index.md).

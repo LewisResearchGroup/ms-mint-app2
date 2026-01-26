@@ -1,6 +1,6 @@
 ## Analysis {: #analysis }
 
-The `Analysis` tab provides a suite of interactive visualizations for exploring your processed data. It allows you to switch between four main analytical views: `Clustermap`, `PCA`, `Violin`, and `SCALiR`.
+The `Analysis` tab provides a suite of interactive visualizations for exploring your processed data. It allows you to switch between six main analytical views: `QC`, `PCA`, `t-SNE`, `Violin`, `Bar`, and `Clustermap`.
 
 > **Tip**: Click the help icon (small "i" symbol) next to the "Analysis" title to take a guided tour of this section.
 
@@ -10,19 +10,23 @@ The `Analysis` tab provides a suite of interactive visualizations for exploring 
 
 The toolbar at the top of the Analysis tab controls the data input for all visualizations:
 
-*   **Metric**: Select the quantitative value to analyze. Options include `Peak Area`, `Peak Area (Top 3)`, `Peak Max`, etc.
+*   **Metric**: Select the quantitative value to analyze. Options include `Peak Area`, `Peak Area (Top 3)`, `Peak Max`, and (when available) `Concentration`.
 *   **Transformations**: Apply statistical transformations to the raw data:
-    *   **None**: Use raw values.
+    *   **None (raw)**: Use raw values.
     *   **Z-score**: Standardize features (mean=0, std=1).
     *   **Rocke-Durbin**: Variance stabilization.
-*   **Group by**: Choose a metadata column to group samples. This determines the coloring in Clustermap, PCA and Violin plots.
+    *   **Z-score + Rocke-Durbin**: Standardize, then stabilize variance.
+*   **Group by**: Choose a metadata column to group samples. This determines the coloring in QC, Clustermap, PCA, t-SNE, Violin, and Bar plots.
+*   **Target (QC only)**: Select a peak to inspect QC plots and chromatograms.
 
 ### Analytical Views {: #analytical-views }
 
-=== "Clustermap (Heatmap)"
-    Displays a hierarchical clustering of samples (columns) and metabolites (rows). It helps identify patterns and outliers in your dataset.
+=== "QC"
+    Quality-control view for a selected target.
 
-    ![Clustermap](../quickstart/analysis-2.png "Clustermap")
+    *   **RT Plot**: Retention-time stability across samples, grouped by your selected metadata column.
+    *   **m/z Plot**: Observed m/z (if available) across samples.
+    *   **Chromatogram**: Click a sample in either scatter plot to inspect the chromatogram for that target.
 
 === "PCA"
     **Principal Component Analysis**: Reduces the dimensionality of your data to visualize sample similarity.
@@ -33,6 +37,12 @@ The toolbar at the top of the Analysis tab controls the data input for all visua
 
     ![PCA](../quickstart/analysis-3.png "PCA")
 
+=== "t-SNE"
+    **t-Distributed Stochastic Neighbor Embedding**: Nonlinear embedding to reveal local sample neighborhoods.
+
+    *   **Axes**: Select the t-SNE dimensions to display (typically t-SNE-1 vs t-SNE-2).
+    *   **Perplexity**: Adjust neighborhood size and regenerate to explore different structures.
+
 === "Violin (Distributions)"
     Focuses on the distribution of peak intensities for individual metabolites.
 
@@ -41,10 +51,14 @@ The toolbar at the top of the Analysis tab controls the data input for all visua
 
     ![Violin Plots](../quickstart/analysis-4.png "Violin Plots")
 
-=== "SCALiR (Calibration)"
-    A tool for absolute quantification using internal standards.
+=== "Bar"
+    Aggregated summary view by group.
 
-    *   **Upload Standards**: Load a CSV defining the concentration of standards.
-    *   **Fit Calibration**: MINT fits calibration curves and calculates concentrations for your biological samples.
+    *   **Mean ± SEM**: Bar chart with error bars.
+    *   **Individual Samples**: Jittered points overlaid on bars.
+    *   **Chromatogram**: Click a sample point to inspect its chromatogram.
 
-    ![SCALiR](../quickstart/analysis-5.png "SCALiR")
+=== "Clustermap (Heatmap)"
+    Displays a hierarchical clustering of samples (columns) and metabolites (rows). It helps identify patterns and outliers in your dataset.
+
+    ![Clustermap](../quickstart/analysis-2.png "Clustermap")

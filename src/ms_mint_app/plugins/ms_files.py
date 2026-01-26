@@ -1280,41 +1280,32 @@ def callbacks(cls, app, fsc, cache, args_namespace):
         prevent_initial_call=True,
     )
     def download_ms_files(template_clicks, list_clicks, wdir):
-        from ..duckdb_manager import duckdb_connection_mint
+        from ..duckdb_manager import get_workspace_name_from_wdir
+        from .download_utils import handle_template_or_list_download
 
         ctx = dash.callback_context
-        if not ctx.triggered:
-            raise PreventUpdate
 
         ws_name = "workspace"
         if wdir:
-            try:
-                ws_key = Path(wdir).stem
-                with duckdb_connection_mint(Path(wdir).parent.parent) as mint_conn:
-                    if mint_conn is not None:
-                        ws_row = mint_conn.execute("SELECT name FROM workspaces WHERE key = ?", [ws_key]).fetchone()
-                        if ws_row is not None:
-                            ws_name = ws_row[0]
-            except Exception:
-                pass
+            ws_name = get_workspace_name_from_wdir(wdir) or ws_name
 
-        trigger = ctx.triggered[0]['prop_id'].split('.')[0]
-        if trigger == 'download-ms-template-btn':
-            filename = f"{T.today()}-MINT__{ws_name}-ms_files_template.csv"
-            return dcc.send_string(MS_METADATA_TEMPLATE_CSV, filename)
-
-        if trigger == 'download-ms-files-btn':
+        def build_df():
             if not wdir:
                 raise PreventUpdate
             with duckdb_connection(wdir) as conn:
                 if conn is None:
                     raise PreventUpdate
-                df = conn.execute("SELECT * FROM samples").df()
+                return conn.execute("SELECT * FROM samples").df()
 
-            filename = f"{T.today()}-MINT__{ws_name}-ms_files.csv"
-            return dcc.send_data_frame(df.to_csv, filename, index=False)
-
-        raise PreventUpdate
+        return handle_template_or_list_download(
+            ctx,
+            "download-ms-template-btn",
+            "download-ms-files-btn",
+            MS_METADATA_TEMPLATE_CSV,
+            f"{T.today()}-MINT__{ws_name}-ms_files_template.csv",
+            build_df,
+            f"{T.today()}-MINT__{ws_name}-ms_files.csv",
+        )
 
 
     @app.callback(

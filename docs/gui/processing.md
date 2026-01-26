@@ -33,3 +33,6 @@ Use the `Options` menu (top right) to:
 
 *   **Delete selected results**: Remove specific rows from the current view.
 *   **Clear results**: Delete all processed results to start over (useful if you need to rerun with different parameters).
+
+### SCALiR (Optional) {: #scalir-processing }
+SCALiR is an optional workflow for absolute quantification using internal standards. If enabled, you can provide a standards table and generate concentration estimates from the processed results.

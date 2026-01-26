@@ -19,9 +19,9 @@ A powerful post-processing tool for **LC-MS based metabolomics** that simplifies
 - **Targeted Peak Integration** - Extract chromatograms and quantify peaks from mzML/mzXML files
 - **Interactive Visualization** - Explore chromatograms, heatmaps, and clustering results
 - **RT Optimization** - Fine-tune retention time windows with visual feedback
-- **Statistical Analysis** - Built-in tools including SCALiR for absolute quantification
+- **Optional Quantification (SCALiR)** - Available in the Processing tab for absolute quantification when needed
 - **DuckDB Backend** - Fast, efficient storage for large datasets
-- **Desktop App** - Available as standalone Windows/Unix executable
+- **Desktop App** - Available as standalone Windows, Linux, and macOS executable
 
 <p align="center">
   <img src="docs/quickstart/peak-preview.png" alt="Hierarchical Clustering" width="700">
@@ -34,6 +34,8 @@ A powerful post-processing tool for **LC-MS based metabolomics** that simplifies
 ```bash
 pip install ms-mint-app2
 ```
+
+Requires Python 3.12+.
 
 ### Run MINT
 
