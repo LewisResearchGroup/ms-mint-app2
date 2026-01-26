@@ -34,7 +34,7 @@ FULL_RANGE_SAVGOL_WINDOW = 10
 FULL_RANGE_SAVGOL_ORDER = 2
 
 
-def _apply_lttb_downsampling(scan_time, intensity, n_out=FULL_RANGE_DOWNSAMPLE_POINTS):
+def _apply_lttb_downsampling(scan_time, intensity, n_out=FULL_RANGE_DOWNSAMPLE_POINTS, min_points=None):
     if n_out is None:
         n_out = FULL_RANGE_DOWNSAMPLE_POINTS
 
@@ -46,7 +46,16 @@ def _apply_lttb_downsampling(scan_time, intensity, n_out=FULL_RANGE_DOWNSAMPLE_P
     if _lttbc is None:
         return scan_time, intensity
 
+    if min_points is None:
+        min_points = max(n_out * 2, 10)
+    try:
+        min_points = int(min_points)
+    except (TypeError, ValueError):
+        min_points = 0
+
     if not scan_time or n_out <= 0 or len(scan_time) <= n_out:
+        return scan_time, intensity
+    if min_points > 0 and len(scan_time) < min_points:
         return scan_time, intensity
 
     downsampled_x, downsampled_y = _lttbc.downsample(scan_time, intensity, n_out)

@@ -162,7 +162,7 @@ def apply_savgol_smoothing(intensity, window_length=7, polyorder=2, min_points=N
     return np.maximum(smoothed, 0.0)
 
 
-def apply_lttb_downsampling(scan_time, intensity, n_out=100):
+def apply_lttb_downsampling(scan_time, intensity, n_out=100, min_points=None):
     global _LTTBC_MISSING_WARNED
 
     if n_out is None:
@@ -177,7 +177,16 @@ def apply_lttb_downsampling(scan_time, intensity, n_out=100):
     intensity = np.asarray(intensity, dtype=float)
 
     n_points = scan_time.size
+    if min_points is None:
+        min_points = max(n_out * 2, 10)
+    try:
+        min_points = int(min_points)
+    except (TypeError, ValueError):
+        min_points = 0
+
     if n_points == 0 or n_out <= 0 or n_points <= n_out:
+        return scan_time, intensity
+    if min_points > 0 and n_points < min_points:
         return scan_time, intensity
 
     if _lttbc is None:

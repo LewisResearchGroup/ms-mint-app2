@@ -45,6 +45,7 @@ FULL_RANGE_DOWNSAMPLE_POINTS = 1000
 SAVGOL_WINDOW = 10
 SAVGOL_ORDER = 2
 SAVGOL_MIN_RT_SPAN = 30.0
+RT_FALLBACK_PAD_SECONDS = 30.0
 
 _SESSION_RENDER_REVISIONS = defaultdict(int)
 _SESSION_RENDER_LOCK = Lock()
@@ -84,6 +85,83 @@ def _get_savgol_check_window(rt_min, rt_max, full_range):
     if window_min is None or window_max is None:
         return _get_savgol_rt_window(rt_min, rt_max, full_range)
     return window_min, window_max
+
+
+def _get_rt_fallback_window(rt_value, rt_min, rt_max, pad_seconds=RT_FALLBACK_PAD_SECONDS):
+    center = None
+    if rt_value is not None:
+        center = rt_value
+    elif rt_min is not None and rt_max is not None:
+        center = (rt_min + rt_max) / 2.0
+    if center is None:
+        return None, None
+    return center - pad_seconds, center + pad_seconds
+
+
+def _get_rt_span_with_pad(rt_min, rt_max, pad_seconds=RT_FALLBACK_PAD_SECONDS):
+    if rt_min is None or rt_max is None:
+        return None, None
+    try:
+        rt_min = float(rt_min)
+        rt_max = float(rt_max)
+    except (TypeError, ValueError):
+        return None, None
+    return rt_min - pad_seconds, rt_max + pad_seconds
+
+
+def _has_visible_points(
+    chrom_df,
+    rt_min=None,
+    rt_max=None,
+    ms_type=None,
+    use_downsample=False,
+    downsample_n_out=None,
+):
+    if chrom_df is None or len(chrom_df) == 0:
+        return False
+    use_window = rt_min is not None and rt_max is not None
+    if ms_type == 'ms2':
+        sparsify_kwargs = {'w': 1, 'baseline': 10.0, 'eps': 0.0, 'min_peak_width': 1}
+    else:
+        sparsify_kwargs = {'w': 1, 'baseline': 1.0, 'eps': 0.0}
+    if downsample_n_out is None:
+        downsample_n_out = LTTB_TARGET_POINTS
+    for row in chrom_df.iter_rows(named=True):
+        scan_time = np.asarray(row.get('scan_time_sliced') or [], dtype=float)
+        intensity = np.asarray(row.get('intensity_sliced') or [], dtype=float)
+        if scan_time.size == 0:
+            continue
+        if use_window:
+            mask = (scan_time >= rt_min) & (scan_time <= rt_max)
+            if not np.any(mask):
+                continue
+            scan_time = scan_time[mask]
+            intensity = intensity[mask]
+        if intensity.size == 0:
+            continue
+        if use_downsample and ms_type == 'ms1':
+            scan_time, intensity = apply_lttb_downsampling(
+                scan_time, intensity, n_out=downsample_n_out
+            )
+        scan_time_sparse, _ = sparsify_chrom(
+            scan_time, intensity, **sparsify_kwargs
+        )
+        if len(scan_time_sparse) > 0:
+            return True
+    return False
+
+
+def _traces_have_points(traces):
+    if not traces:
+        return False
+    for trace in traces:
+        xs = trace.get('x')
+        if xs is None:
+            continue
+        for x in xs:
+            if x is not None:
+                return True
+    return False
 
 
 def _savgol_applicable_for_df(
@@ -187,7 +265,15 @@ def downsample_for_preview(scan_time, intensity, max_points=100):
 
 
 
-def get_chromatogram_dataframe(conn, target_label, full_range=False, wdir=None):
+def get_chromatogram_dataframe(
+    conn,
+    target_label,
+    full_range=False,
+    wdir=None,
+    window_min=None,
+    window_max=None,
+    apply_intensity_threshold=True,
+):
     """
     Fetches chromatogram data for a specific target.
     If full_range is True, queries the raw ms1/ms2_data tables (slower but complete).
@@ -239,6 +325,7 @@ def get_chromatogram_dataframe(conn, target_label, full_range=False, wdir=None):
                 ).fetchone()[0]
 
             if has_full_ds:
+                use_window = window_min is not None and window_max is not None
                 query = """
                     WITH picked_samples AS (
                         SELECT ms_file_label, color, label, sample_type
@@ -275,37 +362,52 @@ def get_chromatogram_dataframe(conn, target_label, full_range=False, wdir=None):
                             ) AS pairs
                         FROM base
                     ),
+                    filtered AS (
+                        SELECT
+                            ms_file_label,
+                            color,
+                            label,
+                            sample_type,
+                            CASE
+                                WHEN ? THEN list_filter(pairs, p -> p.t >= ? AND p.t <= ?)
+                                ELSE pairs
+                            END AS pairs_in
+                        FROM zipped
+                    ),
                     final AS (
                         SELECT
                             ms_file_label,
                             color,
                             label,
                             sample_type,
-                            list_transform(pairs, p -> p.t) AS scan_time_sliced,
-                            list_transform(pairs, p -> p.i) AS intensity_sliced,
+                            list_transform(pairs_in, p -> p.t) AS scan_time_sliced,
+                            list_transform(pairs_in, p -> p.i) AS intensity_sliced,
                             CASE
-                                WHEN len(pairs) = 0 THEN NULL
-                                ELSE list_max(list_transform(pairs, p -> p.i)) * 1.10
+                                WHEN len(pairs_in) = 0 THEN NULL
+                                ELSE list_max(list_transform(pairs_in, p -> p.i)) * 1.10
                             END AS intensity_max_in_range,
                             CASE
-                                WHEN len(pairs) = 0 THEN NULL
-                                ELSE list_min(list_transform(pairs, p -> p.i))
+                                WHEN len(pairs_in) = 0 THEN NULL
+                                ELSE list_min(list_transform(pairs_in, p -> p.i))
                             END AS intensity_min_in_range,
                             CASE
-                                WHEN len(pairs) = 0 THEN NULL
-                                ELSE list_max(list_transform(pairs, p -> p.t))
+                                WHEN len(pairs_in) = 0 THEN NULL
+                                ELSE list_max(list_transform(pairs_in, p -> p.t))
                             END AS scan_time_max_in_range,
                             CASE
-                                WHEN len(pairs) = 0 THEN NULL
-                                ELSE list_min(list_transform(pairs, p -> p.t))
+                                WHEN len(pairs_in) = 0 THEN NULL
+                                ELSE list_min(list_transform(pairs_in, p -> p.t))
                             END AS scan_time_min_in_range
-                        FROM zipped
+                        FROM filtered
                     )
                     SELECT *
                     FROM final
                     ORDER BY ms_file_label
                 """
-                return conn.execute(query, [target_label]).pl()
+                return conn.execute(
+                    query,
+                    [target_label, use_window, window_min, window_max],
+                ).pl()
 
         # Calculate m/z window
         delta_mz = mz_mean * mz_width_ppm / 1e6
@@ -317,6 +419,7 @@ def get_chromatogram_dataframe(conn, target_label, full_range=False, wdir=None):
         # 2. Query raw data
         # Note: We group by file and aggregate directly to match the format of the 'chromatograms' table query
         # We assume ms_file_scans has the timing info.
+        use_window = window_min is not None and window_max is not None
         query = f"""
         WITH picked_samples AS (
             SELECT ms_file_label, color, label, sample_type
@@ -330,6 +433,12 @@ def get_chromatogram_dataframe(conn, target_label, full_range=False, wdir=None):
             WHERE d.mz BETWEEN ? AND ?
               AND s.ms_type = ?
               AND d.ms_file_label IN (SELECT ms_file_label FROM picked_samples)
+              AND (
+                CASE
+                  WHEN ? THEN s.scan_time >= ? AND s.scan_time <= ?
+                  ELSE TRUE
+                END
+              )
         )
         SELECT 
             r.ms_file_label, 
@@ -348,10 +457,15 @@ def get_chromatogram_dataframe(conn, target_label, full_range=False, wdir=None):
         ORDER BY r.ms_file_label
         """
         
-        return conn.execute(query, [mz_lower, mz_upper, ms_type]).pl()
+        return conn.execute(
+            query,
+            [mz_lower, mz_upper, ms_type, use_window, window_min, window_max],
+        ).pl()
 
     else:
         # specific standard query for cached chromatograms
+        use_window = window_min is not None and window_max is not None
+        use_threshold = bool(apply_intensity_threshold)
         query = """
             WITH picked_samples AS (SELECT ms_file_label, color, label, sample_type
                                     FROM samples
@@ -388,7 +502,10 @@ def get_chromatogram_dataframe(conn, target_label, full_range=False, wdir=None):
                                label,
                                sample_type,
                                pairs,
-                               list_filter(pairs, p -> p.i >= COALESCE(intensity_threshold, 0)) AS pairs_in
+                               CASE
+                                   WHEN ? THEN list_filter(pairs, p -> p.i >= COALESCE(intensity_threshold, 0))
+                                   ELSE pairs
+                               END AS pairs_in
                         FROM zipped),
              final AS (SELECT ms_file_label,
                               color,
@@ -397,25 +514,28 @@ def get_chromatogram_dataframe(conn, target_label, full_range=False, wdir=None):
                               list_transform(pairs_in, p -> p.t)                            AS scan_time_sliced,
                               list_transform(pairs_in, p -> p.i)                            AS intensity_sliced,
                               CASE
-                                  WHEN len(pairs) = 0 THEN NULL
-                                  ELSE list_max(list_transform(pairs, p -> p.i)) * 1.10 END AS
+                                  WHEN len(pairs_in) = 0 THEN NULL
+                                  ELSE list_max(list_transform(pairs_in, p -> p.i)) * 1.10 END AS
                                                                                                intensity_max_in_range,
                               CASE
-                                  WHEN len(pairs) = 0 THEN NULL
-                                  ELSE list_min(list_transform(pairs, p -> p.i)) END        AS intensity_min_in_range,
+                                  WHEN len(pairs_in) = 0 THEN NULL
+                                  ELSE list_min(list_transform(pairs_in, p -> p.i)) END        AS intensity_min_in_range,
                               CASE
-                                  WHEN len(pairs) = 0 THEN NULL
-                                  ELSE list_max(list_transform(pairs, p -> p.t)) END        AS scan_time_max_in_range,
+                                  WHEN len(pairs_in) = 0 THEN NULL
+                                  ELSE list_max(list_transform(pairs_in, p -> p.t)) END        AS scan_time_max_in_range,
                               CASE
-                                  WHEN len(pairs) = 0 THEN NULL
-                                  ELSE list_min(list_transform(pairs, p -> p.t)) END        AS scan_time_min_in_range
+                                  WHEN len(pairs_in) = 0 THEN NULL
+                                  ELSE list_min(list_transform(pairs_in, p -> p.t)) END        AS scan_time_min_in_range
 
                        FROM sliced)
         SELECT *
         FROM final
         ORDER BY ms_file_label;
             """
-        return conn.execute(query, [target_label]).pl()
+        return conn.execute(
+            query,
+            [target_label, use_threshold],
+        ).pl()
 
 
 MAX_NUM_CARDS = 20  # Support up to 20 cards/page while keeping load time reasonable
@@ -3192,16 +3312,19 @@ def callbacks(app, fsc, cache, cpu=None):
                 raise PreventUpdate
             # Fetch ms_type for this target
             target_row = conn.execute(
-                "SELECT ms_type, rt_min, rt_max FROM targets WHERE peak_label = ?", [target_clicked]
+                "SELECT ms_type, rt, rt_min, rt_max FROM targets WHERE peak_label = ?", [target_clicked]
             ).fetchone()
             target_ms_type = target_row[0] if target_row else None
-            target_rt_min = target_row[1] if target_row else None
-            target_rt_max = target_row[2] if target_row else None
+            target_rt = target_row[1] if target_row else None
+            target_rt_min = target_row[2] if target_row else None
+            target_rt_max = target_row[3] if target_row else None
             if target_ms_type is None:
                 target_ms_type = 'ms1'
             if target_rt_min is None or target_rt_max is None:
                 target_rt_min = None
                 target_rt_max = None
+            if target_rt is None:
+                target_rt = None
 
             if use_envelope:
                 ms_type_use = target_ms_type or 'ms1'
@@ -3236,13 +3359,97 @@ def callbacks(app, fsc, cache, cpu=None):
                     )
                     use_envelope = False
                     envelope_output_value = False
+                    window_min, window_max = (None, None)
+                    if not full_range:
+                        window_min, window_max = _get_rt_span_with_pad(target_rt_min, target_rt_max)
                     chrom_df = get_chromatogram_dataframe(
-                        conn, target_clicked, full_range=full_range, wdir=wdir
+                        conn,
+                        target_clicked,
+                        full_range=full_range,
+                        wdir=wdir,
+                        window_min=window_min,
+                        window_max=window_max,
                     )
+                    if (not full_range) and window_min is not None and window_max is not None:
+                        visible = _has_visible_points(
+                            chrom_df,
+                            rt_min=window_min,
+                            rt_max=window_max,
+                            ms_type=target_ms_type,
+                            use_downsample=(target_ms_type == 'ms1'),
+                            downsample_n_out=LTTB_TARGET_POINTS,
+                        )
+                        if not visible:
+                            chrom_df = get_chromatogram_dataframe(
+                                conn,
+                                target_clicked,
+                                full_range=full_range,
+                                wdir=wdir,
+                                window_min=window_min,
+                                window_max=window_max,
+                                apply_intensity_threshold=False,
+                            )
+                            visible = _has_visible_points(
+                                chrom_df,
+                                rt_min=window_min,
+                                rt_max=window_max,
+                                ms_type=target_ms_type,
+                                use_downsample=(target_ms_type == 'ms1'),
+                                downsample_n_out=LTTB_TARGET_POINTS,
+                            )
             else:
+                window_min, window_max = (None, None)
+                if not full_range:
+                    window_min, window_max = _get_rt_span_with_pad(target_rt_min, target_rt_max)
                 chrom_df = get_chromatogram_dataframe(
-                    conn, target_clicked, full_range=full_range, wdir=wdir
+                    conn,
+                    target_clicked,
+                    full_range=full_range,
+                    wdir=wdir,
+                    window_min=window_min,
+                    window_max=window_max,
                 )
+                visible = True
+                if (not full_range) and window_min is not None and window_max is not None:
+                    visible = _has_visible_points(
+                        chrom_df,
+                        rt_min=window_min,
+                        rt_max=window_max,
+                        ms_type=target_ms_type,
+                        use_downsample=(target_ms_type == 'ms1'),
+                        downsample_n_out=LTTB_TARGET_POINTS,
+                    )
+                    if not visible:
+                        chrom_df = get_chromatogram_dataframe(
+                            conn,
+                            target_clicked,
+                            full_range=full_range,
+                            wdir=wdir,
+                            window_min=window_min,
+                            window_max=window_max,
+                            apply_intensity_threshold=False,
+                        )
+                        visible = _has_visible_points(
+                            chrom_df,
+                            rt_min=window_min,
+                            rt_max=window_max,
+                            ms_type=target_ms_type,
+                            use_downsample=(target_ms_type == 'ms1'),
+                            downsample_n_out=LTTB_TARGET_POINTS,
+                        )
+                if (not full_range) and not visible:
+                    fallback_min, fallback_max = _get_rt_fallback_window(
+                        target_rt, target_rt_min, target_rt_max
+                    )
+                    if fallback_min is not None and fallback_max is not None:
+                        chrom_df = get_chromatogram_dataframe(
+                            conn,
+                            target_clicked,
+                            full_range=True,
+                            wdir=wdir,
+                            window_min=fallback_min,
+                            window_max=fallback_max,
+                        )
 
         if chrom_df is None or chrom_df.is_empty():
             logger.warning(
@@ -3338,6 +3545,14 @@ def callbacks(app, fsc, cache, cpu=None):
                 smoothing_params=smoothing_params,
                 downsample_params=downsample_params
             )
+
+        if not _traces_have_points(traces):
+            logger.warning(
+                "update_megatrace_mode: Generated empty traces for target '%s' (full_range=%s). Preventing update.",
+                target_clicked,
+                full_range,
+            )
+            raise PreventUpdate
         
         fig = Patch()
         fig['data'] = traces
@@ -3435,79 +3650,79 @@ def callbacks(app, fsc, cache, cpu=None):
         with duckdb_connection(wdir) as conn:
             if conn is None:
                 raise PreventUpdate
-            query = """
-                    WITH picked_samples AS (SELECT ms_file_label, color, label, sample_type
-                                            FROM samples
-                                            WHERE use_for_optimization = TRUE
-                    ),
-                         picked_target AS (SELECT peak_label,
-                                                  intensity_threshold
-                                           FROM targets
-                                           WHERE peak_label = ?),
-                         base AS (SELECT c.*,
-                                         s.color,
-                                         s.label,
-                                         s.sample_type,
-                                         t.intensity_threshold
-                                  FROM chromatograms c
-                                           JOIN picked_samples s USING (ms_file_label)
-                                           JOIN picked_target t USING (peak_label)),
-                         zipped AS (SELECT ms_file_label,
-                                           color,
-                                           label,
-                                           sample_type,
-                                           intensity_threshold,
-                                           list_transform(
-                                                   range(1, len(scan_time) + 1),
-                                                   i -> struct_pack(
-                                                           t := list_extract(scan_time, i),
-                                                           i := list_extract(intensity,  i)
-                                                        )
-                                           ) AS pairs
-                                    FROM base),
 
-                         sliced AS (SELECT ms_file_label,
-                                           color,
-                                           label,
-                                           sample_type,
-                                           pairs,
-                                           list_filter(pairs, p -> p.i >= COALESCE(intensity_threshold, 0)) AS pairs_in
-                                    FROM zipped),
-                         final AS (SELECT ms_file_label,
-                                          color,
-                                          label,
-                                          sample_type,
-                                          list_transform(pairs_in, p -> p.t)                            AS scan_time_sliced,
-                                          list_transform(pairs_in, p -> p.i)                            AS intensity_sliced,
-                                          CASE
-                                              WHEN len(pairs) = 0 THEN NULL
-                                              ELSE list_max(list_transform(pairs, p -> p.i)) * 1.10 END AS
-                                                                                                           intensity_max_in_range,
-                                          CASE
-                                              WHEN len(pairs) = 0 THEN NULL
-                                              ELSE list_min(list_transform(pairs, p -> p.i)) END        AS intensity_min_in_range,
-                                          CASE
-                                              WHEN len(pairs) = 0 THEN NULL
-                                              ELSE list_max(list_transform(pairs, p -> p.t)) END        AS scan_time_max_in_range,
-                                          CASE
-                                              WHEN len(pairs) = 0 THEN NULL
-                                              ELSE list_min(list_transform(pairs, p -> p.t)) END        AS scan_time_min_in_range
-
-                                   FROM sliced)
-                    SELECT *
-                    FROM final
-                    ORDER BY ms_file_label;
-                    """
-
-            chrom_df = conn.execute(query, [target_clicked]).pl()
-            
-            # Fetch ms_type for this target
             target_ms_type = conn.execute(
                 "SELECT ms_type FROM targets WHERE peak_label = ?", [target_clicked]
             ).fetchone()
             target_ms_type = target_ms_type[0] if target_ms_type else None
             if target_ms_type is None:
                 target_ms_type = 'ms1'
+
+            window_min, window_max = (None, None)
+            if not full_range:
+                window_min, window_max = _get_rt_span_with_pad(rt_min, rt_max)
+
+            chrom_df = get_chromatogram_dataframe(
+                conn,
+                target_clicked,
+                full_range=full_range,
+                wdir=wdir,
+                window_min=window_min,
+                window_max=window_max,
+            )
+
+            visible = True
+            if (not full_range) and window_min is not None and window_max is not None:
+                visible = _has_visible_points(
+                    chrom_df,
+                    rt_min=window_min,
+                    rt_max=window_max,
+                    ms_type=target_ms_type,
+                    use_downsample=(target_ms_type == 'ms1'),
+                    downsample_n_out=LTTB_TARGET_POINTS,
+                )
+                if not visible:
+                    chrom_df = get_chromatogram_dataframe(
+                        conn,
+                        target_clicked,
+                        full_range=full_range,
+                        wdir=wdir,
+                        window_min=window_min,
+                        window_max=window_max,
+                        apply_intensity_threshold=False,
+                    )
+                    visible = _has_visible_points(
+                        chrom_df,
+                        rt_min=window_min,
+                        rt_max=window_max,
+                        ms_type=target_ms_type,
+                        use_downsample=(target_ms_type == 'ms1'),
+                        downsample_n_out=LTTB_TARGET_POINTS,
+                    )
+
+            if (not full_range) and not visible:
+                fallback_min, fallback_max = _get_rt_fallback_window(
+                    (rt_min + rt_max) / 2.0 if rt_min is not None and rt_max is not None else None,
+                    rt_min,
+                    rt_max,
+                )
+                if fallback_min is not None and fallback_max is not None:
+                    chrom_df = get_chromatogram_dataframe(
+                        conn,
+                        target_clicked,
+                        full_range=True,
+                        wdir=wdir,
+                        window_min=fallback_min,
+                        window_max=fallback_max,
+                    )
+
+        if chrom_df is None or chrom_df.is_empty():
+            logger.warning(
+                "apply_rt_alignment: No chromatogram data for target '%s' (full_range=%s). Preventing update.",
+                target_clicked,
+                full_range,
+            )
+            raise PreventUpdate
         
         # Calculate RT alignment shifts if alignment is enabled
         rt_alignment_shifts = None
@@ -3568,6 +3783,14 @@ def callbacks(app, fsc, cache, cpu=None):
             smoothing_params=smoothing_params,
             downsample_params=downsample_params
         )
+
+        if not _traces_have_points(traces):
+            logger.warning(
+                "apply_rt_alignment: Generated empty traces for target '%s' (full_range=%s). Preventing update.",
+                target_clicked,
+                full_range,
+            )
+            raise PreventUpdate
         
         fig = Patch()
         fig['data'] = traces
@@ -3756,20 +3979,97 @@ def callbacks(app, fsc, cache, cpu=None):
                         full_range,
                     )
                     use_envelope = False
+                if not use_envelope:
+                    window_min, window_max = (None, None)
+                    if not full_range:
+                        window_min, window_max = _get_rt_span_with_pad(rt_min, rt_max)
                     chrom_df = get_chromatogram_dataframe(
                         conn,
                         target_clicked,
                         full_range=full_range,
                         wdir=wdir,
+                        window_min=window_min,
+                        window_max=window_max,
                     )
+                    if (not full_range) and window_min is not None and window_max is not None:
+                        visible = _has_visible_points(
+                            chrom_df,
+                            rt_min=window_min,
+                            rt_max=window_max,
+                            ms_type=target_ms_type,
+                            use_downsample=(target_ms_type == 'ms1'),
+                            downsample_n_out=LTTB_TARGET_POINTS,
+                        )
+                        if not visible:
+                            chrom_df = get_chromatogram_dataframe(
+                                conn,
+                                target_clicked,
+                                full_range=full_range,
+                                wdir=wdir,
+                                window_min=window_min,
+                                window_max=window_max,
+                                apply_intensity_threshold=False,
+                            )
+                            visible = _has_visible_points(
+                                chrom_df,
+                                rt_min=window_min,
+                                rt_max=window_max,
+                                ms_type=target_ms_type,
+                                use_downsample=(target_ms_type == 'ms1'),
+                                downsample_n_out=LTTB_TARGET_POINTS,
+                            )
             else:
                 # Use helper function to fetch data
+                window_min, window_max = (None, None)
+                if not full_range:
+                    window_min, window_max = _get_rt_span_with_pad(rt_min, rt_max)
                 chrom_df = get_chromatogram_dataframe(
                     conn,
                     target_clicked,
                     full_range=full_range,
                     wdir=wdir,
+                    window_min=window_min,
+                    window_max=window_max,
                 )
+                visible = True
+                if (not full_range) and window_min is not None and window_max is not None:
+                    visible = _has_visible_points(
+                        chrom_df,
+                        rt_min=window_min,
+                        rt_max=window_max,
+                        ms_type=target_ms_type,
+                        use_downsample=(target_ms_type == 'ms1'),
+                        downsample_n_out=LTTB_TARGET_POINTS,
+                    )
+                    if not visible:
+                        chrom_df = get_chromatogram_dataframe(
+                            conn,
+                            target_clicked,
+                            full_range=full_range,
+                            wdir=wdir,
+                            window_min=window_min,
+                            window_max=window_max,
+                            apply_intensity_threshold=False,
+                        )
+                        visible = _has_visible_points(
+                            chrom_df,
+                            rt_min=window_min,
+                            rt_max=window_max,
+                            ms_type=target_ms_type,
+                            use_downsample=(target_ms_type == 'ms1'),
+                            downsample_n_out=LTTB_TARGET_POINTS,
+                        )
+                if (not full_range) and (not visible):
+                    fallback_min, fallback_max = _get_rt_fallback_window(rt, rt_min, rt_max)
+                    if fallback_min is not None and fallback_max is not None:
+                        chrom_df = get_chromatogram_dataframe(
+                            conn,
+                            target_clicked,
+                            full_range=True,
+                            wdir=wdir,
+                            window_min=fallback_min,
+                            window_max=fallback_max,
+                        )
 
         if chrom_df is None or chrom_df.is_empty():
             logger.warning(
@@ -3841,12 +4141,17 @@ def callbacks(app, fsc, cache, cpu=None):
                 with duckdb_connection(wdir) as conn:
                     if conn is None:
                         raise PreventUpdate
-                    chrom_df = get_chromatogram_dataframe(
-                        conn,
-                        target_clicked,
-                        full_range=full_range,
-                        wdir=wdir,
-                    )
+                window_min, window_max = (None, None)
+                if not full_range:
+                    window_min, window_max = _get_rt_span_with_pad(rt_min, rt_max)
+                chrom_df = get_chromatogram_dataframe(
+                    conn,
+                    target_clicked,
+                    full_range=full_range,
+                    wdir=wdir,
+                    window_min=window_min,
+                    window_max=window_max,
+                )
                 if chrom_df is None or chrom_df.is_empty():
                     logger.warning(
                         "Modal open: fallback detailed data was empty for target '%s' (full_range=%s). Preventing update.",
@@ -4153,6 +4458,15 @@ def callbacks(app, fsc, cache, cpu=None):
         # Note: If user quickly closes modal, this might still fire, but updating the figure 
         # of a closed modal does nothing usually or might error if component unmounted.
         
+        window_min, window_max = (None, None)
+        rt_min = rt_max = None
+        if not full_range:
+            shape = (figure or {}).get('layout', {}).get('shapes') or []
+            if shape:
+                rt_min = shape[0].get('x0')
+                rt_max = shape[0].get('x1')
+                window_min, window_max = _get_rt_span_with_pad(rt_min, rt_max)
+
         with duckdb_connection(wdir) as conn:
             if conn is None:
                 raise PreventUpdate
@@ -4163,7 +4477,52 @@ def callbacks(app, fsc, cache, cpu=None):
                 target_clicked,
                 full_range=full_range,
                 wdir=wdir,
+                window_min=window_min,
+                window_max=window_max,
             )
+            if (not full_range) and window_min is not None and window_max is not None:
+                visible = _has_visible_points(
+                    chrom_df,
+                    rt_min=window_min,
+                    rt_max=window_max,
+                    ms_type=ms_type_use,
+                    use_downsample=(ms_type_use == 'ms1'),
+                    downsample_n_out=LTTB_TARGET_POINTS,
+                )
+                if not visible:
+                    chrom_df = get_chromatogram_dataframe(
+                        conn,
+                        target_clicked,
+                        full_range=full_range,
+                        wdir=wdir,
+                        window_min=window_min,
+                        window_max=window_max,
+                        apply_intensity_threshold=False,
+                    )
+                    visible = _has_visible_points(
+                        chrom_df,
+                        rt_min=window_min,
+                        rt_max=window_max,
+                        ms_type=ms_type_use,
+                        use_downsample=(ms_type_use == 'ms1'),
+                        downsample_n_out=LTTB_TARGET_POINTS,
+                    )
+                if not visible:
+                    rt_center = None
+                    if rt_min is not None and rt_max is not None:
+                        rt_center = (rt_min + rt_max) / 2.0
+                    fallback_min, fallback_max = _get_rt_fallback_window(
+                        rt_center, rt_min, rt_max
+                    )
+                    if fallback_min is not None and fallback_max is not None:
+                        chrom_df = get_chromatogram_dataframe(
+                            conn,
+                            target_clicked,
+                            full_range=True,
+                            wdir=wdir,
+                            window_min=fallback_min,
+                            window_max=fallback_max,
+                        )
 
         if chrom_df is None or chrom_df.is_empty():
             raise PreventUpdate
@@ -4211,6 +4570,15 @@ def callbacks(app, fsc, cache, cpu=None):
             smoothing_params=smoothing_params,
             downsample_params=downsample_params
         )
+
+        has_points = False
+        for trace in traces:
+            xs = trace.get('x') or []
+            if any(x is not None for x in xs):
+                has_points = True
+                break
+        if not has_points:
+            raise PreventUpdate
 
         # We replace the Envelope traces with the Detailed/Megatrace lines
         # We must use Patch to avoid resetting the view layout (zoom/pan)
