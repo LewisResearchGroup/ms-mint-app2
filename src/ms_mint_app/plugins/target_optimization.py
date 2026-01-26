@@ -353,16 +353,6 @@ def _save_target_state(
     return result
 
 
-def downsample_for_preview(scan_time, intensity, max_points=100):
-    """Reduce puntos manteniendo la forma general"""
-    if len(scan_time) <= max_points:
-        return scan_time, intensity
-
-    indices = np.linspace(0, len(scan_time) - 1, max_points, dtype=int)
-    return scan_time[indices], intensity[indices]
-
-
-
 def get_chromatogram_dataframe(
     conn,
     target_label,
