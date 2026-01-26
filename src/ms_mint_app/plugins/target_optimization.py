@@ -44,9 +44,94 @@ LTTB_TARGET_POINTS = 100
 FULL_RANGE_DOWNSAMPLE_POINTS = 1000
 SAVGOL_WINDOW = 10
 SAVGOL_ORDER = 2
+SAVGOL_MIN_RT_SPAN = 30.0
 
 _SESSION_RENDER_REVISIONS = defaultdict(int)
 _SESSION_RENDER_LOCK = Lock()
+
+
+def _get_savgol_min_points(window_length):
+    try:
+        window_length = int(window_length)
+    except (TypeError, ValueError):
+        window_length = 0
+    if window_length <= 0:
+        return 7
+    return max(window_length * 2 + 1, 7)
+
+
+def _get_savgol_rt_window(rt_min, rt_max, full_range, min_span=SAVGOL_MIN_RT_SPAN):
+    if full_range:
+        return None, None
+    if rt_min is None or rt_max is None:
+        return None, None
+    try:
+        rt_min = float(rt_min)
+        rt_max = float(rt_max)
+    except (TypeError, ValueError):
+        return None, None
+    span = rt_max - rt_min
+    if span >= min_span:
+        return rt_min, rt_max
+    center = (rt_min + rt_max) / 2.0
+    half = min_span / 2.0
+    return center - half, center + half
+
+
+def _get_savgol_check_window(rt_min, rt_max, full_range):
+    # Prefer the expanded RT span for gating smoothing; fall back to full range if missing.
+    window_min, window_max = _get_savgol_rt_window(rt_min, rt_max, False)
+    if window_min is None or window_max is None:
+        return _get_savgol_rt_window(rt_min, rt_max, full_range)
+    return window_min, window_max
+
+
+def _savgol_applicable_for_df(
+    chrom_df,
+    window_length,
+    rt_min=None,
+    rt_max=None,
+    ms_type=None,
+    use_downsample=False,
+    downsample_n_out=None,
+):
+    min_points = _get_savgol_min_points(window_length)
+    if chrom_df is None or len(chrom_df) == 0:
+        return False, min_points
+    if hasattr(chrom_df, "columns") and "intensity_sliced" not in chrom_df.columns:
+        return True, min_points
+    use_window = rt_min is not None and rt_max is not None
+    if ms_type == 'ms2':
+        sparsify_kwargs = {'w': 1, 'baseline': 10.0, 'eps': 0.0, 'min_peak_width': 1}
+    else:
+        sparsify_kwargs = {'w': 1, 'baseline': 1.0, 'eps': 0.0}
+    if downsample_n_out is None:
+        downsample_n_out = LTTB_TARGET_POINTS
+    for row in chrom_df.iter_rows(named=True):
+        intensity = row.get('intensity_sliced')
+        if intensity is None:
+            continue
+        scan_time = row.get('scan_time_sliced') or []
+        if use_window:
+            scan_time = np.asarray(scan_time, dtype=float)
+            intensity = np.asarray(intensity, dtype=float)
+            mask = (scan_time >= rt_min) & (scan_time <= rt_max)
+            if not np.any(mask):
+                continue
+            scan_time = scan_time[mask]
+            intensity = intensity[mask]
+        if len(intensity) == 0:
+            continue
+        if use_downsample and len(intensity) > 0:
+            scan_time, intensity = apply_lttb_downsampling(
+                scan_time, intensity, n_out=downsample_n_out
+            )
+        scan_time_sparse, _ = sparsify_chrom(
+            scan_time, intensity, **sparsify_kwargs
+        )
+        if len(scan_time_sparse) >= min_points:
+            return True, min_points
+    return False, min_points
 
 
 def _bump_session_render_revision(session_id):
@@ -2574,6 +2659,14 @@ def callbacks(app, fsc, cache, cpu=None):
             traces = []
             y_max = 0.0
             y_min_pos = None
+            savgol_trace_total = 0
+            savgol_applied = 0
+            savgol_skipped = 0
+            try:
+                savgol_window = int(SAVGOL_WINDOW)
+            except (TypeError, ValueError):
+                savgol_window = 10
+            savgol_min_points = max(savgol_window * 2 + 1, 7)
             # Count samples per sample_type to sort by group size
             rows_list = list(peak_data.iter_rows(named=True))
             sample_type_counts = {}
@@ -2603,6 +2696,12 @@ def callbacks(app, fsc, cache, cpu=None):
                 
                 scan_time_sliced = scan_time[mask]
                 intensity_sliced = intensity[mask]
+
+                savgol_trace_total += 1
+                if len(intensity_sliced) >= savgol_min_points:
+                    savgol_applied += 1
+                else:
+                    savgol_skipped += 1
 
                 intensity_sliced = apply_savgol_smoothing(
                     intensity_sliced, window_length=SAVGOL_WINDOW, polyorder=SAVGOL_ORDER
@@ -2644,6 +2743,17 @@ def callbacks(app, fsc, cache, cpu=None):
                     'name': row['label'] or row['ms_file_label'],
                     'line': {'color': row['color'], 'width': 1.5},
                 })
+
+            if savgol_trace_total > 0:
+                logger.info(
+                    "Preview savgol summary: target=%s ms_type=%s traces=%d applied=%d skipped=%d (min_points=%d)",
+                    peak_label,
+                    ms_type,
+                    savgol_trace_total,
+                    savgol_applied,
+                    savgol_skipped,
+                    savgol_min_points,
+                )
 
             fig['data'] = traces
 
@@ -3028,6 +3138,7 @@ def callbacks(app, fsc, cache, cpu=None):
         Output('chromatogram-view-plot', 'figure', allow_duplicate=True),
         Output('chromatogram-view-megatrace', 'disabled', allow_duplicate=True),
         Output('chromatogram-view-savgol', 'disabled', allow_duplicate=True),
+        Output('chromatogram-view-savgol', 'checked', allow_duplicate=True),
         # Output('chromatogram-view-envelope', 'checked', allow_duplicate=True),
         Output('chromatogram-view-megatrace', 'checked', allow_duplicate=True),
         Input('chromatogram-view-megatrace', 'checked'),
@@ -3080,12 +3191,17 @@ def callbacks(app, fsc, cache, cpu=None):
             if conn is None:
                 raise PreventUpdate
             # Fetch ms_type for this target
-            target_ms_type = conn.execute(
-                "SELECT ms_type FROM targets WHERE peak_label = ?", [target_clicked]
+            target_row = conn.execute(
+                "SELECT ms_type, rt_min, rt_max FROM targets WHERE peak_label = ?", [target_clicked]
             ).fetchone()
-            target_ms_type = target_ms_type[0] if target_ms_type else None
+            target_ms_type = target_row[0] if target_row else None
+            target_rt_min = target_row[1] if target_row else None
+            target_rt_max = target_row[2] if target_row else None
             if target_ms_type is None:
                 target_ms_type = 'ms1'
+            if target_rt_min is None or target_rt_max is None:
+                target_rt_min = None
+                target_rt_max = None
 
             if use_envelope:
                 ms_type_use = target_ms_type or 'ms1'
@@ -3179,8 +3295,23 @@ def callbacks(app, fsc, cache, cpu=None):
 
             # logger.debug(f"Megatrace callback: Applying RT alignment with {len(rt_alignment_shifts)} shifts")
         
+        window_min, window_max = _get_savgol_check_window(target_rt_min, target_rt_max, full_range)
+        downsample_enabled = target_ms_type == 'ms1' and not full_range
+        savgol_data_applicable, _ = _savgol_applicable_for_df(
+            chrom_df,
+            SAVGOL_WINDOW,
+            rt_min=window_min,
+            rt_max=window_max,
+            ms_type=target_ms_type,
+            use_downsample=downsample_enabled,
+            downsample_n_out=LTTB_TARGET_POINTS,
+        )
+        savgol_applicable = savgol_data_applicable and not full_range
+        savgol_disabled = bool(use_megatrace_effective) or not savgol_applicable
+        savgol_checked_output = False if not savgol_applicable else dash.no_update
+
         smoothing_params = None
-        if use_savgol and (not full_range or target_ms_type != 'ms1'):
+        if use_savgol and savgol_data_applicable and not full_range:
             smoothing_params = {
                 'enabled': True,
                 'window_length': SAVGOL_WINDOW,
@@ -3188,7 +3319,7 @@ def callbacks(app, fsc, cache, cpu=None):
             }
 
         downsample_params = None
-        if target_ms_type == 'ms1' and not full_range:
+        if downsample_enabled:
             downsample_params = {
                 'enabled': True,
                 'n_out': LTTB_TARGET_POINTS
@@ -3216,6 +3347,7 @@ def callbacks(app, fsc, cache, cpu=None):
         fig['layout']['_full_range'] = bool(full_range)
         fig['layout']['_target'] = target_clicked
         fig['layout']['_render_rev'] = session_rev
+        fig['layout']['_savgol_forced_off'] = bool(not savgol_applicable)
         # Recompute y-range using RT span only
         is_log = figure and figure.get('layout', {}).get('yaxis', {}).get('type') == 'log'
         shape = (figure.get('layout', {}).get('shapes') or [{}])[0] if figure else {}
@@ -3253,7 +3385,8 @@ def callbacks(app, fsc, cache, cpu=None):
         return (
             fig,
             False, # megatrace disabled output - always enabled
-            use_megatrace, # savgol disabled output - disabled if megatrace is on
+            savgol_disabled,
+            savgol_checked_output,
             dash.no_update, # megatrace checked output - no change
         )
 
@@ -3413,7 +3546,7 @@ def callbacks(app, fsc, cache, cpu=None):
         
         # Regenerate traces with or without alignment
         smoothing_params = None
-        if use_savgol and (not full_range or target_ms_type != 'ms1'):
+        if use_savgol and not full_range:
             smoothing_params = {
                 'enabled': True,
                 'window_length': SAVGOL_WINDOW,
@@ -3518,6 +3651,7 @@ def callbacks(app, fsc, cache, cpu=None):
         # Output('chromatogram-view-envelope', 'checked', allow_duplicate=True),
         Output('chromatogram-view-megatrace', 'disabled'),
         Output('chromatogram-view-savgol', 'disabled'),
+        Output('chromatogram-view-savgol', 'checked', allow_duplicate=True),
         Output('chromatogram-view-megatrace', 'checked', allow_duplicate=True), # Reset megatrace if envelope is on
 
         Input('target-preview-clicked', 'data'),
@@ -3525,6 +3659,7 @@ def callbacks(app, fsc, cache, cpu=None):
         State('sample-type-tree', 'checkedKeys'),
         State('wdir', 'data'),
         State('chromatogram-view-modal', 'visible'),  # Check if modal is already open (navigation)
+        State('chromatogram-view-plot', 'figure'),
         State('chromatogram-view-megatrace', 'checked'),  # Current megatrace state
         State('chromatogram-view-log-y', 'checked'),  # Current log-y state  
         State('chromatogram-view-groupclick', 'checked'),  # Current legend behavior state
@@ -3535,7 +3670,7 @@ def callbacks(app, fsc, cache, cpu=None):
         prevent_initial_call=True
     )
     def chromatogram_view_modal(target_clicked, log_scale, checkedKeys, wdir, 
-                                 modal_already_open, current_megatrace, current_log_y, current_groupclick, current_full_range,
+                                 modal_already_open, current_figure, current_megatrace, current_log_y, current_groupclick, current_full_range,
                                  current_savgol, session_id):
 
         if not wdir:
@@ -3727,8 +3862,29 @@ def callbacks(app, fsc, cache, cpu=None):
             rt_alignment_shifts_to_apply = calculate_rt_alignment(chrom_df, align_rt_min, align_rt_max)
             logger.info(f"Applying saved RT alignment on modal open: ref={align_ref_rt:.2f}s")
         
+        window_min, window_max = _get_savgol_check_window(rt_min, rt_max, full_range)
+        downsample_enabled = target_ms_type == 'ms1' and not full_range
+        savgol_data_applicable, _ = _savgol_applicable_for_df(
+            chrom_df,
+            SAVGOL_WINDOW,
+            rt_min=window_min,
+            rt_max=window_max,
+            ms_type=target_ms_type,
+            use_downsample=downsample_enabled,
+            downsample_n_out=LTTB_TARGET_POINTS,
+        )
+        savgol_applicable = savgol_data_applicable and not full_range
+
+        savgol_checked = bool(current_savgol) if current_savgol is not None else True
+        if not savgol_applicable:
+            savgol_checked = False
+        else:
+            prev_forced_off = bool((current_figure or {}).get('layout', {}).get('_savgol_forced_off'))
+            if prev_forced_off and current_savgol is False:
+                savgol_checked = True
+
         smoothing_params = None
-        if current_savgol and (not full_range or target_ms_type != 'ms1'):
+        if savgol_checked and savgol_data_applicable and not full_range:
             smoothing_params = {
                 'enabled': True,
                 'window_length': SAVGOL_WINDOW,
@@ -3736,7 +3892,7 @@ def callbacks(app, fsc, cache, cpu=None):
             }
 
         downsample_params = None
-        if target_ms_type == 'ms1' and not full_range:
+        if downsample_enabled:
             downsample_params = {
                 'enabled': True,
                 'n_out': LTTB_TARGET_POINTS
@@ -3774,6 +3930,7 @@ def callbacks(app, fsc, cache, cpu=None):
         fig['layout']['_full_range'] = bool(full_range)
         fig['layout']['_target'] = target_clicked
         fig['layout']['_render_rev'] = session_rev
+        fig['layout']['_savgol_forced_off'] = bool(not savgol_applicable)
         # fig['layout']['title'] = {'text': f"{target_clicked} (rt={rt})"}
         fig['layout']['shapes'] = []
         if use_megatrace:
@@ -3960,12 +4117,14 @@ def callbacks(app, fsc, cache, cpu=None):
         if session_rev is not None and _get_session_render_revision(session_id) != session_rev:
             raise PreventUpdate
 
+        savgol_disabled = bool(use_envelope) or not savgol_applicable
+
         return (fig, f"{target_clicked}", False, slider_reference,
                 slider_dict, {"min_y": y_min, "max_y": y_max}, total_points, log_scale, group_legend, 
                 full_range, full_range_disabled, full_range_tooltip, rt_align_toggle_state, rt_alignment_data_to_load, note, False, bookmark_icon_node, 
                 # Background trigger data (if megatrace/envelope is used)
                 {'target_clicked': target_clicked, 'full_range': full_range, 'ms_type': ms_type_use} if use_envelope else None,
-                False, use_envelope, use_megatrace)
+                False, savgol_disabled, savgol_checked, use_megatrace)
 
     @app.callback(
         Output('chromatogram-view-plot', 'figure', allow_duplicate=True),
@@ -4030,7 +4189,7 @@ def callbacks(app, fsc, cache, cpu=None):
                  )
 
         smoothing_params = None
-        if use_savgol and (not full_range or ms_type_use != 'ms1'):
+        if use_savgol and not full_range:
             smoothing_params = {
                 'enabled': True,
                 'window_length': SAVGOL_WINDOW,

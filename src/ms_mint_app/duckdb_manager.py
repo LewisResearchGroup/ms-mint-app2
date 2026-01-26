@@ -11,6 +11,11 @@ import time
 import numpy as np
 
 logger = logging.getLogger(__name__)
+_SAVGOL_SKIP_LOGS = 0
+_SAVGOL_APPLY_LOGS = 0
+_SAVGOL_SKIP_INFO_LOGS = 0
+_SAVGOL_APPLY_INFO_LOGS = 0
+_SAVGOL_LOG_LIMIT = 25
 
 try:
     import lttbc as _lttbc
@@ -87,7 +92,8 @@ def _savgol_filter_numpy(intensity, window_length, polyorder):
 
 def _apply_savgol_smoothing(intensity,
                             window_length=FULL_RANGE_SAVGOL_WINDOW,
-                            polyorder=FULL_RANGE_SAVGOL_ORDER):
+                            polyorder=FULL_RANGE_SAVGOL_ORDER,
+                            min_points=None):
     if window_length is None:
         window_length = FULL_RANGE_SAVGOL_WINDOW
     if polyorder is None:
@@ -104,6 +110,36 @@ def _apply_savgol_smoothing(intensity,
 
     # CHECK 1: No data to smooth
     if n_points == 0:
+        return intensity
+
+    if min_points is None:
+        min_points = max(window_length * 2 + 1, 7)
+    try:
+        min_points = int(min_points)
+    except (TypeError, ValueError):
+        min_points = 0
+
+    # CHECK 1.5: Require a minimum number of points before smoothing
+    if min_points > 0 and n_points < min_points:
+        global _SAVGOL_SKIP_LOGS, _SAVGOL_SKIP_INFO_LOGS
+        if _SAVGOL_SKIP_INFO_LOGS < 5:
+            logger.info(
+                "Full-range savgol skipped: n_points=%d < min_points=%d (window=%d, order=%d)",
+                n_points,
+                min_points,
+                window_length,
+                polyorder,
+            )
+            _SAVGOL_SKIP_INFO_LOGS += 1
+        if _SAVGOL_SKIP_LOGS < _SAVGOL_LOG_LIMIT:
+            logger.debug(
+                "Full-range savgol skipped: n_points=%d < min_points=%d (window=%d, order=%d)",
+                n_points,
+                min_points,
+                window_length,
+                polyorder,
+            )
+            _SAVGOL_SKIP_LOGS += 1
         return intensity
 
     # CHECK 2: Window too large for data size (MAVEN Rule: > n/3)
@@ -136,6 +172,24 @@ def _apply_savgol_smoothing(intensity,
              smoothed = intensity
     else:
         smoothed = _savgol_filter_numpy(intensity, window_length, polyorder)
+
+    global _SAVGOL_APPLY_LOGS, _SAVGOL_APPLY_INFO_LOGS
+    if _SAVGOL_APPLY_INFO_LOGS < 5:
+        logger.info(
+            "Full-range savgol applied: n_points=%d (window=%d, order=%d)",
+            n_points,
+            window_length,
+            polyorder,
+        )
+        _SAVGOL_APPLY_INFO_LOGS += 1
+    if _SAVGOL_APPLY_LOGS < _SAVGOL_LOG_LIMIT:
+        logger.debug(
+            "Full-range savgol applied: n_points=%d (window=%d, order=%d)",
+            n_points,
+            window_length,
+            polyorder,
+        )
+        _SAVGOL_APPLY_LOGS += 1
 
     # Negative value clipping (0.0)
     return np.maximum(smoothed, 0.0)
