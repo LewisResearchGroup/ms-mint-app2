@@ -2614,7 +2614,12 @@ def callbacks(app, fsc, cache, cpu=None):
         start_idx = (current_page - 1) * page_size
         t1 = time.perf_counter()
 
-        with duckdb_connection(wdir) as conn:
+        n_cpus, ram, _ = calculate_optimal_params()
+        # Reduce resources for interactive queries to maintain UI responsiveness
+        n_cpus = max(1, n_cpus // 4)
+        ram = max(2, int(ram // 2))
+
+        with duckdb_connection(wdir, n_cpus=n_cpus, ram=ram) as conn:
             if conn is None:
                 # If the DB is locked/unavailable, keep current preview as-is
                 raise PreventUpdate
