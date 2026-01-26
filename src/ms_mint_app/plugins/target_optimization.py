@@ -2616,7 +2616,8 @@ def callbacks(app, fsc, cache, cpu=None):
             except Exception:
                 pass
 
-            query = """
+            preview_pad = RT_FALLBACK_PAD_SECONDS
+            query = f"""
                                 WITH picked_samples AS (
                                     SELECT ms_file_label, color, label, sample_type
                                     FROM samples
@@ -2717,8 +2718,12 @@ def callbacks(app, fsc, cache, cpu=None):
                                                    )
                                                )
                                            AS pairs_raw,
-                                           -- Filter to RT window for preview (no margin needed - display is fixed to this range)
-                                           list_filter(pairs_raw, p -> p.t >= rt_min AND p.t <= rt_max) AS pairs_in
+                                           -- Filter to RT window for preview (match modal +/- pad seconds)
+                                           list_filter(
+                                               pairs_raw,
+                                               p -> p.t >= (rt_min - {preview_pad})
+                                                    AND p.t <= (rt_max + {preview_pad})
+                                           ) AS pairs_in
                                     FROM base
                                 ),
                                 final AS (
@@ -2809,8 +2814,12 @@ def callbacks(app, fsc, cache, cpu=None):
                     if shift != 0:
                         scan_time = scan_time + shift
                 
-                # Filter by rt_min/rt_max (since we fetched full traces)
-                mask = (scan_time >= rt_min) & (scan_time <= rt_max)
+                window_min, window_max = _get_rt_span_with_pad(rt_min, rt_max)
+                if window_min is None or window_max is None:
+                    continue
+
+                # Filter by padded RT window (matches modal preview)
+                mask = (scan_time >= window_min) & (scan_time <= window_max)
                 if not np.any(mask):
                     continue
                 
@@ -2904,7 +2913,7 @@ def callbacks(app, fsc, cache, cpu=None):
             fig['layout']['xaxis']['title'] = dict(text="Retention Time [s]", font={'size': 10})
             fig['layout']['xaxis']['autorange'] = False
             fig['layout']['xaxis']['fixedrange'] = True
-            fig['layout']['xaxis']['range'] = [rt_min, rt_max]
+            fig['layout']['xaxis']['range'] = [window_min, window_max]
 
             fig['layout']['yaxis']['title'] = dict(text="Intensity", font={'size': 10})
             fig['layout']['yaxis']['autorange'] = True
