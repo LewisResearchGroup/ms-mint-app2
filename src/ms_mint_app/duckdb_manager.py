@@ -1,7 +1,7 @@
 from contextlib import contextmanager
 from datetime import datetime, timedelta
 from pathlib import Path
-from threading import Thread
+from threading import Thread, Lock
 
 import duckdb
 import logging
@@ -16,6 +16,7 @@ _SAVGOL_APPLY_LOGS = 0
 _SAVGOL_SKIP_INFO_LOGS = 0
 _SAVGOL_APPLY_INFO_LOGS = 0
 _SAVGOL_LOG_LIMIT = 25
+_SCAN_LOOKUP_LOCK = Lock()
 
 try:
     import lttbc as _lttbc
@@ -2690,11 +2691,34 @@ def populate_full_range_downsampled_chromatograms_for_target(wdir: str | None,
             return True
 
         created_lookup = False
-        try:
+        with _SCAN_LOOKUP_LOCK:
+            try:
+                exists = conn.execute(
+                    """
+                    SELECT COUNT(*)
+                    FROM information_schema.tables
+                    WHERE table_name = 'ms_file_scans'
+                      AND table_schema = 'main'
+                    """
+                ).fetchone()[0]
+            except Exception:
+                exists = 0
+
+            if not exists:
+                for attempt in range(3):
+                    try:
+                        conn.execute(query_create_scan_lookup)
+                        created_lookup = True
+                        break
+                    except duckdb.TransactionException as exc:
+                        # Another connection is creating the table; wait and retry.
+                        if "Catalog write-write conflict" in str(exc) and attempt < 2:
+                            time.sleep(0.1 * (attempt + 1))
+                            continue
+                        raise
+
+            # Ensure table is visible before continuing.
             conn.execute("SELECT COUNT(*) FROM ms_file_scans").fetchone()
-        except Exception:
-            conn.execute(query_create_scan_lookup)
-            created_lookup = True
 
         logger.info("On-demand downsampling for target %s (%d chromatograms)", peak_label, missing)
         rows = conn.execute(query_full_range, [target[0], target[1], peak_label]).fetchall()
