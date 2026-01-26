@@ -1060,6 +1060,33 @@ def duckdb_connection_mint(mint_path: Path, workspace=None):
             con.close()
 
 
+def get_workspace_name_from_wdir(wdir: Path | str | None) -> str | None:
+    if not wdir:
+        return None
+
+    try:
+        wdir_path = Path(wdir)
+    except Exception:
+        return None
+
+    ws_key = wdir_path.stem
+    mint_root = wdir_path.parent.parent
+    try:
+        with duckdb_connection_mint(mint_root) as mint_conn:
+            if mint_conn is None:
+                return None
+            ws_row = mint_conn.execute(
+                "SELECT name FROM workspaces WHERE key = ?",
+                [ws_key],
+            ).fetchone()
+            if ws_row is not None:
+                return ws_row[0]
+    except Exception:
+        return None
+
+    return None
+
+
 def compact_database(workspace_path: Path | str, max_retries: int = 5, initial_delay: float = 0.5) -> tuple[bool, str]:
     """
     Compact the workspace database by rebuilding it.

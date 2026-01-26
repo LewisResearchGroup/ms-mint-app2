@@ -1324,8 +1324,7 @@ def callbacks(app, fsc=None, cache=None):
     )
     def download_results(options_clicks, template_clicks, list_clicks, wdir):
 
-        from pathlib import Path
-        from ..duckdb_manager import duckdb_connection_mint
+        from ..duckdb_manager import get_workspace_name_from_wdir
 
         ctx = dash.callback_context
         if not ctx.triggered:
@@ -1334,15 +1333,7 @@ def callbacks(app, fsc=None, cache=None):
 
         ws_name = "workspace"
         if wdir:
-            try:
-                ws_key = Path(wdir).stem
-                with duckdb_connection_mint(Path(wdir).parent.parent) as mint_conn:
-                    if mint_conn is not None:
-                        ws_row = mint_conn.execute("SELECT name FROM workspaces WHERE key = ?", [ws_key]).fetchone()
-                        if ws_row is not None:
-                            ws_name = ws_row[0]
-            except Exception:
-                pass
+            ws_name = get_workspace_name_from_wdir(wdir) or ws_name
 
         trigger = ctx.triggered[0]['prop_id'].split('.')[0]
 

@@ -35,8 +35,8 @@ from ..duckdb_manager import (
     compute_results_in_batches,
     create_pivot,
     duckdb_connection,
-    duckdb_connection_mint,
     get_physical_cores,
+    get_workspace_name_from_wdir,
 )
 from ..plugin_interface import PluginInterface
 from .target_optimization import (
@@ -2087,16 +2087,10 @@ def callbacks(app, fsc, cache):
                 showProgress=True,
             ), False, False
 
-        ws_key = Path(wdir).stem
-        with duckdb_connection_mint(Path(wdir).parent.parent) as mint_conn:
-            if mint_conn is None:
-                logger.debug("download_results: PreventUpdate because mint database connection is None")
-                raise PreventUpdate
-            ws_row = mint_conn.execute("SELECT name FROM workspaces WHERE key = ?", [ws_key]).fetchone()
-            if ws_row is None:
-                logger.debug("download_results: PreventUpdate because workspace row not found")
-                raise PreventUpdate
-            ws_name = ws_row[0]
+        ws_name = get_workspace_name_from_wdir(wdir)
+        if not ws_name:
+            logger.debug("download_results: PreventUpdate because workspace name could not be resolved")
+            raise PreventUpdate
 
         # Delegate to appropriate standalone function (returns tuple of download_data, notification)
         if prop_id == 'download-all-results-btn':
