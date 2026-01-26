@@ -711,26 +711,25 @@
 <p>To build the source distribution and wheel for <code>ms-mint-app2</code>, follow these steps:</p>
 <ol>
 <li>Navigate to the root directory of the project.</li>
-<li>Run the following command to create the source distribution (<code>sdist</code>) and wheel (<code>bdist_wheel</code>):</li>
+<li>Run the following command to create the source distribution (<code>sdist</code>) and wheel (<code>wheel</code>):</li>
 </ol>
-<pre><code class="language-bash">python3 setup.py sdist bdist_wheel
+<pre><code class="language-bash">python -m build
 </code></pre>
 <p>This will generate distribution archives in the <code>dist</code> directory.</p>
 <ol>
-<li>To upload the built package to the <code>ms-mint</code> repository, use <code>twine</code>. Ensure you have <code>twine</code> installed (<code>pip install twine</code> if not). Then, run:</li>
+<li>To upload the built package, use <code>twine</code>. Ensure you have <code>twine</code> installed (<code>pip install twine</code> if not). Then, run:</li>
 </ol>
-<pre><code class="language-bash">python3 -m twine upload --repository ms-mint dist/ms*mint-*
+<pre><code class="language-bash">python -m twine upload dist/*
 </code></pre>
-<p>This command will upload all matching distribution files to the specified repository.</p>
+<p>If you use a custom repository, configure it in <code>~/.pypirc</code> and pass <code>--repository &lt;name&gt;</code>.</p>
 <h2 id="windows-executables">Windows Executables</h2>
-<p>To create Windows executables for the <code>ms-mint</code> application, use <code>pyinstaller</code>. Follow these steps:</p>
-<ol>
-<li>Navigate to the <code>specfiles</code> directory.</li>
-<li>Run the <code>pyinstaller</code> command with the provided specification file:</li>
-</ol>
-<pre><code class="language-bash">cd specfiles &amp;&amp; pyinstaller --noconfirm Mint.spec ..\scripts\Mint.py
+<p>To create Windows executables for the <code>ms-mint-app2</code> application, use <code>pyinstaller</code>. Follow the full guide in <code>pyinstaller/BUILD_GUIDE.md</code>. The short version is:</p>
+<pre><code class="language-bash">cd pyinstaller
+python create_asari_env.py
+python prebuild_matplotlib_cache.py
+pyinstaller Mint.spec
 </code></pre>
-<p>This will generate a standalone executable for Windows based on the <code>Mint.spec</code> file.</p>
+<p>This will generate a standalone executable based on <code>pyinstaller/Mint.spec</code>.</p>
 <h2 id="documentation-deployment">Documentation Deployment</h2>
 <p>To build and deploy the documentation using <code>mkdocs</code>, follow these steps:</p>
 <ol>
@@ -741,11 +740,11 @@
 </code></pre>
 <p>The <code>mkdocs build</code> command generates the static site in the <code>site</code> directory, and <code>mkdocs gh-deploy</code> pushes it to the <code>gh-pages</code> branch of your GitHub repository.</p>
 <h2 id="example-nginx-configuration">Example NGINX Configuration</h2>
-<p>To run <code>ms-mint</code> on a remote server, you need to set up a reverse proxy using NGINX. Here is an example configuration:</p>
+<p>To run <code>ms-mint-app2</code> on a remote server, you need to set up a reverse proxy using NGINX. Here is an example configuration:</p>
 <pre><code>server {
     ...
     location / {
-        proxy_pass              http://localhost:8000;
+        proxy_pass              http://localhost:9999;
         client_max_body_size    100G;
         proxy_set_header        X-Forwarded-Proto https;
         proxy_set_header        Host $host;
@@ -754,12 +753,12 @@
 </code></pre>
 <p>Explanation:</p>
 <ul>
-<li><code>proxy_pass http://localhost:8000;</code>: Forwards all requests to the <code>ms-mint</code> application running on port 8000.</li>
+<li><code>proxy_pass http://localhost:9999;</code>: Forwards all requests to the MINT application running on port 9999 (default).</li>
 <li><code>client_max_body_size 100G;</code>: Increases the maximum allowed size of client request bodies to 100GB.</li>
 <li><code>proxy_set_header X-Forwarded-Proto https;</code>: Sets the <code>X-Forwarded-Proto</code> header to <code>https</code>.</li>
 <li><code>proxy_set_header Host $host;</code>: Ensures the <code>Host</code> header from the original request is passed to the proxied server.</li>
 </ul>
-<p>Then start ms-mint via the <code>entrypoint.sh</code> script.</p>
+<p>Then start MINT with <code>Mint --host 0.0.0.0 --port 9999</code> (or your chosen port).</p>
 
 
 

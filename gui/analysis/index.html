@@ -697,7 +697,7 @@
   <h1>Analysis</h1>
 
 <h2 id="analysis">Analysis</h2>
-<p>The <code>Analysis</code> tab provides a suite of interactive visualizations for exploring your processed data. It allows you to switch between four main analytical views: <code>Clustermap</code>, <code>PCA</code>, <code>Violin</code>, and <code>SCALiR</code>.</p>
+<p>The <code>Analysis</code> tab provides a suite of interactive visualizations for exploring your processed data. It allows you to switch between six main analytical views: <code>QC</code>, <code>PCA</code>, <code>t-SNE</code>, <code>Violin</code>, <code>Bar</code>, and <code>Clustermap</code>.</p>
 <blockquote>
 <p><strong>Tip</strong>: Click the help icon (small "i" symbol) next to the "Analysis" title to take a guided tour of this section.</p>
 </blockquote>
@@ -705,21 +705,27 @@
 <h3 id="global-settings">Global Settings</h3>
 <p>The toolbar at the top of the Analysis tab controls the data input for all visualizations:</p>
 <ul>
-<li><strong>Metric</strong>: Select the quantitative value to analyze. Options include <code>Peak Area</code>, <code>Peak Area (Top 3)</code>, <code>Peak Max</code>, etc.</li>
+<li><strong>Metric</strong>: Select the quantitative value to analyze. Options include <code>Peak Area</code>, <code>Peak Area (Top 3)</code>, <code>Peak Max</code>, and (when available) <code>Concentration</code>.</li>
 <li><strong>Transformations</strong>: Apply statistical transformations to the raw data:<ul>
-<li><strong>None</strong>: Use raw values.</li>
+<li><strong>None (raw)</strong>: Use raw values.</li>
 <li><strong>Z-score</strong>: Standardize features (mean=0, std=1).</li>
 <li><strong>Rocke-Durbin</strong>: Variance stabilization.</li>
+<li><strong>Z-score + Rocke-Durbin</strong>: Standardize, then stabilize variance.</li>
 </ul>
 </li>
-<li><strong>Group by</strong>: Choose a metadata column to group samples. This determines the coloring in Clustermap, PCA and Violin plots.</li>
+<li><strong>Group by</strong>: Choose a metadata column to group samples. This determines the coloring in QC, Clustermap, PCA, t-SNE, Violin, and Bar plots.</li>
+<li><strong>Target (QC only)</strong>: Select a peak to inspect QC plots and chromatograms.</li>
 </ul>
 <h3 id="analytical-views">Analytical Views</h3>
-<div class="tabbed-set tabbed-alternate" data-tabs="1:4"><input checked="checked" id="__tabbed_1_1" name="__tabbed_1" type="radio"><input id="__tabbed_1_2" name="__tabbed_1" type="radio"><input id="__tabbed_1_3" name="__tabbed_1" type="radio"><input id="__tabbed_1_4" name="__tabbed_1" type="radio"><div class="tabbed-labels"><label for="__tabbed_1_1">Clustermap (Heatmap)</label><label for="__tabbed_1_2">PCA</label><label for="__tabbed_1_3">Violin (Distributions)</label><label for="__tabbed_1_4">SCALiR (Calibration)</label></div>
+<div class="tabbed-set tabbed-alternate" data-tabs="1:6"><input checked="checked" id="__tabbed_1_1" name="__tabbed_1" type="radio"><input id="__tabbed_1_2" name="__tabbed_1" type="radio"><input id="__tabbed_1_3" name="__tabbed_1" type="radio"><input id="__tabbed_1_4" name="__tabbed_1" type="radio"><input id="__tabbed_1_5" name="__tabbed_1" type="radio"><input id="__tabbed_1_6" name="__tabbed_1" type="radio"><div class="tabbed-labels"><label for="__tabbed_1_1">QC</label><label for="__tabbed_1_2">PCA</label><label for="__tabbed_1_3">t-SNE</label><label for="__tabbed_1_4">Violin (Distributions)</label><label for="__tabbed_1_5">Bar</label><label for="__tabbed_1_6">Clustermap (Heatmap)</label></div>
 <div class="tabbed-content">
 <div class="tabbed-block">
-<p>Displays a hierarchical clustering of samples (columns) and metabolites (rows). It helps identify patterns and outliers in your dataset.</p>
-<p><a class="glightbox" data-type="image" data-width="auto" data-height="auto" href="../../quickstart/analysis-2.png" data-desc-position="bottom"><img alt="Clustermap" src="../../quickstart/analysis-2.png" title="Clustermap"></a></p>
+<p>Quality-control view for a selected target.</p>
+<ul>
+<li><strong>RT Plot</strong>: Retention-time stability across samples, grouped by your selected metadata column.</li>
+<li><strong>m/z Plot</strong>: Observed m/z (if available) across samples.</li>
+<li><strong>Chromatogram</strong>: Click a sample in either scatter plot to inspect the chromatogram for that target.</li>
+</ul>
 </div>
 <div class="tabbed-block">
 <p><strong>Principal Component Analysis</strong>: Reduces the dimensionality of your data to visualize sample similarity.</p>
@@ -731,6 +737,13 @@
 <p><a class="glightbox" data-type="image" data-width="auto" data-height="auto" href="../../quickstart/analysis-3.png" data-desc-position="bottom"><img alt="PCA" src="../../quickstart/analysis-3.png" title="PCA"></a></p>
 </div>
 <div class="tabbed-block">
+<p><strong>t-Distributed Stochastic Neighbor Embedding</strong>: Nonlinear embedding to reveal local sample neighborhoods.</p>
+<ul>
+<li><strong>Axes</strong>: Select the t-SNE dimensions to display (typically t-SNE-1 vs t-SNE-2).</li>
+<li><strong>Perplexity</strong>: Adjust neighborhood size and regenerate to explore different structures.</li>
+</ul>
+</div>
+<div class="tabbed-block">
 <p>Focuses on the distribution of peak intensities for individual metabolites.</p>
 <ul>
 <li><strong>Selection</strong>: Use the dropdown to search for and select a specific peak.</li>
@@ -739,12 +752,16 @@
 <p><a class="glightbox" data-type="image" data-width="auto" data-height="auto" href="../../quickstart/analysis-4.png" data-desc-position="bottom"><img alt="Violin Plots" src="../../quickstart/analysis-4.png" title="Violin Plots"></a></p>
 </div>
 <div class="tabbed-block">
-<p>A tool for absolute quantification using internal standards.</p>
+<p>Aggregated summary view by group.</p>
 <ul>
-<li><strong>Upload Standards</strong>: Load a CSV defining the concentration of standards.</li>
-<li><strong>Fit Calibration</strong>: MINT fits calibration curves and calculates concentrations for your biological samples.</li>
+<li><strong>Mean ± SEM</strong>: Bar chart with error bars.</li>
+<li><strong>Individual Samples</strong>: Jittered points overlaid on bars.</li>
+<li><strong>Chromatogram</strong>: Click a sample point to inspect its chromatogram.</li>
 </ul>
-<p><a class="glightbox" data-type="image" data-width="auto" data-height="auto" href="../../quickstart/analysis-5.png" data-desc-position="bottom"><img alt="SCALiR" src="../../quickstart/analysis-5.png" title="SCALiR"></a></p>
+</div>
+<div class="tabbed-block">
+<p>Displays a hierarchical clustering of samples (columns) and metabolites (rows). It helps identify patterns and outliers in your dataset.</p>
+<p><a class="glightbox" data-type="image" data-width="auto" data-height="auto" href="../../quickstart/analysis-2.png" data-desc-position="bottom"><img alt="Clustermap" src="../../quickstart/analysis-2.png" title="Clustermap"></a></p>
 </div>
 </div>
 </div>

@@ -846,7 +846,7 @@
 <p>Download an executable compatible with your OS and open MINT (see other installation options <a href="../install/">here</a>).
 Once the app starts, you should see the <code>Workspaces</code> tab.</p>
 <h2 id="2-create-a-workspace">2. Create a workspace</h2>
-<p>If you have never started the application before, you will not have any workspaces yet. A workspace provides easy access to all data files and results for a given project.</p>
+<p>On first launch, MINT creates a <strong>My first Workspace</strong> workspace with sample data so you can tour the interface immediately. You can keep it for reference or create a new workspace for your project. A workspace provides easy access to all data files and results for a given project.</p>
 <p><a class="glightbox" data-type="image" data-width="auto" data-height="auto" href="first-start.png" data-desc-position="bottom"><img alt="" src="first-start.png"></a></p>
 <p>In the <code>Workspaces</code> tab, click the <code>+ Create Workspace</code> button. A dialog opens asking for the name of the workspace and an optional description. Type <code>DEMO</code> into the text field, add a brief description like <code>This is a DEMO</code>, and click <code>Create</code>.
 Expected result: the <code>DEMO</code> workspace appears with a blue toggle indicating it is active.</p>
@@ -855,7 +855,8 @@ Expected result: the <code>DEMO</code> workspace appears with a blue toggle indi
 <p><a class="glightbox" data-type="image" data-width="auto" data-height="auto" href="workspace-activated.png" data-desc-position="bottom"><img alt="Workspace active" src="workspace-activated.png"></a></p>
 <p>Now you have created your first workspace, but it is empty. You will need some input files to populate it.</p>
 <h2 id="3-download-the-demo-files">3. Download the demo files</h2>
-<p>Some demo files are available for download on the <code>ms-mint</code> Google Drive. Download the files from <a href="https://drive.google.com/drive/folders/1U4xMy5lfETk93sSVXPI79cCWyIMcAjeZ?usp=drive_link">Google Drive</a> and extract the archive.</p>
+<p>If you only want to explore the UI quickly, you can use the pre-seeded <strong>My first Workspace</strong> workspace and jump ahead to the analysis section. For a full end-to-end walkthrough with real files, download the demo files below.</p>
+<p>Some demo files are available for download on the MINT Google Drive. Download the files from <a href="https://drive.google.com/drive/folders/1U4xMy5lfETk93sSVXPI79cCWyIMcAjeZ?usp=drive_link">Google Drive</a> and extract the archive.</p>
 <p>This is the directory tree of the demo files:</p>
 <pre><code>.
 ├── README.md
@@ -1066,25 +1067,30 @@ For the demo data, this should take a few seconds-minutes depending on your mach
 <p>Now, you can download the results in long format or dense <code>peak_max</code> values by clicking <code>DOWNLOAD RESULTS</code>. The tidy format contains all results, while the dense format contains a selected metric (<code>peak_max</code> by default) as a matrix of values.</p>
 <p><a class="glightbox" data-type="image" data-width="auto" data-height="auto" href="run-mint-3.png" data-desc-position="bottom"><img alt="" src="run-mint-3.png"></a></p>
 <h2 id="9-analyze-the-results">9. Analyze the results</h2>
-<p>Once the results are generated, there are several analyses you can perform. In the analysis section you can see four tabs, each corresponding to a different analysis. If you are new, start with the Clustermap to quickly spot outliers or batch effects.</p>
+<p>Once the results are generated, there are several analyses you can perform. The Analysis section includes <strong>QC</strong>, <strong>PCA</strong>, <strong>t-SNE</strong>, <strong>Violin</strong>, <strong>Bar</strong>, and <strong>Clustermap</strong> views. If you are new, start with QC to validate retention times and m/z stability, then use the Clustermap to quickly spot outliers or batch effects.</p>
 <p><a class="glightbox" data-type="image" data-width="auto" data-height="auto" href="analysis-1.png" data-desc-position="bottom"><img alt="" src="analysis-1.png"></a></p>
-<div class="tabbed-set tabbed-alternate" data-tabs="1:4"><input checked="checked" id="__tabbed_1_1" name="__tabbed_1" type="radio"><input id="__tabbed_1_2" name="__tabbed_1" type="radio"><input id="__tabbed_1_3" name="__tabbed_1" type="radio"><input id="__tabbed_1_4" name="__tabbed_1" type="radio"><div class="tabbed-labels"><label for="__tabbed_1_1">PCA</label><label for="__tabbed_1_2">Violin</label><label for="__tabbed_1_3">Clustermap</label><label for="__tabbed_1_4">Scalir</label></div>
+<div class="tabbed-set tabbed-alternate" data-tabs="1:6"><input checked="checked" id="__tabbed_1_1" name="__tabbed_1" type="radio"><input id="__tabbed_1_2" name="__tabbed_1" type="radio"><input id="__tabbed_1_3" name="__tabbed_1" type="radio"><input id="__tabbed_1_4" name="__tabbed_1" type="radio"><input id="__tabbed_1_5" name="__tabbed_1" type="radio"><input id="__tabbed_1_6" name="__tabbed_1" type="radio"><div class="tabbed-labels"><label for="__tabbed_1_1">QC</label><label for="__tabbed_1_2">PCA</label><label for="__tabbed_1_3">t-SNE</label><label for="__tabbed_1_4">Violin</label><label for="__tabbed_1_5">Bar</label><label for="__tabbed_1_6">Clustermap</label></div>
 <div class="tabbed-content">
+<div class="tabbed-block">
+<p>Quality control plots for a selected target. You can review retention-time and m/z stability across samples (left) and inspect the chromatogram of any clicked sample (right).</p>
+</div>
 <div class="tabbed-block">
 <p>Principal component analysis plot for sample-level patterns. Includes a score plot (PC1 to PC5) on the left side, cumulative variance (top right), and absolute loading values for a selected PC on the x-axis (bottom right).</p>
 <p><a class="glightbox" data-type="image" data-width="auto" data-height="auto" href="analysis-3.png" data-desc-position="bottom"><img alt="" src="analysis-3.png"></a></p>
+</div>
+<div class="tabbed-block">
+<p>Nonlinear dimensionality reduction for visualizing local sample neighborhoods. Use the regenerate button to recompute and choose which t-SNE dimensions to display.</p>
 </div>
 <div class="tabbed-block">
 <p>Distribution plots by group (for example, Sample type, Group 1, Group 2) to compare target values. Includes a hypothesis test result (t-test for two samples, ANOVA for more than two samples) on the top right corner.</p>
 <p><a class="glightbox" data-type="image" data-width="auto" data-height="auto" href="analysis-4.png" data-desc-position="bottom"><img alt="" src="analysis-4.png"></a></p>
 </div>
 <div class="tabbed-block">
-<p>Clustered heatmap showing relationships between samples and targets. In this tab you can select different metrics (for example, peak_area, peak_top3), transformations (for example, z-score, log2), and groupings (for example, Sample type, Group 1, Group 2).</p>
-<p><a class="glightbox" data-type="image" data-width="auto" data-height="auto" href="analysis-2.png" data-desc-position="bottom"><img alt="" src="analysis-2.png"></a></p>
+<p>Summary view that aggregates values by group and shows mean ± SEM with individual sample points overlaid. Click a sample point to inspect its chromatogram.</p>
 </div>
 <div class="tabbed-block">
-<p>Summary view for calculating concentrations.</p>
-<p><a class="glightbox" data-type="image" data-width="auto" data-height="auto" href="analysis-5.png" data-desc-position="bottom"><img alt="" src="analysis-5.png"></a></p>
+<p>Clustered heatmap showing relationships between samples and targets. In this tab you can select different metrics (for example, peak_area, peak_top3), transformations (for example, z-score, log2), and groupings (for example, Sample type, Group 1, Group 2).</p>
+<p><a class="glightbox" data-type="image" data-width="auto" data-height="auto" href="analysis-2.png" data-desc-position="bottom"><img alt="" src="analysis-2.png"></a></p>
 </div>
 </div>
 </div>
