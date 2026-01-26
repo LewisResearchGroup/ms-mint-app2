@@ -453,8 +453,23 @@ def create_app(**kwargs):
         # Diskcache for non-production apps when developing locally
         from uuid import uuid4
         import diskcache
+        import shutil
         launch_uid = uuid4()
-        cache = diskcache.Cache(CACHEDIR)
+
+        try:
+            cache = diskcache.Cache(CACHEDIR)
+        except Exception as e:
+            logging.error(f"Failed to initialize DiskCache at {CACHEDIR}: {e}")
+            logging.warning("Attempting to clear cache directory and retry...")
+            try:
+                shutil.rmtree(CACHEDIR)
+                os.makedirs(CACHEDIR, exist_ok=True)
+                cache = diskcache.Cache(CACHEDIR)
+                logging.info("Successfully re-initialized DiskCache after clearing.")
+            except Exception as e2:
+                logging.critical(f"Failed to recover DiskCache: {e2}")
+                raise e2
+
         background_callback_manager = DiskcacheManager(
             cache, expire=60,
         )

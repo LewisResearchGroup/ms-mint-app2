@@ -353,7 +353,7 @@ clustermap_tab = html.Div([
                 fac.AntdSpin(
                     html.Div(
                         fac.AntdImage(
-                            id='bar-graph-matplotlib',
+                            id='clustermap-image',
                             preview={'mask': 'Click to Zoom'},
                             locale='en-us',
                             fallback='data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7',
@@ -1228,9 +1228,46 @@ def _analysis_tour_steps(active_tab: str):
             'targetSelector': '#analysis-sidebar-menu',
         },
     ]
+
+    # QC-specific override for common steps
+    if active_tab == 'qc':
+        common_steps = [
+            {
+                'title': 'Analysis overview',
+                'description': 'Use the controls above to group samples and select targets for QC.',
+            },
+            {
+                'title': 'Group by',
+                'description': 'Group samples for coloring in the plots.',
+                'targetSelector': '#analysis-grouping-select',
+            },
+            {
+                'title': 'Select Target',
+                'description': 'Choose the specific target compound to visualize in the QC plots.',
+                'targetSelector': '[id="qc-target-select"]', # Use attribute selector for component IDs
+            },
+            {
+                'title': 'Analysis Types',
+                'description': 'Switch between different analysis views.',
+                'targetSelector': '#analysis-sidebar-menu',
+            },
+        ]
     
     # View-specific steps
-    if active_tab == 'pca':
+    if active_tab == 'qc':
+        view_steps = [
+            {
+                'title': 'QC Scatter Plots',
+                'description': 'View Retention Time (RT) and Peak Area drifts over acquisition order. Useful for identifying run order effects.',
+                'targetSelector': '#qc-spinner',
+            },
+            {
+                'title': 'Chromatogram',
+                'description': 'See the raw chromatogram for the selected sample. Click on a point in the scatter plots to select a sample.',
+                'targetSelector': '#qc-chromatogram-container',
+            },
+        ]
+    elif active_tab == 'pca':
         view_steps = [
             {
                 'title': 'PCA Axes',
@@ -1269,6 +1306,29 @@ def _analysis_tour_steps(active_tab: str):
                 'description': 'Shows the distribution of values for each group. Click on individual points to see the chromatogram.',
                 'targetSelector': '#violin-graphs',
             },
+            {
+                'title': 'Chromatogram',
+                'description': 'View the chromatogram for the selected sample.',
+                'targetSelector': '#violin-chromatogram-container',
+            },
+        ]
+    elif active_tab == 'bar':
+        view_steps = [
+            {
+                'title': 'Target Selection',
+                'description': 'Choose which target compound to display in the bar plot.',
+                'targetSelector': '#bar-comp-checks',
+            },
+            {
+                'title': 'Bar Plot',
+                'description': 'Compare mean values across groups with error bars. Click on a bar to select a sample from that group.',
+                'targetSelector': '#bar-graphs',
+            },
+            {
+                'title': 'Chromatogram',
+                'description': 'View the chromatogram for the selected sample.',
+                'targetSelector': '#bar-chromatogram-container',
+            },
         ]
     elif active_tab == 'clustermap':
         view_steps = [
@@ -1285,7 +1345,7 @@ def _analysis_tour_steps(active_tab: str):
             {
                 'title': 'Clustermap',
                 'description': 'Heatmap with hierarchical clustering of samples and targets.',
-                'targetSelector': '#bar-graph-matplotlib',
+                'targetSelector': '#clustermap-image',
             },
         ]
     else:
@@ -2240,7 +2300,7 @@ def callbacks(app, fsc, cache):
         return dash.no_update, dash.no_update, steps
 
     app.callback(
-        Output('bar-graph-matplotlib', 'src'),
+        Output('clustermap-image', 'src'),
         Output('pca-graph', 'figure'),
         Output('tsne-graph', 'figure'),
         Output('violin-graphs', 'children'),
@@ -2277,7 +2337,7 @@ def callbacks(app, fsc, cache):
     @app.callback(
         Output('clustermap-spinner', 'spinning'),
         Input('analysis-sidebar-menu', 'currentKey'),
-        Input('bar-graph-matplotlib', 'src'),
+        Input('clustermap-image', 'src'),
         Input('analysis-metric-select', 'value'),
         Input('analysis-normalization-select', 'value'),
         prevent_initial_call=False,
@@ -2299,7 +2359,7 @@ def callbacks(app, fsc, cache):
     @app.callback(
         Output('clustermap-download', 'data'),
         Input('clustermap-save-png-btn', 'nClicks'),
-        State('bar-graph-matplotlib', 'src'),
+        State('clustermap-image', 'src'),
         prevent_initial_call=True,
     )
     def save_clustermap_png(n_clicks, img_src):
