@@ -1281,32 +1281,31 @@ def callbacks(cls, app, fsc, cache, args_namespace):
     )
     def download_ms_files(template_clicks, list_clicks, wdir):
         from ..duckdb_manager import get_workspace_name_from_wdir
+        from .download_utils import handle_template_or_list_download
 
         ctx = dash.callback_context
-        if not ctx.triggered:
-            raise PreventUpdate
 
         ws_name = "workspace"
         if wdir:
             ws_name = get_workspace_name_from_wdir(wdir) or ws_name
 
-        trigger = ctx.triggered[0]['prop_id'].split('.')[0]
-        if trigger == 'download-ms-template-btn':
-            filename = f"{T.today()}-MINT__{ws_name}-ms_files_template.csv"
-            return dcc.send_string(MS_METADATA_TEMPLATE_CSV, filename)
-
-        if trigger == 'download-ms-files-btn':
+        def build_df():
             if not wdir:
                 raise PreventUpdate
             with duckdb_connection(wdir) as conn:
                 if conn is None:
                     raise PreventUpdate
-                df = conn.execute("SELECT * FROM samples").df()
+                return conn.execute("SELECT * FROM samples").df()
 
-            filename = f"{T.today()}-MINT__{ws_name}-ms_files.csv"
-            return dcc.send_data_frame(df.to_csv, filename, index=False)
-
-        raise PreventUpdate
+        return handle_template_or_list_download(
+            ctx,
+            "download-ms-template-btn",
+            "download-ms-files-btn",
+            MS_METADATA_TEMPLATE_CSV,
+            f"{T.today()}-MINT__{ws_name}-ms_files_template.csv",
+            build_df,
+            f"{T.today()}-MINT__{ws_name}-ms_files.csv",
+        )
 
 
     @app.callback(

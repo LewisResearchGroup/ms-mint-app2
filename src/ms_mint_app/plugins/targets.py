@@ -1325,6 +1325,7 @@ def callbacks(app, fsc=None, cache=None):
     def download_results(options_clicks, template_clicks, list_clicks, wdir):
 
         from ..duckdb_manager import get_workspace_name_from_wdir
+        from .download_utils import handle_template_or_list_download
 
         ctx = dash.callback_context
         if not ctx.triggered:
@@ -1336,12 +1337,11 @@ def callbacks(app, fsc=None, cache=None):
             ws_name = get_workspace_name_from_wdir(wdir) or ws_name
 
         trigger = ctx.triggered[0]['prop_id'].split('.')[0]
+        if trigger not in ("download-target-template-btn", "download-target-list-btn"):
+            logger.debug("download_results: PreventUpdate (unexpected trigger or no action required)")
+            raise PreventUpdate
 
-        if trigger == 'download-target-template-btn':
-            filename = f"{T.today()}-MINT__{ws_name}-targets_template.csv"
-            return dcc.send_string(TARGET_TEMPLATE_CSV, filename)
-
-        if trigger == 'download-target-list-btn':
+        def build_df():
             if not wdir:
                 logger.debug("download_results: PreventUpdate because wdir is not set for target list download")
                 raise PreventUpdate
@@ -1350,14 +1350,18 @@ def callbacks(app, fsc=None, cache=None):
                     logger.debug("download_results: PreventUpdate because database connection is None")
                     raise PreventUpdate
                 df = conn.execute("SELECT * FROM targets ORDER BY mz_mean ASC").df()
-                # Reorder columns to match the template/export expectation
-                cols = TARGET_TEMPLATE_COLUMNS
-                df = df[[c for c in cols if c in df.columns]]
-                filename = f"{T.today()}-MINT__{ws_name}-targets.csv"
-        else:
-            logger.debug("download_results: PreventUpdate (unexpected trigger or no action required)")
-            raise PreventUpdate
-        return dcc.send_data_frame(df.to_csv, filename, index=False)
+            cols = TARGET_TEMPLATE_COLUMNS
+            return df[[c for c in cols if c in df.columns]]
+
+        return handle_template_or_list_download(
+            ctx,
+            "download-target-template-btn",
+            "download-target-list-btn",
+            TARGET_TEMPLATE_CSV,
+            f"{T.today()}-MINT__{ws_name}-targets_template.csv",
+            build_df,
+            f"{T.today()}-MINT__{ws_name}-targets.csv",
+        )
 
     @app.callback(
         Output('targets-tour-empty', 'current'),
