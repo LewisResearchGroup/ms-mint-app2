@@ -255,6 +255,104 @@ def _get_ram_help_text(ram):
     return f"Selected {ram}GB / {ram_max}GB available RAM"
 
 
+def _save_target_state(
+    conn,
+    target_label,
+    note_text,
+    slider_data=None,
+    reference_data=None,
+    check_slider_change=False,
+    save_rt_span=True,
+    rt_align_toggle=None,
+    rt_alignment_data=None,
+    save_rt_alignment=True,
+):
+    result = {
+        "saved_notes": False,
+        "saved_rt_span": False,
+        "saved_rt_alignment": False,
+        "cleared_rt_alignment": False,
+        "rt_min": None,
+        "rt_max": None,
+    }
+
+    note_text = "" if note_text is None else note_text
+    conn.execute(
+        "UPDATE targets SET notes = ? WHERE peak_label = ?",
+        (note_text, target_label),
+    )
+    result["saved_notes"] = True
+
+    if save_rt_span and slider_data is not None:
+        if not (check_slider_change and not reference_data):
+            slider_value = slider_data.get("value") if isinstance(slider_data, dict) else None
+            reference_value = (
+                reference_data.get("value") if isinstance(reference_data, dict) else None
+            )
+            if slider_value and isinstance(slider_value, dict):
+                if (not check_slider_change) or reference_value is None or slider_value != reference_value:
+                    rt_min = slider_value.get("rt_min")
+                    rt_max = slider_value.get("rt_max")
+                    rt = slider_value.get(
+                        "rt",
+                        (rt_min + rt_max) / 2 if rt_min is not None and rt_max is not None else None,
+                    )
+                    if rt_min is not None and rt_max is not None:
+                        conn.execute(
+                            """
+                            UPDATE targets
+                            SET rt_min = ?, rt_max = ?, rt = ?
+                            WHERE peak_label = ?
+                            """,
+                            [rt_min, rt_max, rt, target_label],
+                        )
+                        result["saved_rt_span"] = True
+                        result["rt_min"] = rt_min
+                        result["rt_max"] = rt_max
+
+    if save_rt_alignment:
+        if rt_align_toggle is True:
+            if rt_alignment_data and rt_alignment_data.get("enabled"):
+                shifts_json = json.dumps(
+                    rt_alignment_data.get("shifts_per_file", {})
+                )
+                conn.execute(
+                    """
+                    UPDATE targets
+                    SET rt_align_enabled = TRUE,
+                        rt_align_reference_rt = ?,
+                        rt_align_shifts = ?,
+                        rt_align_rt_min = ?,
+                        rt_align_rt_max = ?
+                    WHERE peak_label = ?
+                    """,
+                    [
+                        rt_alignment_data["reference_rt"],
+                        shifts_json,
+                        rt_alignment_data.get("rt_min"),
+                        rt_alignment_data.get("rt_max"),
+                        target_label,
+                    ],
+                )
+                result["saved_rt_alignment"] = True
+        elif rt_align_toggle is False:
+            conn.execute(
+                """
+                UPDATE targets
+                SET rt_align_enabled = FALSE,
+                    rt_align_reference_rt = NULL,
+                    rt_align_shifts = NULL,
+                    rt_align_rt_min = NULL,
+                    rt_align_rt_max = NULL
+                WHERE peak_label = ?
+                """,
+                [target_label],
+            )
+            result["cleared_rt_alignment"] = True
+
+    return result
+
+
 def downsample_for_preview(scan_time, intensity, max_points=100):
     """Reduce puntos manteniendo la forma general"""
     if len(scan_time) <= max_points:
@@ -5380,61 +5478,33 @@ def callbacks(app, fsc, cache, cpu=None):
             try:
                 with duckdb_connection(wdir) as conn:
                     if conn is not None:
-                        # Save notes
-                        conn.execute("UPDATE targets SET notes = ? WHERE peak_label = ?",
-                                    (current_note or '', current_target))
-                        logger.debug(f"Auto-saved notes for '{current_target}' before navigation")
-                        
-                        # Auto-save RT-span if changed
-                        if slider_data:
-                            slider_value = slider_data.get('value') if isinstance(slider_data, dict) else None
-                            if slider_value and isinstance(slider_value, dict):
-                                rt_min = slider_value.get('rt_min')
-                                rt_max = slider_value.get('rt_max')
-                                rt = slider_value.get('rt', (rt_min + rt_max) / 2 if rt_min is not None and rt_max is not None else None)
-                                
-                                if rt_min is not None and rt_max is not None:
-                                    conn.execute("""
-                                        UPDATE targets 
-                                        SET rt_min = ?, rt_max = ?, rt = ?
-                                        WHERE peak_label = ?
-                                    """, [rt_min, rt_max, rt, current_target])
-                                    logger.info(f"Auto-saved RT-span for '{current_target}': [{rt_min:.2f}, {rt_max:.2f}]")
-                        
-                        # Save RT alignment state
-                        if rt_align_toggle:
-                            # Toggle is ON - save alignment data
-                            if rt_alignment_data and rt_alignment_data.get('enabled'):
-                                import json
-                                shifts_json = json.dumps(rt_alignment_data.get('shifts_per_file', {}))
-                                conn.execute("""
-                                    UPDATE targets 
-                                    SET rt_align_enabled = TRUE,
-                                        rt_align_reference_rt = ?,
-                                        rt_align_shifts = ?,
-                                        rt_align_rt_min = ?,
-                                        rt_align_rt_max = ?
-                                    WHERE peak_label = ?
-                                """, [
-                                    rt_alignment_data['reference_rt'],
-                                    shifts_json,
-                                    rt_alignment_data.get('rt_min'),
-                                    rt_alignment_data.get('rt_max'),
-                                    current_target
-                                ])
-                                logger.debug(f"Auto-saved RT alignment for '{current_target}' before navigation")
-                        else:
-                            # Toggle is OFF - clear alignment data
-                            conn.execute("""
-                                UPDATE targets 
-                                SET rt_align_enabled = FALSE,
-                                    rt_align_reference_rt = NULL,
-                                    rt_align_shifts = NULL,
-                                    rt_align_rt_min = NULL,
-                                    rt_align_rt_max = NULL
-                                WHERE peak_label = ?
-                            """, [current_target])
-                            logger.debug(f"Cleared RT alignment for '{current_target}' before navigation")
+                        save_result = _save_target_state(
+                            conn,
+                            current_target,
+                            current_note,
+                            slider_data=slider_data,
+                            rt_align_toggle=rt_align_toggle,
+                            rt_alignment_data=rt_alignment_data,
+                        )
+                        if save_result["saved_notes"]:
+                            logger.debug(
+                                f"Auto-saved notes for '{current_target}' before navigation"
+                            )
+                        if save_result["saved_rt_span"]:
+                            logger.info(
+                                "Auto-saved RT-span for '%s': [%.2f, %.2f]",
+                                current_target,
+                                save_result["rt_min"],
+                                save_result["rt_max"],
+                            )
+                        if save_result["saved_rt_alignment"]:
+                            logger.debug(
+                                f"Auto-saved RT alignment for '{current_target}' before navigation"
+                            )
+                        if save_result["cleared_rt_alignment"]:
+                            logger.debug(
+                                f"Cleared RT alignment for '{current_target}' before navigation"
+                            )
             except Exception as e:
                 logger.warning(f"Failed to auto-save data for '{current_target}': {e}")
         
@@ -5464,9 +5534,17 @@ def callbacks(app, fsc, cache, cpu=None):
             try:
                 with duckdb_connection(wdir) as conn:
                     if conn is not None:
-                        conn.execute("UPDATE targets SET notes = ? WHERE peak_label = ?",
-                                    (current_note or '', current_target))
-                        logger.debug(f"Auto-saved notes for '{current_target}' on confirm navigation")
+                        save_result = _save_target_state(
+                            conn,
+                            current_target,
+                            current_note,
+                            save_rt_span=False,
+                            save_rt_alignment=False,
+                        )
+                        if save_result["saved_notes"]:
+                            logger.debug(
+                                f"Auto-saved notes for '{current_target}' on confirm navigation"
+                            )
             except Exception as e:
                 logger.warning(f"Failed to auto-save notes for '{current_target}': {e}")
         
@@ -5538,65 +5616,25 @@ def callbacks(app, fsc, cache, cpu=None):
             with duckdb_connection(wdir) as conn:
                 if conn is None:
                     raise PreventUpdate
-                
-                # Auto-save RT-span if changed
-                if slider_data and reference_data:
-                    slider_value = slider_data.get('value') if isinstance(slider_data, dict) else None
-                    reference_value = reference_data.get('value') if isinstance(reference_data, dict) else None
-                    
-                    if slider_value and isinstance(slider_value, dict):
-                        # Check if values changed
-                        if reference_value is None or slider_value != reference_value:
-                            rt_min = slider_value.get('rt_min')
-                            rt_max = slider_value.get('rt_max')
-                            rt = slider_value.get('rt', (rt_min + rt_max) / 2 if rt_min and rt_max else None)
-                            
-                            if rt_min is not None and rt_max is not None:
-                                conn.execute("""
-                                    UPDATE targets 
-                                    SET rt_min = ?, rt_max = ?, rt = ?
-                                    WHERE peak_label = ?
-                                """, [rt_min, rt_max, rt, current_target])
-                                logger.info(f"Auto-saved RT-span for '{current_target}' on modal close")
-                                saved_items.append("RT-span")
 
-                
-                # Save notes
-                conn.execute("UPDATE targets SET notes = ? WHERE peak_label = ?",
-                            (current_note or '', current_target))
-                
-                # Save RT alignment state
-                if rt_align_toggle:
-                    if rt_alignment_data and rt_alignment_data.get('enabled'):
-                        import json
-                        shifts_json = json.dumps(rt_alignment_data.get('shifts_per_file', {}))
-                        conn.execute("""
-                            UPDATE targets 
-                            SET rt_align_enabled = TRUE,
-                                rt_align_reference_rt = ?,
-                                rt_align_shifts = ?,
-                                rt_align_rt_min = ?,
-                                rt_align_rt_max = ?
-                            WHERE peak_label = ?
-                        """, [
-                            rt_alignment_data['reference_rt'],
-                            shifts_json,
-                            rt_alignment_data.get('rt_min'),
-                            rt_alignment_data.get('rt_max'),
-                            current_target
-                        ])
-                        saved_items.append("RT alignment")
-                else:
-                    conn.execute("""
-                        UPDATE targets 
-                        SET rt_align_enabled = FALSE,
-                            rt_align_reference_rt = NULL,
-                            rt_align_shifts = NULL,
-                            rt_align_rt_min = NULL,
-                            rt_align_rt_max = NULL
-                        WHERE peak_label = ?
-                    """, [current_target])
-                
+                save_result = _save_target_state(
+                    conn,
+                    current_target,
+                    current_note,
+                    slider_data=slider_data,
+                    reference_data=reference_data,
+                    check_slider_change=True,
+                    rt_align_toggle=rt_align_toggle,
+                    rt_alignment_data=rt_alignment_data,
+                )
+                if save_result["saved_rt_span"]:
+                    logger.info(
+                        f"Auto-saved RT-span for '{current_target}' on modal close"
+                    )
+                    saved_items.append("RT-span")
+                if save_result["saved_rt_alignment"]:
+                    saved_items.append("RT alignment")
+
                 logger.debug(f"Auto-saved data for '{current_target}' on modal close")
         
         except Exception as e:
