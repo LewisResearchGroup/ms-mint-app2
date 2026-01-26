@@ -23,6 +23,7 @@ from ..duckdb_manager import (
     calculate_optimal_batch_size,
     populate_full_range_downsampled_chromatograms_for_target,
     get_chromatogram_envelope,
+    calculate_optimal_params,
 )
 from ..plugin_interface import PluginInterface
 from ..tools import sparsify_chrom, proportional_min1_selection
@@ -3302,7 +3303,12 @@ def callbacks(app, fsc, cache, cpu=None):
 
         session_rev = _bump_session_render_revision(session_id)
 
-        with duckdb_connection(wdir) as conn:
+        n_cpus, ram, _ = calculate_optimal_params()
+        # Reduce resources for interactive queries to maintain UI responsiveness
+        # Use 1/4 of optimal CPUs (min 1) and 1/2 of optimal RAM (min 2GB)
+        n_cpus = max(1, n_cpus // 4)
+        ram = max(2, int(ram // 2))
+        with duckdb_connection(wdir, n_cpus=n_cpus, ram=ram) as conn:
             if conn is None:
                 raise PreventUpdate
             # Fetch ms_type for this target
@@ -3642,7 +3648,11 @@ def callbacks(app, fsc, cache, cpu=None):
         
         session_rev = _bump_session_render_revision(session_id)
 
-        with duckdb_connection(wdir) as conn:
+        n_cpus, ram, _ = calculate_optimal_params()
+        # Reduce resources for interactive queries to maintain UI responsiveness
+        n_cpus = max(1, n_cpus // 4)
+        ram = max(2, int(ram // 2))
+        with duckdb_connection(wdir, n_cpus=n_cpus, ram=ram) as conn:
             if conn is None:
                 raise PreventUpdate
 
@@ -3862,7 +3872,11 @@ def callbacks(app, fsc, cache, cpu=None):
             raise PreventUpdate
         session_rev = _bump_session_render_revision(session_id)
         envelope_precomputed = None
-        with duckdb_connection(wdir) as conn:
+        n_cpus, ram, _ = calculate_optimal_params()
+        # Reduce resources for interactive queries to maintain UI responsiveness
+        n_cpus = max(1, n_cpus // 4)
+        ram = max(2, int(ram // 2))
+        with duckdb_connection(wdir, n_cpus=n_cpus, ram=ram) as conn:
             if conn is None:
                 raise PreventUpdate
             # Load target data including RT alignment columns
@@ -5298,7 +5312,11 @@ def callbacks(app, fsc, cache, cpu=None):
                     params.append(ms_type_filter.lower())
                 
                 where_clause = "WHERE " + " AND ".join(filters) if filters else ""
-                order_clause = f"ORDER BY {order_by} ASC" if order_by else "ORDER BY mz_mean ASC"
+                # Use peak_label as secondary sort key to ensure deterministic order (and match grid view)
+                if order_by:
+                    order_clause = f"ORDER BY {order_by} ASC, peak_label ASC"
+                else:
+                    order_clause = "ORDER BY mz_mean ASC, peak_label ASC"
                 
                 query = f"SELECT peak_label FROM targets {where_clause} {order_clause}"
                 targets = [row[0] for row in conn.execute(query, params).fetchall()]
