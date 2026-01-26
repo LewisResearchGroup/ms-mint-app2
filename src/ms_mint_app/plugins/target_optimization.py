@@ -3827,39 +3827,6 @@ def callbacks(app, fsc, cache, cpu=None):
 
 
     @app.callback(
-        Output('chromatogram-view-lock-range', 'checked', allow_duplicate=True),
-        Input('chromatogram-view-rt-align', 'checked'),
-        prevent_initial_call=True
-    )
-    def lock_rt_span_when_aligning(rt_align_on):
-        """Force RT span to Lock mode when RT alignment is ON"""
-        # TEMPORARILY DISABLED FOR TESTING
-        raise PreventUpdate
-        # if not rt_align_on:
-        #     logger.debug("lock_rt_span_when_aligning: RT alignment is off, preventing update")
-        #     raise PreventUpdate
-        # # logger.debug(f"Lock RT span callback: rt_align_on={rt_align_on}, setting Lock mode (checked={rt_align_on})")
-        # return rt_align_on  # True = Lock mode, False = Edit mode
-
-
-    @app.callback(
-        Output('chromatogram-view-rt-align', 'checked', allow_duplicate=True),
-        Input('chromatogram-view-lock-range', 'checked'),
-        State('chromatogram-view-rt-align', 'checked'),
-        prevent_initial_call=True
-    )
-    def turn_off_alignment_when_editing(is_locked, rt_align_on):
-        """Turn OFF RT alignment when user switches from Lock to Edit mode"""
-        # TEMPORARILY DISABLED FOR TESTING
-        raise PreventUpdate
-        # # When switching to Edit mode (is_locked=False), turn off alignment
-        # if not is_locked and rt_align_on:
-        #     logger.debug("RT span switched to Edit mode - turning OFF RT alignment")
-        #     return False
-        # raise PreventUpdate
-
-
-    @app.callback(
         Output('chromatogram-view-plot', 'figure', allow_duplicate=True),
         Output('chromatogram-view-modal', 'title'),
         Output('chromatogram-view-modal', 'loading'),
