@@ -4170,43 +4170,68 @@ def callbacks(app, fsc, cache, cpu=None):
 
     @app.callback(
         Output('notifications-container', 'children', allow_duplicate=True),
+        Output('rt-alignment-data', 'data', allow_duplicate=True),
+        Output('target-note', 'value', allow_duplicate=True),
         Input('chromatogram-view-rt-align', 'checked'),
         State('target-preview-clicked', 'data'),
         State('target-note', 'value'),
         State('wdir', 'data'),
+        State('chromatogram-view-modal', 'visible'),
+        State('rt-alignment-data', 'data'),
         prevent_initial_call=True,
     )
-    def clear_rt_alignment_on_toggle_off(rt_align_toggle, current_target, current_note, wdir):
+    def clear_rt_alignment_on_toggle_off(
+        rt_align_toggle,
+        current_target,
+        current_note,
+        wdir,
+        modal_visible,
+        rt_alignment_data,
+    ):
         """
-        Clear persisted RT alignment only on an explicit toggle-off action.
-        This avoids navigation races clearing alignment unintentionally.
+        Clear persisted RT alignment only on an explicit user toggle-off action.
+        This avoids navigation/store races clearing alignment unintentionally.
         """
         if rt_align_toggle is not False:
             raise PreventUpdate
-        if not current_target or not wdir:
+        if not current_target or not wdir or not modal_visible:
             raise PreventUpdate
-        # NOTE: Disabled for now because this callback can be triggered by
-        # navigation/state-restoration races (toggle briefly False), which
-        # would wipe persisted alignment and notes. Keep the legacy logic
-        # below for future reactivation once we can reliably detect user intent.
-        if False:  # Legacy clear-on-toggle-off (disabled)
-            try:
-                with duckdb_connection(wdir) as conn:
-                    if conn is None:
-                        raise PreventUpdate
-                    _save_target_state(
-                        conn,
-                        current_target,
-                        current_note,
-                        save_rt_span=False,
-                        rt_align_toggle=False,
-                        rt_alignment_data=None,
-                        save_rt_alignment=True,
-                        allow_clear_rt_alignment=True,
-                    )
-            except Exception as e:
-                logger.warning(f"Failed to clear RT alignment for '{current_target}': {e}")
-        return dash.no_update
+        ctx = dash.callback_context
+        trigger_id = ctx.triggered[0]['prop_id'].split('.')[0] if ctx.triggered else None
+        if trigger_id != 'chromatogram-view-rt-align':
+            raise PreventUpdate
+
+        # If the store refers to another target, do nothing.
+        data_target = (rt_alignment_data or {}).get('target_label')
+        if data_target and data_target != current_target:
+            raise PreventUpdate
+
+        base_note = _strip_rt_alignment_auto_note(current_note or "")
+
+        try:
+            with duckdb_connection(wdir) as conn:
+                if conn is None:
+                    raise PreventUpdate
+                _save_target_state(
+                    conn,
+                    current_target,
+                    base_note,
+                    save_rt_span=False,
+                    rt_align_toggle=False,
+                    rt_alignment_data=None,
+                    save_rt_alignment=True,
+                    allow_clear_rt_alignment=True,
+                )
+                logger.debug(
+                    "Cleared RT alignment via explicit toggle OFF for '%s'.",
+                    current_target,
+                )
+        except Exception as e:
+            logger.warning(f"Failed to clear RT alignment for '{current_target}': {e}")
+            return dash.no_update, dash.no_update, dash.no_update
+
+        cleared_store = {"enabled": False, "target_label": current_target}
+        return dash.no_update, cleared_store, base_note
 
 
     @app.callback(
