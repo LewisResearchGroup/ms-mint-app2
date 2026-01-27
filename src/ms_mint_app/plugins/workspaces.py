@@ -657,7 +657,162 @@ def _save_new_data_dir(okCounts, new_path):
     return str(new_user_path), fac.AntdNotification(message="Global Data Directory updated successfully!", type="success", placement="bottom"), False
 
 
+
+def _get_workspace_details(tmpdir, key):
+    _path = Path(tmpdir, 'workspaces', str(key))
+    path_info = html.Div(
+        [
+            fac.AntdText('Workspace path:', strong=True, locale='en-us', style={'marginRight': '10px'}),
+            fac.AntdText(_path.as_posix(), copyable=True, locale='en-us')
+        ],
+        style={'minWidth': '200px', 'flexGrow': 1, 'padding': '10px'}
+    )
+    
+    try:
+        # Avoid bumping last_activity just for rendering the preview table
+        with duckdb_connection(_path, register_activity=False) as conn:
+            if conn is None:
+                # Database is locked - return placeholder
+                return fac.AntdFlex(
+                    [
+                        path_info,
+                        fac.AntdText("Database busy...", type='secondary')
+                    ],
+                    wrap=True
+                )
+            summary = conn.execute("""
+                                   SELECT * FROM (
+                                       SELECT 'samples' AS table_name, COUNT(*) AS rows FROM samples
+                                       UNION ALL
+                                       SELECT 'ms1_data' AS table_name, COUNT(*) AS rows FROM ms1_data
+                                       UNION ALL
+                                       SELECT 'ms2_data' AS table_name, COUNT(*) AS rows FROM ms2_data
+                                       UNION ALL
+                                       SELECT 'targets' AS table_name, COUNT(*) AS rows FROM targets
+                                       UNION ALL
+                                       SELECT 'chromatograms' AS table_name, COUNT(*) AS rows FROM chromatograms
+                                       UNION ALL
+                                       SELECT 'results' AS table_name, COUNT(*) AS rows FROM results
+                                   ) t
+                                   ORDER BY CASE table_name
+                                                WHEN 'samples' THEN 1
+                                                WHEN 'ms1_data' THEN 2
+                                                WHEN 'ms2_data' THEN 3
+                                                WHEN 'targets' THEN 4
+                                                WHEN 'chromatograms' THEN 5
+                                                WHEN 'results' THEN 6
+                                                ELSE 7
+                                                END
+                                   """).df()
+            if not summary.empty:
+                summary['rows'] = summary['rows'].apply(
+                    lambda x: f"{int(x):,}" if pd.notna(x) else ""
+                )
+            db_info = fac.AntdTable(
+                columns=[
+                    {'title': 'Table name', 'dataIndex': 'table_name', 'align': 'left', 'width': '50%'},
+                    {'title': 'Rows', 'dataIndex': 'rows', 'align': 'center', 'width': '50%'},
+                ],
+                data=summary.to_dict('records'),
+                pagination=False,
+                locale='en-us',
+                size='small',
+                style={'minWidth': '200px', 'flexGrow': 1}
+            )
+        return fac.AntdFlex(
+            [
+                path_info,
+                db_info
+            ],
+            wrap=True
+        )
+    except Exception as e:
+        # Check for database corruption
+        from ..duckdb_manager import DatabaseCorruptionError
+        if isinstance(e, DatabaseCorruptionError) or "Corrupt database file" in str(e):
+            return fac.AntdFlex(
+                [
+                    path_info,
+                    fac.AntdAlert(
+                        message="[!] Database Corrupted",
+                        description="This workspace's database is corrupted. Please delete this workspace and restore from backup or recreate it.",
+                        type='error',
+                        showIcon=True,
+                        style={'maxWidth': '400px'}
+                    )
+                ],
+                wrap=True
+            )
+        # Other errors - show generic message
+        return fac.AntdFlex(
+            [
+                path_info,
+                fac.AntdText(f"Error loading workspace: {str(e)[:50]}", type='danger')
+            ],
+            wrap=True
+        )
+
+
 def callbacks(app, fsc, cache):
+    @app.callback(
+        Output("ws-table", "expandedRowKeyToContent", allow_duplicate=True),
+        Input("ws-table", "expandedRowKeys"),
+        State("ws-table", "expandedRowKeyToContent"),
+        State("tmpdir", "data"),
+        prevent_initial_call=True
+    )
+    def lazy_load_workspace_details(expanded_keys, current_content, tmpdir):
+        if not expanded_keys or not current_content or not tmpdir:
+            raise PreventUpdate
+        
+        # current_content is a list of dicts: [{'key': '...', 'content': ...}, ...]
+        # We need to find the one corresponding to the newly expanded key
+        # and update it if it doesn't have the table (approx check)
+        
+        updated = False
+        new_content_list = []
+        
+        for item in current_content:
+            key = item.get('key')
+            content = item.get('content')
+            
+            # Simple heuristic: if we are expanded AND content looks "simple" (just the path div),
+            # trigger the load. The "simple" content structure usually has 1 child or class names.
+            # A robust way is to mark it, but let's check if 'db_info' is missing.
+            # The complex one has an AntdTable inside. The simple one is just a Div with AntdText.
+            
+            # Since checking component internals is hard, we can just ALWAYS reload the active one
+            # if we want fresh stats, OR we try to detect if it's already loaded.
+            # Minimizing DB hits: Check if we have 'AntdTable' type in the content structure?
+            # Serialized components are dicts.
+            
+            if key in expanded_keys:
+                # Check complexity. If it's a simple dict with type='Div' and children is small...
+                try:
+                    # If we haven't loaded it, let's load it.
+                    # Warning: this might reload on every collapse/expand if we don't persist it.
+                    # But 'expandedRowKeyToContent' IS the persistence.
+                    
+                    # Deep inspection of serialization is brittle.
+                    # Let's assume if it has < 3 keys/props it might be simple?
+                    # Better: Is there a flag? No.
+                    # Let's just run it for now.
+                    
+                    # Optim: only if it looks "simple" (no 'AntdTable')
+                    content_str = str(content)
+                    if 'AntdTable' not in content_str:
+                         logger.info(f"Lazy loading stats for workspace {key}")
+                         new_details = _get_workspace_details(tmpdir, key)
+                         item['content'] = new_details
+                         updated = True
+                except Exception as e:
+                    logger.error(f"Lazy load error: {e}")
+            
+            new_content_list.append(item)
+            
+        if updated:
+            return new_content_list
+        raise PreventUpdate
     @app.callback(
         Output('workspace-tour', 'current'),
         Output('workspace-tour', 'open'),
