@@ -1,0 +1,39 @@
+
+# Walkthrough - Analysis Module Refactoring
+
+I have successfully refactored the monolithic [analysis.py](file:///home/mario/VSCodeProjects/ms-mint-app2/src/ms_mint_app/plugins/analysis.py) file into a modular package structure in `src/ms_mint_app/plugins/analysis/`. This improves maintainability, readability, and allows for easier extension of individual analysis tabs.
+
+## Changes
+
+### 1. Created Package Structure
+The `src/ms_mint_app/plugins/analysis.py` file has been replaced by a directory `src/ms_mint_app/plugins/analysis/` containing:
+
+- **`__init__.py`**: Exports `AnalysisPlugin`, `layout`, `callbacks` from `plugin.py` to maintain backwards compatibility.
+- **`plugin.py`**: The main orchestrator. It defines the `AnalysisPlugin` class, the main layout frame, and coordinates the callbacks. structure.
+- **`_shared.py`**: Contains shared constants (`METRIC_OPTIONS`, `NORM_OPTIONS`), utility functions (`rocke_durbin`, `_build_color_map`), and common imports.
+- **Tab Modules**:
+    - **`qc.py`**: Quality Control tab layout and callbacks.
+    - **`pca.py`**: PCA tab layout and figure generation.
+    - **`tsne.py`**: t-SNE tab layout and figure generation.
+    - **`violin.py`**: Violin/Raincloud tab layout and plotting logic.
+    - **`bar.py`**: Bar chart tab layout and plotting logic.
+    - **`clustermap.py`**: Clustermap layout and generation logic.
+
+### 2. Logic Extraction
+Reference to `show_tab_content` (the massive function in the original file) has been split into:
+- `plugin.py`: Handles data fetching, pivoting, normalization, and routing.
+- `[module].generate_[plot]`: Each module now has a dedicated function to generate its specific figures (e.g., `pca.generate_pca_figure`).
+
+### 3. File Cleanup
+- Deleted the original `src/ms_mint_app/plugins/analysis.py`.
+- Verified imports in `__init__.py` to ensure the application continues to work as expected.
+
+## Verification Results
+
+### Static Analysis
+- **File Structure**: Confirmed `src/ms_mint_app/plugins/analysis/` contains all necessary modules.
+- **Syntax Check**: Fixed proper string escaping for SQL queries within `plugin.py` and `qc.py`.
+- **Dependencies**: New modules correctly import dependencies and shared utilities.
+
+### Compatibility
+- The `AnalysisPlugin` class interface remains unchanged (`layout` and `callbacks` methods are preserved), ensuring seamless integration with the main app.

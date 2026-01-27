@@ -1,0 +1,675 @@
+# Implementation Plan: Split analysis.py into Tab-Specific Modules
+
+## Overview
+
+Split the monolithic [analysis.py](file:///home/mario/VSCodeProjects/ms-mint-app2/src/ms_mint_app/plugins/analysis.py) (3,712 lines) into 7 smaller, maintainable modules:
+
+| New Module | Purpose | Estimated Lines |
+|------------|---------|-----------------|
+| `analysis/_shared.py` | Shared constants, utilities, base imports | ~300 |
+| `analysis/qc.py` | QC tab layout + 6 callbacks | ~400 |
+| `analysis/pca.py` | PCA tab layout + callbacks | ~200 |
+| `analysis/tsne.py` | t-SNE tab layout + callbacks | ~200 |
+| `analysis/violin.py` | Violin tab layout + 4 callbacks | ~500 |
+| `analysis/bar.py` | Bar chart tab layout + 4 callbacks | ~500 |
+| `analysis/clustermap.py` | Clustermap tab layout + 3 callbacks | ~350 |
+| [analysis.py](file:///home/mario/VSCodeProjects/ms-mint-app2/src/ms_mint_app/plugins/analysis.py) | Thin orchestrator with main layout + plugin class | ~400 |
+
+---
+
+## Current File Structure Analysis
+
+### Sections in analysis.py
+
+| Section | Lines | Description |
+|---------|-------|-------------|
+| Imports | 1-38 | All import statements |
+| Global utilities | 40-78 | [load_persisted_scalir_results()](file:///home/mario/VSCodeProjects/ms-mint-app2/src/ms_mint_app/plugins/analysis.py#40-79) |
+| Constants | 79-130 | `PCA_COMPONENT_OPTIONS`, `NORM_OPTIONS`, `METRIC_OPTIONS`, `PLOTLY_HIGH_RES_CONFIG`, etc. |
+| AnalysisPlugin class | 132-145 | Plugin interface implementation |
+| Shared utilities | 148-244 | [rocke_durbin()](file:///home/mario/VSCodeProjects/ms-mint-app2/src/ms_mint_app/plugins/analysis.py#148-153), [_calc_y_range_numpy()](file:///home/mario/VSCodeProjects/ms-mint-app2/src/ms_mint_app/plugins/analysis.py#155-214), [run_pca_samples_in_cols()](file:///home/mario/VSCodeProjects/ms-mint-app2/src/ms_mint_app/plugins/analysis.py#215-245) |
+| Tab UI: clustermap | 247-394 | `clustermap_tab` component |
+| Tab UI: pca | 395-456 | `pca_tab` component |
+| Tab UI: tsne | 458-541 | `tsne_tab` component |
+| Tab UI: violin | 545-631 | `violin_content`, `violin_selected_sample_store` |
+| Tab UI: bar | 632-717 | `bar_content`, `bar_selected_sample_store` |
+| Tab UI: qc | 719-834 | `qc_content` |
+| Menu items | 837-844 | `ANALYSIS_MENU_ITEMS` |
+| Main layout | 846-1063 | `_layout` - assembles all tabs |
+| Helper functions | 1068-1427 | [_parse_uploaded_standards](file:///home/mario/VSCodeProjects/ms-mint-app2/src/ms_mint_app/plugins/processing.py#974-990), [_plot_curve_fig](file:///home/mario/VSCodeProjects/ms-mint-app2/src/ms_mint_app/plugins/processing.py#2910-3016), [_analysis_tour_steps](file:///home/mario/VSCodeProjects/ms-mint-app2/src/ms_mint_app/plugins/analysis.py#1203-1355), [_build_color_map](file:///home/mario/VSCodeProjects/ms-mint-app2/src/ms_mint_app/plugins/analysis.py#1357-1377), [_clean_numeric](file:///home/mario/VSCodeProjects/ms-mint-app2/src/ms_mint_app/plugins/analysis.py#1378-1384), [_create_pivot_custom](file:///home/mario/VSCodeProjects/ms-mint-app2/src/ms_mint_app/plugins/analysis.py#1387-1428) |
+| [show_tab_content](file:///home/mario/VSCodeProjects/ms-mint-app2/src/ms_mint_app/plugins/analysis.py#1429-2166) | 1429-2165 | **GIANT** function handling all tab content generation |
+| [callbacks()](file:///home/mario/VSCodeProjects/ms-mint-app2/src/ms_mint_app/plugins/processing.py#1461-2574) | 2167-3711 | All callback registrations |
+
+### Callback Inventory by Tab
+
+| Tab | Callback Functions | Lines |
+|-----|-------------------|-------|
+| **Shared** | [warn_missing_workspace](file:///home/mario/VSCodeProjects/ms-mint-app2/src/ms_mint_app/plugins/analysis.py#2168-2205), [toggle_analysis_sidebar](file:///home/mario/VSCodeProjects/ms-mint-app2/src/ms_mint_app/plugins/analysis.py#2208-2221), [update_analysis_content_visibility](file:///home/mario/VSCodeProjects/ms-mint-app2/src/ms_mint_app/plugins/analysis.py#2223-2254), [toggle_metric_visibility](file:///home/mario/VSCodeProjects/ms-mint-app2/src/ms_mint_app/plugins/analysis.py#2256-2270), [set_norm_default_for_tab](file:///home/mario/VSCodeProjects/ms-mint-app2/src/ms_mint_app/plugins/analysis.py#2272-2279), [analysis_tour_open](file:///home/mario/VSCodeProjects/ms-mint-app2/src/ms_mint_app/plugins/analysis.py#2281-2301) | 2168-2300 |
+| **All tabs** | [show_tab_content](file:///home/mario/VSCodeProjects/ms-mint-app2/src/ms_mint_app/plugins/analysis.py#1429-2166) (registered at 2302-2334) | 1429-2165 |
+| **Clustermap** | [toggle_clustermap_spinner](file:///home/mario/VSCodeProjects/ms-mint-app2/src/ms_mint_app/plugins/analysis.py#2337-2358), [save_clustermap_png](file:///home/mario/VSCodeProjects/ms-mint-app2/src/ms_mint_app/plugins/analysis.py#2359-2381) | 2337-2380 |
+| **Violin** | [toggle_violin_spinner](file:///home/mario/VSCodeProjects/ms-mint-app2/src/ms_mint_app/plugins/analysis.py#2382-2404), [update_chromatogram_on_click](file:///home/mario/VSCodeProjects/ms-mint-app2/src/ms_mint_app/plugins/analysis.py#2407-2719), [update_violin_chromatogram_zoom](file:///home/mario/VSCodeProjects/ms-mint-app2/src/ms_mint_app/plugins/analysis.py#3034-3075), [highlight_selected_point](file:///home/mario/VSCodeProjects/ms-mint-app2/src/ms_mint_app/plugins/analysis.py#3076-3118) | 2382-3117 |
+| **Bar** | [update_bar_chromatogram_on_click](file:///home/mario/VSCodeProjects/ms-mint-app2/src/ms_mint_app/plugins/analysis.py#2720-3032) | 2720-3031 |
+| **QC** | [update_qc_target_options](file:///home/mario/VSCodeProjects/ms-mint-app2/src/ms_mint_app/plugins/analysis.py#3120-3152), [toggle_header_visibility](file:///home/mario/VSCodeProjects/ms-mint-app2/src/ms_mint_app/plugins/analysis.py#3153-3162), [generate_qc_plots](file:///home/mario/VSCodeProjects/ms-mint-app2/src/ms_mint_app/plugins/analysis.py#3163-3351), [update_qc_chromatogram_zoom](file:///home/mario/VSCodeProjects/ms-mint-app2/src/ms_mint_app/plugins/analysis.py#3352-3398), [update_qc_selected_sample_store](file:///home/mario/VSCodeProjects/ms-mint-app2/src/ms_mint_app/plugins/analysis.py#3400-3455), [update_qc_chromatogram](file:///home/mario/VSCodeProjects/ms-mint-app2/src/ms_mint_app/plugins/analysis.py#3456-3656), [highlight_qc_sample](file:///home/mario/VSCodeProjects/ms-mint-app2/src/ms_mint_app/plugins/analysis.py#3657-3712) | 3120-3711 |
+
+---
+
+## Target File Structure
+
+```
+src/ms_mint_app/plugins/
+├── analysis/
+│   ├── __init__.py          # Exports AnalysisPlugin, layout, callbacks
+│   ├── _shared.py            # Constants, utilities, shared imports
+│   ├── qc.py                 # QC tab
+│   ├── pca.py                # PCA tab
+│   ├── tsne.py               # t-SNE tab
+│   ├── violin.py             # Violin tab
+│   ├── bar.py                # Bar tab
+│   └── clustermap.py         # Clustermap tab
+├── analysis_tools/           # (existing - keep as-is)
+│   ├── __init__.py
+│   └── trace_helper.py
+└── analysis.py               # Thin wrapper, backwards compatibility
+```
+
+---
+
+## Step-by-Step Implementation
+
+### Step 1: Create analysis/ Directory and __init__.py
+
+```bash
+mkdir -p src/ms_mint_app/plugins/analysis
+touch src/ms_mint_app/plugins/analysis/__init__.py
+```
+
+Content of `analysis/__init__.py`:
+```python
+from .plugin import AnalysisPlugin, layout, callbacks, outputs
+
+__all__ = ['AnalysisPlugin', 'layout', 'callbacks', 'outputs']
+```
+
+---
+
+### Step 2: Create _shared.py
+
+Extract from [analysis.py](file:///home/mario/VSCodeProjects/ms-mint-app2/src/ms_mint_app/plugins/analysis.py):
+- Lines 1-38: Imports (filtered to only shared ones)
+- Lines 79-130: Constants
+- Lines 148-244: Utility functions
+
+**File: `analysis/_shared.py`**
+
+```python
+"""Shared constants, imports, and utilities for Analysis tabs."""
+
+import logging
+import dash
+import base64
+from io import BytesIO
+from pathlib import Path
+import time
+import feffery_antd_components as fac
+import numpy as np
+import pandas as pd
+from dash import html, dcc
+from dash.dependencies import Input, Output, State
+from dash.exceptions import PreventUpdate
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
+import plotly.express as px
+import os
+
+from ...duckdb_manager import duckdb_connection, create_pivot, get_physical_cores
+from ...sample_metadata import GROUP_COLUMNS, GROUP_LABELS
+
+logger = logging.getLogger(__name__)
+
+# === CONSTANTS ===
+
+PCA_COMPONENT_OPTIONS = [
+    {'label': f'PC{i}', 'value': f'PC{i}'}
+    for i in range(1, 6)
+]
+TSNE_COMPONENT_OPTIONS = [
+    {'label': f't-SNE-{i}', 'value': f't-SNE-{i}'}
+    for i in range(1, 4)
+]
+NORM_OPTIONS = [
+    {'label': 'None (raw)', 'value': 'none'},
+    {'label': 'Z-score', 'value': 'zscore'},
+    {'label': 'Rocke-Durbin', 'value': 'durbin'},
+    {'label': 'Z-score + Rocke-Durbin', 'value': 'zscore_durbin'},
+]
+TAB_DEFAULT_NORM = {
+    'clustermap': 'zscore',
+    'pca': 'durbin',
+    'tsne': 'none',
+    'raincloud': 'durbin',
+    'bar': 'durbin',
+}
+GROUPING_FIELDS = ['sample_type'] + GROUP_COLUMNS
+GROUP_SELECT_OPTIONS = [
+    {'label': GROUP_LABELS.get(field, field.replace('_', ' ').title()), 'value': field}
+    for field in GROUPING_FIELDS
+]
+
+METRIC_OPTIONS = [
+    {'label': 'Peak Area', 'value': 'peak_area'},
+    {'label': 'Peak Area (Top 3)', 'value': 'peak_area_top3'},
+    {'label': 'Peak Max', 'value': 'peak_max'},
+    {'label': 'Peak Mean', 'value': 'peak_mean'},
+    {'label': 'Peak Median', 'value': 'peak_median'},
+    {'label': 'Peak Area (EMG Fitted)', 'value': 'peak_area_fitted'},
+    {'label': 'Concentration', 'value': 'scalir_conc'},
+]
+
+PLOTLY_HIGH_RES_CONFIG = {
+    'toImageButtonOptions': {
+        'format': 'png',
+        'scale': 4,
+        'height': None,
+        'width': None,
+    },
+    'displayModeBar': True,
+    'displaylogo': False,
+    'responsive': True,
+}
+
+allowed_metrics = {
+    'peak_area',
+    'peak_area_top3',
+    'peak_max',
+    'peak_mean',
+    'peak_median',
+    'scalir_conc',
+}
+
+# === UTILITY FUNCTIONS ===
+
+def rocke_durbin(df: pd.DataFrame, c: float) -> pd.DataFrame:
+    """Apply Rocke-Durbin transformation."""
+    z = df.to_numpy(dtype=float)
+    ef = np.log((z + np.sqrt(z ** 2 + c ** 2)) / 2.0)
+    return pd.DataFrame(ef, index=df.index, columns=df.columns)
+
+
+def _calc_y_range_numpy(data, x_left, x_right, is_log=False):
+    """Calculate the Y-axis range for the given x-range using NumPy."""
+    import math
+    ys_all = []
+    if not data:
+        return None
+        
+    for trace in data:
+        xs = trace.get('x')
+        ys = trace.get('y')
+        
+        if xs is None or ys is None or len(xs) == 0:
+            continue
+            
+        try:
+            xs = np.array(xs, dtype=np.float64)
+            ys = np.array(ys, dtype=np.float64)
+        except Exception:
+            continue
+        
+        mask = (xs >= x_left) & (xs <= x_right)
+        ys_filtered = ys[mask]
+        
+        valid_mask = np.isfinite(ys_filtered)
+        ys_filtered = ys_filtered[valid_mask]
+        
+        if len(ys_filtered) > 0:
+            ys_all.append(ys_filtered)
+            
+    if not ys_all:
+        return None
+        
+    ys_concat = np.concatenate(ys_all)
+    
+    if len(ys_concat) == 0:
+        return None
+
+    if is_log:
+        pos_mask = ys_concat > 1
+        ys_pos = ys_concat[pos_mask]
+        if len(ys_pos) == 0:
+            return None
+        return [math.log10(np.min(ys_pos)), math.log10(np.max(ys_pos) * 1.05)]
+
+    y_min = np.min(ys_concat)
+    y_max = np.max(ys_concat)
+    y_min = 0 if y_min > 0 else y_min
+    return [y_min, y_max * 1.05]
+
+
+def _build_color_map(color_df: pd.DataFrame, group_col: str):
+    """Build a color map from sample metadata."""
+    # Copy from lines 1357-1376
+    pass  # Implementation from original
+
+
+def _clean_numeric(numeric_df: pd.DataFrame):
+    """Replace NaN/inf in numeric dataframe."""
+    # Copy from lines 1378-1383
+    pass  # Implementation from original
+
+
+def _create_pivot_custom(conn, value='peak_area', table='results'):
+    """Local pivot implementation."""
+    # Copy from lines 1387-1427
+    pass  # Implementation from original
+
+
+def create_invisible_figure():
+    """Create an invisible placeholder figure."""
+    fig = go.Figure()
+    fig.update_layout(
+        xaxis=dict(visible=False),
+        yaxis=dict(visible=False),
+        paper_bgcolor='white',
+        plot_bgcolor='white',
+        margin=dict(l=0, r=0, t=0, b=0),
+        height=10,
+    )
+    return fig
+```
+
+---
+
+### Step 3: Create Individual Tab Modules
+
+#### 3.1: `analysis/qc.py`
+
+Extract:
+- Lines 719-834: `qc_content` layout
+- Lines 3120-3711: All QC callbacks
+
+```python
+"""QC (Quality Control) tab for Analysis plugin."""
+
+from ._shared import (
+    fac, html, dcc, go, px, pd, logger,
+    duckdb_connection, PLOTLY_HIGH_RES_CONFIG,
+    Input, Output, State, PreventUpdate, dash,
+    GROUP_COLUMNS, _calc_y_range_numpy
+)
+
+# === LAYOUT ===
+
+def create_layout():
+    """Return the QC tab layout component."""
+    return html.Div([
+        # Copy from lines 720-834
+    ], id='analysis-qc-content')
+
+
+# Store
+qc_selected_sample_store = dcc.Store(id='qc-selected-sample', data=None)
+
+
+# === CALLBACKS ===
+
+def register_callbacks(app):
+    """Register all QC-specific callbacks."""
+    
+    @app.callback(
+        Output('qc-target-select', 'options'),
+        Output('qc-target-select', 'value'),
+        Input('analysis-sidebar-menu', 'currentKey'),
+        Input('wdir', 'data'),
+        State('qc-target-select', 'value'),
+        prevent_initial_call=False,
+    )
+    def update_qc_target_options(current_key, wdir, current_value):
+        # Copy from lines 3128-3151
+        pass
+
+    @app.callback(
+        Output('qc-target-wrapper', 'style'),
+        Input('analysis-sidebar-menu', 'currentKey'),
+    )
+    def toggle_header_visibility(current_key):
+        # Copy from lines 3157-3161
+        pass
+
+    @app.callback(
+        Output('qc-rt-graph', 'figure'),
+        Output('qc-mz-graph', 'figure'),
+        Output('qc-spinner', 'spinning'),
+        Input('qc-target-select', 'value'),
+        Input('analysis-grouping-select', 'value'),
+        Input('wdir', 'data'),
+        prevent_initial_call=False,
+    )
+    def generate_qc_plots(peak_label, group_by, wdir):
+        # Copy from lines 3172-3350
+        pass
+    
+    # ... remaining QC callbacks (3352-3711)
+```
+
+#### 3.2: `analysis/pca.py`
+
+Extract:
+- Lines 395-456: `pca_tab` layout
+- Lines 215-244: [run_pca_samples_in_cols()](file:///home/mario/VSCodeProjects/ms-mint-app2/src/ms_mint_app/plugins/analysis.py#215-245) function
+
+```python
+"""PCA tab for Analysis plugin."""
+
+from ._shared import (
+    fac, html, dcc, go, pd, np, logger,
+    PCA_COMPONENT_OPTIONS, PLOTLY_HIGH_RES_CONFIG,
+)
+from ...pca import SciPyPCA as PCA
+
+def run_pca_samples_in_cols(df: pd.DataFrame, n_components=None, random_state=0):
+    """Run PCA with samples in rows and targets in columns."""
+    # Copy from lines 215-244
+    pass
+
+
+def create_layout():
+    """Return the PCA tab layout component."""
+    return html.Div([
+        # Copy from lines 395-456
+    ])
+
+
+def generate_pca_figure(ndf, color_labels, color_map, group_label, x_comp, y_comp):
+    """Generate the PCA figure."""
+    # Extract PCA rendering logic from show_tab_content lines 1679-1789
+    pass
+```
+
+#### 3.3: `analysis/tsne.py`
+
+Extract:
+- Lines 458-541: `tsne_tab` layout
+- t-SNE logic from [show_tab_content](file:///home/mario/VSCodeProjects/ms-mint-app2/src/ms_mint_app/plugins/analysis.py#1429-2166) (lines 1790-1866)
+
+```python
+"""t-SNE tab for Analysis plugin."""
+
+from ._shared import (
+    fac, html, dcc, go, px, pd, np, logger, os,
+    TSNE_COMPONENT_OPTIONS, PLOTLY_HIGH_RES_CONFIG,
+    get_physical_cores,
+)
+from sklearn.manifold import TSNE
+
+
+def create_layout():
+    """Return the t-SNE tab layout component."""
+    return html.Div([
+        # Copy from lines 458-541
+    ])
+
+
+def generate_tsne_figure(ndf, color_labels, color_map, group_label, x_comp, y_comp, perplexity):
+    """Generate the t-SNE figure."""
+    # Extract t-SNE logic from show_tab_content lines 1790-1866
+    pass
+```
+
+#### 3.4: `analysis/violin.py`
+
+Extract:
+- Lines 545-631: `violin_content` and `violin_selected_sample_store`
+- Lines 2382-2403: [toggle_violin_spinner](file:///home/mario/VSCodeProjects/ms-mint-app2/src/ms_mint_app/plugins/analysis.py#2382-2404)
+- Lines 2407-2718: [update_chromatogram_on_click](file:///home/mario/VSCodeProjects/ms-mint-app2/src/ms_mint_app/plugins/analysis.py#2407-2719)
+- Lines 3034-3074: [update_violin_chromatogram_zoom](file:///home/mario/VSCodeProjects/ms-mint-app2/src/ms_mint_app/plugins/analysis.py#3034-3075)
+- Lines 3076-3117: [highlight_selected_point](file:///home/mario/VSCodeProjects/ms-mint-app2/src/ms_mint_app/plugins/analysis.py#3076-3118)
+- Violin rendering from [show_tab_content](file:///home/mario/VSCodeProjects/ms-mint-app2/src/ms_mint_app/plugins/analysis.py#1429-2166) (lines 1867-2011)
+
+#### 3.5: `analysis/bar.py`
+
+Extract:
+- Lines 632-717: `bar_content` and `bar_selected_sample_store`
+- Lines 2720-3031: [update_bar_chromatogram_on_click](file:///home/mario/VSCodeProjects/ms-mint-app2/src/ms_mint_app/plugins/analysis.py#2720-3032)
+- Bar rendering from [show_tab_content](file:///home/mario/VSCodeProjects/ms-mint-app2/src/ms_mint_app/plugins/analysis.py#1429-2166) (lines 2012-2164)
+
+#### 3.6: `analysis/clustermap.py`
+
+Extract:
+- Lines 247-394: `clustermap_tab` layout
+- Lines 2337-2357: [toggle_clustermap_spinner](file:///home/mario/VSCodeProjects/ms-mint-app2/src/ms_mint_app/plugins/analysis.py#2337-2358)
+- Lines 2359-2380: [save_clustermap_png](file:///home/mario/VSCodeProjects/ms-mint-app2/src/ms_mint_app/plugins/analysis.py#2359-2381)
+- Clustermap rendering from [show_tab_content](file:///home/mario/VSCodeProjects/ms-mint-app2/src/ms_mint_app/plugins/analysis.py#1429-2166) (lines 1583-1678)
+
+---
+
+### Step 4: Create Thin Orchestrator (analysis/plugin.py)
+
+```python
+"""Analysis plugin orchestrator."""
+
+import logging
+from dash import html
+import feffery_antd_components as fac
+from dash import dcc
+
+from ..plugin_interface import PluginInterface
+from . import _shared
+from . import qc
+from . import pca
+from . import tsne
+from . import violin
+from . import bar
+from . import clustermap
+
+_label = "Analysis"
+logger = logging.getLogger(__name__)
+
+
+class AnalysisPlugin(PluginInterface):
+    def __init__(self):
+        self._label = _label
+        self._order = 9
+        logger.info(f'Initiated {_label} plugin')
+
+    def layout(self):
+        return _layout
+
+    def callbacks(self, app, fsc, cache):
+        callbacks(app, fsc, cache)
+
+    def outputs(self):
+        return None
+
+
+# Import tab layouts
+ANALYSIS_MENU_ITEMS = [
+    {'component': 'Item', 'props': {'key': 'qc', 'title': 'QC', 'icon': 'antd-check-circle'}},
+    {'component': 'Item', 'props': {'key': 'pca', 'title': 'PCA', 'icon': 'antd-dot-chart'}},
+    {'component': 'Item', 'props': {'key': 'tsne', 'title': 't-SNE', 'icon': 'antd-deployment-unit'}},
+    {'component': 'Item', 'props': {'key': 'raincloud', 'title': 'Violin', 'icon': 'antd-control'}},
+    {'component': 'Item', 'props': {'key': 'bar', 'title': 'Bar', 'icon': 'antd-bar-chart'}},
+    {'component': 'Item', 'props': {'key': 'clustermap', 'title': 'Clustermap', 'icon': 'antd-build'}},
+]
+
+_layout = fac.AntdLayout([
+    # Header with title and tour icon (keep from original lines 848-868)
+    # ...
+    
+    fac.AntdLayout([
+        # Sidebar menu (keep from original lines 872-921)
+        # ...
+        
+        html.Div([
+            # Shared controls header (keep from original lines 925-1007)
+            # ...
+            
+            # Tab containers - import from modules
+            html.Div(qc.create_layout(), id='analysis-qc-container', style={'display': 'block', 'padding': '16px'}),
+            html.Div(pca.create_layout(), id='analysis-pca-container', style={'display': 'none', 'padding': '16px'}),
+            html.Div(tsne.create_layout(), id='analysis-tsne-container', style={'display': 'none', 'padding': '16px'}),
+            html.Div([violin.create_layout(), violin.violin_selected_sample_store], id='analysis-violin-container', style={'display': 'none', 'padding': '16px'}),
+            html.Div([bar.create_layout(), bar.bar_selected_sample_store], id='analysis-bar-container', style={'display': 'none', 'padding': '16px'}),
+            html.Div(clustermap.create_layout(), id='analysis-clustermap-container', style={'display': 'none', 'padding': '16px', 'height': 'calc(100vh - 150px)'}),
+        ], className='ant-layout-content', style={'background': 'white', 'overflowY': 'auto', 'height': 'calc(100vh - 80px)'}),
+    ]),
+    
+    # Stores and tours
+    dcc.Store(id='analysis-tabs', data={'activeKey': 'qc'}),
+    fac.AntdTour(locale='en-us', steps=[], id='analysis-tour', open=False, current=0),
+    html.Div(id="analysis-notifications-container"),
+])
+
+
+def callbacks(app, fsc, cache):
+    """Register all Analysis callbacks."""
+    
+    # Shared callbacks (sidebar, visibility, tour)
+    _register_shared_callbacks(app)
+    
+    # Tab-specific callbacks
+    qc.register_callbacks(app)
+    pca.register_callbacks(app)
+    tsne.register_callbacks(app)
+    violin.register_callbacks(app)
+    bar.register_callbacks(app)
+    clustermap.register_callbacks(app)
+    
+    # Main content callback (routes to appropriate tab renderer)
+    _register_content_callback(app)
+
+
+def _register_shared_callbacks(app):
+    """Register shared callbacks."""
+    # Copy lines 2168-2300 (warn_missing_workspace, toggle_analysis_sidebar, etc.)
+    pass
+
+
+def _register_content_callback(app):
+    """Register the main content switching callback."""
+    # This replaces the massive show_tab_content with routing logic
+    pass
+
+
+def layout():
+    return _layout
+
+
+outputs = None
+```
+
+---
+
+### Step 5: Update Original analysis.py for Backwards Compatibility
+
+Reduce [analysis.py](file:///home/mario/VSCodeProjects/ms-mint-app2/src/ms_mint_app/plugins/analysis.py) to a thin re-export:
+
+```python
+"""Analysis plugin - backwards compatibility wrapper.
+
+The implementation has been split into the analysis/ package.
+This module re-exports for backwards compatibility.
+"""
+
+from .analysis import AnalysisPlugin, layout, callbacks, outputs
+
+__all__ = ['AnalysisPlugin', 'layout', 'callbacks', 'outputs']
+```
+
+---
+
+## Refactoring the Giant [show_tab_content](file:///home/mario/VSCodeProjects/ms-mint-app2/src/ms_mint_app/plugins/analysis.py#1429-2166) Function
+
+The 736-line [show_tab_content](file:///home/mario/VSCodeProjects/ms-mint-app2/src/ms_mint_app/plugins/analysis.py#1429-2166) function needs to be split into:
+
+1. **Shared data preparation** (lines 1429-1582) → `_shared.py::prepare_tab_data()`
+2. **Tab-specific rendering** → Each tab module gets its own render function
+
+### New Pattern:
+
+```python
+# In analysis/plugin.py
+
+def _register_content_callback(app):
+    @app.callback(
+        Output('clustermap-image', 'src'),
+        Output('pca-graph', 'figure'),
+        Output('tsne-graph', 'figure'),
+        Output('violin-graphs', 'children'),
+        # ... other outputs
+        Input('analysis-sidebar-menu', 'currentKey'),
+        # ... other inputs
+    )
+    def show_tab_content(tab_key, ...):
+        # 1. Shared data preparation
+        data = _shared.prepare_tab_data(wdir, metric, norm, group_by)
+        if data is None:
+            return empty_outputs()
+        
+        # 2. Route to appropriate tab renderer
+        if tab_key == 'clustermap':
+            return clustermap.render(data, ...)
+        elif tab_key == 'pca':
+            return pca.render(data, ...)
+        # ... etc
+```
+
+---
+
+## Verification Plan
+
+### Automated Tests
+
+1. **Import test** - Verify all modules import without errors:
+   ```bash
+   python -c "from ms_mint_app.plugins.analysis import AnalysisPlugin"
+   ```
+
+2. **Unit tests** - If existing tests exist for analysis functionality, run them:
+   ```bash
+   pytest tests/ -k analysis -v
+   ```
+
+### Manual Verification
+
+1. **Start the application**:
+   ```bash
+   cd /home/mario/VSCodeProjects/ms-mint-app2
+   python -m ms_mint_app
+   ```
+
+2. **Verify each tab**:
+   - Navigate to Analysis page
+   - Click each tab (QC, PCA, t-SNE, Violin, Bar, Clustermap)
+   - Verify plots render correctly
+   - Test interactive features (click on data points, change dropdowns)
+
+3. **Verify chromatogram click functionality**:
+   - In Violin tab, click on a data point
+   - Verify chromatogram updates on the right side
+   - Same for Bar tab
+
+4. **Verify clustermap save**:
+   - Navigate to Clustermap tab
+   - Click "Save PNG" button
+   - Verify file downloads
+
+---
+
+## Dependencies to Watch
+
+1. **Circular imports**: Be careful with imports between tab modules
+2. **Callback ID conflicts**: Each callback ID must remain globally unique
+3. **Store components**: `dcc.Store` components must stay in the main layout
+4. **Tour steps**: [_analysis_tour_steps](file:///home/mario/VSCodeProjects/ms-mint-app2/src/ms_mint_app/plugins/analysis.py#1203-1355) function references element IDs
+
+---
+
+## Migration Order
+
+1. Create [analysis/](file:///home/mario/VSCodeProjects/ms-mint-app2/src/ms_mint_app/plugins/targets.py#1515-1569) directory structure
+2. Create `_shared.py` with all shared code
+3. Create each tab module, starting with simplest (PCA)
+4. Create [plugin.py](file:///home/mario/VSCodeProjects/ms-mint-app2/tests/test_analysis_plugin.py) orchestrator
+5. Update imports and verify each tab works
+6. Replace original [analysis.py](file:///home/mario/VSCodeProjects/ms-mint-app2/src/ms_mint_app/plugins/analysis.py) with compatibility wrapper
+7. Full manual testing pass
