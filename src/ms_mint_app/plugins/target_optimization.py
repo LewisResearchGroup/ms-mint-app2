@@ -3386,6 +3386,7 @@ def callbacks(app, fsc, cache, cpu=None):
         current_view_mode = current_layout.get('_view_mode')
         current_megatrace_effective = current_layout.get('_use_megatrace_effective')
         current_envelope_effective = current_layout.get('_use_envelope_effective')
+        current_envelope_phase_complete = current_layout.get('_envelope_phase_complete')
         current_full_range = current_layout.get('_full_range')
         current_target = current_layout.get('_target')
 
@@ -3405,6 +3406,19 @@ def callbacks(app, fsc, cache, cpu=None):
                 and current_envelope_effective == bool(use_envelope)
             ):
                 raise PreventUpdate
+
+        # If envelope has already been shown and the background megatrace lines
+        # were loaded for this target/full-range state, avoid re-showing the
+        # envelope on secondary triggers (e.g., savgol/full-range toggles).
+        envelope_already_completed = (
+            bool(use_megatrace)
+            and bool(current_envelope_phase_complete)
+            and current_target == target_clicked
+            and current_full_range == bool(full_range)
+            and trigger_id != 'chromatogram-view-megatrace'
+        )
+        if envelope_already_completed:
+            use_envelope = False
 
         session_rev = _bump_session_render_revision(session_id)
 
@@ -3668,6 +3682,7 @@ def callbacks(app, fsc, cache, cpu=None):
         fig['layout']['_full_range'] = bool(full_range)
         fig['layout']['_target'] = target_clicked
         fig['layout']['_render_rev'] = session_rev
+        fig['layout']['_envelope_phase_complete'] = bool(use_megatrace and not use_envelope)
         fig['layout']['_savgol_forced_off'] = bool(not savgol_applicable)
         # Recompute y-range using RT span only
         is_log = figure and figure.get('layout', {}).get('yaxis', {}).get('type') == 'log'
@@ -4333,6 +4348,7 @@ def callbacks(app, fsc, cache, cpu=None):
         fig['layout']['_use_megatrace_effective'] = bool(use_megatrace)
         fig['layout']['_use_envelope_effective'] = bool(use_envelope)
         fig['layout']['_full_range'] = bool(full_range)
+        fig['layout']['_envelope_phase_complete'] = bool(use_megatrace and not use_envelope)
         fig['layout']['_target'] = target_clicked
         fig['layout']['_render_rev'] = session_rev
         fig['layout']['_savgol_forced_off'] = bool(not savgol_applicable)
@@ -4528,7 +4544,12 @@ def callbacks(app, fsc, cache, cpu=None):
                 slider_dict, {"min_y": y_min, "max_y": y_max}, total_points, log_scale, group_legend, 
                 full_range, full_range_disabled, full_range_tooltip, rt_align_toggle_state, rt_alignment_data_to_load, note, False, bookmark_icon_node, 
                 # Background trigger data (if megatrace/envelope is used)
-                {'target_clicked': target_clicked, 'full_range': full_range, 'ms_type': ms_type_use} if use_envelope else None,
+                {
+                    'target_clicked': target_clicked,
+                    'full_range': full_range,
+                    'ms_type': ms_type_use,
+                    'render_rev': session_rev,
+                } if use_envelope else None,
                 False, savgol_disabled, savgol_checked, use_megatrace)
 
     @app.callback(
@@ -4552,6 +4573,21 @@ def callbacks(app, fsc, cache, cpu=None):
         target_clicked = trigger_data.get('target_clicked')
         full_range = trigger_data.get('full_range')
         ms_type_use = trigger_data.get('ms_type', 'ms1')
+        trigger_render_rev = trigger_data.get('render_rev')
+
+        current_layout = (figure or {}).get('layout', {})
+        current_target = current_layout.get('_target')
+        current_full_range = current_layout.get('_full_range')
+        current_render_rev = current_layout.get('_render_rev')
+
+        # Guard against stale background work overwriting a newer render.
+        if current_target != target_clicked or current_full_range != bool(full_range):
+            raise PreventUpdate
+        if trigger_render_rev is not None and current_render_rev is not None:
+            if current_render_rev != trigger_render_rev:
+                raise PreventUpdate
+
+        session_rev = _bump_session_render_revision(session_id)
 
         # Check if we are still on the same target/view in the frontend? 
         # (Though trigger_data comes from the modal opening, so it should be fresh)
@@ -4686,6 +4722,17 @@ def callbacks(app, fsc, cache, cpu=None):
         
         # Replace data completely
         fig_patch['data'] = traces
+
+        # Mark the envelope phase as complete and switch the figure to detailed mode
+        # so follow-up triggers don't re-show the envelope shadow plot.
+        fig_patch['layout']['_view_mode'] = 'detailed'
+        fig_patch['layout']['_use_megatrace_effective'] = True
+        fig_patch['layout']['_use_envelope_effective'] = False
+        fig_patch['layout']['_envelope_phase_complete'] = True
+        fig_patch['layout']['_full_range'] = bool(full_range)
+        fig_patch['layout']['_target'] = target_clicked
+        fig_patch['layout']['_render_rev'] = session_rev
+        fig_patch['layout']['hovermode'] = False
         
         # Don't update layout to preserve zoom/pan
         
