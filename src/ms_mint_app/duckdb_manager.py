@@ -1654,9 +1654,24 @@ def duckdb_connection_mint(mint_path: Path, workspace=None):
         return
 
     db_file = Path(mint_path, 'mint.db')
+    
+    # Auto-optimize: Check size before connecting
+    if db_file.exists():
+        try:
+             size_mb = db_file.stat().st_size / (1024 * 1024)
+             if size_mb > 50:
+                 logger.info(f"mint.db is large ({size_mb:.1f} MB). Compacting...")
+                 success, msg = compact_mint_database(mint_path)
+                 if success:
+                     logger.info(f"mint.db compaction successful: {msg}")
+                 else:
+                     logger.warning(f"mint.db compaction failed: {msg}")
+        except Exception as e:
+            logger.warning(f"Error during mint.db auto-compaction check: {e}")
+
     con = None
     try:
-        con = duckdb.connect(database=db_file, read_only=False)
+        con = duckdb.connect(database=str(db_file), read_only=False)
         _create_workspace_tables(con)
     except Exception as e:
         logger.error(f"Error connecting to DuckDB: {e}")
@@ -1672,6 +1687,59 @@ def duckdb_connection_mint(mint_path: Path, workspace=None):
                 except Exception:
                     pass
             con.close()
+
+
+def compact_mint_database(mint_path: Path | str) -> tuple[bool, str]:
+    """
+    Compact the mint.db by rebuilding it.
+    """
+    import shutil
+    import uuid
+    
+    mint_path = Path(mint_path)
+    db_file = mint_path / 'mint.db'
+    
+    if not db_file.exists():
+        return False, "Database file not found"
+        
+    original_size = db_file.stat().st_size
+    temp_db_file = mint_path / f'mint_{uuid.uuid4().hex[:8]}.db.tmp'
+    backup_file = mint_path / 'mint.db.bak'
+    
+    try:
+        new_con = duckdb.connect(database=str(temp_db_file), read_only=False)
+        new_con.execute("PRAGMA enable_checkpoint_on_shutdown")
+        _create_workspace_tables(new_con)
+        
+        # Attach old DB
+        new_con.execute(f"ATTACH '{db_file}' AS old_db (READ_ONLY)")
+        
+        # Copy workspaces
+        count = new_con.execute("SELECT COUNT(*) FROM old_db.workspaces").fetchone()[0]
+        if count > 0:
+            new_con.execute("INSERT INTO workspaces SELECT * FROM old_db.workspaces")
+            
+        new_con.execute("DETACH old_db")
+        new_con.close()
+        
+        # Swap files
+        if backup_file.exists():
+            backup_file.unlink()
+        db_file.rename(backup_file)
+        temp_db_file.rename(db_file)
+        if backup_file.exists():
+            backup_file.unlink()
+            
+        new_size = db_file.stat().st_size
+        return True, f"{original_size/1024/1024:.1f}MB -> {new_size/1024/1024:.1f}MB"
+        
+    except Exception as e:
+        if temp_db_file.exists():
+            try:
+                temp_db_file.unlink()
+            except:
+                pass
+        return False, str(e)
 
 
 def get_workspace_name_from_wdir(wdir: Path | str | None) -> str | None:

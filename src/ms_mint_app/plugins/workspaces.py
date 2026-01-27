@@ -790,89 +790,9 @@ def callbacks(app, fsc, cache):
                     style={'minWidth': '200px', 'flexGrow': 1, 'padding': '10px'}
                 )
 
-                try:
-                    # Avoid bumping last_activity just for rendering the preview table
-                    with duckdb_connection(_path, register_activity=False) as conn:
-                        if conn is None:
-                            # Database is locked - return placeholder
-                            return fac.AntdFlex(
-                                [
-                                    path_info,
-                                    fac.AntdText("Database busy...", type='secondary')
-                                ],
-                                wrap=True
-                            )
-                        summary = conn.execute("""
-                                               SELECT * FROM (
-                                                   SELECT 'samples' AS table_name, COUNT(*) AS rows FROM samples
-                                                   UNION ALL
-                                                   SELECT 'ms1_data' AS table_name, COUNT(*) AS rows FROM ms1_data
-                                                   UNION ALL
-                                                   SELECT 'ms2_data' AS table_name, COUNT(*) AS rows FROM ms2_data
-                                                   UNION ALL
-                                                   SELECT 'targets' AS table_name, COUNT(*) AS rows FROM targets
-                                                   UNION ALL
-                                                   SELECT 'chromatograms' AS table_name, COUNT(*) AS rows FROM chromatograms
-                                                   UNION ALL
-                                                   SELECT 'results' AS table_name, COUNT(*) AS rows FROM results
-                                               ) t
-                                               ORDER BY CASE table_name
-                                                            WHEN 'samples' THEN 1
-                                                            WHEN 'ms1_data' THEN 2
-                                                            WHEN 'ms2_data' THEN 3
-                                                            WHEN 'targets' THEN 4
-                                                            WHEN 'chromatograms' THEN 5
-                                                            WHEN 'results' THEN 6
-                                                            ELSE 7
-                                                            END
-                                               """).df()
-                        if not summary.empty:
-                            summary['rows'] = summary['rows'].apply(
-                                lambda x: f"{int(x):,}" if pd.notna(x) else ""
-                            )
-                        db_info = fac.AntdTable(
-                            columns=[
-                                {'title': 'Table name', 'dataIndex': 'table_name', 'align': 'left', 'width': '50%'},
-                                {'title': 'Rows', 'dataIndex': 'rows', 'align': 'center', 'width': '50%'},
-                            ],
-                            data=summary.to_dict('records'),
-                            pagination=False,
-                            locale='en-us',
-                            size='small',
-                            style={'minWidth': '200px', 'flexGrow': 1}
-                        )
-                    return fac.AntdFlex(
-                        [
-                            path_info,
-                            db_info
-                        ],
-                        wrap=True
-                    )
-                except Exception as e:
-                    # Check for database corruption
-                    from ..duckdb_manager import DatabaseCorruptionError
-                    if isinstance(e, DatabaseCorruptionError) or "Corrupt database file" in str(e):
-                        return fac.AntdFlex(
-                            [
-                                path_info,
-                                fac.AntdAlert(
-                                    message="[!] Database Corrupted",
-                                    description="This workspace's database is corrupted. Please delete this workspace and restore from backup or recreate it.",
-                                    type='error',
-                                    showIcon=True,
-                                    style={'maxWidth': '400px'}
-                                )
-                            ],
-                            wrap=True
-                        )
-                    # Other errors - show generic message
-                    return fac.AntdFlex(
-                        [
-                            path_info,
-                            fac.AntdText(f"Error loading workspace: {str(e)[:50]}", type='danger')
-                        ],
-                        wrap=True
-                    )
+                # Performance fix: Do not open every workspace DB just to show row counts.
+                # This prevents massive log spam and startup delays.
+                return path_info
 
             row_content['content'] = row_content['key'].apply(row_comp)
             selectedRowKeys = mint_conn.execute("SELECT key FROM workspaces WHERE active = true").fetchone()
