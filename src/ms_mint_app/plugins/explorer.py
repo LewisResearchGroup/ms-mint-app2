@@ -594,8 +594,10 @@ class FileExplorer:
                 Output("ms-files-progress-stage", "children"),
                 Output("ms-files-progress-detail", "children"),
             ],
-            cancel=[
-                Input('cancel-ms-processing', 'nClicks')
+        cancel=[
+                Input('cancel-ms-processing', 'nClicks'),
+                Input('selection-modal', 'visible'),
+                Input('page-load-id', 'data'),
             ],
             prevent_initial_call=True
         )
@@ -978,4 +980,3 @@ def _background_processing(set_progress, okCounts, processing_type, selected_fil
                     logger.info(f"workspace-status updated after processing: {workspace_status}")
 
     return notification, processed_action_store, False, workspace_status
-

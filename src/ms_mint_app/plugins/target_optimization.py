@@ -1,5 +1,6 @@
 import json
 import logging
+import re
 import uuid
 from collections import defaultdict
 from os import cpu_count
@@ -23,6 +24,8 @@ from ..duckdb_manager import (
     calculate_optimal_batch_size,
     populate_full_range_downsampled_chromatograms_for_target,
     get_chromatogram_envelope,
+    calculate_optimal_params,
+    ensure_page_load_active,
 )
 from ..plugin_interface import PluginInterface
 from ..tools import sparsify_chrom, proportional_min1_selection
@@ -49,6 +52,194 @@ RT_FALLBACK_PAD_SECONDS = 30.0
 
 _SESSION_RENDER_REVISIONS = defaultdict(int)
 _SESSION_RENDER_LOCK = Lock()
+
+_RT_ALIGN_NOTE_START = "--- RT alignment (auto) ---"
+_RT_ALIGN_NOTE_END = "--- End RT alignment (auto) ---"
+
+
+def _strip_rt_alignment_auto_note(note_text: str) -> str:
+    """Remove any previously auto-generated RT alignment note block."""
+    if not note_text:
+        return ""
+    pattern = re.compile(
+        rf"\n*{re.escape(_RT_ALIGN_NOTE_START)}.*?{re.escape(_RT_ALIGN_NOTE_END)}\n*",
+        re.DOTALL,
+    )
+    stripped = re.sub(pattern, "\n\n", note_text).strip()
+    return stripped
+
+
+def _extract_rt_alignment_auto_note(note_text: str) -> str:
+    """Extract the auto-generated RT alignment note block, if present."""
+    if not note_text:
+        return ""
+    pattern = re.compile(
+        rf"{re.escape(_RT_ALIGN_NOTE_START)}.*?{re.escape(_RT_ALIGN_NOTE_END)}",
+        re.DOTALL,
+    )
+    match = pattern.search(note_text)
+    return match.group(0).strip() if match else ""
+
+
+def _format_rt_alignment_auto_note(rt_alignment_data: dict) -> str:
+    """Create a stable, parseable RT alignment auto-note block."""
+    if not rt_alignment_data or not rt_alignment_data.get("enabled"):
+        return ""
+
+    reference_rt = rt_alignment_data.get("reference_rt")
+    rt_min = rt_alignment_data.get("rt_min")
+    rt_max = rt_alignment_data.get("rt_max")
+    shifts_by_sample_type = rt_alignment_data.get("shifts_by_sample_type") or {}
+
+    ref_txt = f"{float(reference_rt):.2f}s" if reference_rt is not None else "n/a"
+    span_txt = (
+        f"[{float(rt_min):.2f}s, {float(rt_max):.2f}s]"
+        if rt_min is not None and rt_max is not None
+        else "n/a"
+    )
+
+    lines = [
+        _RT_ALIGN_NOTE_START,
+        "RT alignment: enabled",
+        f"Reference RT: {ref_txt}",
+        f"RT span: {span_txt}",
+        "Median shifts by sample type (seconds):",
+    ]
+
+    if shifts_by_sample_type:
+        for sample_type in sorted(shifts_by_sample_type):
+            shift_val = shifts_by_sample_type.get(sample_type, 0.0)
+            try:
+                shift_txt = f"{float(shift_val):+0.2f}s"
+            except (TypeError, ValueError):
+                shift_txt = "n/a"
+            lines.append(f"- {sample_type}: {shift_txt}")
+    else:
+        lines.append("- n/a")
+
+    lines.append(_RT_ALIGN_NOTE_END)
+    return "\n".join(lines)
+
+
+def _safe_load_shifts_json(align_shifts_json) -> dict:
+    """Parse stored RT-alignment shifts JSON into a dict."""
+    if not align_shifts_json:
+        return {}
+    try:
+        shifts = json.loads(align_shifts_json)
+    except Exception:
+        return {}
+    return shifts if isinstance(shifts, dict) else {}
+
+
+def _compute_reference_rt_from_df(chrom_df, rt_min, rt_max):
+    """Compute a fallback reference RT (median apex) from chromatogram data."""
+    if chrom_df is None or rt_min is None or rt_max is None:
+        return None
+    try:
+        apex_rts = []
+        for row in chrom_df.iter_rows(named=True):
+            scan_time = np.array(row.get("scan_time_sliced") or [])
+            intensity = np.array(row.get("intensity_sliced") or [])
+            if scan_time.size == 0 or intensity.size == 0:
+                continue
+            mask = (scan_time >= rt_min) & (scan_time <= rt_max)
+            if mask.any():
+                rt_in_range = scan_time[mask]
+                int_in_range = intensity[mask]
+                if int_in_range.size:
+                    apex_idx = int_in_range.argmax()
+                    apex_rts.append(rt_in_range[apex_idx])
+        if apex_rts:
+            return float(np.median(apex_rts))
+    except Exception:
+        return None
+    return None
+
+
+def _build_rt_alignment_from_db(
+    chrom_df,
+    target_label,
+    align_enabled,
+    align_ref_rt,
+    align_shifts_json,
+    align_rt_min,
+    align_rt_max,
+    rt_min_fallback,
+    rt_max_fallback,
+    sample_type_by_file=None,
+):
+    """
+    Build authoritative RT-alignment state from persisted DB fields.
+
+    The toggle and store restoration should depend only on:
+    - rt_align_enabled
+    - non-empty rt_align_shifts
+    """
+    shifts_per_file = _safe_load_shifts_json(align_shifts_json)
+    align_span_min = align_rt_min if align_rt_min is not None else rt_min_fallback
+    align_span_max = align_rt_max if align_rt_max is not None else rt_max_fallback
+
+    alignment_active = bool(align_enabled and shifts_per_file)
+    if not alignment_active:
+        return False, None, {}
+
+    reference_rt_effective = (
+        float(align_ref_rt) if align_ref_rt is not None else None
+    )
+    if reference_rt_effective is None:
+        reference_rt_effective = _compute_reference_rt_from_df(
+            chrom_df, align_span_min, align_span_max
+        )
+
+    sample_type_shifts = defaultdict(list)
+
+    # Preferred path: derive sample types from the chromatogram dataframe.
+    used_df_sample_types = False
+    try:
+        for row in chrom_df.iter_rows(named=True):
+            sample_type = row.get("sample_type")
+            ms_file_label = row.get("ms_file_label")
+            if sample_type is None or ms_file_label is None:
+                continue
+            shift_val = shifts_per_file.get(ms_file_label, 0.0)
+            try:
+                shift_val = float(shift_val)
+            except (TypeError, ValueError):
+                shift_val = 0.0
+            sample_type_shifts[sample_type].append(shift_val)
+            used_df_sample_types = True
+    except Exception:
+        sample_type_shifts = defaultdict(list)
+        used_df_sample_types = False
+
+    # Fallback path: envelope-mode data can lack ms_file_label rows.
+    if (not used_df_sample_types) and sample_type_by_file:
+        for ms_file_label, shift_val in shifts_per_file.items():
+            sample_type = sample_type_by_file.get(ms_file_label)
+            if not sample_type:
+                continue
+            try:
+                shift_val = float(shift_val)
+            except (TypeError, ValueError):
+                shift_val = 0.0
+            sample_type_shifts[sample_type].append(shift_val)
+
+    shifts_by_sample_type = {
+        st: float(np.median(shifts)) if shifts else 0.0
+        for st, shifts in sample_type_shifts.items()
+    }
+
+    alignment_data = {
+        "enabled": True,
+        "target_label": target_label,
+        "reference_rt": reference_rt_effective,
+        "shifts_by_sample_type": shifts_by_sample_type,
+        "shifts_per_file": shifts_per_file,
+        "rt_min": align_span_min,
+        "rt_max": align_span_max,
+    }
+    return True, alignment_data, shifts_per_file
 
 
 def _get_savgol_min_points(window_length):
@@ -266,6 +457,7 @@ def _save_target_state(
     rt_align_toggle=None,
     rt_alignment_data=None,
     save_rt_alignment=True,
+    allow_clear_rt_alignment=True,
 ):
     result = {
         "saved_notes": False,
@@ -274,14 +466,56 @@ def _save_target_state(
         "cleared_rt_alignment": False,
         "rt_min": None,
         "rt_max": None,
+        "final_note": None,
     }
 
     note_text = "" if note_text is None else note_text
+
+    # Ensure the RT alignment auto-note is kept in sync with the alignment state,
+    # but preserve existing auto-notes when we're not saving alignment state here.
+    existing_notes_row = conn.execute(
+        "SELECT COALESCE(notes, '') FROM targets WHERE peak_label = ?",
+        (target_label,),
+    ).fetchone()
+    existing_notes = existing_notes_row[0] if existing_notes_row else ""
+
+    base_note = _strip_rt_alignment_auto_note(note_text)
+
+    auto_note = ""
+    if save_rt_alignment:
+        if rt_align_toggle is True and rt_alignment_data:
+            auto_note = _format_rt_alignment_auto_note(rt_alignment_data)
+        elif rt_align_toggle is False:
+            if allow_clear_rt_alignment:
+                auto_note = ""
+            else:
+                # Navigation/state restoration can briefly flip the toggle OFF even
+                # when persisted alignment should remain authoritative. In that case,
+                # keep the existing auto-note block intact.
+                auto_note = _extract_rt_alignment_auto_note(existing_notes)
+                logger.debug(
+                    "RT alignment toggle OFF ignored for '%s' (clearing not allowed).",
+                    target_label,
+                )
+        else:
+            # Alignment state is unchanged; keep any existing auto-note.
+            auto_note = _extract_rt_alignment_auto_note(existing_notes)
+    else:
+        # We're only saving notes/RT span; keep any existing auto-note.
+        auto_note = _extract_rt_alignment_auto_note(existing_notes)
+
+    if auto_note:
+        final_note = f"{base_note}\n\n{auto_note}".strip() if base_note else auto_note
+    else:
+        # If alignment is explicitly off and clearing is allowed, strip the auto-note.
+        final_note = base_note
+
     conn.execute(
         "UPDATE targets SET notes = ? WHERE peak_label = ?",
-        (note_text, target_label),
+        (final_note, target_label),
     )
     result["saved_notes"] = True
+    result["final_note"] = final_note
 
     if save_rt_span and slider_data is not None:
         if not (check_slider_change and not reference_data):
@@ -335,7 +569,7 @@ def _save_target_state(
                     ],
                 )
                 result["saved_rt_alignment"] = True
-        elif rt_align_toggle is False:
+        elif rt_align_toggle is False and allow_clear_rt_alignment:
             conn.execute(
                 """
                 UPDATE targets
@@ -349,6 +583,7 @@ def _save_target_state(
                 [target_label],
             )
             result["cleared_rt_alignment"] = True
+            logger.debug("Cleared RT alignment for '%s'.", target_label)
 
     return result
 
@@ -892,7 +1127,7 @@ _layout = fac.AntdLayout(
                                                     fac.AntdButton(
                                                         # 'Apply',
                                                         id='chromatogram-graph-button',
-                                                        icon=fac.AntdIcon(icon='pi-broom', style={'fontSize': 20}),
+                                                        icon=fac.AntdIcon(icon='antd-reload', style={'fontSize': 20}),
                                                         # type='primary'
                                                     ),
                                                     title='Update graph size and clean plots',
@@ -1487,13 +1722,13 @@ _layout = fac.AntdLayout(
                                             [
                                                 html.Div(
                                                     [
-                                                        html.Span('SAVGOL Smoothing:'),
+                                                        html.Span('SAVGOL Smoothing (legacy):'),
                                                         fac.AntdTooltip(
                                                             fac.AntdIcon(
                                                                 icon='antd-question-circle',
                                                                 style={'marginLeft': '5px', 'color': 'gray'}
                                                             ),
-                                                            title='Apply Savitzky-Golay smoothing to intensities'
+                                                            title='Legacy feature: Savitzky-Golay smoothing is disabled'
                                                         )
                                                     ],
                                                     style={
@@ -1506,9 +1741,10 @@ _layout = fac.AntdLayout(
                                                 html.Div(
                                                     fac.AntdSwitch(
                                                         id='chromatogram-view-savgol',
-                                                        checked=True,
+                                                        checked=False,
                                                         checkedChildren='On',
                                                         unCheckedChildren='Off',
+                                                        disabled=True,
                                                         style={'width': '60px'}
                                                     ),
                                                     style={
@@ -1518,7 +1754,8 @@ _layout = fac.AntdLayout(
                                                     }
                                                 ),
                                             ],
-                                            style={'display': 'flex', 'alignItems': 'center'}
+                                            # Keep the component mounted for callbacks, but hide it from the UI.
+                                            style={'display': 'none', 'alignItems': 'center'}
                                         ),
                                         html.Div(
                                             [
@@ -1953,29 +2190,48 @@ def _toggle_bookmark_logic(target_label, wdir):
         return fac.AntdIcon(icon="antd-star", style={"color": icon_color})
 
 
-def _compute_chromatograms_logic(set_progress, recompute_ms1, recompute_ms2, n_cpus, ram, batch_size, wdir):
+def _compute_chromatograms_logic(
+    set_progress,
+    recompute_ms1,
+    recompute_ms2,
+    n_cpus,
+    ram,
+    batch_size,
+    wdir,
+    page_load_id: str | None = None,
+):
     def progress_adapter(percent, stage="", detail=""):
         if set_progress:
             set_progress((percent, stage or "", detail or ""))
 
     activate_workspace_logging(wdir)
+    ensure_page_load_active(wdir, page_load_id, where="target_optimization:compute_chromatograms:start")
 
-    with duckdb_connection(wdir, n_cpus=n_cpus, ram=ram) as con:
+    with duckdb_connection(wdir, n_cpus=n_cpus, ram=ram, page_load_id=page_load_id) as con:
         if con is None:
             logger.error("Could not connect to database for chromatogram computation.")
             return "Could not connect to database."
         start = time.perf_counter()
         logger.info("Starting chromatogram computation.")
         progress_adapter(0, "Chromatograms", "Preparing batches...")
-        compute_chromatograms_in_batches(wdir, use_for_optimization=True, batch_size=batch_size,
-                                            set_progress=progress_adapter, recompute_ms1=recompute_ms1,
-                                            recompute_ms2=recompute_ms2, n_cpus=n_cpus, ram=ram)
+        compute_chromatograms_in_batches(
+            wdir,
+            use_for_optimization=True,
+            batch_size=batch_size,
+            set_progress=progress_adapter,
+            recompute_ms1=recompute_ms1,
+            recompute_ms2=recompute_ms2,
+            n_cpus=n_cpus,
+            ram=ram,
+            page_load_id=page_load_id,
+        )
         logger.info(f"Chromatograms computed in {time.perf_counter() - start:.2f} seconds")
         
         # Optimize RT spans for targets that had RT auto-adjusted
         # This uses adaptive peak detection to find optimal rt_min, rt_max based on actual data
         progress_adapter(95, "Chromatograms", "Optimizing RT spans...")
         try:
+            ensure_page_load_active(wdir, page_load_id, where="target_optimization:optimize_rt_spans")
             updated_count = optimize_rt_spans_batch(con)
             logger.info(f"Optimized RT spans for {updated_count} auto-adjusted targets")
         except Exception as e:
@@ -2613,7 +2869,12 @@ def callbacks(app, fsc, cache, cpu=None):
         start_idx = (current_page - 1) * page_size
         t1 = time.perf_counter()
 
-        with duckdb_connection(wdir) as conn:
+        n_cpus, ram, _ = calculate_optimal_params()
+        # Reduce resources for interactive queries to maintain UI responsiveness
+        n_cpus = max(1, n_cpus // 4)
+        ram = max(2, int(ram // 2))
+
+        with duckdb_connection(wdir, n_cpus=n_cpus, ram=ram) as conn:
             if conn is None:
                 # If the DB is locked/unavailable, keep current preview as-is
                 raise PreventUpdate
@@ -2627,6 +2888,12 @@ def callbacks(app, fsc, cache, cpu=None):
                                                ELSE TRUE
                                                END
                                            )
+                                         AND EXISTS (
+                                           SELECT 1
+                                           FROM chromatograms c
+                                           WHERE c.peak_label = t.peak_label
+                                             AND c.ms_type = t.ms_type
+                                         )
                                          AND (
                                            CASE
                                                WHEN ? = 'Bookmarked' THEN t.bookmark = TRUE
@@ -2661,6 +2928,12 @@ def callbacks(app, fsc, cache, cpu=None):
                         WHEN ? = 'ms2' THEN t.ms_type = 'ms2'
                         ELSE TRUE
                     END
+                )
+                AND EXISTS (
+                    SELECT 1
+                    FROM chromatograms c
+                    WHERE c.peak_label = t.peak_label
+                      AND c.ms_type = t.ms_type
                 )
                 AND (
                     CASE
@@ -2872,6 +3145,7 @@ def callbacks(app, fsc, cache, cpu=None):
             traces = []
             y_max = 0.0
             y_min_pos = None
+            # Savgol smoothing disabled (kept counters for future reference).
             savgol_trace_total = 0
             savgol_applied = 0
             savgol_skipped = 0
@@ -2914,15 +3188,16 @@ def callbacks(app, fsc, cache, cpu=None):
                 scan_time_sliced = scan_time[mask]
                 intensity_sliced = intensity[mask]
 
-                savgol_trace_total += 1
-                if len(intensity_sliced) >= savgol_min_points:
-                    savgol_applied += 1
-                else:
-                    savgol_skipped += 1
+                if False:  # Legacy Savgol smoothing (disabled)
+                    savgol_trace_total += 1
+                    if len(intensity_sliced) >= savgol_min_points:
+                        savgol_applied += 1
+                    else:
+                        savgol_skipped += 1
 
-                intensity_sliced = apply_savgol_smoothing(
-                    intensity_sliced, window_length=SAVGOL_WINDOW, polyorder=SAVGOL_ORDER
-                )
+                    intensity_sliced = apply_savgol_smoothing(
+                        intensity_sliced, window_length=SAVGOL_WINDOW, polyorder=SAVGOL_ORDER
+                    )
 
                 if ms_type == 'ms1':
                     scan_time_sliced, intensity_sliced = apply_lttb_downsampling(
@@ -2961,7 +3236,7 @@ def callbacks(app, fsc, cache, cpu=None):
                     'line': {'color': row['color'], 'width': 1.5},
                 })
 
-            if savgol_trace_total > 0:
+            if False and savgol_trace_total > 0:  # Legacy Savgol logging (disabled)
                 logger.info(
                     "Preview savgol summary: target=%s ms_type=%s traces=%d applied=%d skipped=%d (min_points=%d)",
                     peak_label,
@@ -3251,6 +3526,7 @@ def callbacks(app, fsc, cache, cpu=None):
 
     @app.callback(
         Output('chromatogram-view-plot', 'figure', allow_duplicate=True),
+        Output('background-load-trigger', 'data', allow_duplicate=True),
         Output('chromatogram-view-megatrace', 'disabled', allow_duplicate=True),
         Output('chromatogram-view-savgol', 'disabled', allow_duplicate=True),
         Output('chromatogram-view-savgol', 'checked', allow_duplicate=True),
@@ -3272,6 +3548,9 @@ def callbacks(app, fsc, cache, cpu=None):
             logger.debug("update_megatrace_mode: No workspace directory or target clicked, preventing update")
             raise PreventUpdate
 
+        # Savgol smoothing is intentionally disabled for now (kept for future reactivation).
+        use_savgol = False
+
         session_rev = None
 
         ctx = dash.callback_context
@@ -3280,6 +3559,7 @@ def callbacks(app, fsc, cache, cpu=None):
         current_view_mode = current_layout.get('_view_mode')
         current_megatrace_effective = current_layout.get('_use_megatrace_effective')
         current_envelope_effective = current_layout.get('_use_envelope_effective')
+        current_envelope_phase_complete = current_layout.get('_envelope_phase_complete')
         current_full_range = current_layout.get('_full_range')
         current_target = current_layout.get('_target')
 
@@ -3300,9 +3580,27 @@ def callbacks(app, fsc, cache, cpu=None):
             ):
                 raise PreventUpdate
 
+        # If envelope has already been shown and the background megatrace lines
+        # were loaded for this target/full-range state, avoid re-showing the
+        # envelope on secondary triggers (e.g., savgol/full-range toggles).
+        envelope_already_completed = (
+            bool(use_megatrace)
+            and bool(current_envelope_phase_complete)
+            and current_target == target_clicked
+            and current_full_range == bool(full_range)
+            and trigger_id != 'chromatogram-view-megatrace'
+        )
+        if envelope_already_completed:
+            use_envelope = False
+
         session_rev = _bump_session_render_revision(session_id)
 
-        with duckdb_connection(wdir) as conn:
+        n_cpus, ram, _ = calculate_optimal_params()
+        # Reduce resources for interactive queries to maintain UI responsiveness
+        # Use 1/4 of optimal CPUs (min 1) and 1/2 of optimal RAM (min 2GB)
+        n_cpus = max(1, n_cpus // 4)
+        ram = max(2, int(ram // 2))
+        with duckdb_connection(wdir, n_cpus=n_cpus, ram=ram) as conn:
             if conn is None:
                 raise PreventUpdate
             # Fetch ms_type for this target
@@ -3497,28 +3795,32 @@ def callbacks(app, fsc, cache, cpu=None):
 
             # logger.debug(f"Megatrace callback: Applying RT alignment with {len(rt_alignment_shifts)} shifts")
         
-        window_min, window_max = _get_savgol_check_window(target_rt_min, target_rt_max, full_range)
+        # Savgol smoothing disabled: keep the legacy applicability logic commented for reference.
         downsample_enabled = target_ms_type == 'ms1' and not full_range
-        savgol_data_applicable, _ = _savgol_applicable_for_df(
-            chrom_df,
-            SAVGOL_WINDOW,
-            rt_min=window_min,
-            rt_max=window_max,
-            ms_type=target_ms_type,
-            use_downsample=downsample_enabled,
-            downsample_n_out=LTTB_TARGET_POINTS,
-        )
-        savgol_applicable = savgol_data_applicable and not full_range
-        savgol_disabled = bool(use_megatrace_effective) or not savgol_applicable
-        savgol_checked_output = False if not savgol_applicable else dash.no_update
-
+        savgol_disabled = True
+        savgol_checked_output = False
         smoothing_params = None
-        if use_savgol and savgol_data_applicable and not full_range:
-            smoothing_params = {
-                'enabled': True,
-                'window_length': SAVGOL_WINDOW,
-                'polyorder': SAVGOL_ORDER
-            }
+        if False:  # Legacy Savgol gating (disabled)
+            window_min, window_max = _get_savgol_check_window(target_rt_min, target_rt_max, full_range)
+            savgol_data_applicable, _ = _savgol_applicable_for_df(
+                chrom_df,
+                SAVGOL_WINDOW,
+                rt_min=window_min,
+                rt_max=window_max,
+                ms_type=target_ms_type,
+                use_downsample=downsample_enabled,
+                downsample_n_out=LTTB_TARGET_POINTS,
+            )
+            savgol_applicable = savgol_data_applicable and not full_range
+            savgol_disabled = bool(use_megatrace_effective) or not savgol_applicable
+            savgol_checked_output = False if not savgol_applicable else dash.no_update
+
+            if use_savgol and savgol_data_applicable and not full_range:
+                smoothing_params = {
+                    'enabled': True,
+                    'window_length': SAVGOL_WINDOW,
+                    'polyorder': SAVGOL_ORDER
+                }
 
         downsample_params = None
         if downsample_enabled:
@@ -3557,7 +3859,8 @@ def callbacks(app, fsc, cache, cpu=None):
         fig['layout']['_full_range'] = bool(full_range)
         fig['layout']['_target'] = target_clicked
         fig['layout']['_render_rev'] = session_rev
-        fig['layout']['_savgol_forced_off'] = bool(not savgol_applicable)
+        fig['layout']['_envelope_phase_complete'] = bool(use_megatrace and not use_envelope)
+        fig['layout']['_savgol_forced_off'] = True
         # Recompute y-range using RT span only
         is_log = figure and figure.get('layout', {}).get('yaxis', {}).get('type') == 'log'
         shape = (figure.get('layout', {}).get('shapes') or [{}])[0] if figure else {}
@@ -3594,6 +3897,12 @@ def callbacks(app, fsc, cache, cpu=None):
 
         return (
             fig,
+            {
+                'target_clicked': target_clicked,
+                'full_range': full_range,
+                'ms_type': target_ms_type,
+                'render_rev': session_rev,
+            } if use_envelope else dash.no_update,
             False, # megatrace disabled output - always enabled
             savgol_disabled,
             savgol_checked_output,
@@ -3618,10 +3927,19 @@ def callbacks(app, fsc, cache, cpu=None):
     def apply_rt_alignment(use_alignment, figure, use_megatrace, full_range, use_savgol, slider_current, target_clicked, wdir, existing_rt_data, session_id):
         """Apply or remove RT alignment when toggle changes"""
         # logger.debug(f"RT Alignment callback triggered: use_alignment={use_alignment}")
-        
+
+        # Savgol smoothing is intentionally disabled for now (kept for future reactivation).
+        use_savgol = False
+
         # If turning ON and we already have matching alignment data in the store,
-        # this is likely a state restoration - skip to avoid overwriting pre-aligned figure
-        if use_alignment and existing_rt_data and existing_rt_data.get('enabled'):
+        # this is likely a state restoration - but only for the SAME target.
+        same_target_restore = (
+            use_alignment
+            and existing_rt_data
+            and existing_rt_data.get('enabled')
+            and existing_rt_data.get('target_label') == target_clicked
+        )
+        if same_target_restore:
             logger.debug("apply_rt_alignment: State restoration detected (data already in store), preventing update")
             raise PreventUpdate
         
@@ -3642,7 +3960,11 @@ def callbacks(app, fsc, cache, cpu=None):
         
         session_rev = _bump_session_render_revision(session_id)
 
-        with duckdb_connection(wdir) as conn:
+        n_cpus, ram, _ = calculate_optimal_params()
+        # Reduce resources for interactive queries to maintain UI responsiveness
+        n_cpus = max(1, n_cpus // 4)
+        ram = max(2, int(ram // 2))
+        with duckdb_connection(wdir, n_cpus=n_cpus, ram=ram) as conn:
             if conn is None:
                 raise PreventUpdate
 
@@ -3746,6 +4068,7 @@ def callbacks(app, fsc, cache, cpu=None):
             # Store alignment data for saving to notes
             alignment_data = {
                 'enabled': True,
+                'target_label': target_clicked,
                 'reference_rt': reference_rt,
                 'shifts_by_sample_type': shifts_per_sample_type,  # For notes (human-readable)
                 'shifts_per_file': rt_alignment_shifts,  # For processing (per-file accuracy)
@@ -3756,7 +4079,8 @@ def callbacks(app, fsc, cache, cpu=None):
         
         # Regenerate traces with or without alignment
         smoothing_params = None
-        if use_savgol and not full_range:
+        if False and use_savgol and not full_range:
+            # Legacy Savgol smoothing (disabled)
             smoothing_params = {
                 'enabled': True,
                 'window_length': SAVGOL_WINDOW,
@@ -3811,6 +4135,142 @@ def callbacks(app, fsc, cache, cpu=None):
 
         return fig, alignment_data
 
+    @app.callback(
+        Output('target-note', 'value', allow_duplicate=True),
+        Input('rt-alignment-data', 'data'),
+        State('target-note', 'value'),
+        State('target-preview-clicked', 'data'),
+        prevent_initial_call=True,
+    )
+    def sync_rt_alignment_note(rt_alignment_data, note_text, current_target):
+        """Keep the note field in sync with RT alignment state on the client side."""
+        # Only act when the alignment store clearly refers to the current target.
+        # Otherwise we risk stripping the persisted DB note during navigation races.
+        if not rt_alignment_data or not current_target:
+            raise PreventUpdate
+        data_target = rt_alignment_data.get('target_label')
+        if not data_target or data_target != current_target:
+            raise PreventUpdate
+
+        note_text = "" if note_text is None else note_text
+        base_note = _strip_rt_alignment_auto_note(note_text)
+
+        if rt_alignment_data and rt_alignment_data.get("enabled"):
+            auto_note = _format_rt_alignment_auto_note(rt_alignment_data)
+            if auto_note:
+                return f"{base_note}\n\n{auto_note}".strip() if base_note else auto_note
+
+        # Alignment disabled or missing: remove any prior auto-note block.
+        return base_note
+
+    @app.callback(
+        Output('notifications-container', 'children', allow_duplicate=True),
+        Input('rt-alignment-data', 'data'),
+        State('chromatogram-view-rt-align', 'checked'),
+        State('target-preview-clicked', 'data'),
+        State('target-note', 'value'),
+        State('wdir', 'data'),
+        prevent_initial_call=True,
+    )
+    def autosave_rt_alignment_on_compute(rt_alignment_data, rt_align_toggle, current_target, current_note, wdir):
+        """
+        Persist RT alignment as soon as it is computed to avoid losing it on navigation.
+        This is scoped to the current target to prevent cross-target store bleed.
+        """
+        if not rt_alignment_data or not rt_align_toggle:
+            raise PreventUpdate
+        if not current_target or not wdir:
+            raise PreventUpdate
+
+        data_target = rt_alignment_data.get('target_label')
+        if data_target and data_target != current_target:
+            raise PreventUpdate
+        if not rt_alignment_data.get('enabled'):
+            raise PreventUpdate
+
+        try:
+            with duckdb_connection(wdir) as conn:
+                if conn is None:
+                    raise PreventUpdate
+                _save_target_state(
+                    conn,
+                    current_target,
+                    current_note,
+                    save_rt_span=False,
+                    rt_align_toggle=True,
+                    rt_alignment_data=rt_alignment_data,
+                )
+        except Exception as e:
+            logger.warning(f"Failed to autosave RT alignment for '{current_target}': {e}")
+
+        # Silent autosave; avoid spamming notifications.
+        return dash.no_update
+
+    @app.callback(
+        Output('notifications-container', 'children', allow_duplicate=True),
+        Output('rt-alignment-data', 'data', allow_duplicate=True),
+        Output('target-note', 'value', allow_duplicate=True),
+        Input('chromatogram-view-rt-align', 'checked'),
+        State('target-preview-clicked', 'data'),
+        State('target-note', 'value'),
+        State('wdir', 'data'),
+        State('chromatogram-view-modal', 'visible'),
+        State('rt-alignment-data', 'data'),
+        prevent_initial_call=True,
+    )
+    def clear_rt_alignment_on_toggle_off(
+        rt_align_toggle,
+        current_target,
+        current_note,
+        wdir,
+        modal_visible,
+        rt_alignment_data,
+    ):
+        """
+        Clear persisted RT alignment only on an explicit user toggle-off action.
+        This avoids navigation/store races clearing alignment unintentionally.
+        """
+        if rt_align_toggle is not False:
+            raise PreventUpdate
+        if not current_target or not wdir or not modal_visible:
+            raise PreventUpdate
+        ctx = dash.callback_context
+        trigger_id = ctx.triggered[0]['prop_id'].split('.')[0] if ctx.triggered else None
+        if trigger_id != 'chromatogram-view-rt-align':
+            raise PreventUpdate
+
+        # If the store refers to another target, do nothing.
+        data_target = (rt_alignment_data or {}).get('target_label')
+        if data_target and data_target != current_target:
+            raise PreventUpdate
+
+        base_note = _strip_rt_alignment_auto_note(current_note or "")
+
+        try:
+            with duckdb_connection(wdir) as conn:
+                if conn is None:
+                    raise PreventUpdate
+                _save_target_state(
+                    conn,
+                    current_target,
+                    base_note,
+                    save_rt_span=False,
+                    rt_align_toggle=False,
+                    rt_alignment_data=None,
+                    save_rt_alignment=True,
+                    allow_clear_rt_alignment=True,
+                )
+                logger.debug(
+                    "Cleared RT alignment via explicit toggle OFF for '%s'.",
+                    current_target,
+                )
+        except Exception as e:
+            logger.warning(f"Failed to clear RT alignment for '{current_target}': {e}")
+            return dash.no_update, dash.no_update, dash.no_update
+
+        cleared_store = {"enabled": False, "target_label": current_target}
+        return dash.no_update, cleared_store, base_note
+
 
     @app.callback(
         Output('chromatogram-view-plot', 'figure', allow_duplicate=True),
@@ -3862,7 +4322,11 @@ def callbacks(app, fsc, cache, cpu=None):
             raise PreventUpdate
         session_rev = _bump_session_render_revision(session_id)
         envelope_precomputed = None
-        with duckdb_connection(wdir) as conn:
+        n_cpus, ram, _ = calculate_optimal_params()
+        # Reduce resources for interactive queries to maintain UI responsiveness
+        n_cpus = max(1, n_cpus // 4)
+        ram = max(2, int(ram // 2))
+        with duckdb_connection(wdir, n_cpus=n_cpus, ram=ram) as conn:
             if conn is None:
                 raise PreventUpdate
             # Load target data including RT alignment columns
@@ -3886,11 +4350,29 @@ def callbacks(app, fsc, cache, cpu=None):
                 align_rt_max = None
                 bookmark_state = False
 
+            logger.debug(
+                "Modal open RT alignment DB state for '%s': enabled=%s, has_shifts=%s, ref_rt=%s, span=[%s,%s]",
+                target_clicked,
+                bool(align_enabled),
+                bool(align_shifts_json),
+                align_ref_rt,
+                align_rt_min,
+                align_rt_max,
+            )
+
             if target_ms_type is None:
                 target_ms_type = 'ms1'
 
             # Count samples for optimization
             n_samples = conn.execute("SELECT COUNT(*) FROM samples WHERE use_for_optimization = TRUE").fetchone()[0]
+            sample_type_rows = conn.execute(
+                """
+                SELECT ms_file_label, sample_type
+                FROM samples
+                WHERE use_for_optimization = TRUE
+                """
+            ).fetchall()
+            sample_type_by_file = {row[0]: row[1] for row in sample_type_rows}
             
             # Limit full range to 90 samples to prevent OOM
             full_range_disabled = n_samples > 100
@@ -4122,41 +4604,63 @@ def callbacks(app, fsc, cache, cpu=None):
                     )
                     raise PreventUpdate
 
-        # Calculate RT alignment shifts if enabled in database
-        rt_alignment_shifts_to_apply = None
-        if (not use_envelope) and align_enabled and align_ref_rt is not None:
-            # Calculate alignment shifts from stored data
-            rt_alignment_shifts_to_apply = calculate_rt_alignment(chrom_df, align_rt_min, align_rt_max)
-            logger.info(f"Applying saved RT alignment on modal open: ref={align_ref_rt:.2f}s")
-        
-        window_min, window_max = _get_savgol_check_window(rt_min, rt_max, full_range)
-        downsample_enabled = target_ms_type == 'ms1' and not full_range
-        savgol_data_applicable, _ = _savgol_applicable_for_df(
-            chrom_df,
-            SAVGOL_WINDOW,
-            rt_min=window_min,
-            rt_max=window_max,
-            ms_type=target_ms_type,
-            use_downsample=downsample_enabled,
-            downsample_n_out=LTTB_TARGET_POINTS,
+        # Build authoritative RT alignment state from the DB, independent of client stores.
+        db_alignment_active, db_alignment_data, db_shifts_per_file = _build_rt_alignment_from_db(
+            chrom_df=chrom_df,
+            target_label=target_clicked,
+            align_enabled=align_enabled,
+            align_ref_rt=align_ref_rt,
+            align_shifts_json=align_shifts_json,
+            align_rt_min=align_rt_min,
+            align_rt_max=align_rt_max,
+            rt_min_fallback=rt_min,
+            rt_max_fallback=rt_max,
+            sample_type_by_file=sample_type_by_file,
         )
-        savgol_applicable = savgol_data_applicable and not full_range
 
-        savgol_checked = bool(current_savgol) if current_savgol is not None else True
-        if not savgol_applicable:
-            savgol_checked = False
-        else:
-            prev_forced_off = bool((current_figure or {}).get('layout', {}).get('_savgol_forced_off'))
-            if prev_forced_off and current_savgol is False:
-                savgol_checked = True
-
+        # Apply alignment only in detailed mode, but keep the toggle authoritative either way.
+        rt_alignment_shifts_to_apply = (
+            db_shifts_per_file if (db_alignment_active and not use_envelope) else None
+        )
+        if db_alignment_active:
+            logger.debug(
+                "Applying DB RT alignment on modal open for '%s' (detailed=%s, ref_rt=%s).",
+                target_clicked,
+                not use_envelope,
+                (db_alignment_data or {}).get("reference_rt"),
+            )
+        
+        # Savgol smoothing disabled: force it off but keep legacy logic for reference.
+        downsample_enabled = target_ms_type == 'ms1' and not full_range
+        savgol_checked = False
         smoothing_params = None
-        if savgol_checked and savgol_data_applicable and not full_range:
-            smoothing_params = {
-                'enabled': True,
-                'window_length': SAVGOL_WINDOW,
-                'polyorder': SAVGOL_ORDER
-            }
+        if False:  # Legacy Savgol gating (disabled)
+            window_min, window_max = _get_savgol_check_window(rt_min, rt_max, full_range)
+            savgol_data_applicable, _ = _savgol_applicable_for_df(
+                chrom_df,
+                SAVGOL_WINDOW,
+                rt_min=window_min,
+                rt_max=window_max,
+                ms_type=target_ms_type,
+                use_downsample=downsample_enabled,
+                downsample_n_out=LTTB_TARGET_POINTS,
+            )
+            savgol_applicable = savgol_data_applicable and not full_range
+
+            savgol_checked = bool(current_savgol) if current_savgol is not None else True
+            if not savgol_applicable:
+                savgol_checked = False
+            else:
+                prev_forced_off = bool((current_figure or {}).get('layout', {}).get('_savgol_forced_off'))
+                if prev_forced_off and current_savgol is False:
+                    savgol_checked = True
+
+            if savgol_checked and savgol_data_applicable and not full_range:
+                smoothing_params = {
+                    'enabled': True,
+                    'window_length': SAVGOL_WINDOW,
+                    'polyorder': SAVGOL_ORDER
+                }
 
         downsample_params = None
         if downsample_enabled:
@@ -4195,9 +4699,10 @@ def callbacks(app, fsc, cache, cpu=None):
         fig['layout']['_use_megatrace_effective'] = bool(use_megatrace)
         fig['layout']['_use_envelope_effective'] = bool(use_envelope)
         fig['layout']['_full_range'] = bool(full_range)
+        fig['layout']['_envelope_phase_complete'] = bool(use_megatrace and not use_envelope)
         fig['layout']['_target'] = target_clicked
         fig['layout']['_render_rev'] = session_rev
-        fig['layout']['_savgol_forced_off'] = bool(not savgol_applicable)
+        fig['layout']['_savgol_forced_off'] = True
         # fig['layout']['title'] = {'text': f"{target_clicked} (rt={rt})"}
         fig['layout']['shapes'] = []
         if use_megatrace:
@@ -4314,41 +4819,23 @@ def callbacks(app, fsc, cache, cpu=None):
         slider_reference = s_data
         slider_dict = slider_reference.copy()
         
-        # Parse RT alignment data from database
-        # Simple approach: restore the exact state that was saved
-        rt_align_toggle_state = False  # Default if no alignment saved
-        rt_alignment_data_to_load = None
-        
-        if align_enabled and align_ref_rt is not None:
-            try:
-                import json
-                shifts_per_file = json.loads(align_shifts_json) if align_shifts_json else {}
-                
-                # Calculate shifts_by_sample_type from per-file shifts (for notes display)
-                # We need to group by sample_type and calculate median
-                sample_type_shifts = {}
-                for row in chrom_df.iter_rows(named=True):
-                    sample_type = row['sample_type']
-                    ms_file_label = row['ms_file_label']
-                    shift = shifts_per_file.get(ms_file_label, 0.0)
-                    if sample_type not in sample_type_shifts:
-                        sample_type_shifts[sample_type] = []
-                    sample_type_shifts[sample_type].append(shift)
-                
-                shifts_by_sample_type = {st: float(np.median(shifts)) for st, shifts in sample_type_shifts.items()}
-                
-                rt_alignment_data_to_load = {
-                    'enabled': True,
-                    'reference_rt': align_ref_rt,
-                    'shifts_by_sample_type': shifts_by_sample_type,  # For notes (human-readable)
-                    'shifts_per_file': shifts_per_file,  # For processing (per-file accuracy)
-                    'rt_min': align_rt_min,
-                    'rt_max': align_rt_max
-                }
-                rt_align_toggle_state = True  # Set toggle to ON to match saved state
-                logger.debug(f"Restoring RT alignment state: toggle=ON, ref={align_ref_rt:.2f}s")
-            except Exception as e:
-                logger.error(f"Error parsing RT alignment data: {e}")
+        # Authoritative RT alignment restoration from DB state (independent of client stores).
+        rt_align_toggle_state = bool(db_alignment_active)
+        rt_alignment_data_to_load = db_alignment_data if db_alignment_active else None
+        if db_alignment_active:
+            logger.debug(
+                "Restoring RT alignment from DB for '%s': toggle=ON, has_shifts=%s.",
+                target_clicked,
+                bool((rt_alignment_data_to_load or {}).get("shifts_per_file")),
+            )
+
+        # Rebuild the auto-note from persisted RT alignment on modal open.
+        base_note = _strip_rt_alignment_auto_note(note)
+        if rt_alignment_data_to_load and rt_alignment_data_to_load.get('enabled'):
+            auto_note = _format_rt_alignment_auto_note(rt_alignment_data_to_load)
+            note = f"{base_note}\n\n{auto_note}".strip() if base_note else auto_note
+        else:
+            note = base_note
 
         logger.debug(f"Modal view prepared in {time.perf_counter() - t1:.4f}s")
         
@@ -4384,13 +4871,19 @@ def callbacks(app, fsc, cache, cpu=None):
         if session_rev is not None and _get_session_render_revision(session_id) != session_rev:
             raise PreventUpdate
 
-        savgol_disabled = bool(use_envelope) or not savgol_applicable
+        # Savgol smoothing is disabled; keep the switch permanently off/disabled.
+        savgol_disabled = True
 
         return (fig, f"{target_clicked}", False, slider_reference,
                 slider_dict, {"min_y": y_min, "max_y": y_max}, total_points, log_scale, group_legend, 
                 full_range, full_range_disabled, full_range_tooltip, rt_align_toggle_state, rt_alignment_data_to_load, note, False, bookmark_icon_node, 
                 # Background trigger data (if megatrace/envelope is used)
-                {'target_clicked': target_clicked, 'full_range': full_range, 'ms_type': ms_type_use} if use_envelope else None,
+                {
+                    'target_clicked': target_clicked,
+                    'full_range': full_range,
+                    'ms_type': ms_type_use,
+                    'render_rev': session_rev,
+                } if use_envelope else None,
                 False, savgol_disabled, savgol_checked, use_megatrace)
 
     @app.callback(
@@ -4411,9 +4904,27 @@ def callbacks(app, fsc, cache, cpu=None):
         if not trigger_data or not wdir:
             raise PreventUpdate
 
+        # Savgol smoothing is intentionally disabled for now (kept for future reactivation).
+        use_savgol = False
+
         target_clicked = trigger_data.get('target_clicked')
         full_range = trigger_data.get('full_range')
         ms_type_use = trigger_data.get('ms_type', 'ms1')
+        trigger_render_rev = trigger_data.get('render_rev')
+
+        current_layout = (figure or {}).get('layout', {})
+        current_target = current_layout.get('_target')
+        current_full_range = current_layout.get('_full_range')
+        current_render_rev = current_layout.get('_render_rev')
+
+        # Guard against stale background work overwriting a newer render.
+        if current_target != target_clicked or current_full_range != bool(full_range):
+            raise PreventUpdate
+        if trigger_render_rev is not None and current_render_rev is not None:
+            if current_render_rev != trigger_render_rev:
+                raise PreventUpdate
+
+        session_rev = _bump_session_render_revision(session_id)
 
         # Check if we are still on the same target/view in the frontend? 
         # (Though trigger_data comes from the modal opening, so it should be fresh)
@@ -4429,9 +4940,19 @@ def callbacks(app, fsc, cache, cpu=None):
                 rt_max = shape[0].get('x1')
                 window_min, window_max = _get_rt_span_with_pad(rt_min, rt_max)
 
+        rt_alignment_data_effective = rt_alignment_data
         with duckdb_connection(wdir) as conn:
             if conn is None:
                 raise PreventUpdate
+
+            sample_type_rows = conn.execute(
+                """
+                SELECT ms_file_label, sample_type
+                FROM samples
+                WHERE use_for_optimization = TRUE
+                """
+            ).fetchall()
+            sample_type_by_file = {row[0]: row[1] for row in sample_type_rows}
 
             # We want the Detailed/Megatrace lines now
             chrom_df = get_chromatogram_dataframe(
@@ -4486,6 +5007,46 @@ def callbacks(app, fsc, cache, cpu=None):
                             window_max=fallback_max,
                         )
 
+            # RT alignment can be lost here due to callback ordering (store not ready yet).
+            # Fall back to the persisted DB alignment for this target when needed.
+            needs_db_alignment = (
+                not rt_alignment_data_effective
+                or not rt_alignment_data_effective.get('enabled')
+                or (
+                    rt_alignment_data_effective.get('target_label')
+                    and rt_alignment_data_effective.get('target_label') != target_clicked
+                )
+            )
+            if needs_db_alignment:
+                align_row = conn.execute(
+                    """
+                    SELECT rt_align_enabled, rt_align_reference_rt, rt_align_shifts,
+                           rt_align_rt_min, rt_align_rt_max
+                    FROM targets
+                    WHERE peak_label = ?
+                    """,
+                    [target_clicked],
+                ).fetchone()
+                if align_row:
+                    db_active, db_alignment_data, _ = _build_rt_alignment_from_db(
+                        chrom_df=chrom_df,
+                        target_label=target_clicked,
+                        align_enabled=align_row[0],
+                        align_ref_rt=align_row[1],
+                        align_shifts_json=align_row[2],
+                        align_rt_min=align_row[3],
+                        align_rt_max=align_row[4],
+                        rt_min_fallback=rt_min,
+                        rt_max_fallback=rt_max,
+                        sample_type_by_file=sample_type_by_file,
+                    )
+                    if db_active:
+                        rt_alignment_data_effective = db_alignment_data
+                        logger.debug(
+                            "Background load: using DB RT alignment for '%s'.",
+                            target_clicked,
+                        )
+
         if chrom_df is None or chrom_df.is_empty():
             raise PreventUpdate
 
@@ -4499,18 +5060,23 @@ def callbacks(app, fsc, cache, cpu=None):
 
         # Apply RT alignment if active
         rt_alignment_shifts = None
-        if rt_alignment_data and rt_alignment_data.get('enabled'):
-             rt_alignment_shifts = rt_alignment_data.get('shifts_per_file') # Or calculate? 
+        if rt_alignment_data_effective and rt_alignment_data_effective.get('enabled'):
+             data_target = rt_alignment_data_effective.get('target_label')
+             if data_target and data_target != target_clicked:
+                 rt_alignment_data_effective = None
+        if rt_alignment_data_effective and rt_alignment_data_effective.get('enabled'):
+             rt_alignment_shifts = rt_alignment_data_effective.get('shifts_per_file') # Or calculate? 
              # Re-calculate to safely map shifts from df
              if not rt_alignment_shifts:
                  rt_alignment_shifts = calculate_rt_alignment(
                     chrom_df, 
-                    rt_alignment_data['rt_min'], 
-                    rt_alignment_data['rt_max']
+                    rt_alignment_data_effective['rt_min'], 
+                    rt_alignment_data_effective['rt_max']
                  )
 
         smoothing_params = None
-        if use_savgol and not full_range:
+        if False and use_savgol and not full_range:
+            # Legacy Savgol smoothing (disabled)
             smoothing_params = {
                 'enabled': True,
                 'window_length': SAVGOL_WINDOW,
@@ -4548,6 +5114,17 @@ def callbacks(app, fsc, cache, cpu=None):
         
         # Replace data completely
         fig_patch['data'] = traces
+
+        # Mark the envelope phase as complete and switch the figure to detailed mode
+        # so follow-up triggers don't re-show the envelope shadow plot.
+        fig_patch['layout']['_view_mode'] = 'detailed'
+        fig_patch['layout']['_use_megatrace_effective'] = True
+        fig_patch['layout']['_use_envelope_effective'] = False
+        fig_patch['layout']['_envelope_phase_complete'] = True
+        fig_patch['layout']['_full_range'] = bool(full_range)
+        fig_patch['layout']['_target'] = target_clicked
+        fig_patch['layout']['_render_rev'] = session_rev
+        fig_patch['layout']['hovermode'] = False
         
         # Don't update layout to preserve zoom/pan
         
@@ -4968,6 +5545,7 @@ def callbacks(app, fsc, cache, cpu=None):
         State("chromatogram-compute-ram", "value"),
         State("chromatogram-compute-batch-size", "value"),
         State("wdir", "data"),
+        State("page-load-id", "data"),
         background=True,
         running=[
             (Output('chromatogram-processing-progress-container', 'style'), {
@@ -4993,17 +5571,38 @@ def callbacks(app, fsc, cache, cpu=None):
             Output("chromatogram-processing-detail", "children", allow_duplicate=True),
         ],
         cancel=[
-            Input('cancel-chromatogram-processing', 'nClicks')
+            Input('cancel-chromatogram-processing', 'nClicks'),
+            Input('compute-chromatogram-modal', 'visible'),
+            Input('page-load-id', 'data'),
         ],
         prevent_initial_call=True
     )
-    def compute_chromatograms(set_progress, okCounts, recompute_ms1, recompute_ms2, n_cpus, ram, batch_size, wdir):
+    def compute_chromatograms(
+        set_progress,
+        okCounts,
+        recompute_ms1,
+        recompute_ms2,
+        n_cpus,
+        ram,
+        batch_size,
+        wdir,
+        page_load_id,
+    ):
 
         if not okCounts:
             logger.debug("compute_chromatograms: Modal not confirmed, preventing update")
             raise PreventUpdate
 
-        return _compute_chromatograms_logic(set_progress, recompute_ms1, recompute_ms2, n_cpus, ram, batch_size, wdir)
+        return _compute_chromatograms_logic(
+            set_progress,
+            recompute_ms1,
+            recompute_ms2,
+            n_cpus,
+            ram,
+            batch_size,
+            wdir,
+            page_load_id=page_load_id,
+        )
 
     ############# COMPUTE CHROMATOGRAM END #######################################
 
@@ -5298,7 +5897,11 @@ def callbacks(app, fsc, cache, cpu=None):
                     params.append(ms_type_filter.lower())
                 
                 where_clause = "WHERE " + " AND ".join(filters) if filters else ""
-                order_clause = f"ORDER BY {order_by} ASC" if order_by else "ORDER BY mz_mean ASC"
+                # Use peak_label as secondary sort key to ensure deterministic order (and match grid view)
+                if order_by:
+                    order_clause = f"ORDER BY {order_by} ASC, peak_label ASC"
+                else:
+                    order_clause = "ORDER BY mz_mean ASC, peak_label ASC"
                 
                 query = f"SELECT peak_label FROM targets {where_clause} {order_clause}"
                 targets = [row[0] for row in conn.execute(query, params).fetchall()]
@@ -5373,6 +5976,7 @@ def callbacks(app, fsc, cache, cpu=None):
                             slider_data=slider_data,
                             rt_align_toggle=rt_align_toggle,
                             rt_alignment_data=rt_alignment_data,
+                            allow_clear_rt_alignment=False,
                         )
                         if save_result["saved_notes"]:
                             logger.debug(
@@ -5514,6 +6118,7 @@ def callbacks(app, fsc, cache, cpu=None):
                     check_slider_change=True,
                     rt_align_toggle=rt_align_toggle,
                     rt_alignment_data=rt_alignment_data,
+                    allow_clear_rt_alignment=False,
                 )
                 if save_result["saved_rt_span"]:
                     logger.info(

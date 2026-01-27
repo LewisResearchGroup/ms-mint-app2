@@ -128,7 +128,7 @@ def test_compute_chromatograms_logic_success(monkeypatch):
     conn = object()
     calls = {"compute": None, "optimize": None, "progress": []}
 
-    def fake_compute(wdir, use_for_optimization, batch_size, set_progress, recompute_ms1, recompute_ms2, n_cpus, ram):
+    def fake_compute(wdir, use_for_optimization, batch_size, set_progress, recompute_ms1, recompute_ms2, n_cpus, ram, page_load_id=None):
         calls["compute"] = {
             "wdir": wdir,
             "use_for_optimization": use_for_optimization,
@@ -137,6 +137,7 @@ def test_compute_chromatograms_logic_success(monkeypatch):
             "recompute_ms2": recompute_ms2,
             "n_cpus": n_cpus,
             "ram": ram,
+            "page_load_id": page_load_id,
         }
 
     def fake_optimize(conn_arg):
@@ -151,6 +152,8 @@ def test_compute_chromatograms_logic_success(monkeypatch):
     monkeypatch.setattr(topt, "optimize_rt_spans_batch", fake_optimize)
     monkeypatch.setattr(topt, "activate_workspace_logging", lambda _wdir: None)
 
+    monkeypatch.setattr(topt, "ensure_page_load_active", lambda *args, **kwargs: None)
+
     result = topt._compute_chromatograms_logic(
         set_progress=fake_progress,
         recompute_ms1=True,
@@ -159,6 +162,7 @@ def test_compute_chromatograms_logic_success(monkeypatch):
         ram=4,
         batch_size=10,
         wdir="/tmp",
+        page_load_id="test_id",
     )
 
     assert result == (True, False)
@@ -166,6 +170,7 @@ def test_compute_chromatograms_logic_success(monkeypatch):
     assert calls["compute"]["batch_size"] == 10
     assert calls["compute"]["recompute_ms1"] is True
     assert calls["compute"]["recompute_ms2"] is False
+    assert calls["compute"]["page_load_id"] == "test_id"
     assert calls["optimize"] is conn
     percents = [payload[0] for payload in calls["progress"]]
     assert 0 in percents
@@ -175,6 +180,7 @@ def test_compute_chromatograms_logic_success(monkeypatch):
 def test_compute_chromatograms_logic_missing_db(monkeypatch):
     monkeypatch.setattr(topt, "duckdb_connection", lambda *args, **kwargs: _conn_context(None))
     monkeypatch.setattr(topt, "activate_workspace_logging", lambda _wdir: None)
+    monkeypatch.setattr(topt, "ensure_page_load_active", lambda *args, **kwargs: None)
 
     result = topt._compute_chromatograms_logic(
         set_progress=None,
@@ -195,6 +201,7 @@ def test_compute_chromatograms_logic_optimize_failure(monkeypatch):
     monkeypatch.setattr(topt, "duckdb_connection", lambda *args, **kwargs: _conn_context(conn))
     monkeypatch.setattr(topt, "compute_chromatograms_in_batches", lambda *args, **kwargs: None)
     monkeypatch.setattr(topt, "activate_workspace_logging", lambda _wdir: None)
+    monkeypatch.setattr(topt, "ensure_page_load_active", lambda *args, **kwargs: None)
 
     def _raise(_conn):
         raise RuntimeError("boom")

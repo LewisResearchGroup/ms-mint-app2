@@ -66,6 +66,11 @@ def apply_savgol_smoothing(intensity, window_length=7, polyorder=2, min_points=N
     if polyorder is None:
         polyorder = 2
 
+    # Smoothing disabled per user request (2026-01-26)
+    return intensity
+
+    # The following logic is disabled:
+    """
     try:
         window_length = int(window_length)
         polyorder = int(polyorder)
@@ -160,6 +165,7 @@ def apply_savgol_smoothing(intensity, window_length=7, polyorder=2, min_points=N
 
     # Negative value clipping: Prevents non-physical negative smoothed intensities
     return np.maximum(smoothed, 0.0)
+    """
 
 
 def apply_lttb_downsampling(scan_time, intensity, n_out=100, min_points=None):
@@ -309,9 +315,11 @@ def generate_chromatogram_traces(
     else:
         sparsify_kwargs = {'w': 1, 'baseline': 1.0, 'eps': 0.0}
 
-    smoothing_enabled = bool(smoothing_params and smoothing_params.get('enabled'))
-    smoothing_window = smoothing_params.get('window_length', 7) if smoothing_enabled else None
-    smoothing_order = smoothing_params.get('polyorder', 2) if smoothing_enabled else None
+    # Savgol smoothing disabled for now (kept for future reactivation).
+    legacy_smoothing_enabled = bool(smoothing_params and smoothing_params.get('enabled'))
+    smoothing_enabled = False
+    smoothing_window = None
+    smoothing_order = None
     downsample_enabled = bool(downsample_params and downsample_params.get('enabled') and ms_type == 'ms1')
     downsample_n_out = downsample_params.get('n_out', 100) if downsample_enabled else None
 
@@ -353,9 +361,11 @@ def generate_chromatogram_traces(
             scan_time = row['scan_time_sliced']
             intensity = row['intensity_sliced']
             n_start = len(scan_time)
-            if smoothing_enabled:
+            if False and legacy_smoothing_enabled:
                 intensity = apply_savgol_smoothing(
-                    intensity, window_length=smoothing_window, polyorder=smoothing_order
+                    intensity,
+                    window_length=smoothing_params.get('window_length', 7),
+                    polyorder=smoothing_params.get('polyorder', 2),
                 )
             n_smooth = len(intensity)
             if downsample_enabled:
@@ -441,9 +451,11 @@ def generate_chromatogram_traces(
             scan_time = row['scan_time_sliced']
             intensity = row['intensity_sliced']
             n_start = len(scan_time)
-            if smoothing_enabled:
+            if False and legacy_smoothing_enabled:
                 intensity = apply_savgol_smoothing(
-                    intensity, window_length=smoothing_window, polyorder=smoothing_order
+                    intensity,
+                    window_length=smoothing_params.get('window_length', 7),
+                    polyorder=smoothing_params.get('polyorder', 2),
                 )
             n_smooth = len(intensity)
             if downsample_enabled:
