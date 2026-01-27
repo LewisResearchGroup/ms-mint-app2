@@ -315,9 +315,11 @@ def generate_chromatogram_traces(
     else:
         sparsify_kwargs = {'w': 1, 'baseline': 1.0, 'eps': 0.0}
 
-    smoothing_enabled = bool(smoothing_params and smoothing_params.get('enabled'))
-    smoothing_window = smoothing_params.get('window_length', 7) if smoothing_enabled else None
-    smoothing_order = smoothing_params.get('polyorder', 2) if smoothing_enabled else None
+    # Savgol smoothing disabled for now (kept for future reactivation).
+    legacy_smoothing_enabled = bool(smoothing_params and smoothing_params.get('enabled'))
+    smoothing_enabled = False
+    smoothing_window = None
+    smoothing_order = None
     downsample_enabled = bool(downsample_params and downsample_params.get('enabled') and ms_type == 'ms1')
     downsample_n_out = downsample_params.get('n_out', 100) if downsample_enabled else None
 
@@ -359,9 +361,11 @@ def generate_chromatogram_traces(
             scan_time = row['scan_time_sliced']
             intensity = row['intensity_sliced']
             n_start = len(scan_time)
-            if smoothing_enabled:
+            if False and legacy_smoothing_enabled:
                 intensity = apply_savgol_smoothing(
-                    intensity, window_length=smoothing_window, polyorder=smoothing_order
+                    intensity,
+                    window_length=smoothing_params.get('window_length', 7),
+                    polyorder=smoothing_params.get('polyorder', 2),
                 )
             n_smooth = len(intensity)
             if downsample_enabled:
@@ -447,9 +451,11 @@ def generate_chromatogram_traces(
             scan_time = row['scan_time_sliced']
             intensity = row['intensity_sliced']
             n_start = len(scan_time)
-            if smoothing_enabled:
+            if False and legacy_smoothing_enabled:
                 intensity = apply_savgol_smoothing(
-                    intensity, window_length=smoothing_window, polyorder=smoothing_order
+                    intensity,
+                    window_length=smoothing_params.get('window_length', 7),
+                    polyorder=smoothing_params.get('polyorder', 2),
                 )
             n_smooth = len(intensity)
             if downsample_enabled:

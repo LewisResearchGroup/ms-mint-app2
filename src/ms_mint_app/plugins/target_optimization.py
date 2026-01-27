@@ -1588,13 +1588,13 @@ _layout = fac.AntdLayout(
                                             [
                                                 html.Div(
                                                     [
-                                                        html.Span('SAVGOL Smoothing:'),
+                                                        html.Span('SAVGOL Smoothing (legacy):'),
                                                         fac.AntdTooltip(
                                                             fac.AntdIcon(
                                                                 icon='antd-question-circle',
                                                                 style={'marginLeft': '5px', 'color': 'gray'}
                                                             ),
-                                                            title='Apply Savitzky-Golay smoothing to intensities'
+                                                            title='Legacy feature: Savitzky-Golay smoothing is disabled'
                                                         )
                                                     ],
                                                     style={
@@ -1607,9 +1607,10 @@ _layout = fac.AntdLayout(
                                                 html.Div(
                                                     fac.AntdSwitch(
                                                         id='chromatogram-view-savgol',
-                                                        checked=True,
+                                                        checked=False,
                                                         checkedChildren='On',
                                                         unCheckedChildren='Off',
+                                                        disabled=True,
                                                         style={'width': '60px'}
                                                     ),
                                                     style={
@@ -1619,6 +1620,7 @@ _layout = fac.AntdLayout(
                                                     }
                                                 ),
                                             ],
+                                            # Keep the component mounted for callbacks, but hide it from the UI.
                                             style={'display': 'none', 'alignItems': 'center'}
                                         ),
                                         html.Div(
@@ -2978,6 +2980,7 @@ def callbacks(app, fsc, cache, cpu=None):
             traces = []
             y_max = 0.0
             y_min_pos = None
+            # Savgol smoothing disabled (kept counters for future reference).
             savgol_trace_total = 0
             savgol_applied = 0
             savgol_skipped = 0
@@ -3020,15 +3023,16 @@ def callbacks(app, fsc, cache, cpu=None):
                 scan_time_sliced = scan_time[mask]
                 intensity_sliced = intensity[mask]
 
-                savgol_trace_total += 1
-                if len(intensity_sliced) >= savgol_min_points:
-                    savgol_applied += 1
-                else:
-                    savgol_skipped += 1
+                if False:  # Legacy Savgol smoothing (disabled)
+                    savgol_trace_total += 1
+                    if len(intensity_sliced) >= savgol_min_points:
+                        savgol_applied += 1
+                    else:
+                        savgol_skipped += 1
 
-                intensity_sliced = apply_savgol_smoothing(
-                    intensity_sliced, window_length=SAVGOL_WINDOW, polyorder=SAVGOL_ORDER
-                )
+                    intensity_sliced = apply_savgol_smoothing(
+                        intensity_sliced, window_length=SAVGOL_WINDOW, polyorder=SAVGOL_ORDER
+                    )
 
                 if ms_type == 'ms1':
                     scan_time_sliced, intensity_sliced = apply_lttb_downsampling(
@@ -3067,7 +3071,7 @@ def callbacks(app, fsc, cache, cpu=None):
                     'line': {'color': row['color'], 'width': 1.5},
                 })
 
-            if savgol_trace_total > 0:
+            if False and savgol_trace_total > 0:  # Legacy Savgol logging (disabled)
                 logger.info(
                     "Preview savgol summary: target=%s ms_type=%s traces=%d applied=%d skipped=%d (min_points=%d)",
                     peak_label,
@@ -3378,6 +3382,9 @@ def callbacks(app, fsc, cache, cpu=None):
             logger.debug("update_megatrace_mode: No workspace directory or target clicked, preventing update")
             raise PreventUpdate
 
+        # Savgol smoothing is intentionally disabled for now (kept for future reactivation).
+        use_savgol = False
+
         session_rev = None
 
         ctx = dash.callback_context
@@ -3622,28 +3629,32 @@ def callbacks(app, fsc, cache, cpu=None):
 
             # logger.debug(f"Megatrace callback: Applying RT alignment with {len(rt_alignment_shifts)} shifts")
         
-        window_min, window_max = _get_savgol_check_window(target_rt_min, target_rt_max, full_range)
+        # Savgol smoothing disabled: keep the legacy applicability logic commented for reference.
         downsample_enabled = target_ms_type == 'ms1' and not full_range
-        savgol_data_applicable, _ = _savgol_applicable_for_df(
-            chrom_df,
-            SAVGOL_WINDOW,
-            rt_min=window_min,
-            rt_max=window_max,
-            ms_type=target_ms_type,
-            use_downsample=downsample_enabled,
-            downsample_n_out=LTTB_TARGET_POINTS,
-        )
-        savgol_applicable = savgol_data_applicable and not full_range
-        savgol_disabled = bool(use_megatrace_effective) or not savgol_applicable
-        savgol_checked_output = False if not savgol_applicable else dash.no_update
-
+        savgol_disabled = True
+        savgol_checked_output = False
         smoothing_params = None
-        if use_savgol and savgol_data_applicable and not full_range:
-            smoothing_params = {
-                'enabled': True,
-                'window_length': SAVGOL_WINDOW,
-                'polyorder': SAVGOL_ORDER
-            }
+        if False:  # Legacy Savgol gating (disabled)
+            window_min, window_max = _get_savgol_check_window(target_rt_min, target_rt_max, full_range)
+            savgol_data_applicable, _ = _savgol_applicable_for_df(
+                chrom_df,
+                SAVGOL_WINDOW,
+                rt_min=window_min,
+                rt_max=window_max,
+                ms_type=target_ms_type,
+                use_downsample=downsample_enabled,
+                downsample_n_out=LTTB_TARGET_POINTS,
+            )
+            savgol_applicable = savgol_data_applicable and not full_range
+            savgol_disabled = bool(use_megatrace_effective) or not savgol_applicable
+            savgol_checked_output = False if not savgol_applicable else dash.no_update
+
+            if use_savgol and savgol_data_applicable and not full_range:
+                smoothing_params = {
+                    'enabled': True,
+                    'window_length': SAVGOL_WINDOW,
+                    'polyorder': SAVGOL_ORDER
+                }
 
         downsample_params = None
         if downsample_enabled:
@@ -3683,7 +3694,7 @@ def callbacks(app, fsc, cache, cpu=None):
         fig['layout']['_target'] = target_clicked
         fig['layout']['_render_rev'] = session_rev
         fig['layout']['_envelope_phase_complete'] = bool(use_megatrace and not use_envelope)
-        fig['layout']['_savgol_forced_off'] = bool(not savgol_applicable)
+        fig['layout']['_savgol_forced_off'] = True
         # Recompute y-range using RT span only
         is_log = figure and figure.get('layout', {}).get('yaxis', {}).get('type') == 'log'
         shape = (figure.get('layout', {}).get('shapes') or [{}])[0] if figure else {}
@@ -3744,7 +3755,10 @@ def callbacks(app, fsc, cache, cpu=None):
     def apply_rt_alignment(use_alignment, figure, use_megatrace, full_range, use_savgol, slider_current, target_clicked, wdir, existing_rt_data, session_id):
         """Apply or remove RT alignment when toggle changes"""
         # logger.debug(f"RT Alignment callback triggered: use_alignment={use_alignment}")
-        
+
+        # Savgol smoothing is intentionally disabled for now (kept for future reactivation).
+        use_savgol = False
+
         # If turning ON and we already have matching alignment data in the store,
         # this is likely a state restoration - skip to avoid overwriting pre-aligned figure
         if use_alignment and existing_rt_data and existing_rt_data.get('enabled'):
@@ -3886,7 +3900,8 @@ def callbacks(app, fsc, cache, cpu=None):
         
         # Regenerate traces with or without alignment
         smoothing_params = None
-        if use_savgol and not full_range:
+        if False and use_savgol and not full_range:
+            # Legacy Savgol smoothing (disabled)
             smoothing_params = {
                 'enabled': True,
                 'window_length': SAVGOL_WINDOW,
@@ -4282,34 +4297,37 @@ def callbacks(app, fsc, cache, cpu=None):
             rt_alignment_shifts_to_apply = calculate_rt_alignment(chrom_df, align_rt_min, align_rt_max)
             logger.info(f"Applying saved RT alignment on modal open: ref={align_ref_rt:.2f}s")
         
-        window_min, window_max = _get_savgol_check_window(rt_min, rt_max, full_range)
+        # Savgol smoothing disabled: force it off but keep legacy logic for reference.
         downsample_enabled = target_ms_type == 'ms1' and not full_range
-        savgol_data_applicable, _ = _savgol_applicable_for_df(
-            chrom_df,
-            SAVGOL_WINDOW,
-            rt_min=window_min,
-            rt_max=window_max,
-            ms_type=target_ms_type,
-            use_downsample=downsample_enabled,
-            downsample_n_out=LTTB_TARGET_POINTS,
-        )
-        savgol_applicable = savgol_data_applicable and not full_range
-
-        savgol_checked = bool(current_savgol) if current_savgol is not None else True
-        if not savgol_applicable:
-            savgol_checked = False
-        else:
-            prev_forced_off = bool((current_figure or {}).get('layout', {}).get('_savgol_forced_off'))
-            if prev_forced_off and current_savgol is False:
-                savgol_checked = True
-
+        savgol_checked = False
         smoothing_params = None
-        if savgol_checked and savgol_data_applicable and not full_range:
-            smoothing_params = {
-                'enabled': True,
-                'window_length': SAVGOL_WINDOW,
-                'polyorder': SAVGOL_ORDER
-            }
+        if False:  # Legacy Savgol gating (disabled)
+            window_min, window_max = _get_savgol_check_window(rt_min, rt_max, full_range)
+            savgol_data_applicable, _ = _savgol_applicable_for_df(
+                chrom_df,
+                SAVGOL_WINDOW,
+                rt_min=window_min,
+                rt_max=window_max,
+                ms_type=target_ms_type,
+                use_downsample=downsample_enabled,
+                downsample_n_out=LTTB_TARGET_POINTS,
+            )
+            savgol_applicable = savgol_data_applicable and not full_range
+
+            savgol_checked = bool(current_savgol) if current_savgol is not None else True
+            if not savgol_applicable:
+                savgol_checked = False
+            else:
+                prev_forced_off = bool((current_figure or {}).get('layout', {}).get('_savgol_forced_off'))
+                if prev_forced_off and current_savgol is False:
+                    savgol_checked = True
+
+            if savgol_checked and savgol_data_applicable and not full_range:
+                smoothing_params = {
+                    'enabled': True,
+                    'window_length': SAVGOL_WINDOW,
+                    'polyorder': SAVGOL_ORDER
+                }
 
         downsample_params = None
         if downsample_enabled:
@@ -4351,7 +4369,7 @@ def callbacks(app, fsc, cache, cpu=None):
         fig['layout']['_envelope_phase_complete'] = bool(use_megatrace and not use_envelope)
         fig['layout']['_target'] = target_clicked
         fig['layout']['_render_rev'] = session_rev
-        fig['layout']['_savgol_forced_off'] = bool(not savgol_applicable)
+        fig['layout']['_savgol_forced_off'] = True
         # fig['layout']['title'] = {'text': f"{target_clicked} (rt={rt})"}
         fig['layout']['shapes'] = []
         if use_megatrace:
@@ -4538,7 +4556,8 @@ def callbacks(app, fsc, cache, cpu=None):
         if session_rev is not None and _get_session_render_revision(session_id) != session_rev:
             raise PreventUpdate
 
-        savgol_disabled = bool(use_envelope) or not savgol_applicable
+        # Savgol smoothing is disabled; keep the switch permanently off/disabled.
+        savgol_disabled = True
 
         return (fig, f"{target_clicked}", False, slider_reference,
                 slider_dict, {"min_y": y_min, "max_y": y_max}, total_points, log_scale, group_legend, 
@@ -4569,6 +4588,9 @@ def callbacks(app, fsc, cache, cpu=None):
         """
         if not trigger_data or not wdir:
             raise PreventUpdate
+
+        # Savgol smoothing is intentionally disabled for now (kept for future reactivation).
+        use_savgol = False
 
         target_clicked = trigger_data.get('target_clicked')
         full_range = trigger_data.get('full_range')
@@ -4684,7 +4706,8 @@ def callbacks(app, fsc, cache, cpu=None):
                  )
 
         smoothing_params = None
-        if use_savgol and not full_range:
+        if False and use_savgol and not full_range:
+            # Legacy Savgol smoothing (disabled)
             smoothing_params = {
                 'enabled': True,
                 'window_length': SAVGOL_WINDOW,
