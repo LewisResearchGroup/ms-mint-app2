@@ -1024,7 +1024,7 @@ def callbacks(app, fsc, cache):
                                 'ram_avail': round(ram_avail, 1),
                                 'default_ram': default_ram
                             }
-                            logger.info(f"workspace-status populated: {workspace_status}")
+                            logger.debug(f"workspace-status populated: {workspace_status}")
             except DatabaseCorruptionError as e:
                 logger.error(f"Database corruption detected during activation: {e}")
                 notification = fac.AntdNotification(
