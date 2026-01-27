@@ -3476,6 +3476,7 @@ def callbacks(app, fsc, cache, cpu=None):
 
     @app.callback(
         Output('chromatogram-view-plot', 'figure', allow_duplicate=True),
+        Output('background-load-trigger', 'data', allow_duplicate=True),
         Output('chromatogram-view-megatrace', 'disabled', allow_duplicate=True),
         Output('chromatogram-view-savgol', 'disabled', allow_duplicate=True),
         Output('chromatogram-view-savgol', 'checked', allow_duplicate=True),
@@ -3846,6 +3847,12 @@ def callbacks(app, fsc, cache, cpu=None):
 
         return (
             fig,
+            {
+                'target_clicked': target_clicked,
+                'full_range': full_range,
+                'ms_type': target_ms_type,
+                'render_rev': session_rev,
+            } if use_envelope else dash.no_update,
             False, # megatrace disabled output - always enabled
             savgol_disabled,
             savgol_checked_output,
