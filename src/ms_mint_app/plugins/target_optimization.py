@@ -4374,17 +4374,17 @@ def callbacks(app, fsc, cache, cpu=None):
             ).fetchall()
             sample_type_by_file = {row[0]: row[1] for row in sample_type_rows}
             
-            # Limit full range to 90 samples to prevent OOM
-            full_range_disabled = n_samples > 100
-            if full_range_disabled:
-                full_range = False
-                full_range_tooltip = f"Full Range disabled (>90 samples, total optimization samples: {n_samples})"
+            # Limit full range to 90 samples to prevent OOM - REMOVED RESTRICTION
+            full_range_disabled = False
+            if n_samples > 100:
+                full_range_tooltip = f"Show entire chromatogram (Warning: May be slow with {n_samples} optimization samples)"
             else:
                 full_range_tooltip = "Show entire chromatogram (slower) vs 30s window"
-                if modal_already_open and current_full_range is not None:
-                     full_range = current_full_range
-                else:
-                     full_range = False
+
+            if modal_already_open and current_full_range is not None:
+                full_range = current_full_range
+            else:
+                full_range = False
 
             # Decide on Envelope Mode vs Detailed Mode
             # If modal is already open, respect user's toggle state
