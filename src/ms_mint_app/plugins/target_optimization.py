@@ -166,6 +166,7 @@ def _build_rt_alignment_from_db(
     align_rt_max,
     rt_min_fallback,
     rt_max_fallback,
+    sample_type_by_file=None,
 ):
     """
     Build authoritative RT-alignment state from persisted DB fields.
@@ -191,6 +192,9 @@ def _build_rt_alignment_from_db(
         )
 
     sample_type_shifts = defaultdict(list)
+
+    # Preferred path: derive sample types from the chromatogram dataframe.
+    used_df_sample_types = False
     try:
         for row in chrom_df.iter_rows(named=True):
             sample_type = row.get("sample_type")
@@ -203,8 +207,22 @@ def _build_rt_alignment_from_db(
             except (TypeError, ValueError):
                 shift_val = 0.0
             sample_type_shifts[sample_type].append(shift_val)
+            used_df_sample_types = True
     except Exception:
         sample_type_shifts = defaultdict(list)
+        used_df_sample_types = False
+
+    # Fallback path: envelope-mode data can lack ms_file_label rows.
+    if (not used_df_sample_types) and sample_type_by_file:
+        for ms_file_label, shift_val in shifts_per_file.items():
+            sample_type = sample_type_by_file.get(ms_file_label)
+            if not sample_type:
+                continue
+            try:
+                shift_val = float(shift_val)
+            except (TypeError, ValueError):
+                shift_val = 0.0
+            sample_type_shifts[sample_type].append(shift_val)
 
     shifts_by_sample_type = {
         st: float(np.median(shifts)) if shifts else 0.0
@@ -4327,6 +4345,14 @@ def callbacks(app, fsc, cache, cpu=None):
 
             # Count samples for optimization
             n_samples = conn.execute("SELECT COUNT(*) FROM samples WHERE use_for_optimization = TRUE").fetchone()[0]
+            sample_type_rows = conn.execute(
+                """
+                SELECT ms_file_label, sample_type
+                FROM samples
+                WHERE use_for_optimization = TRUE
+                """
+            ).fetchall()
+            sample_type_by_file = {row[0]: row[1] for row in sample_type_rows}
             
             # Limit full range to 90 samples to prevent OOM
             full_range_disabled = n_samples > 100
@@ -4569,6 +4595,7 @@ def callbacks(app, fsc, cache, cpu=None):
             align_rt_max=align_rt_max,
             rt_min_fallback=rt_min,
             rt_max_fallback=rt_max,
+            sample_type_by_file=sample_type_by_file,
         )
 
         # Apply alignment only in detailed mode, but keep the toggle authoritative either way.
@@ -4898,6 +4925,15 @@ def callbacks(app, fsc, cache, cpu=None):
             if conn is None:
                 raise PreventUpdate
 
+            sample_type_rows = conn.execute(
+                """
+                SELECT ms_file_label, sample_type
+                FROM samples
+                WHERE use_for_optimization = TRUE
+                """
+            ).fetchall()
+            sample_type_by_file = {row[0]: row[1] for row in sample_type_rows}
+
             # We want the Detailed/Megatrace lines now
             chrom_df = get_chromatogram_dataframe(
                 conn,
@@ -4982,6 +5018,7 @@ def callbacks(app, fsc, cache, cpu=None):
                         align_rt_max=align_row[4],
                         rt_min_fallback=rt_min,
                         rt_max_fallback=rt_max,
+                        sample_type_by_file=sample_type_by_file,
                     )
                     if db_active:
                         rt_alignment_data_effective = db_alignment_data
