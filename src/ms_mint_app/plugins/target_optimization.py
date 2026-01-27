@@ -120,6 +120,109 @@ def _format_rt_alignment_auto_note(rt_alignment_data: dict) -> str:
     return "\n".join(lines)
 
 
+def _safe_load_shifts_json(align_shifts_json) -> dict:
+    """Parse stored RT-alignment shifts JSON into a dict."""
+    if not align_shifts_json:
+        return {}
+    try:
+        shifts = json.loads(align_shifts_json)
+    except Exception:
+        return {}
+    return shifts if isinstance(shifts, dict) else {}
+
+
+def _compute_reference_rt_from_df(chrom_df, rt_min, rt_max):
+    """Compute a fallback reference RT (median apex) from chromatogram data."""
+    if chrom_df is None or rt_min is None or rt_max is None:
+        return None
+    try:
+        apex_rts = []
+        for row in chrom_df.iter_rows(named=True):
+            scan_time = np.array(row.get("scan_time_sliced") or [])
+            intensity = np.array(row.get("intensity_sliced") or [])
+            if scan_time.size == 0 or intensity.size == 0:
+                continue
+            mask = (scan_time >= rt_min) & (scan_time <= rt_max)
+            if mask.any():
+                rt_in_range = scan_time[mask]
+                int_in_range = intensity[mask]
+                if int_in_range.size:
+                    apex_idx = int_in_range.argmax()
+                    apex_rts.append(rt_in_range[apex_idx])
+        if apex_rts:
+            return float(np.median(apex_rts))
+    except Exception:
+        return None
+    return None
+
+
+def _build_rt_alignment_from_db(
+    chrom_df,
+    target_label,
+    align_enabled,
+    align_ref_rt,
+    align_shifts_json,
+    align_rt_min,
+    align_rt_max,
+    rt_min_fallback,
+    rt_max_fallback,
+):
+    """
+    Build authoritative RT-alignment state from persisted DB fields.
+
+    The toggle and store restoration should depend only on:
+    - rt_align_enabled
+    - non-empty rt_align_shifts
+    """
+    shifts_per_file = _safe_load_shifts_json(align_shifts_json)
+    align_span_min = align_rt_min if align_rt_min is not None else rt_min_fallback
+    align_span_max = align_rt_max if align_rt_max is not None else rt_max_fallback
+
+    alignment_active = bool(align_enabled and shifts_per_file)
+    if not alignment_active:
+        return False, None, {}
+
+    reference_rt_effective = (
+        float(align_ref_rt) if align_ref_rt is not None else None
+    )
+    if reference_rt_effective is None:
+        reference_rt_effective = _compute_reference_rt_from_df(
+            chrom_df, align_span_min, align_span_max
+        )
+
+    sample_type_shifts = defaultdict(list)
+    try:
+        for row in chrom_df.iter_rows(named=True):
+            sample_type = row.get("sample_type")
+            ms_file_label = row.get("ms_file_label")
+            if sample_type is None or ms_file_label is None:
+                continue
+            shift_val = shifts_per_file.get(ms_file_label, 0.0)
+            try:
+                shift_val = float(shift_val)
+            except (TypeError, ValueError):
+                shift_val = 0.0
+            sample_type_shifts[sample_type].append(shift_val)
+    except Exception:
+        sample_type_shifts = defaultdict(list)
+
+    shifts_by_sample_type = {
+        st: float(np.median(shifts)) if shifts else 0.0
+        for st, shifts in sample_type_shifts.items()
+    }
+
+    alignment_data = {
+        "enabled": True,
+        "target_label": target_label,
+        "reference_rt": reference_rt_effective,
+        "shifts_by_sample_type": shifts_by_sample_type,
+        "shifts_per_file": shifts_per_file,
+        "rt_min": align_span_min,
+        "rt_max": align_span_max,
+    }
+    return True, alignment_data, shifts_per_file
+
+
 def _get_savgol_min_points(window_length):
     try:
         window_length = int(window_length)
@@ -335,6 +438,7 @@ def _save_target_state(
     rt_align_toggle=None,
     rt_alignment_data=None,
     save_rt_alignment=True,
+    allow_clear_rt_alignment=True,
 ):
     result = {
         "saved_notes": False,
@@ -363,7 +467,17 @@ def _save_target_state(
         if rt_align_toggle is True and rt_alignment_data:
             auto_note = _format_rt_alignment_auto_note(rt_alignment_data)
         elif rt_align_toggle is False:
-            auto_note = ""
+            if allow_clear_rt_alignment:
+                auto_note = ""
+            else:
+                # Navigation/state restoration can briefly flip the toggle OFF even
+                # when persisted alignment should remain authoritative. In that case,
+                # keep the existing auto-note block intact.
+                auto_note = _extract_rt_alignment_auto_note(existing_notes)
+                logger.debug(
+                    "RT alignment toggle OFF ignored for '%s' (clearing not allowed).",
+                    target_label,
+                )
         else:
             # Alignment state is unchanged; keep any existing auto-note.
             auto_note = _extract_rt_alignment_auto_note(existing_notes)
@@ -374,7 +488,7 @@ def _save_target_state(
     if auto_note:
         final_note = f"{base_note}\n\n{auto_note}".strip() if base_note else auto_note
     else:
-        # If alignment is off (or not being saved), we still strip any prior auto-note.
+        # If alignment is explicitly off and clearing is allowed, strip the auto-note.
         final_note = base_note
 
     conn.execute(
@@ -436,7 +550,7 @@ def _save_target_state(
                     ],
                 )
                 result["saved_rt_alignment"] = True
-        elif rt_align_toggle is False:
+        elif rt_align_toggle is False and allow_clear_rt_alignment:
             conn.execute(
                 """
                 UPDATE targets
@@ -450,6 +564,7 @@ def _save_target_state(
                 [target_label],
             )
             result["cleared_rt_alignment"] = True
+            logger.debug("Cleared RT alignment for '%s'.", target_label)
 
     return result
 
@@ -3760,8 +3875,14 @@ def callbacks(app, fsc, cache, cpu=None):
         use_savgol = False
 
         # If turning ON and we already have matching alignment data in the store,
-        # this is likely a state restoration - skip to avoid overwriting pre-aligned figure
-        if use_alignment and existing_rt_data and existing_rt_data.get('enabled'):
+        # this is likely a state restoration - but only for the SAME target.
+        same_target_restore = (
+            use_alignment
+            and existing_rt_data
+            and existing_rt_data.get('enabled')
+            and existing_rt_data.get('target_label') == target_clicked
+        )
+        if same_target_restore:
             logger.debug("apply_rt_alignment: State restoration detected (data already in store), preventing update")
             raise PreventUpdate
         
@@ -3890,6 +4011,7 @@ def callbacks(app, fsc, cache, cpu=None):
             # Store alignment data for saving to notes
             alignment_data = {
                 'enabled': True,
+                'target_label': target_clicked,
                 'reference_rt': reference_rt,
                 'shifts_by_sample_type': shifts_per_sample_type,  # For notes (human-readable)
                 'shifts_per_file': rt_alignment_shifts,  # For processing (per-file accuracy)
@@ -3960,10 +4082,19 @@ def callbacks(app, fsc, cache, cpu=None):
         Output('target-note', 'value', allow_duplicate=True),
         Input('rt-alignment-data', 'data'),
         State('target-note', 'value'),
+        State('target-preview-clicked', 'data'),
         prevent_initial_call=True,
     )
-    def sync_rt_alignment_note(rt_alignment_data, note_text):
+    def sync_rt_alignment_note(rt_alignment_data, note_text, current_target):
         """Keep the note field in sync with RT alignment state on the client side."""
+        # Only act when the alignment store clearly refers to the current target.
+        # Otherwise we risk stripping the persisted DB note during navigation races.
+        if not rt_alignment_data or not current_target:
+            raise PreventUpdate
+        data_target = rt_alignment_data.get('target_label')
+        if not data_target or data_target != current_target:
+            raise PreventUpdate
+
         note_text = "" if note_text is None else note_text
         base_note = _strip_rt_alignment_auto_note(note_text)
 
@@ -3974,6 +4105,89 @@ def callbacks(app, fsc, cache, cpu=None):
 
         # Alignment disabled or missing: remove any prior auto-note block.
         return base_note
+
+    @app.callback(
+        Output('notifications-container', 'children', allow_duplicate=True),
+        Input('rt-alignment-data', 'data'),
+        State('chromatogram-view-rt-align', 'checked'),
+        State('target-preview-clicked', 'data'),
+        State('target-note', 'value'),
+        State('wdir', 'data'),
+        prevent_initial_call=True,
+    )
+    def autosave_rt_alignment_on_compute(rt_alignment_data, rt_align_toggle, current_target, current_note, wdir):
+        """
+        Persist RT alignment as soon as it is computed to avoid losing it on navigation.
+        This is scoped to the current target to prevent cross-target store bleed.
+        """
+        if not rt_alignment_data or not rt_align_toggle:
+            raise PreventUpdate
+        if not current_target or not wdir:
+            raise PreventUpdate
+
+        data_target = rt_alignment_data.get('target_label')
+        if data_target and data_target != current_target:
+            raise PreventUpdate
+        if not rt_alignment_data.get('enabled'):
+            raise PreventUpdate
+
+        try:
+            with duckdb_connection(wdir) as conn:
+                if conn is None:
+                    raise PreventUpdate
+                _save_target_state(
+                    conn,
+                    current_target,
+                    current_note,
+                    save_rt_span=False,
+                    rt_align_toggle=True,
+                    rt_alignment_data=rt_alignment_data,
+                )
+        except Exception as e:
+            logger.warning(f"Failed to autosave RT alignment for '{current_target}': {e}")
+
+        # Silent autosave; avoid spamming notifications.
+        return dash.no_update
+
+    @app.callback(
+        Output('notifications-container', 'children', allow_duplicate=True),
+        Input('chromatogram-view-rt-align', 'checked'),
+        State('target-preview-clicked', 'data'),
+        State('target-note', 'value'),
+        State('wdir', 'data'),
+        prevent_initial_call=True,
+    )
+    def clear_rt_alignment_on_toggle_off(rt_align_toggle, current_target, current_note, wdir):
+        """
+        Clear persisted RT alignment only on an explicit toggle-off action.
+        This avoids navigation races clearing alignment unintentionally.
+        """
+        if rt_align_toggle is not False:
+            raise PreventUpdate
+        if not current_target or not wdir:
+            raise PreventUpdate
+        # NOTE: Disabled for now because this callback can be triggered by
+        # navigation/state-restoration races (toggle briefly False), which
+        # would wipe persisted alignment and notes. Keep the legacy logic
+        # below for future reactivation once we can reliably detect user intent.
+        if False:  # Legacy clear-on-toggle-off (disabled)
+            try:
+                with duckdb_connection(wdir) as conn:
+                    if conn is None:
+                        raise PreventUpdate
+                    _save_target_state(
+                        conn,
+                        current_target,
+                        current_note,
+                        save_rt_span=False,
+                        rt_align_toggle=False,
+                        rt_alignment_data=None,
+                        save_rt_alignment=True,
+                        allow_clear_rt_alignment=True,
+                    )
+            except Exception as e:
+                logger.warning(f"Failed to clear RT alignment for '{current_target}': {e}")
+        return dash.no_update
 
 
     @app.callback(
@@ -4053,6 +4267,16 @@ def callbacks(app, fsc, cache, cpu=None):
                 align_rt_min = None
                 align_rt_max = None
                 bookmark_state = False
+
+            logger.debug(
+                "Modal open RT alignment DB state for '%s': enabled=%s, has_shifts=%s, ref_rt=%s, span=[%s,%s]",
+                target_clicked,
+                bool(align_enabled),
+                bool(align_shifts_json),
+                align_ref_rt,
+                align_rt_min,
+                align_rt_max,
+            )
 
             if target_ms_type is None:
                 target_ms_type = 'ms1'
@@ -4290,12 +4514,30 @@ def callbacks(app, fsc, cache, cpu=None):
                     )
                     raise PreventUpdate
 
-        # Calculate RT alignment shifts if enabled in database
-        rt_alignment_shifts_to_apply = None
-        if (not use_envelope) and align_enabled and align_ref_rt is not None:
-            # Calculate alignment shifts from stored data
-            rt_alignment_shifts_to_apply = calculate_rt_alignment(chrom_df, align_rt_min, align_rt_max)
-            logger.info(f"Applying saved RT alignment on modal open: ref={align_ref_rt:.2f}s")
+        # Build authoritative RT alignment state from the DB, independent of client stores.
+        db_alignment_active, db_alignment_data, db_shifts_per_file = _build_rt_alignment_from_db(
+            chrom_df=chrom_df,
+            target_label=target_clicked,
+            align_enabled=align_enabled,
+            align_ref_rt=align_ref_rt,
+            align_shifts_json=align_shifts_json,
+            align_rt_min=align_rt_min,
+            align_rt_max=align_rt_max,
+            rt_min_fallback=rt_min,
+            rt_max_fallback=rt_max,
+        )
+
+        # Apply alignment only in detailed mode, but keep the toggle authoritative either way.
+        rt_alignment_shifts_to_apply = (
+            db_shifts_per_file if (db_alignment_active and not use_envelope) else None
+        )
+        if db_alignment_active:
+            logger.debug(
+                "Applying DB RT alignment on modal open for '%s' (detailed=%s, ref_rt=%s).",
+                target_clicked,
+                not use_envelope,
+                (db_alignment_data or {}).get("reference_rt"),
+            )
         
         # Savgol smoothing disabled: force it off but keep legacy logic for reference.
         downsample_enabled = target_ms_type == 'ms1' and not full_range
@@ -4486,41 +4728,23 @@ def callbacks(app, fsc, cache, cpu=None):
         slider_reference = s_data
         slider_dict = slider_reference.copy()
         
-        # Parse RT alignment data from database
-        # Simple approach: restore the exact state that was saved
-        rt_align_toggle_state = False  # Default if no alignment saved
-        rt_alignment_data_to_load = None
-        
-        if align_enabled and align_ref_rt is not None:
-            try:
-                import json
-                shifts_per_file = json.loads(align_shifts_json) if align_shifts_json else {}
-                
-                # Calculate shifts_by_sample_type from per-file shifts (for notes display)
-                # We need to group by sample_type and calculate median
-                sample_type_shifts = {}
-                for row in chrom_df.iter_rows(named=True):
-                    sample_type = row['sample_type']
-                    ms_file_label = row['ms_file_label']
-                    shift = shifts_per_file.get(ms_file_label, 0.0)
-                    if sample_type not in sample_type_shifts:
-                        sample_type_shifts[sample_type] = []
-                    sample_type_shifts[sample_type].append(shift)
-                
-                shifts_by_sample_type = {st: float(np.median(shifts)) for st, shifts in sample_type_shifts.items()}
-                
-                rt_alignment_data_to_load = {
-                    'enabled': True,
-                    'reference_rt': align_ref_rt,
-                    'shifts_by_sample_type': shifts_by_sample_type,  # For notes (human-readable)
-                    'shifts_per_file': shifts_per_file,  # For processing (per-file accuracy)
-                    'rt_min': align_rt_min,
-                    'rt_max': align_rt_max
-                }
-                rt_align_toggle_state = True  # Set toggle to ON to match saved state
-                logger.debug(f"Restoring RT alignment state: toggle=ON, ref={align_ref_rt:.2f}s")
-            except Exception as e:
-                logger.error(f"Error parsing RT alignment data: {e}")
+        # Authoritative RT alignment restoration from DB state (independent of client stores).
+        rt_align_toggle_state = bool(db_alignment_active)
+        rt_alignment_data_to_load = db_alignment_data if db_alignment_active else None
+        if db_alignment_active:
+            logger.debug(
+                "Restoring RT alignment from DB for '%s': toggle=ON, has_shifts=%s.",
+                target_clicked,
+                bool((rt_alignment_data_to_load or {}).get("shifts_per_file")),
+            )
+
+        # Rebuild the auto-note from persisted RT alignment on modal open.
+        base_note = _strip_rt_alignment_auto_note(note)
+        if rt_alignment_data_to_load and rt_alignment_data_to_load.get('enabled'):
+            auto_note = _format_rt_alignment_auto_note(rt_alignment_data_to_load)
+            note = f"{base_note}\n\n{auto_note}".strip() if base_note else auto_note
+        else:
+            note = base_note
 
         logger.debug(f"Modal view prepared in {time.perf_counter() - t1:.4f}s")
         
@@ -4625,6 +4849,7 @@ def callbacks(app, fsc, cache, cpu=None):
                 rt_max = shape[0].get('x1')
                 window_min, window_max = _get_rt_span_with_pad(rt_min, rt_max)
 
+        rt_alignment_data_effective = rt_alignment_data
         with duckdb_connection(wdir) as conn:
             if conn is None:
                 raise PreventUpdate
@@ -4682,6 +4907,45 @@ def callbacks(app, fsc, cache, cpu=None):
                             window_max=fallback_max,
                         )
 
+            # RT alignment can be lost here due to callback ordering (store not ready yet).
+            # Fall back to the persisted DB alignment for this target when needed.
+            needs_db_alignment = (
+                not rt_alignment_data_effective
+                or not rt_alignment_data_effective.get('enabled')
+                or (
+                    rt_alignment_data_effective.get('target_label')
+                    and rt_alignment_data_effective.get('target_label') != target_clicked
+                )
+            )
+            if needs_db_alignment:
+                align_row = conn.execute(
+                    """
+                    SELECT rt_align_enabled, rt_align_reference_rt, rt_align_shifts,
+                           rt_align_rt_min, rt_align_rt_max
+                    FROM targets
+                    WHERE peak_label = ?
+                    """,
+                    [target_clicked],
+                ).fetchone()
+                if align_row:
+                    db_active, db_alignment_data, _ = _build_rt_alignment_from_db(
+                        chrom_df=chrom_df,
+                        target_label=target_clicked,
+                        align_enabled=align_row[0],
+                        align_ref_rt=align_row[1],
+                        align_shifts_json=align_row[2],
+                        align_rt_min=align_row[3],
+                        align_rt_max=align_row[4],
+                        rt_min_fallback=rt_min,
+                        rt_max_fallback=rt_max,
+                    )
+                    if db_active:
+                        rt_alignment_data_effective = db_alignment_data
+                        logger.debug(
+                            "Background load: using DB RT alignment for '%s'.",
+                            target_clicked,
+                        )
+
         if chrom_df is None or chrom_df.is_empty():
             raise PreventUpdate
 
@@ -4695,14 +4959,18 @@ def callbacks(app, fsc, cache, cpu=None):
 
         # Apply RT alignment if active
         rt_alignment_shifts = None
-        if rt_alignment_data and rt_alignment_data.get('enabled'):
-             rt_alignment_shifts = rt_alignment_data.get('shifts_per_file') # Or calculate? 
+        if rt_alignment_data_effective and rt_alignment_data_effective.get('enabled'):
+             data_target = rt_alignment_data_effective.get('target_label')
+             if data_target and data_target != target_clicked:
+                 rt_alignment_data_effective = None
+        if rt_alignment_data_effective and rt_alignment_data_effective.get('enabled'):
+             rt_alignment_shifts = rt_alignment_data_effective.get('shifts_per_file') # Or calculate? 
              # Re-calculate to safely map shifts from df
              if not rt_alignment_shifts:
                  rt_alignment_shifts = calculate_rt_alignment(
                     chrom_df, 
-                    rt_alignment_data['rt_min'], 
-                    rt_alignment_data['rt_max']
+                    rt_alignment_data_effective['rt_min'], 
+                    rt_alignment_data_effective['rt_max']
                  )
 
         smoothing_params = None
@@ -5585,6 +5853,7 @@ def callbacks(app, fsc, cache, cpu=None):
                             slider_data=slider_data,
                             rt_align_toggle=rt_align_toggle,
                             rt_alignment_data=rt_alignment_data,
+                            allow_clear_rt_alignment=False,
                         )
                         if save_result["saved_notes"]:
                             logger.debug(
@@ -5726,6 +5995,7 @@ def callbacks(app, fsc, cache, cpu=None):
                     check_slider_change=True,
                     rt_align_toggle=rt_align_toggle,
                     rt_alignment_data=rt_alignment_data,
+                    allow_clear_rt_alignment=False,
                 )
                 if save_result["saved_rt_span"]:
                     logger.info(
