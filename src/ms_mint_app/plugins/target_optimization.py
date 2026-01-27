@@ -1108,7 +1108,7 @@ _layout = fac.AntdLayout(
                                                     fac.AntdButton(
                                                         # 'Apply',
                                                         id='chromatogram-graph-button',
-                                                        icon=fac.AntdIcon(icon='pi-broom', style={'fontSize': 20}),
+                                                        icon=fac.AntdIcon(icon='antd-reload', style={'fontSize': 20}),
                                                         # type='primary'
                                                     ),
                                                     title='Update graph size and clean plots',
@@ -2850,6 +2850,12 @@ def callbacks(app, fsc, cache, cpu=None):
                                                ELSE TRUE
                                                END
                                            )
+                                         AND EXISTS (
+                                           SELECT 1
+                                           FROM chromatograms c
+                                           WHERE c.peak_label = t.peak_label
+                                             AND c.ms_type = t.ms_type
+                                         )
                                          AND (
                                            CASE
                                                WHEN ? = 'Bookmarked' THEN t.bookmark = TRUE
@@ -2884,6 +2890,12 @@ def callbacks(app, fsc, cache, cpu=None):
                         WHEN ? = 'ms2' THEN t.ms_type = 'ms2'
                         ELSE TRUE
                     END
+                )
+                AND EXISTS (
+                    SELECT 1
+                    FROM chromatograms c
+                    WHERE c.peak_label = t.peak_label
+                      AND c.ms_type = t.ms_type
                 )
                 AND (
                     CASE
