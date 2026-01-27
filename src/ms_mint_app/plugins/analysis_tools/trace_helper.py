@@ -66,6 +66,11 @@ def apply_savgol_smoothing(intensity, window_length=7, polyorder=2, min_points=N
     if polyorder is None:
         polyorder = 2
 
+    # Smoothing disabled per user request (2026-01-26)
+    return intensity
+
+    # The following logic is disabled:
+    """
     try:
         window_length = int(window_length)
         polyorder = int(polyorder)
@@ -160,6 +165,7 @@ def apply_savgol_smoothing(intensity, window_length=7, polyorder=2, min_points=N
 
     # Negative value clipping: Prevents non-physical negative smoothed intensities
     return np.maximum(smoothed, 0.0)
+    """
 
 
 def apply_lttb_downsampling(scan_time, intensity, n_out=100, min_points=None):

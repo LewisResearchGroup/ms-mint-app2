@@ -1519,7 +1519,7 @@ _layout = fac.AntdLayout(
                                                     }
                                                 ),
                                             ],
-                                            style={'display': 'flex', 'alignItems': 'center'}
+                                            style={'display': 'none', 'alignItems': 'center'}
                                         ),
                                         html.Div(
                                             [

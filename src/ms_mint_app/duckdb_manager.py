@@ -104,6 +104,11 @@ def _apply_savgol_smoothing(intensity,
                             window_length=FULL_RANGE_SAVGOL_WINDOW,
                             polyorder=FULL_RANGE_SAVGOL_ORDER,
                             min_points=None):
+    # Smoothing disabled per user request (2026-01-26)
+    return intensity
+
+    # The following logic is disabled:
+    """
     if window_length is None:
         window_length = FULL_RANGE_SAVGOL_WINDOW
     if polyorder is None:
@@ -203,6 +208,7 @@ def _apply_savgol_smoothing(intensity,
 
     # Negative value clipping (0.0)
     return np.maximum(smoothed, 0.0)
+    """
 
 
 def get_physical_cores() -> int:
