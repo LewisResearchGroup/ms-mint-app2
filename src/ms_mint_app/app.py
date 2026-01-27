@@ -72,6 +72,8 @@ def _build_layout(*, plugins, file_explorer, initial_page_children=None, initial
             dcc.Location(id="url", refresh=False),
             dcc.Store(id="tmpdir", data=str(TMPDIR)),
             dcc.Store(id="wdir"),
+            dcc.Store(id="page-load-id", storage_type="memory"),
+            dcc.Store(id="page-heartbeat-store"),
             dcc.Store(id="workspace-status", data={
                 'ms_files_count': 0,
                 'targets_count': 0,
@@ -80,6 +82,8 @@ def _build_layout(*, plugins, file_explorer, initial_page_children=None, initial
                 'optimization_samples_count': 0
             }),
             dcc.Store(id='section-context', data=initial_section_context),
+            dcc.Interval(id="page-load-trigger", n_intervals=0, interval=200, max_intervals=1),
+            dcc.Interval(id="page-heartbeat-interval", n_intervals=0, interval=4000),
             dcc.Interval(id="progress-interval", n_intervals=0, interval=20000, disabled=False),
 
             file_explorer.layout(),
@@ -286,7 +290,14 @@ def register_callbacks(app, cache, fsc, args, *, plugins, file_explorer):
     from flask_login import current_user
     import feffery_antd_components as fac
 
-    from .duckdb_manager import duckdb_connection_mint, ensure_exploration_workspace, is_workspace_corrupted
+    from .duckdb_manager import (
+        duckdb_connection_mint,
+        ensure_exploration_workspace,
+        is_workspace_corrupted,
+        is_workspace_busy,
+        get_busy_notification,
+        mark_page_load_active,
+    )
 
     logging.info("Register callbacks")
     upload_root = os.getenv("MINT_DATA_DIR", tempfile.gettempdir())
@@ -316,6 +327,39 @@ def register_callbacks(app, cache, fsc, args, *, plugins, file_explorer):
         State('main-sidebar', 'collapsed'),
         prevent_initial_call=True,
     )
+
+    app.clientside_callback(
+        """(n, current) => {
+            if (current) {
+                return current;
+            }
+            try {
+                if (window.crypto && window.crypto.randomUUID) {
+                    return window.crypto.randomUUID();
+                }
+            } catch (e) {
+                // ignore and fall through to timestamp-based id
+            }
+            return `page-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+        }""",
+        Output('page-load-id', 'data'),
+        Input('page-load-trigger', 'n_intervals'),
+        State('page-load-id', 'data'),
+        prevent_initial_call=False,
+    )
+
+    @app.callback(
+        Output('page-heartbeat-store', 'data'),
+        Input('wdir', 'data'),
+        Input('page-load-id', 'data'),
+        Input('page-heartbeat-interval', 'n_intervals'),
+        prevent_initial_call=True,
+    )
+    def page_heartbeat(wdir, page_load_id, _n):
+        if not wdir or not page_load_id:
+            raise PreventUpdate
+        mark_page_load_active(wdir, page_load_id)
+        return {'page_load_id': page_load_id, 'ts': time.time()}
 
     @app.callback(
         Output('page-content', 'children'),
@@ -354,7 +398,7 @@ def register_callbacks(app, cache, fsc, args, *, plugins, file_explorer):
         prevent_initial_call=True
     )
     def check_corruption_on_navigation(section_context, wdir):
-        """Show notification when navigating to a tab or when workspace changes if corrupted."""
+        """Show notification when navigating to a tab or when workspace changes if corrupted/busy."""
         if not wdir:
             raise PreventUpdate
         if is_workspace_corrupted(wdir):
@@ -366,6 +410,10 @@ def register_callbacks(app, cache, fsc, args, *, plugins, file_explorer):
                 placement='bottom',
                 showProgress=True,
             )
+        if is_workspace_busy(wdir):
+            busy = get_busy_notification(wdir)
+            if busy:
+                return fac.AntdNotification(**busy)
         raise PreventUpdate
 
 

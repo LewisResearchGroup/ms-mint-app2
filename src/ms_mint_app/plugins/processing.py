@@ -37,6 +37,7 @@ from ..duckdb_manager import (
     duckdb_connection,
     get_physical_cores,
     get_workspace_name_from_wdir,
+    ensure_page_load_active,
 )
 from ..plugin_interface import PluginInterface
 from .target_optimization import (
@@ -2270,6 +2271,7 @@ def callbacks(app, fsc, cache):
         State('processing-chromatogram-compute-batch-size', "value"),
         State('processing-targets-selection', 'checked'),
         State('wdir', 'data'),
+        State('page-load-id', 'data'),
         background=True,
         running=[
             (Output('processing-progress-container', 'style'), {
@@ -2295,17 +2297,31 @@ def callbacks(app, fsc, cache):
             Output("processing-progress-detail", "children", allow_duplicate=True),
         ],
         cancel=[
-            Input('cancel-processing', 'nClicks')
+            Input('cancel-processing', 'nClicks'),
+            Input('processing-modal', 'visible'),
+            Input('page-load-id', 'data'),
         ],
         prevent_initial_call=True
     )
-    def compute_results(set_progress, okCounts, recompute, enable_fitting, n_cpus, ram, batch_size, bookmarked, wdir):
+    def compute_results(
+        set_progress,
+        okCounts,
+        recompute,
+        enable_fitting,
+        n_cpus,
+        ram,
+        batch_size,
+        bookmarked,
+        wdir,
+        page_load_id,
+    ):
 
         if not okCounts:
             logger.debug("compute_results: PreventUpdate because okCounts is None")
             raise PreventUpdate
 
         activate_workspace_logging(wdir)
+        ensure_page_load_active(wdir, page_load_id, where="processing:compute_results:start")
         start = time.perf_counter()
         
         def progress_adapter(percent, stage="", detail=""):
@@ -2316,9 +2332,18 @@ def callbacks(app, fsc, cache):
             logger.info('Starting full processing run.')
             logger.info('Computing chromatograms...')
             progress_adapter(0, "Chromatograms", "Preparing batches...")
-            compute_chromatograms_in_batches(wdir, use_for_optimization=False, batch_size=batch_size,
-                                             set_progress=progress_adapter, recompute_ms1=False,
-                                             recompute_ms2=False, n_cpus=n_cpus, ram=ram, use_bookmarked=bookmarked)
+            compute_chromatograms_in_batches(
+                wdir,
+                use_for_optimization=False,
+                batch_size=batch_size,
+                set_progress=progress_adapter,
+                recompute_ms1=False,
+                recompute_ms2=False,
+                n_cpus=n_cpus,
+                ram=ram,
+                use_bookmarked=bookmarked,
+                page_load_id=page_load_id,
+            )
             
             logger.info('Computing results...')
             progress_adapter(0, "Results", "Preparing batches...")
@@ -2329,7 +2354,8 @@ def callbacks(app, fsc, cache):
                                checkpoint_every = 10,
                                set_progress=progress_adapter,
                                n_cpus=n_cpus,
-                               ram=ram)
+                               ram=ram,
+                               page_load_id=page_load_id)
 
             # Run peak fitting if enabled
             if enable_fitting:
@@ -2342,7 +2368,8 @@ def callbacks(app, fsc, cache):
                     n_workers=n_cpus or 8,
                     set_progress=progress_adapter,
                     n_cpus=n_cpus,
-                    ram=ram
+                    ram=ram,
+                    page_load_id=page_load_id,
                 )
                 logger.info(f"Peak fitting complete: {fit_stats}")
 
@@ -2354,7 +2381,7 @@ def callbacks(app, fsc, cache):
                 backup_path = results_dir / "results_backup.csv"
                 
                 # Use DuckDB's native COPY for much faster CSV export
-                with duckdb_connection(wdir) as conn:
+                with duckdb_connection(wdir, page_load_id=page_load_id) as conn:
                     conn.execute(
                         "COPY (SELECT * FROM results) TO ? (HEADER, DELIMITER ',')",
                         (str(backup_path),)

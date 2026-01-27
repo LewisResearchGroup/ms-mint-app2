@@ -25,6 +25,7 @@ from ..duckdb_manager import (
     populate_full_range_downsampled_chromatograms_for_target,
     get_chromatogram_envelope,
     calculate_optimal_params,
+    ensure_page_load_active,
 )
 from ..plugin_interface import PluginInterface
 from ..tools import sparsify_chrom, proportional_min1_selection
@@ -2189,29 +2190,48 @@ def _toggle_bookmark_logic(target_label, wdir):
         return fac.AntdIcon(icon="antd-star", style={"color": icon_color})
 
 
-def _compute_chromatograms_logic(set_progress, recompute_ms1, recompute_ms2, n_cpus, ram, batch_size, wdir):
+def _compute_chromatograms_logic(
+    set_progress,
+    recompute_ms1,
+    recompute_ms2,
+    n_cpus,
+    ram,
+    batch_size,
+    wdir,
+    page_load_id: str | None = None,
+):
     def progress_adapter(percent, stage="", detail=""):
         if set_progress:
             set_progress((percent, stage or "", detail or ""))
 
     activate_workspace_logging(wdir)
+    ensure_page_load_active(wdir, page_load_id, where="target_optimization:compute_chromatograms:start")
 
-    with duckdb_connection(wdir, n_cpus=n_cpus, ram=ram) as con:
+    with duckdb_connection(wdir, n_cpus=n_cpus, ram=ram, page_load_id=page_load_id) as con:
         if con is None:
             logger.error("Could not connect to database for chromatogram computation.")
             return "Could not connect to database."
         start = time.perf_counter()
         logger.info("Starting chromatogram computation.")
         progress_adapter(0, "Chromatograms", "Preparing batches...")
-        compute_chromatograms_in_batches(wdir, use_for_optimization=True, batch_size=batch_size,
-                                            set_progress=progress_adapter, recompute_ms1=recompute_ms1,
-                                            recompute_ms2=recompute_ms2, n_cpus=n_cpus, ram=ram)
+        compute_chromatograms_in_batches(
+            wdir,
+            use_for_optimization=True,
+            batch_size=batch_size,
+            set_progress=progress_adapter,
+            recompute_ms1=recompute_ms1,
+            recompute_ms2=recompute_ms2,
+            n_cpus=n_cpus,
+            ram=ram,
+            page_load_id=page_load_id,
+        )
         logger.info(f"Chromatograms computed in {time.perf_counter() - start:.2f} seconds")
         
         # Optimize RT spans for targets that had RT auto-adjusted
         # This uses adaptive peak detection to find optimal rt_min, rt_max based on actual data
         progress_adapter(95, "Chromatograms", "Optimizing RT spans...")
         try:
+            ensure_page_load_active(wdir, page_load_id, where="target_optimization:optimize_rt_spans")
             updated_count = optimize_rt_spans_batch(con)
             logger.info(f"Optimized RT spans for {updated_count} auto-adjusted targets")
         except Exception as e:
@@ -5525,6 +5545,7 @@ def callbacks(app, fsc, cache, cpu=None):
         State("chromatogram-compute-ram", "value"),
         State("chromatogram-compute-batch-size", "value"),
         State("wdir", "data"),
+        State("page-load-id", "data"),
         background=True,
         running=[
             (Output('chromatogram-processing-progress-container', 'style'), {
@@ -5550,17 +5571,38 @@ def callbacks(app, fsc, cache, cpu=None):
             Output("chromatogram-processing-detail", "children", allow_duplicate=True),
         ],
         cancel=[
-            Input('cancel-chromatogram-processing', 'nClicks')
+            Input('cancel-chromatogram-processing', 'nClicks'),
+            Input('compute-chromatogram-modal', 'visible'),
+            Input('page-load-id', 'data'),
         ],
         prevent_initial_call=True
     )
-    def compute_chromatograms(set_progress, okCounts, recompute_ms1, recompute_ms2, n_cpus, ram, batch_size, wdir):
+    def compute_chromatograms(
+        set_progress,
+        okCounts,
+        recompute_ms1,
+        recompute_ms2,
+        n_cpus,
+        ram,
+        batch_size,
+        wdir,
+        page_load_id,
+    ):
 
         if not okCounts:
             logger.debug("compute_chromatograms: Modal not confirmed, preventing update")
             raise PreventUpdate
 
-        return _compute_chromatograms_logic(set_progress, recompute_ms1, recompute_ms2, n_cpus, ram, batch_size, wdir)
+        return _compute_chromatograms_logic(
+            set_progress,
+            recompute_ms1,
+            recompute_ms2,
+            n_cpus,
+            ram,
+            batch_size,
+            wdir,
+            page_load_id=page_load_id,
+        )
 
     ############# COMPUTE CHROMATOGRAM END #######################################
 

@@ -8,7 +8,13 @@ import logging
 import math
 import os
 import time
+import json
+import re
 import numpy as np
+try:
+    import psutil
+except Exception:  # pragma: no cover - psutil is expected but we stay defensive
+    psutil = None
 
 logger = logging.getLogger(__name__)
 _SAVGOL_SKIP_LOGS = 0
@@ -17,6 +23,8 @@ _SAVGOL_SKIP_INFO_LOGS = 0
 _SAVGOL_APPLY_INFO_LOGS = 0
 _SAVGOL_LOG_LIMIT = 25
 _SCAN_LOOKUP_LOCK = Lock()
+_DB_LOCK_COUNTS: dict[str, int] = {}
+_DB_LOCK_COUNTS_LOCK = Lock()
 
 try:
     import lttbc as _lttbc
@@ -916,6 +924,11 @@ class DatabaseCorruptionError(Exception):
 
 # Global tracker for corrupted workspaces - allows plugins to show notifications
 _corrupted_workspaces: set[str] = set()
+_busy_workspaces: dict[str, dict] = {}
+_workspace_page_loads: dict[str, dict] = {}
+_workspace_page_loads_lock = Lock()
+_PAGE_LOAD_TTL_SECONDS = 20.0
+_PAGE_LOAD_STATE_FILENAME = ".mint_page_load_state.json"
 
 
 def is_workspace_corrupted(workspace_path: Path | str) -> bool:
@@ -925,14 +938,172 @@ def is_workspace_corrupted(workspace_path: Path | str) -> bool:
     return str(workspace_path) in _corrupted_workspaces
 
 
+def is_workspace_busy(workspace_path: Path | str) -> bool:
+    """Check if a workspace is currently marked as busy (write-locked elsewhere)."""
+    if not workspace_path:
+        return False
+    return str(workspace_path) in _busy_workspaces
+
+
 def clear_corruption_flag(workspace_path: Path | str):
     """Clear the corruption flag for a workspace (e.g., after user acknowledges)."""
     _corrupted_workspaces.discard(str(workspace_path))
 
 
+def clear_busy_flag(workspace_path: Path | str):
+    """Clear the busy flag for a workspace."""
+    _busy_workspaces.pop(str(workspace_path), None)
+
+
+def _normalize_workspace_key(workspace_path: Path | str | None) -> str | None:
+    if not workspace_path:
+        return None
+    try:
+        return str(Path(workspace_path).resolve())
+    except Exception:
+        return str(workspace_path)
+
+
+class CancelledByRefresh(Exception):
+    """Raised when a page refresh/abandon is detected for a long-running job."""
+
+
+def _page_state_path(workspace_path: Path | str | None) -> Path | None:
+    key = _normalize_workspace_key(workspace_path)
+    if not key:
+        return None
+    try:
+        ws_path = Path(key)
+        return ws_path / _PAGE_LOAD_STATE_FILENAME
+    except Exception:
+        return None
+
+
+def _read_page_state(state_path: Path | None) -> dict | None:
+    if not state_path or not state_path.exists():
+        return None
+    try:
+        return json.loads(state_path.read_text())
+    except Exception:
+        return None
+
+
+def _write_page_state(state_path: Path | None, payload: dict) -> None:
+    if not state_path:
+        return
+    try:
+        state_path.parent.mkdir(parents=True, exist_ok=True)
+        tmp_path = state_path.with_suffix(state_path.suffix + ".tmp")
+        tmp_path.write_text(json.dumps(payload))
+        os.replace(tmp_path, state_path)
+    except Exception as exc:
+        logger.debug(f"Failed to write page state file {state_path}: {exc}")
+
+
+def mark_page_load_active(workspace_path: Path | str | None, page_load_id: str | None) -> None:
+    """Record the latest active page-load token for a workspace."""
+    key = _normalize_workspace_key(workspace_path)
+    if not key or not page_load_id:
+        return
+    state_path = _page_state_path(key)
+    previous_page_load_id = None
+    previous_state = _read_page_state(state_path)
+    if previous_state:
+        previous_page_load_id = previous_state.get('page_load_id')
+    else:
+        with _workspace_page_loads_lock:
+            previous = _workspace_page_loads.get(key)
+            if previous:
+                previous_page_load_id = previous.get('page_load_id')
+    # If the token changed (e.g., user refreshed), aggressively clean up
+    # other MINT processes still holding the workspace DB.
+    if previous_page_load_id and previous_page_load_id != page_load_id:
+        cleaned = _cleanup_workspace_db_users(key, aggressive=True)
+        if cleaned:
+            logger.warning(
+                "Refresh detected; terminated %s prior DB process(es) for workspace=%s",
+                cleaned,
+                key,
+            )
+    payload = {
+        'page_load_id': page_load_id,
+        'timestamp': time.time(),
+    }
+    _write_page_state(state_path, payload)
+    with _workspace_page_loads_lock:
+        _workspace_page_loads[key] = payload
+
+
+def is_page_load_active(
+    workspace_path: Path | str | None,
+    page_load_id: str | None,
+    ttl_seconds: float = _PAGE_LOAD_TTL_SECONDS,
+) -> bool:
+    """Check whether the given page-load token is still the active owner."""
+    key = _normalize_workspace_key(workspace_path)
+    if not key or not page_load_id:
+        return True
+    state_path = _page_state_path(key)
+    entry = _read_page_state(state_path)
+    if not entry:
+        with _workspace_page_loads_lock:
+            entry = _workspace_page_loads.get(key)
+    if not entry:
+        # If no heartbeat has been recorded yet, assume active.
+        return True
+    if entry.get('page_load_id') != page_load_id:
+        return False
+    age = time.time() - float(entry.get('timestamp', 0.0))
+    return age <= ttl_seconds
+
+
+def ensure_page_load_active(
+    workspace_path: Path | str | None,
+    page_load_id: str | None,
+    *,
+    where: str = "",
+    ttl_seconds: float = _PAGE_LOAD_TTL_SECONDS,
+) -> None:
+    """
+    Cancel long-running work when the originating page is no longer active.
+
+    This is a server-side guard for the "user hit F5/left the modal" case.
+    """
+    if not page_load_id:
+        return
+    if is_page_load_active(workspace_path, page_load_id, ttl_seconds=ttl_seconds):
+        return
+    location = f" at {where}" if where else ""
+    msg = (
+        "Cancelling background job due to page refresh/abandon"
+        f"{location} (workspace={workspace_path})."
+    )
+    logger.warning(msg)
+    raise CancelledByRefresh(msg)
+
+
 def _mark_corrupted(workspace_path: Path | str):
     """Mark a workspace as corrupted."""
     _corrupted_workspaces.add(str(workspace_path))
+
+
+def _extract_pid_from_busy_error(message: str) -> int | None:
+    match = re.search(r"\bPID\s+(\d+)\b", message or "")
+    if not match:
+        return None
+    try:
+        return int(match.group(1))
+    except Exception:
+        return None
+
+
+def _mark_busy(workspace_path: Path | str, message: str):
+    """Mark a workspace as busy and store diagnostic info for notifications."""
+    _busy_workspaces[str(workspace_path)] = {
+        'message': message,
+        'pid': _extract_pid_from_busy_error(message),
+        'timestamp': time.time(),
+    }
 
 
 def get_corruption_notification():
@@ -952,8 +1123,399 @@ def get_corruption_notification():
     }
 
 
+def get_busy_notification(workspace_path: Path | str):
+    """
+    Returns a notification component description when a DB is busy.
+
+    The busy flag is set when we refuse to open a write connection because
+    another process appears to hold the lock.
+    """
+    if not workspace_path:
+        return None
+    info = _busy_workspaces.get(str(workspace_path))
+    if not info:
+        return None
+    pid = info.get('pid')
+    if pid:
+        description = (
+            f"This workspace is currently write-locked by another MINT process (PID {pid}). "
+            "Please close the other session or wait a moment and try again."
+        )
+    else:
+        description = (
+            "This workspace is currently write-locked by another MINT process. "
+            "Please close the other session or wait a moment and try again."
+        )
+    return {
+        'message': "[!] Database Busy",
+        'description': description,
+        'type': "warning",
+        'duration': 8,
+        'placement': 'bottom',
+        'showProgress': True,
+    }
+
+
+class DatabaseBusyError(RuntimeError):
+    """Raised when another live process appears to hold the workspace DB."""
+
+
+def _db_lockfile_path(db_file: Path) -> Path:
+    return db_file.with_suffix(db_file.suffix + ".lock")
+
+
+def _safe_read_lockfile(lock_file: Path) -> dict | None:
+    try:
+        return json.loads(lock_file.read_text())
+    except Exception:
+        return None
+
+
+def _pid_matches_create_time(pid: int, expected_create_time: float | None) -> bool:
+    """Best-effort protection against PID reuse."""
+    if psutil is None:
+        # Without psutil we cannot safely inspect other processes.
+        return pid == os.getpid()
+    try:
+        proc = psutil.Process(pid)
+        if not proc.is_running():
+            return False
+        if expected_create_time is None:
+            return True
+        actual_create_time = proc.create_time()
+        return abs(actual_create_time - float(expected_create_time)) < 2.0
+    except (psutil.NoSuchProcess, psutil.ZombieProcess, psutil.AccessDenied, ValueError):
+        return False
+
+
+def _is_likely_mint_process(proc, workspace_path: Path) -> bool:
+    """Avoid touching unrelated processes when cleaning up orphans."""
+    if psutil is None:
+        return False
+    try:
+        cmdline = " ".join(proc.cmdline()).lower()
+    except (psutil.AccessDenied, psutil.ZombieProcess):
+        cmdline = ""
+    ws_str = workspace_path.as_posix().lower()
+    return ("ms_mint_app" in cmdline) or (ws_str and ws_str in cmdline)
+
+
+def _is_orphan_process(proc) -> bool:
+    """Heuristic: parent missing, dead, or effectively re-parented to init."""
+    if psutil is None:
+        return False
+    try:
+        parent = proc.parent()
+        if parent is None:
+            return True
+        if not parent.is_running():
+            return True
+        parent_pid = parent.pid
+        # On Unix-like systems, orphaned processes are often re-parented to PID 1.
+        if os.name != 'nt' and parent_pid == 1:
+            return True
+        # On Windows, orphaned processes can end up with the System process
+        # (PID 4) or PID 0 as an ancestor/parent. We treat those as orphaned.
+        if os.name == 'nt' and parent_pid in (0, 4):
+            return True
+        # Additional Windows heuristic: if the parent is the System process
+        # by name, treat it as orphaned.
+        if os.name == 'nt':
+            try:
+                parent_name = (parent.name() or "").lower()
+                if parent_name in {"system", "system idle process"}:
+                    return True
+            except (psutil.AccessDenied, psutil.ZombieProcess):
+                pass
+        return False
+    except (psutil.NoSuchProcess, psutil.ZombieProcess):
+        return True
+    except psutil.AccessDenied:
+        return False
+
+
+def _terminate_process(proc, reason: str) -> bool:
+    """Terminate a process gracefully, then force-kill if needed."""
+    if psutil is None:
+        return False
+    try:
+        logger.warning(f"Terminating process {proc.pid} holding DB ({reason}).")
+        proc.terminate()
+        try:
+            proc.wait(timeout=3)
+            return True
+        except psutil.TimeoutExpired:
+            logger.warning(f"Process {proc.pid} did not exit in time; killing.")
+            proc.kill()
+            proc.wait(timeout=3)
+            return True
+    except (psutil.NoSuchProcess, psutil.ZombieProcess):
+        return True
+    except psutil.AccessDenied as exc:
+        logger.error(f"Access denied when terminating process {proc.pid}: {exc}")
+        return False
+    except Exception as exc:
+        logger.error(f"Unexpected error terminating process {proc.pid}: {exc}")
+        return False
+
+
+def _cleanup_orphan_db_users(db_file: Path, workspace_path: Path) -> int:
+    """
+    Scan for orphaned MINT processes that still have the DB open and stop them.
+
+    This is intentionally conservative: we only act on processes that appear
+    to be MINT-related and orphaned.
+    """
+    if psutil is None:
+        return 0
+    db_abs = db_file.resolve().as_posix()
+    current_pid = os.getpid()
+    cleaned = 0
+
+    for proc in psutil.process_iter(['pid', 'open_files']):
+        try:
+            if proc.pid == current_pid:
+                continue
+            open_files = proc.info.get('open_files') or []
+            if not any(getattr(f, "path", None) == db_abs for f in open_files):
+                continue
+
+            if not _is_likely_mint_process(proc, workspace_path):
+                continue
+            if not _is_orphan_process(proc):
+                continue
+
+            if _terminate_process(proc, reason="orphaned DB user"):
+                cleaned += 1
+        except (psutil.NoSuchProcess, psutil.ZombieProcess):
+            continue
+        except psutil.AccessDenied:
+            continue
+        except Exception as exc:
+            logger.debug(f"Error while scanning DB users: {exc}")
+
+    if cleaned:
+        logger.warning(f"Cleaned up {cleaned} orphaned process(es) using {db_file.name}.")
+    return cleaned
+
+
+def _describe_db_users(db_file: Path, workspace_path: Path, only_mint: bool = True) -> list[dict]:
+    """
+    Best-effort diagnostic: list other processes that currently have the DB open.
+    """
+    if psutil is None:
+        return []
+    try:
+        db_abs = db_file.resolve().as_posix()
+    except Exception:
+        db_abs = db_file.as_posix()
+    current_pid = os.getpid()
+    users: list[dict] = []
+
+    for proc in psutil.process_iter(['pid', 'name', 'open_files']):
+        try:
+            if proc.pid == current_pid:
+                continue
+            open_files = proc.info.get('open_files') or []
+            if not any(getattr(f, "path", None) == db_abs for f in open_files):
+                continue
+            if only_mint and not _is_likely_mint_process(proc, workspace_path):
+                continue
+
+            try:
+                cmdline = " ".join(proc.cmdline())
+            except Exception:
+                cmdline = ""
+            try:
+                parent_pid = proc.ppid()
+            except Exception:
+                parent_pid = None
+
+            users.append({
+                'pid': proc.pid,
+                'name': proc.info.get('name'),
+                'ppid': parent_pid,
+                'orphan': _is_orphan_process(proc),
+                'cmdline': cmdline[:240],
+            })
+        except (psutil.NoSuchProcess, psutil.ZombieProcess):
+            continue
+        except psutil.AccessDenied:
+            continue
+        except Exception:
+            continue
+
+    return users
+
+
+def _cleanup_workspace_db_users(workspace_path: Path | str, aggressive: bool = False) -> int:
+    """
+    Clean up MINT processes holding the workspace DB.
+
+    When aggressive=True, we terminate any other MINT process that appears to
+    hold the DB, even if it is not orphaned. This is intended for explicit
+    "user refreshed/abandoned the modal" cases.
+    """
+    if psutil is None:
+        return 0
+    try:
+        workspace_path = Path(workspace_path).resolve()
+    except Exception:
+        workspace_path = Path(str(workspace_path))
+    db_file = workspace_path / 'workspace_mint.db'
+    if not db_file.exists():
+        return 0
+
+    db_abs = db_file.resolve().as_posix()
+    current_pid = os.getpid()
+    cleaned = 0
+
+    for proc in psutil.process_iter(['pid', 'open_files']):
+        try:
+            if proc.pid == current_pid:
+                continue
+            open_files = proc.info.get('open_files') or []
+            if not any(getattr(f, "path", None) == db_abs for f in open_files):
+                continue
+            if not _is_likely_mint_process(proc, workspace_path):
+                continue
+            if not aggressive and not _is_orphan_process(proc):
+                continue
+            if _terminate_process(proc, reason="workspace DB cleanup"):
+                cleaned += 1
+        except (psutil.NoSuchProcess, psutil.ZombieProcess):
+            continue
+        except psutil.AccessDenied:
+            continue
+        except Exception as exc:
+            logger.debug(f"Error while cleaning workspace DB users: {exc}")
+
+    if cleaned:
+        mode = "aggressive" if aggressive else "orphan"
+        logger.warning(
+            "Cleaned up %s %s DB process(es) using %s.",
+            cleaned,
+            mode,
+            db_file.name,
+        )
+    return cleaned
+
+
+def _acquire_db_write_lock(db_file: Path, workspace_path: Path, max_attempts: int = 3) -> Path:
+    """
+    Acquire an app-level write lock, clearing stale/orphaned holders when safe.
+    """
+    lock_file = _db_lockfile_path(db_file)
+    lock_key = lock_file.as_posix()
+    if psutil is not None:
+        proc_self = psutil.Process()
+        create_time = proc_self.create_time()
+        cmdline = proc_self.cmdline()
+    else:
+        create_time = None
+        cmdline = []
+    payload = {
+        'pid': os.getpid(),
+        'create_time': create_time,
+        'cmdline': cmdline,
+        'workspace_path': workspace_path.as_posix(),
+        'db_path': db_file.as_posix(),
+        'timestamp': time.time(),
+    }
+
+    # Allow nested/repeated connections within the same process.
+    with _DB_LOCK_COUNTS_LOCK:
+        existing = _DB_LOCK_COUNTS.get(lock_key, 0)
+        if existing > 0 and lock_file.exists():
+            _DB_LOCK_COUNTS[lock_key] = existing + 1
+            return lock_file
+        if existing > 0 and not lock_file.exists():
+            _DB_LOCK_COUNTS.pop(lock_key, None)
+
+    # First, try to clean up orphaned processes that may still hold the DB.
+    _cleanup_orphan_db_users(db_file, workspace_path)
+
+    attempt = 0
+    while attempt < max_attempts:
+        attempt += 1
+        try:
+            fd = os.open(lock_file, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+            with os.fdopen(fd, 'w') as f:
+                json.dump(payload, f)
+            with _DB_LOCK_COUNTS_LOCK:
+                _DB_LOCK_COUNTS[lock_key] = 1
+            return lock_file
+        except FileExistsError:
+            info = _safe_read_lockfile(lock_file) or {}
+            other_pid = int(info.get('pid', -1))
+            other_ctime = info.get('create_time')
+
+            # If we already own the lockfile, just bump the refcount.
+            if other_pid == os.getpid() and _pid_matches_create_time(other_pid, other_ctime):
+                with _DB_LOCK_COUNTS_LOCK:
+                    _DB_LOCK_COUNTS[lock_key] = _DB_LOCK_COUNTS.get(lock_key, 0) + 1
+                return lock_file
+
+            if other_pid > 0 and _pid_matches_create_time(other_pid, other_ctime):
+                try:
+                    if psutil is not None:
+                        other_proc = psutil.Process(other_pid)
+                        if _is_likely_mint_process(other_proc, workspace_path) and _is_orphan_process(other_proc):
+                            if _terminate_process(other_proc, reason="orphaned lock holder"):
+                                lock_file.unlink(missing_ok=True)
+                                continue
+                except (psutil.NoSuchProcess, psutil.ZombieProcess):
+                    lock_file.unlink(missing_ok=True)
+                    continue
+                except psutil.AccessDenied:
+                    pass
+
+                raise DatabaseBusyError(
+                    f"Workspace DB appears to be in use by PID {other_pid}: {lock_file}"
+                )
+
+            # Stale/invalid lockfile: remove and retry.
+            try:
+                lock_file.unlink(missing_ok=True)
+            except Exception:
+                pass
+            time.sleep(0.1 * attempt)
+
+    raise DatabaseBusyError(f"Unable to acquire DB write lock: {lock_file}")
+
+
+def _release_db_write_lock(lock_file: Path | None) -> None:
+    if not lock_file:
+        return
+    lock_key = lock_file.as_posix()
+    with _DB_LOCK_COUNTS_LOCK:
+        count = _DB_LOCK_COUNTS.get(lock_key, 0)
+        if count > 1:
+            _DB_LOCK_COUNTS[lock_key] = count - 1
+            return
+        _DB_LOCK_COUNTS.pop(lock_key, None)
+    try:
+        info = _safe_read_lockfile(lock_file) or {}
+        if int(info.get('pid', -1)) in (-1, os.getpid()):
+            lock_file.unlink(missing_ok=True)
+            return
+    except Exception:
+        pass
+    # Best-effort cleanup if the lockfile is malformed.
+    try:
+        lock_file.unlink(missing_ok=True)
+    except Exception:
+        pass
+
+
 @contextmanager
-def duckdb_connection(workspace_path: Path | str, register_activity=True, n_cpus=None, ram=None):
+def duckdb_connection(
+    workspace_path: Path | str,
+    register_activity=True,
+    n_cpus=None,
+    ram=None,
+    page_load_id: str | None = None,
+):
     """
     Provides a DuckDB connection as a context manager.
 
@@ -964,15 +1526,29 @@ def duckdb_connection(workspace_path: Path | str, register_activity=True, n_cpus
     if not workspace_path:
         yield None
         return
+    ensure_page_load_active(workspace_path, page_load_id, where="duckdb_connection:pre-connect")
     workspace_path = Path(workspace_path).resolve()
     db_file = Path(workspace_path, 'workspace_mint.db')
     # print(f"Connecting to DuckDB at: {db_file}")
     con = None
+    lock_file = None
     max_retries = 3
     retry_delay = 0.5
     for attempt in range(max_retries):
         try:
+            lock_file = _acquire_db_write_lock(db_file, workspace_path)
+            clear_busy_flag(workspace_path)
+            logger.info(
+                "Acquired DuckDB write lock (pid=%s, db=%s)",
+                os.getpid(),
+                db_file,
+            )
             con = duckdb.connect(database=str(db_file), read_only=False)
+            logger.info(
+                "Opened DuckDB write connection (pid=%s, db=%s)",
+                os.getpid(),
+                db_file,
+            )
             con.execute("PRAGMA enable_checkpoint_on_shutdown")
             con.execute("SET enable_progress_bar = true")
             con.execute("SET enable_progress_bar_print = false")
@@ -997,7 +1573,31 @@ def duckdb_connection(workspace_path: Path | str, register_activity=True, n_cpus
                 logger.info(f"DuckDB memory_limit set to {ram}GB (verified: {actual_limit})")
             _create_tables(con)
             break # Success
+        except DatabaseBusyError as e:
+            logger.error(f"Database busy; refusing to open write connection: {e}")
+            try:
+                busy_users = _describe_db_users(db_file, workspace_path, only_mint=True)
+                if busy_users:
+                    logger.error("Processes currently holding the DB open:")
+                    for u in busy_users:
+                        logger.error(
+                            "  pid=%s name=%s ppid=%s orphan=%s cmd=%s",
+                            u.get('pid'),
+                            u.get('name'),
+                            u.get('ppid'),
+                            u.get('orphan'),
+                            u.get('cmdline'),
+                        )
+                else:
+                    logger.error("No DB holders detected via psutil.open_files (may be permissions/race).")
+            except Exception as diag_exc:
+                logger.debug(f"Failed to describe DB users: {diag_exc}")
+            _mark_busy(workspace_path, str(e))
+            _release_db_write_lock(lock_file)
+            yield None
+            return
         except (duckdb.IOException, duckdb.BinderException) as e:
+            _release_db_write_lock(lock_file)
             if "Corrupt database file" in str(e):
                 _mark_corrupted(workspace_path)  # Mark for UI notification
                 logger.critical(
@@ -1018,6 +1618,7 @@ def duckdb_connection(workspace_path: Path | str, register_activity=True, n_cpus
                 return
         except Exception as e:
             logger.error(f"Unexpected error connecting to DuckDB: {e}")
+            _release_db_write_lock(lock_file)
             yield None
             return
 
@@ -1037,6 +1638,13 @@ def duckdb_connection(workspace_path: Path | str, register_activity=True, n_cpus
             if ram:
                 con.execute("RESET memory_limit")
             con.close()
+        _release_db_write_lock(lock_file)
+        if lock_file:
+            logger.info(
+                "Released DuckDB write lock (pid=%s, lock=%s)",
+                os.getpid(),
+                lock_file,
+            )
 
 
 @contextmanager
@@ -1941,9 +2549,11 @@ def compute_chromatograms_in_batches(wdir: str,
                                      n_cpus=None,
                                      ram=None,
                                      use_bookmarked: bool = False,
+                                     page_load_id: str | None = None,
                                      ):
 
     logger.info(f"Computing chromatograms in batches. wDir: {wdir}")
+    ensure_page_load_active(wdir, page_load_id, where="compute_chromatograms_in_batches:start")
     QUERY_CREATE_SCAN_LOOKUP = """
                                CREATE TABLE IF NOT EXISTS ms_file_scans AS
                                SELECT DISTINCT ms_file_label,
@@ -2153,15 +2763,18 @@ def compute_chromatograms_in_batches(wdir: str,
                               """
 
     if recompute_ms1:
+        ensure_page_load_active(wdir, page_load_id, where="compute_chromatograms_in_batches:recompute_ms1")
         logger.info("Deleting existing MS1 chromatograms for recalculation...")
-        with duckdb_connection(wdir, n_cpus=n_cpus, ram=ram) as con:
+        with duckdb_connection(wdir, n_cpus=n_cpus, ram=ram, page_load_id=page_load_id) as con:
             con.execute("DELETE FROM chromatograms WHERE ms_type = 'ms1'")
     if recompute_ms2:
+        ensure_page_load_active(wdir, page_load_id, where="compute_chromatograms_in_batches:recompute_ms2")
         logger.info("Deleting existing MS2 chromatograms for recalculation...")
-        with duckdb_connection(wdir, n_cpus=n_cpus, ram=ram) as con:
+        with duckdb_connection(wdir, n_cpus=n_cpus, ram=ram, page_load_id=page_load_id) as con:
             con.execute("DELETE FROM chromatograms WHERE ms_type = 'ms2'")
 
-    with duckdb_connection(wdir, n_cpus=n_cpus, ram=ram) as conn:
+    ensure_page_load_active(wdir, page_load_id, where="compute_chromatograms_in_batches:scan_lookup")
+    with duckdb_connection(wdir, n_cpus=n_cpus, ram=ram, page_load_id=page_load_id) as conn:
         # Ensure clean database state before processing (clears any accumulated WAL)
         logger.info("Running CHECKPOINT to ensure clean database state...")
         conn.execute("CHECKPOINT")
@@ -2190,7 +2803,8 @@ def compute_chromatograms_in_batches(wdir: str,
             logger.info(f"  Average scans per file: {result[2]:.0f}")
             logger.info(f"  Time elapsed: {elapsed:.2f}s")
 
-    with duckdb_connection(wdir, n_cpus=n_cpus, ram=ram) as conn:
+    ensure_page_load_active(wdir, page_load_id, where="compute_chromatograms_in_batches:pending_pairs")
+    with duckdb_connection(wdir, n_cpus=n_cpus, ram=ram, page_load_id=page_load_id) as conn:
         # Ensure clean database state before processing (clears any accumulated WAL)
         logger.info("Running CHECKPOINT to ensure clean database state...")
         conn.execute("CHECKPOINT")
@@ -2253,6 +2867,7 @@ def compute_chromatograms_in_batches(wdir: str,
         global_stats: dict[str, dict] = {}
 
         for ms_type, total_pairs_type, min_id, max_id in rows:
+            ensure_page_load_active(wdir, page_load_id, where=f"compute_chromatograms_in_batches:ms_type:{ms_type}")
             logger.info(f"--- Processing {ms_type} ---")
             logger.info(f"Pending pairs: {total_pairs_type:,} (pair_id {min_id}-{max_id})")
 
@@ -2276,14 +2891,20 @@ def compute_chromatograms_in_batches(wdir: str,
             batches_since_checkpoint = 0
             total_files_type = files_per_type.get(ms_type, 0)
 
-            with duckdb_connection(wdir, n_cpus=n_cpus, ram=ram) as conn:
+            with duckdb_connection(wdir, n_cpus=n_cpus, ram=ram, page_load_id=page_load_id) as conn:
                 # Process batches in a single connection; checkpoint periodically to avoid WAL stalls
                 conn.execute("BEGIN TRANSACTION")
 
                 while current_id <= max_id:
+                    ensure_page_load_active(
+                        wdir,
+                        page_load_id,
+                        where=f"compute_chromatograms_in_batches:batch:{ms_type}:{batch_num}",
+                    )
                     batch_count = 0
                     start_id = current_id
                     end_id = current_id + batch_size - 1
+                    log_line = None
 
                     try:
                         batch_count = conn.execute("""
@@ -2341,6 +2962,8 @@ def compute_chromatograms_in_batches(wdir: str,
                         batch_num += 1
 
                     except Exception as e:
+                        if 'Cancelled' in type(e).__name__ or 'PreventUpdate' in type(e).__name__:
+                            raise
                         batch_elapsed = time.time() - batch_start if 'batch_start' in locals() else 0
                         failed += batch_count
 
@@ -2388,7 +3011,8 @@ def compute_chromatograms_in_batches(wdir: str,
                 conn.execute("COMMIT")
                 conn.execute("CHECKPOINT")
 
-    with duckdb_connection(wdir, n_cpus=n_cpus, ram=ram) as conn:
+    ensure_page_load_active(wdir, page_load_id, where="compute_chromatograms_in_batches:cleanup")
+    with duckdb_connection(wdir, n_cpus=n_cpus, ram=ram, page_load_id=page_load_id) as conn:
         conn.execute("DROP TABLE IF EXISTS ms_file_scans")
         conn.execute("DROP TABLE IF EXISTS pending_pairs")
 
@@ -2789,13 +3413,16 @@ def compute_results_in_batches(wdir: str,
                                checkpoint_every: int = 20,
                                set_progress=None,
                                n_cpus=None,
-                               ram=None):
+                               ram=None,
+                               page_load_id: str | None = None):
     """
     Compute results with efficient macros.
     include_arrays=False: numeric metrics only (FAST)
     include_arrays=True: include scan_time and intensity arrays (SLOWER)
     """
 
+
+    ensure_page_load_active(wdir, page_load_id, where="compute_results_in_batches:start")
 
     # OPTIMIZED macro using list functions - avoids UNNEST memory explosion
     # This approach filters arrays directly without creating intermediate rows,
@@ -2989,17 +3616,20 @@ def compute_results_in_batches(wdir: str,
 
 
     if recompute:
+        ensure_page_load_active(wdir, page_load_id, where="compute_results_in_batches:recompute")
         logger.info("Deleting existing results for recalculation...")
-        with duckdb_connection(wdir, n_cpus=n_cpus, ram=ram) as con:
+        with duckdb_connection(wdir, n_cpus=n_cpus, ram=ram, page_load_id=page_load_id) as con:
             con.execute("DELETE FROM results")
 
     # Create helper macro
-    with duckdb_connection(wdir, n_cpus=n_cpus, ram=ram) as conn:
+    ensure_page_load_active(wdir, page_load_id, where="compute_results_in_batches:helpers")
+    with duckdb_connection(wdir, n_cpus=n_cpus, ram=ram, page_load_id=page_load_id) as conn:
         logger.info("Creating helper macro...")
         conn.execute(QUERY_CREATE_HELPERS)
 
     # Create pending pairs table
-    with duckdb_connection(wdir, n_cpus=n_cpus, ram=ram) as conn:
+    ensure_page_load_active(wdir, page_load_id, where="compute_results_in_batches:pending_pairs")
+    with duckdb_connection(wdir, n_cpus=n_cpus, ram=ram, page_load_id=page_load_id) as conn:
         # Ensure clean database state before processing (clears any accumulated WAL)
         logger.info("Running CHECKPOINT to ensure clean database state...")
         conn.execute("CHECKPOINT")
@@ -3058,7 +3688,8 @@ def compute_results_in_batches(wdir: str,
     batch_num = 1
     total_batches = (total_count + batch_size - 1) // batch_size
 
-    with duckdb_connection(wdir, n_cpus=n_cpus, ram=ram) as conn:
+    ensure_page_load_active(wdir, page_load_id, where="compute_results_in_batches:process")
+    with duckdb_connection(wdir, n_cpus=n_cpus, ram=ram, page_load_id=page_load_id) as conn:
         # Settings for bulk writes
         conn.execute("SET wal_autocheckpoint='1GB'")
         conn.execute("BEGIN TRANSACTION")
@@ -3066,6 +3697,11 @@ def compute_results_in_batches(wdir: str,
         batches_in_txn = 0
 
         while current_id <= max_id:
+            ensure_page_load_active(
+                wdir,
+                page_load_id,
+                where=f"compute_results_in_batches:batch:{batch_num}",
+            )
             start_id = current_id
             end_id = current_id + batch_size - 1
             log_line = None  # Initialize before try block to avoid UnboundLocalError in finally
@@ -3125,6 +3761,8 @@ def compute_results_in_batches(wdir: str,
                 batch_num += 1
 
             except Exception as e:
+                if 'Cancelled' in type(e).__name__ or 'PreventUpdate' in type(e).__name__:
+                    raise
                 batch_elapsed = time.time() - batch_start if 'batch_start' in locals() else 0
                 failed += batch_count if 'batch_count' in locals() else 0
 
@@ -3175,7 +3813,8 @@ def compute_results_in_batches(wdir: str,
         logger.info(f"Checkpoint completed in {time.time() - flush_start:.2f}s")
 
     # Clean up
-    with duckdb_connection(wdir, n_cpus=n_cpus, ram=ram) as conn:
+    ensure_page_load_active(wdir, page_load_id, where="compute_results_in_batches:cleanup")
+    with duckdb_connection(wdir, n_cpus=n_cpus, ram=ram, page_load_id=page_load_id) as conn:
         conn.execute("DROP TABLE IF EXISTS pending_result_pairs")
 
     logger.info(
@@ -3199,7 +3838,8 @@ def compute_fitted_results(
     n_workers: int = 8,
     set_progress=None,
     n_cpus=None,
-    ram=None
+    ram=None,
+    page_load_id: str | None = None,
 ) -> dict:
     """
     Compute EMG peak fitting for all results.
@@ -3223,10 +3863,12 @@ def compute_fitted_results(
     """
     from .peak_fitting import fit_peaks_batch
     
+    ensure_page_load_active(wdir, page_load_id, where="compute_fitted_results:start")
     _send_progress(set_progress, 0, stage="Peak Fitting", detail="Preparing data...")
     
     # Query results that need fitting
-    with duckdb_connection(wdir, n_cpus=n_cpus, ram=ram) as conn:
+    ensure_page_load_active(wdir, page_load_id, where="compute_fitted_results:query")
+    with duckdb_connection(wdir, n_cpus=n_cpus, ram=ram, page_load_id=page_load_id) as conn:
         # Build query to get peaks needing fitting
         where_conditions = []
         if use_bookmarked:
@@ -3258,6 +3900,7 @@ def compute_fitted_results(
         _send_progress(set_progress, 100, stage="Peak Fitting", detail="No peaks to fit")
         return {'total': 0, 'fitted': 0, 'failed': 0}
     
+    ensure_page_load_active(wdir, page_load_id, where="compute_fitted_results:fit_start")
     total_peaks = len(data)
     logger.info(f"Fitting {total_peaks:,} peaks with {n_workers} workers...")
     
