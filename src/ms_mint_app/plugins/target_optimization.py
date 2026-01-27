@@ -2571,7 +2571,7 @@ def callbacks(app, fsc, cache, cpu=None):
             logger.warning(f"Could not update workspace status from DB: {e}")
             # workspace_status already contains safe defaults from lines 1561-1573
         
-        logger.info(f"workspace-status updated (chromatograms changed): {workspace_status}")
+        logger.debug(f"workspace-status updated (chromatograms changed): {workspace_status}")
         return workspace_status
 
     @app.callback(

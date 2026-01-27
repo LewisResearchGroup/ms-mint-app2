@@ -2438,7 +2438,7 @@ def callbacks(app, fsc, cache):
                         'ram_avail': round(ram_avail, 1),
                         'default_ram': default_ram
                     }
-        logger.info(f"workspace-status updated after processing: {workspace_status}")
+        logger.debug(f"workspace-status updated after processing: {workspace_status}")
 
         return {'action': 'processing', 'status': 'completed', 'timestamp': time.time()}, False, workspace_status
 
