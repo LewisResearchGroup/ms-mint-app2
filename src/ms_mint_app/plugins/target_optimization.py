@@ -1,5 +1,6 @@
 import json
 import logging
+import re
 import uuid
 from collections import defaultdict
 from os import cpu_count
@@ -50,6 +51,73 @@ RT_FALLBACK_PAD_SECONDS = 30.0
 
 _SESSION_RENDER_REVISIONS = defaultdict(int)
 _SESSION_RENDER_LOCK = Lock()
+
+_RT_ALIGN_NOTE_START = "--- RT alignment (auto) ---"
+_RT_ALIGN_NOTE_END = "--- End RT alignment (auto) ---"
+
+
+def _strip_rt_alignment_auto_note(note_text: str) -> str:
+    """Remove any previously auto-generated RT alignment note block."""
+    if not note_text:
+        return ""
+    pattern = re.compile(
+        rf"\n*{re.escape(_RT_ALIGN_NOTE_START)}.*?{re.escape(_RT_ALIGN_NOTE_END)}\n*",
+        re.DOTALL,
+    )
+    stripped = re.sub(pattern, "\n\n", note_text).strip()
+    return stripped
+
+
+def _extract_rt_alignment_auto_note(note_text: str) -> str:
+    """Extract the auto-generated RT alignment note block, if present."""
+    if not note_text:
+        return ""
+    pattern = re.compile(
+        rf"{re.escape(_RT_ALIGN_NOTE_START)}.*?{re.escape(_RT_ALIGN_NOTE_END)}",
+        re.DOTALL,
+    )
+    match = pattern.search(note_text)
+    return match.group(0).strip() if match else ""
+
+
+def _format_rt_alignment_auto_note(rt_alignment_data: dict) -> str:
+    """Create a stable, parseable RT alignment auto-note block."""
+    if not rt_alignment_data or not rt_alignment_data.get("enabled"):
+        return ""
+
+    reference_rt = rt_alignment_data.get("reference_rt")
+    rt_min = rt_alignment_data.get("rt_min")
+    rt_max = rt_alignment_data.get("rt_max")
+    shifts_by_sample_type = rt_alignment_data.get("shifts_by_sample_type") or {}
+
+    ref_txt = f"{float(reference_rt):.2f}s" if reference_rt is not None else "n/a"
+    span_txt = (
+        f"[{float(rt_min):.2f}s, {float(rt_max):.2f}s]"
+        if rt_min is not None and rt_max is not None
+        else "n/a"
+    )
+
+    lines = [
+        _RT_ALIGN_NOTE_START,
+        "RT alignment: enabled",
+        f"Reference RT: {ref_txt}",
+        f"RT span: {span_txt}",
+        "Median shifts by sample type (seconds):",
+    ]
+
+    if shifts_by_sample_type:
+        for sample_type in sorted(shifts_by_sample_type):
+            shift_val = shifts_by_sample_type.get(sample_type, 0.0)
+            try:
+                shift_txt = f"{float(shift_val):+0.2f}s"
+            except (TypeError, ValueError):
+                shift_txt = "n/a"
+            lines.append(f"- {sample_type}: {shift_txt}")
+    else:
+        lines.append("- n/a")
+
+    lines.append(_RT_ALIGN_NOTE_END)
+    return "\n".join(lines)
 
 
 def _get_savgol_min_points(window_length):
@@ -275,14 +343,46 @@ def _save_target_state(
         "cleared_rt_alignment": False,
         "rt_min": None,
         "rt_max": None,
+        "final_note": None,
     }
 
     note_text = "" if note_text is None else note_text
+
+    # Ensure the RT alignment auto-note is kept in sync with the alignment state,
+    # but preserve existing auto-notes when we're not saving alignment state here.
+    existing_notes_row = conn.execute(
+        "SELECT COALESCE(notes, '') FROM targets WHERE peak_label = ?",
+        (target_label,),
+    ).fetchone()
+    existing_notes = existing_notes_row[0] if existing_notes_row else ""
+
+    base_note = _strip_rt_alignment_auto_note(note_text)
+
+    auto_note = ""
+    if save_rt_alignment:
+        if rt_align_toggle is True and rt_alignment_data:
+            auto_note = _format_rt_alignment_auto_note(rt_alignment_data)
+        elif rt_align_toggle is False:
+            auto_note = ""
+        else:
+            # Alignment state is unchanged; keep any existing auto-note.
+            auto_note = _extract_rt_alignment_auto_note(existing_notes)
+    else:
+        # We're only saving notes/RT span; keep any existing auto-note.
+        auto_note = _extract_rt_alignment_auto_note(existing_notes)
+
+    if auto_note:
+        final_note = f"{base_note}\n\n{auto_note}".strip() if base_note else auto_note
+    else:
+        # If alignment is off (or not being saved), we still strip any prior auto-note.
+        final_note = base_note
+
     conn.execute(
         "UPDATE targets SET notes = ? WHERE peak_label = ?",
-        (note_text, target_label),
+        (final_note, target_label),
     )
     result["saved_notes"] = True
+    result["final_note"] = final_note
 
     if save_rt_span and slider_data is not None:
         if not (check_slider_change and not reference_data):
@@ -3825,6 +3925,25 @@ def callbacks(app, fsc, cache, cpu=None):
             raise PreventUpdate
 
         return fig, alignment_data
+
+    @app.callback(
+        Output('target-note', 'value', allow_duplicate=True),
+        Input('rt-alignment-data', 'data'),
+        State('target-note', 'value'),
+        prevent_initial_call=True,
+    )
+    def sync_rt_alignment_note(rt_alignment_data, note_text):
+        """Keep the note field in sync with RT alignment state on the client side."""
+        note_text = "" if note_text is None else note_text
+        base_note = _strip_rt_alignment_auto_note(note_text)
+
+        if rt_alignment_data and rt_alignment_data.get("enabled"):
+            auto_note = _format_rt_alignment_auto_note(rt_alignment_data)
+            if auto_note:
+                return f"{base_note}\n\n{auto_note}".strip() if base_note else auto_note
+
+        # Alignment disabled or missing: remove any prior auto-note block.
+        return base_note
 
 
     @app.callback(
