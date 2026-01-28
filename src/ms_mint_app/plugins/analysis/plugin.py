@@ -15,7 +15,7 @@ import plotly.graph_objects as go
 import plotly.express as px
 
 from ...plugin_interface import PluginInterface
-from ...duckdb_manager import duckdb_connection, get_physical_cores
+from ...duckdb_manager import duckdb_connection, get_physical_cores, calculate_optimal_params
 from ._shared import (
     METRIC_OPTIONS, NORM_OPTIONS, GROUP_SELECT_OPTIONS, TAB_DEFAULT_NORM,
     GROUPING_FIELDS, GROUP_LABELS, GROUP_COLUMNS,
@@ -28,9 +28,9 @@ logger = logging.getLogger(__name__)
 
 # Analysis menu items for sidebar
 ANALYSIS_MENU_ITEMS = [
-    {'component': 'Item', 'props': {'key': 'qc', 'title': 'QC', 'icon': 'antd-check-circle'}},
     {'component': 'Item', 'props': {'key': 'pca', 'title': 'PCA', 'icon': 'antd-dot-chart'}},
     {'component': 'Item', 'props': {'key': 'tsne', 'title': 't-SNE', 'icon': 'antd-deployment-unit'}},
+    {'component': 'Item', 'props': {'key': 'qc', 'title': 'QC', 'icon': 'antd-check-circle'}},
     {'component': 'Item', 'props': {'key': 'raincloud', 'title': 'Violin', 'icon': 'antd-control'}},
     {'component': 'Item', 'props': {'key': 'bar', 'title': 'Bar', 'icon': 'antd-bar-chart'}},
     {'component': 'Item', 'props': {'key': 'clustermap', 'title': 'Clustermap', 'icon': 'antd-build'}},
@@ -70,7 +70,7 @@ _layout = fac.AntdLayout(
                                     id='analysis-sidebar-menu',
                                     menuItems=ANALYSIS_MENU_ITEMS,
                                     mode='inline',
-                                    defaultSelectedKey='qc',
+                                    defaultSelectedKey='pca',
                                     style={'border': 'none'},
                                 ),
                             ],
@@ -242,7 +242,7 @@ _layout = fac.AntdLayout(
             style={'height': 'calc(100vh - 100px)', 'background': 'white'},
         ),
         # Hidden store for maintaining tab state compatibility with callbacks
-        dcc.Store(id='analysis-tabs', data={'activeKey': 'qc'}),
+        dcc.Store(id='analysis-tabs', data={'activeKey': 'pca'}),
         fac.AntdTour(
             locale='en-us',
             steps=[],
@@ -512,8 +512,8 @@ def callbacks(app, fsc=None, cache=None):
         prevent_initial_call=False,
     )
     def update_analysis_content_visibility(current_key):
-        # Default to 'qc' if no key selected (QC is now the first tab)
-        active_key = current_key or 'qc'
+        # Default to 'pca' if no key selected
+        active_key = current_key or 'pca'
         
         qc_style = {'display': 'block', 'padding': '16px'} if active_key == 'qc' else {'display': 'none', 'padding': '16px'}
         pca_style = {'display': 'block', 'padding': '16px'} if active_key == 'pca' else {'display': 'none', 'padding': '16px'}
@@ -645,9 +645,13 @@ def update_content(section_context, tab_key, x_comp, y_comp, violin_comp_checks,
         grouping_fields = GROUPING_FIELDS
         selected_group = group_by if group_by in grouping_fields else GROUPING_FIELDS[0]
         
-        with duckdb_connection(wdir) as conn:
+        # Calculate optimal resources
+        cpus, ram, _ = calculate_optimal_params()
+
+        with duckdb_connection(wdir, n_cpus=cpus, ram=ram) as conn:
             if conn is None:
                 return None, invisible_fig, invisible_fig, [], [], [], [], [], []
+
             try:
                 results_count = conn.execute("SELECT COUNT(*) FROM results").fetchone()[0]
                 if results_count == 0:
