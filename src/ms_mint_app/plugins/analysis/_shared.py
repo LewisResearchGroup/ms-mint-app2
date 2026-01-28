@@ -65,8 +65,9 @@ METRIC_OPTIONS = [
 
 PLOTLY_HIGH_RES_CONFIG = {
     'toImageButtonOptions': {
-        'format': 'png',
-        'scale': 4,
+        'format': 'svg',
+        'filename': 'mint_plot',
+        'scale': 1,  # Scale does not matter for SVG, but good to keep clean
         'height': None,
         'width': None,
     },
@@ -74,6 +75,15 @@ PLOTLY_HIGH_RES_CONFIG = {
     'displaylogo': False,
     'responsive': True,
 }
+
+
+def get_download_config(image_format='svg', filename='mint_plot'):
+    """Get Plotly config with specified download format and filename."""
+    config = PLOTLY_HIGH_RES_CONFIG.copy()
+    config['toImageButtonOptions'] = config['toImageButtonOptions'].copy()
+    config['toImageButtonOptions']['format'] = image_format
+    config['toImageButtonOptions']['filename'] = filename
+    return config
 
 allowed_metrics = {
     'peak_area',

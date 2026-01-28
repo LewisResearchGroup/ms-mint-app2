@@ -4,7 +4,7 @@ from ._shared import (
     fac, html, dcc, go, px, pd, np, logger,
     Input, Output, State, ALL, MATCH, PreventUpdate,
     duckdb_connection, GROUP_LABELS, METRIC_OPTIONS, PLOTLY_HIGH_RES_CONFIG,
-    _calc_y_range_numpy, dash
+    _calc_y_range_numpy, dash, get_download_config
 )
 from scipy.stats import ttest_ind, f_oneway
 from .pca import run_pca_samples_in_cols
@@ -100,8 +100,9 @@ def create_layout():
 violin_selected_sample_store = dcc.Store(id='violin-selected-sample', data=None)
 
 
-def generate_violin_plots(violin_matrix, group_series, color_map, group_label, metric, norm_value, violin_comp_checks, compound_options):
+def generate_violin_plots(violin_matrix, group_series, color_map, group_label, metric, norm_value, violin_comp_checks, compound_options, filename='violin_plot'):
     """Generate the Violin/Raincloud plots."""
+    config = get_download_config(filename=filename, image_format='svg')
     logger.info("Generating Violin/Raincloud plots...")
     # Build options list; sort by absolute PC1 loading if available so the most
     # influential metabolites surface first.
@@ -243,7 +244,7 @@ def generate_violin_plots(violin_matrix, group_series, color_map, group_label, m
             id={'type': 'violin-plot', 'index': 'main'},
             figure=fig, 
             style={'height': '450px', 'width': '100%'},
-            config=PLOTLY_HIGH_RES_CONFIG
+            config=config
         ))
     return graphs, violin_options, selected_compound
 

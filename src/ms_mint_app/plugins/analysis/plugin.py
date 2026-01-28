@@ -15,12 +15,13 @@ import plotly.graph_objects as go
 import plotly.express as px
 
 from ...plugin_interface import PluginInterface
-from ...duckdb_manager import duckdb_connection, get_physical_cores, calculate_optimal_params
+from ... import tools as T
+from ...duckdb_manager import duckdb_connection, get_physical_cores, calculate_optimal_params, get_workspace_name_from_wdir
 from ._shared import (
     METRIC_OPTIONS, NORM_OPTIONS, GROUP_SELECT_OPTIONS, TAB_DEFAULT_NORM,
     GROUPING_FIELDS, GROUP_LABELS, GROUP_COLUMNS,
     rocke_durbin, _build_color_map, _clean_numeric, _create_pivot_custom,
-    create_invisible_figure
+    create_invisible_figure, get_download_config
 )
 from . import qc, pca, tsne, violin, bar, clustermap
 
@@ -577,6 +578,32 @@ def callbacks(app, fsc=None, cache=None):
         return dash.no_update, dash.no_update, steps
 
     @app.callback(
+        Output('qc-rt-graph', 'config'),
+        Output('qc-mz-graph', 'config'),
+        Output('qc-chromatogram', 'config'),
+        Output('pca-graph', 'config'),
+        Output('tsne-graph', 'config'),
+        Output('violin-chromatogram', 'config'),
+        Output('bar-chromatogram', 'config'),
+        Input('wdir', 'data'),
+    )
+    def update_graph_configs(wdir):
+        """Update download config with standardized filename."""
+        ws_name = get_workspace_name_from_wdir(wdir) if wdir else "workspace"
+        date_str = T.today()
+        base_name = f"{date_str}-MINT__{ws_name}-Analysis"
+        
+        return (
+            get_download_config(filename=f"{base_name}-QC-RT"),
+            get_download_config(filename=f"{base_name}-QC-MZ"),
+            get_download_config(filename=f"{base_name}-QC-Chromatogram"),
+            get_download_config(filename=f"{base_name}-PCA"),
+            get_download_config(filename=f"{base_name}-tSNE"),
+            get_download_config(filename=f"{base_name}-Violin-Chromatogram"),
+            get_download_config(filename=f"{base_name}-Bar-Chromatogram"),
+        )
+
+    @app.callback(
         Output('clustermap-image', 'src'),
         Output('pca-graph', 'figure'),
         Output('tsne-graph', 'figure'),
@@ -647,6 +674,10 @@ def update_content(section_context, tab_key, x_comp, y_comp, violin_comp_checks,
         
         # Calculate optimal resources
         cpus, ram, _ = calculate_optimal_params()
+        
+        ws_name = get_workspace_name_from_wdir(wdir) if wdir else "workspace"
+        date_str = T.today()
+        base_name = f"{date_str}-MINT__{ws_name}-Analysis"
 
         with duckdb_connection(wdir, n_cpus=cpus, ram=ram) as conn:
             if conn is None:
@@ -806,11 +837,13 @@ def update_content(section_context, tab_key, x_comp, y_comp, violin_comp_checks,
              return dash.no_update, dash.no_update, fig, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update
         
         elif tab_key == 'raincloud':
-             graphs, options, val = violin.generate_violin_plots(violin_matrix, group_series, color_map, group_label, metric, norm_value, violin_comp_checks, compound_options)
+             file_name = f"{base_name}-Violin"
+             graphs, options, val = violin.generate_violin_plots(violin_matrix, group_series, color_map, group_label, metric, norm_value, violin_comp_checks, compound_options, filename=file_name)
              return dash.no_update, dash.no_update, dash.no_update, graphs, options, val, dash.no_update, dash.no_update, dash.no_update
 
         elif tab_key == 'bar':
-             graphs, options, val = bar.generate_bar_plots(violin_matrix, group_series, color_map, group_label, metric, norm_value, bar_comp_checks, compound_options)
+             file_name = f"{base_name}-Bar"
+             graphs, options, val = bar.generate_bar_plots(violin_matrix, group_series, color_map, group_label, metric, norm_value, bar_comp_checks, compound_options, filename=file_name)
              return dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, graphs, options, val
 
         return dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update

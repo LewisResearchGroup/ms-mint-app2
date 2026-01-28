@@ -4,7 +4,7 @@ from ._shared import (
     fac, html, dcc, go, pd, np, logger,
     Input, Output, State, ALL, MATCH, PreventUpdate,
     duckdb_connection, GROUP_LABELS, METRIC_OPTIONS, PLOTLY_HIGH_RES_CONFIG,
-    _calc_y_range_numpy, dash
+    _calc_y_range_numpy, dash, get_download_config
 )
 from scipy.stats import ttest_ind, f_oneway
 from .pca import run_pca_samples_in_cols
@@ -100,8 +100,9 @@ def create_layout():
 bar_selected_sample_store = dcc.Store(id='bar-selected-sample', data=None)
 
 
-def generate_bar_plots(violin_matrix, group_series, color_map, group_label, metric, norm_value, bar_comp_checks, compound_options):
+def generate_bar_plots(bar_matrix, group_series, color_map, group_label, metric, norm_value, bar_comp_checks, compound_options, filename='bar_plot'):
     """Generate the Bar plots."""
+    config = get_download_config(filename=filename, image_format='svg')
     default_bar = None
     bar_options = compound_options
     
@@ -251,7 +252,7 @@ def generate_bar_plots(violin_matrix, group_series, color_map, group_label, metr
             id={'type': 'bar-plot', 'index': 'main'},
             figure=fig, 
             style={'height': '450px', 'width': '100%'},
-            config=PLOTLY_HIGH_RES_CONFIG
+            config=config
         ))
     return graphs, bar_options, selected_compound
 

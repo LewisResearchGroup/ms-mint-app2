@@ -7,6 +7,8 @@ from ._shared import (
     dash
 )
 from ..scalir import slugify_label
+from ... import tools as T
+from ...duckdb_manager import get_workspace_name_from_wdir
 
 
 def create_layout():
@@ -291,12 +293,17 @@ def register_callbacks(app):
         Output('clustermap-download', 'data'),
         Input('clustermap-save-png-btn', 'nClicks'),
         State('clustermap-image', 'src'),
+        State('wdir', 'data'),
         prevent_initial_call=True,
     )
-    def save_clustermap_png(n_clicks, img_src):
+    def save_clustermap_png(n_clicks, img_src, wdir):
         if not n_clicks or not img_src:
             raise PreventUpdate
         
+        ws_name = get_workspace_name_from_wdir(wdir) if wdir else "workspace"
+        date_str = T.today()
+        filename = f"{date_str}-MINT__{ws_name}-Analysis-Clustermap.png"
+
         # Extract base64 data from src
         if ',' in img_src:
             img_data = img_src.split(',')[1]
@@ -305,7 +312,7 @@ def register_callbacks(app):
             
         return dict(
             content=img_data,
-            filename='clustermap.png',
+            filename=filename,
             type='image/png',
             base64=True,
         )
