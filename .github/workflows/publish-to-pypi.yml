@@ -5,6 +5,11 @@ on:
     types: [published]
   workflow_dispatch:
     inputs:
+      ref:
+        description: "Git ref (tag or branch) to build (e.g., v2.0.0-rc.1)"
+        required: true
+        default: "v2.0.0-rc.1"
+        type: string
       test_pypi:
         description: "Publish to TestPyPI instead of PyPI"
         required: false
@@ -14,7 +19,6 @@ on:
 permissions:
   contents: read
 
-# Prevent overlapping publishes (e.g., two releases close together)
 concurrency:
   group: publish-${{ github.ref }}
   cancel-in-progress: false
@@ -28,7 +32,18 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0 # Needed for versioneer
+          fetch-depth: 0
+          # For manual runs, build exactly the ref the user provided (tag or branch).
+          # For release runs, build the release ref.
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.ref || github.ref }}
+
+      - name: Show git version info
+        run: |
+          echo "GITHUB_REF=$GITHUB_REF"
+          echo "GITHUB_SHA=$GITHUB_SHA"
+          git describe --tags --dirty --always || true
+          echo "Tags pointing at HEAD:"
+          git tag --points-at HEAD || true
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -42,6 +57,14 @@ jobs:
 
       - name: Build package
         run: python -m build
+
+      - name: Fail if local version (+...) would be uploaded
+        run: |
+          ls -1 dist/
+          if ls dist/*+* 1> /dev/null 2>&1; then
+            echo "ERROR: Local version (+...) detected in dist filename. Build from a tag (e.g., v2.0.0-rc.1) or override version."
+            exit 1
+          fi
 
       - name: Store the distribution packages
         uses: actions/upload-artifact@v4
@@ -63,7 +86,7 @@ jobs:
       url: https://test.pypi.org/p/ms-mint-app2
 
     permissions:
-      id-token: write # mandatory for trusted publishing
+      id-token: write
 
     steps:
       - name: Download all the dists
@@ -89,7 +112,7 @@ jobs:
       url: https://pypi.org/p/ms-mint-app2
 
     permissions:
-      id-token: write # mandatory for trusted publishing
+      id-token: write
 
     steps:
       - name: Download all the dists
