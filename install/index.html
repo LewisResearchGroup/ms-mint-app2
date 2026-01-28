@@ -311,17 +311,6 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#local-file-access" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Local file access
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
   <a href="#configuration-file" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -721,17 +710,6 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#local-file-access" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Local file access
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
   <a href="#configuration-file" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -773,7 +751,7 @@ https://github.com/LewisResearchGroup/ms-mint-app2/releases/latest</p>
 <p><strong>Note</strong>: If port 9999 is already in use, MINT automatically selects a free port and prints a warning with the new URL.</p>
 </blockquote>
 <h2 id="installation-with-pip-recommended-for-users">Installation with <code>pip</code> (Recommended for Users)</h2>
-<p>The latest stable release can be installed in a Python 3.12+ environment using <code>pip</code>:</p>
+<p>The latest stable release can be installed in a Python 3.12+ environment using <code>pip</code>. We recommend using <a href="https://docs.anaconda.com/free/miniconda/">conda</a> or <a href="https://conda-forge.org/miniforge/">mamba</a> to create a virtual environment.</p>
 <pre><code class="language-bash"># Create conda environment
 conda create -n ms-mint-app2 python==3.12
 conda activate ms-mint-app2
@@ -786,22 +764,8 @@ pip install ms-mint-app2
 Start the app via:</p>
 <pre><code>Mint
 </code></pre>
-<!-- ## Docker
-MINT is now available on DockerHub in containerized format. A container is a standard unit of software that packages up code and all its dependencies, so the application runs quickly and reliably from one computing environment to another. In contrast to a virtual machine (VM), a Docker container image is a lightweight, standalone, executable package of software that includes everything needed to run an application: code, runtime, system tools, system libraries and settings. This allows to run MINT on any computer that can run Docker.
-
-The following command can be used to pull the latest image from docker hub.
-
-    docker pull msmint/msmint:latest
-
-The image can be started with:
-
-    docker run -p 9999:9999 -v /data/:/data/  msmint/msmint:latest Mint --data-dir /data --no-browser --host 0.0.0.0
-
-
-Then the tool is available in the browser at http://localhost:9999. -->
-
 <h2 id="installation-from-source">Installation from source</h2>
-<p>If you want to contribute to MINT or use the latest unreleased features, install from source. We recommend using <a href="https://docs.anaconda.com/free/miniconda/">conda</a> or <a href="https://conda-forge.org/miniforge/">mamba</a> to create a virtual environment.</p>
+<p>If you want to contribute to MINT or use the latest unreleased features, install from source.</p>
 <pre><code class="language-bash"># Create conda environment
 conda create -n ms-mint-app2 python==3.12
 conda activate ms-mint-app2
@@ -840,8 +804,6 @@ optional arguments:
   --serve-path          (deprecated) serve app at a different path, e.g. '/mint/'
 </code></pre>
 <p>If the browser does not open automatically, open it manually and navigate to <code>http://localhost:9999</code> (or the port shown in the terminal). The app's frontend is built using <a href="https://plot.ly/dash/">Plotly-Dash</a> and runs locally in a browser. The GUI is under active development and may be optimized in the future.</p>
-<h3 id="local-file-access">Local file access</h3>
-<p>MINT uses the File System Access API (when available) to select local files without uploading them to a server. This works best in Chromium-based browsers. If the API is not supported, use the built-in server file browser to select files from the machine running MINT.</p>
 <h3 id="configuration-file">Configuration file</h3>
 <p>On first run, MINT creates a JSON config file (default: <code>~/.mint_config.json</code>) that can store:
 - <code>repo_path</code> and <code>fallback_repo_path</code> (for auto-update on launch)
