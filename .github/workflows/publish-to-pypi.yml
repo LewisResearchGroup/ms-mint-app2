@@ -86,7 +86,7 @@ jobs:
 
     environment:
       name: pypi
-      url: https://pypi.org/p/ms-mint-app
+      url: https://pypi.org/p/ms-mint-app2
 
     permissions:
       id-token: write # mandatory for trusted publishing
