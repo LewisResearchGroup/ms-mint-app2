@@ -101,7 +101,9 @@ def generate_tsne_figure(ndf, color_labels, color_map, group_label, x_comp, y_co
     logger.info("Generating t-SNE...")
     
     # CPU limit logic
-    n_jobs = max(1, min((os.cpu_count() or 4) // 2, get_physical_cores()))
+    # n_jobs = max(1, min((os.cpu_count() or 4) // 2, get_physical_cores()))
+    # Deadlock fix: Scikit-learn t-SNE with n_jobs > 1 causes deadlocks in this Dash app context.
+    n_jobs = 1
 
     # t-SNE components (usually 2, sometimes 3)
     n_components = 3
@@ -156,7 +158,7 @@ def generate_tsne_figure(ndf, color_labels, color_map, group_label, x_comp, y_co
         margin=dict(l=140, r=80, t=60, b=50),
         legend_title_text=group_label,
         legend=dict(
-            x=-0.06,
+            x=-0.1,
             y=1.05,
             xanchor='right',
             orientation='v',

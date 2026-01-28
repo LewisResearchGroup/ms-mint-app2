@@ -16,69 +16,72 @@ def create_layout():
                 [
                     # Left side: Stacked QC Scatter Plots
                     html.Div(
-                        fac.AntdSpin(
-                            fac.AntdFlex(
-                                [
-                                    fac.AntdDivider(
-                                        children="RT",
-                                        lineColor="#ccc",
-                                        fontColor="#444",
-                                        fontSize="14px",
-                                        style={'margin': '12px 0'}
-                                    ),
+                        html.Div(
+                            fac.AntdSpin(
+                                fac.AntdFlex(
+                                    [
+                                        fac.AntdDivider(
+                                            children="RT",
+                                            lineColor="#ccc",
+                                            fontColor="#444",
+                                            fontSize="14px",
+                                            style={'margin': '12px 0'}
+                                        ),
 
-                                    html.Div([
-                                        dcc.Graph(
-                                            id='qc-rt-graph',
-                                            config=PLOTLY_HIGH_RES_CONFIG,
-                                            style={'height': '280px', 'width': '100%'},
-                                            figure={
-                                                'data': [],
-                                                'layout': {
-                                                    'xaxis': {'visible': False},
-                                                    'yaxis': {'visible': False},
-                                                    'paper_bgcolor': 'white',
-                                                    'plot_bgcolor': 'white',
-                                                    'margin': {'l': 0, 'r': 0, 't': 0, 'b': 0},
-                                                    'autosize': True,
-                                                }
-                                            },
-                                        )
-                                    ], style={'height': '280px', 'width': '100%', 'display': 'block'}),
-                                    fac.AntdDivider(
-                                        children="Peak Area",
-                                        lineColor="#ccc",
-                                        fontColor="#444",
-                                        fontSize="14px",
-                                        style={'margin': '12px 0'}
-                                    ),
+                                        html.Div([
+                                            dcc.Graph(
+                                                id='qc-rt-graph',
+                                                config=PLOTLY_HIGH_RES_CONFIG,
+                                                style={'height': '280px', 'width': '100%'},
+                                                figure={
+                                                    'data': [],
+                                                    'layout': {
+                                                        'xaxis': {'visible': False},
+                                                        'yaxis': {'visible': False},
+                                                        'paper_bgcolor': 'white',
+                                                        'plot_bgcolor': 'white',
+                                                        'margin': {'l': 0, 'r': 0, 't': 0, 'b': 0},
+                                                        'autosize': True,
+                                                    }
+                                                },
+                                            )
+                                        ], style={'height': '280px', 'width': '100%', 'display': 'block'}),
+                                        fac.AntdDivider(
+                                            children="Peak Area",
+                                            lineColor="#ccc",
+                                            fontColor="#444",
+                                            fontSize="14px",
+                                            style={'margin': '12px 0'}
+                                        ),
 
-                                    html.Div([
-                                        dcc.Graph(
-                                            id='qc-mz-graph',
-                                            config=PLOTLY_HIGH_RES_CONFIG,
-                                            style={'height': '280px', 'width': '100%'},
-                                            figure={
-                                                'data': [],
-                                                'layout': {
-                                                    'xaxis': {'visible': False},
-                                                    'yaxis': {'visible': False},
-                                                    'paper_bgcolor': 'white',
-                                                    'plot_bgcolor': 'white',
-                                                    'margin': {'l': 0, 'r': 0, 't': 0, 'b': 0},
-                                                    'autosize': True,
-                                                }
-                                            },
-                                        )
-                                    ], style={'height': '280px', 'width': '100%', 'display': 'block'}),
-                                ],
-                                vertical=True,
-                                style={'width': '100%'}
+                                        html.Div([
+                                            dcc.Graph(
+                                                id='qc-mz-graph',
+                                                config=PLOTLY_HIGH_RES_CONFIG,
+                                                style={'height': '280px', 'width': '100%'},
+                                                figure={
+                                                    'data': [],
+                                                    'layout': {
+                                                        'xaxis': {'visible': False},
+                                                        'yaxis': {'visible': False},
+                                                        'paper_bgcolor': 'white',
+                                                        'plot_bgcolor': 'white',
+                                                        'margin': {'l': 0, 'r': 0, 't': 0, 'b': 0},
+                                                        'autosize': True,
+                                                    }
+                                                },
+                                            )
+                                        ], style={'height': '280px', 'width': '100%', 'display': 'block'}),
+                                    ],
+                                    vertical=True,
+                                    style={'width': '100%'}
+                                ),
+                                id='qc-spinner',
+                                spinning=True,
+                                text='Loading QC plots...',
+                                style={'minHeight': '300px', 'width': '100%'},
                             ),
-                            id='qc-spinner',
-                            spinning=True,
-                            text='Loading QC plots...',
-                            style={'minHeight': '300px', 'width': '100%'},
+                            style={'minHeight': '100%', 'display': 'flex', 'flexDirection': 'column', 'justifyContent': 'center'},
                         ),
                         style={'width': 'calc(55% - 6px)', 'height': '100%', 'overflowY': 'auto'},
                     ),
@@ -111,10 +114,17 @@ def create_layout():
                             )
                         ],
                         id='qc-chromatogram-container',
-                        style={'display': 'block', 'width': 'calc(43% - 6px)', 'height': 'calc(100% - 20px)'}
+                        style={
+                            'display': 'flex',
+                            'flexDirection': 'column',
+                            'justifyContent': 'center',
+                            'alignItems': 'center',
+                            'width': 'calc(43% - 6px)',
+                            'height': '100%'
+                        }
                     ),
                 ],
-                gap='middle',
+                gap='large',
                 wrap=False,
                 justify='center',
                 align='center',
@@ -330,7 +340,6 @@ def register_callbacks(app):
                     )
                 )
 
-            # Common layout updates
             layout_common = dict(
                 legend=dict(
                     orientation='v',
@@ -341,7 +350,7 @@ def register_callbacks(app):
                     font=dict(size=10),
                 ),
                 hovermode='closest',
-                margin=dict(l=0, r=10, t=50, b=40),
+                margin=dict(l=100, r=10, t=50, b=40),
                 paper_bgcolor='white',
                 plot_bgcolor='white',
                 height=280,
@@ -491,7 +500,7 @@ def register_callbacks(app):
                 paper_bgcolor='white', 
                 plot_bgcolor='white'
             )
-            return empty_fig, {'display': 'block', 'width': 'calc(43% - 6px)'}
+            return empty_fig, {'display': 'flex', 'flexDirection': 'column', 'justifyContent': 'center', 'alignItems': 'center', 'width': 'calc(43% - 6px)', 'height': '100%'}
 
          # Fetch data
         with duckdb_connection(wdir) as conn:
@@ -567,7 +576,7 @@ def register_callbacks(app):
             if not chrom_data:
                 fig = go.Figure()
                 fig.add_annotation(text="No chromatogram data found", showarrow=False)
-                return fig, {'display': 'block', 'width': 'calc(43% - 6px)', 'height': '100%'}
+                return fig, {'display': 'flex', 'flexDirection': 'column', 'justifyContent': 'center', 'alignItems': 'center', 'width': 'calc(43% - 6px)', 'height': '100%'}
 
             data_map = {row[0]: row for row in chrom_data}
             
@@ -668,7 +677,7 @@ def register_callbacks(app):
                 xaxis=dict(range=[x_range_min, x_range_max] if x_range_min else None, autorange=x_range_min is None),
                 yaxis=dict(range=y_range if y_range else None, autorange=y_range is None),
             )
-            return fig, {'display': 'block', 'width': 'calc(43% - 6px)', 'marginTop': '75px'}
+            return fig, {'display': 'flex', 'flexDirection': 'column', 'justifyContent': 'center', 'alignItems': 'center', 'width': 'calc(43% - 6px)', 'height': '100%'}
 
     @app.callback(
         Output('qc-rt-graph', 'figure', allow_duplicate=True),
