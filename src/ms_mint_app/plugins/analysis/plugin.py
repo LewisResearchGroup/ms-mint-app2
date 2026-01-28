@@ -608,9 +608,20 @@ def callbacks(app, fsc=None, cache=None):
         Input('tsne-perplexity-slider', 'value'),
         prevent_initial_call=False,
     )
-    def update_content(section_context, tab_key, x_comp, y_comp, violin_comp_checks, bar_comp_checks, metric_value, norm_value,
+    def update_content_wrapper(section_context, tab_key, x_comp, y_comp, violin_comp_checks, bar_comp_checks, metric_value, norm_value,
                         group_by, regen_clicks, tsne_regen_clicks, cluster_rows, cluster_cols, fontsize_x, fontsize_y, wdir,
                         tsne_x_comp, tsne_y_comp, tsne_perplexity):
+        return update_content(
+            section_context, tab_key, x_comp, y_comp, violin_comp_checks, bar_comp_checks, metric_value, norm_value,
+            group_by, regen_clicks, tsne_regen_clicks, cluster_rows, cluster_cols, fontsize_x, fontsize_y, wdir,
+            tsne_x_comp, tsne_y_comp, tsne_perplexity
+        )
+
+
+def update_content(section_context, tab_key, x_comp, y_comp, violin_comp_checks, bar_comp_checks, metric_value, norm_value,
+                    group_by, regen_clicks, tsne_regen_clicks, cluster_rows, cluster_cols, fontsize_x, fontsize_y, wdir,
+                    tsne_x_comp, tsne_y_comp, tsne_perplexity):
+    
         
         if not section_context or section_context.get('page') != 'Analysis':
             raise PreventUpdate

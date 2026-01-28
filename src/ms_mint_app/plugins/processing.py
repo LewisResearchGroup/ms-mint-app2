@@ -3013,3 +3013,35 @@ def _plot_curve_fig(frame: pd.DataFrame, peak_label: str, units: pd.DataFrame = 
     fig.update_xaxes(showgrid=True)
     fig.update_yaxes(showgrid=True)
     return fig
+
+def load_persisted_scalir_results(wdir):
+    output_dir = Path(wdir) / "results" / "scalir"
+    if not output_dir.exists():
+        return None
+    
+    data = {}
+    
+    try:
+        train_path = output_dir / "train_frame.csv"
+        if train_path.exists():
+            data["train_frame"] = pd.read_csv(train_path)
+            
+        params_path = output_dir / "standard_curve_parameters.csv"
+        if params_path.exists():
+            data["params"] = pd.read_csv(params_path)
+            
+        units_path = output_dir / "units.csv"
+        if units_path.exists():
+            data["units"] = pd.read_csv(units_path)
+            
+        # Infer common peaks from train_frame
+        if "train_frame" in data:
+            data["common"] = sorted(data["train_frame"]["peak_label"].unique().tolist())
+        elif "params" in data:
+             data["common"] = sorted(data["params"]["peak_label"].unique().tolist())
+        else:
+            data["common"] = []
+            
+        return data
+    except Exception:
+        return None

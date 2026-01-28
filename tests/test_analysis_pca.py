@@ -1,7 +1,8 @@
 import numpy as np
 import pandas as pd
 
-from ms_mint_app.plugins.analysis import rocke_durbin, run_pca_samples_in_cols
+from ms_mint_app.plugins.analysis._shared import rocke_durbin
+from ms_mint_app.plugins.analysis.pca import run_pca_samples_in_cols
 
 
 def test_rocke_durbin_basic():
