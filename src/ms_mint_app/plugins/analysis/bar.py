@@ -105,13 +105,14 @@ def generate_bar_plots(bar_matrix, group_series, color_map, group_label, metric,
     config = get_download_config(filename=filename, image_format='svg')
     default_bar = None
     bar_options = compound_options
+    loadings_for_sort = None
     
     # Similar Logic for default selection as Violin
     if bar_options:
         try:
             pca_results = run_pca_samples_in_cols(
-                violin_matrix,
-                n_components=min(violin_matrix.shape[0], violin_matrix.shape[1], 5)
+                bar_matrix,
+                n_components=min(bar_matrix.shape[0], bar_matrix.shape[1], 5)
             )
             loadings = pca_results.get('loadings')
             if loadings is not None and 'PC1' in loadings.columns:
@@ -137,15 +138,15 @@ def generate_bar_plots(bar_matrix, group_series, color_map, group_label, metric,
     if user_selected and bar_comp_checks:
             selected_compound = bar_comp_checks
     else:
-            if bar_comp_checks and bar_comp_checks in violin_matrix.columns:
+            if bar_comp_checks and bar_comp_checks in bar_matrix.columns:
                 selected_compound = bar_comp_checks
             else:
                 selected_compound = default_bar
     
     graphs = []
-    if selected_compound and selected_compound in violin_matrix.columns:
+    if selected_compound and selected_compound in bar_matrix.columns:
         selected = selected_compound
-        melt_df = violin_matrix[[selected]].join(group_series).reset_index().rename(columns={
+        melt_df = bar_matrix[[selected]].join(group_series).reset_index().rename(columns={
             'ms_file_label': 'Sample',
             group_series.name: group_label,
             selected: 'Intensity',
