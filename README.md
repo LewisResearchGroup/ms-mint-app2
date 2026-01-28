@@ -43,7 +43,7 @@ Requires Python 3.12+.
 Mint
 ```
 
-For detailed installation instructions (conda, Docker, standalone builds), see the [Installation Guide](https://lewisresearchgroup.github.io/ms-mint-app2/install/).
+For detailed installation instructions, see the [Installation Guide](https://lewisresearchgroup.github.io/ms-mint-app2/install/).
 
 ## Documentation
 
