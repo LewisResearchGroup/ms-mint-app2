@@ -924,6 +924,7 @@ class DatabaseCorruptionError(Exception):
 
 # Global tracker for corrupted workspaces - allows plugins to show notifications
 _corrupted_workspaces: set[str] = set()
+_corrupted_workspaces_logged: set[str] = set()
 _busy_workspaces: dict[str, dict] = {}
 _workspace_page_loads: dict[str, dict] = {}
 _workspace_page_loads_lock = Lock()
@@ -948,6 +949,7 @@ def is_workspace_busy(workspace_path: Path | str) -> bool:
 def clear_corruption_flag(workspace_path: Path | str):
     """Clear the corruption flag for a workspace (e.g., after user acknowledges)."""
     _corrupted_workspaces.discard(str(workspace_path))
+    _corrupted_workspaces_logged.discard(str(workspace_path))
 
 
 def clear_busy_flag(workspace_path: Path | str):
@@ -1619,7 +1621,7 @@ def duckdb_connection(
                 con.execute(f"SET memory_limit = '{ram}GB'")
                 # Verify the setting was applied
                 actual_limit = con.execute("SELECT current_setting('memory_limit')").fetchone()[0]
-                logger.info(f"DuckDB memory_limit set to {ram}GB (verified: {actual_limit})")
+                logger.debug(f"DuckDB memory_limit set to {ram}GB (verified: {actual_limit})")
             _create_tables(con)
             break # Success
         except DatabaseBusyError as e:
@@ -1649,11 +1651,15 @@ def duckdb_connection(
             _release_db_write_lock(lock_file)
             if "Corrupt database file" in str(e):
                 _mark_corrupted(workspace_path)  # Mark for UI notification
-                logger.critical(
-                    f"[!] DATABASE CORRUPTION DETECTED in {db_file}: {e}\n"
-                    "This usually happens due to a system crash or forced termination during a write operation.\n"
-                    "Please delete this workspace and restore from backup or recreate it."
-                )
+                ws_key = str(workspace_path)
+                if ws_key not in _corrupted_workspaces_logged:
+                    _corrupted_workspaces_logged.add(ws_key)
+                    ws_name = get_workspace_name_from_wdir(workspace_path) or "Unknown"
+                    logger.critical(
+                        f"[!] DATABASE CORRUPTION DETECTED in {db_file} (workspace: {ws_name}): {e}\n"
+                        "This usually happens due to a system crash or forced termination during a write operation.\n"
+                        "Please delete this workspace and restore from backup or recreate it."
+                    )
                 yield None
                 return
             
