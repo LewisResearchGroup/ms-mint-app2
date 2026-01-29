@@ -1587,13 +1587,13 @@ def duckdb_connection(
         try:
             lock_file = _acquire_db_write_lock(db_file, workspace_path)
             clear_busy_flag(workspace_path)
-            logger.info(
+            logger.debug(
                 "Acquired DuckDB write lock (pid=%s, db=%s)",
                 os.getpid(),
                 db_file,
             )
             con = duckdb.connect(database=str(db_file), read_only=False)
-            logger.info(
+            logger.debug(
                 "Opened DuckDB write connection (pid=%s, db=%s)",
                 os.getpid(),
                 db_file,
@@ -1689,7 +1689,7 @@ def duckdb_connection(
             con.close()
         _release_db_write_lock(lock_file)
         if lock_file:
-            logger.info(
+            logger.debug(
                 "Released DuckDB write lock (pid=%s, lock=%s)",
                 os.getpid(),
                 lock_file,

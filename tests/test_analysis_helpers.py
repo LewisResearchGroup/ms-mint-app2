@@ -3,15 +3,19 @@ import pandas as pd
 import numpy as np
 import pytest
 
-from ms_mint_app.plugins.analysis import (
+from ms_mint_app.plugins.processing import (
     _parse_uploaded_standards,
+    load_persisted_scalir_results,
+    _plot_curve_fig,
+)
+from ms_mint_app.plugins.analysis.plugin import (
     _analysis_tour_steps,
+)
+from ms_mint_app.plugins.analysis._shared import (
     _build_color_map,
     _clean_numeric,
     _calc_y_range_numpy,
     _create_pivot_custom,
-    load_persisted_scalir_results,
-    _plot_curve_fig,
 )
 from ms_mint_app.duckdb_manager import _create_tables
 import duckdb

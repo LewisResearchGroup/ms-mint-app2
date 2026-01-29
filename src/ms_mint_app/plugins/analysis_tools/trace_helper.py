@@ -249,9 +249,9 @@ def calculate_rt_alignment(chrom_df, rt_min, rt_max):
         # Debug: log apex positions
         import logging
         logger = logging.getLogger(__name__)
-        logger.info(f"RT Alignment: RT span = [{rt_min:.2f}, {rt_max:.2f}]")
-        logger.info(f"RT Alignment: Found {len(valid_apex_rts)} peaks with apexes: {[f'{rt:.2f}' for rt in valid_apex_rts[:5]]}")
-        logger.info(f"RT Alignment: Reference RT (median) = {reference_rt:.2f}")
+        logger.debug(f"RT Alignment: RT span = [{rt_min:.2f}, {rt_max:.2f}]")
+        logger.debug(f"RT Alignment: Found {len(valid_apex_rts)} peaks with apexes: {[f'{rt:.2f}' for rt in valid_apex_rts[:5]]}")
+        logger.debug(f"RT Alignment: Reference RT (median) = {reference_rt:.2f}")
         
         # Calculate shifts
         for i, ms_file_label in enumerate(ms_file_labels):
@@ -323,7 +323,7 @@ def generate_chromatogram_traces(
     downsample_enabled = bool(downsample_params and downsample_params.get('enabled') and ms_type == 'ms1')
     downsample_n_out = downsample_params.get('n_out', 100) if downsample_enabled else None
 
-    logger.info(
+    logger.debug(
         "Trace pipeline: savgol=%s, lttb=%s (n_out=%s), sparsify",
         smoothing_enabled,
         downsample_enabled,

@@ -977,6 +977,6 @@ def _background_processing(set_progress, okCounts, processing_type, selected_fil
                         'ram_avail': round(ram_avail, 1),
                         'default_ram': default_ram
                     }
-                    logger.info(f"workspace-status updated after processing: {workspace_status}")
+                    logger.debug(f"workspace-status updated after processing: {workspace_status}")
 
     return notification, processed_action_store, False, workspace_status

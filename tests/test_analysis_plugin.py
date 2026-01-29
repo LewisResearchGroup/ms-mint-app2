@@ -4,12 +4,9 @@ import pandas as pd
 import numpy as np
 import dash
 from unittest.mock import MagicMock, patch
-from ms_mint_app.plugins.analysis import (
-    rocke_durbin,
-    run_pca_samples_in_cols,
-    show_tab_content,
-    TAB_DEFAULT_NORM
-)
+from ms_mint_app.plugins.analysis._shared import rocke_durbin, TAB_DEFAULT_NORM
+from ms_mint_app.plugins.analysis.pca import run_pca_samples_in_cols
+from ms_mint_app.plugins.analysis.plugin import update_content
 from ms_mint_app.plugins.processing import run_scalir
 import duckdb
 from ms_mint_app.duckdb_manager import _create_tables
@@ -65,9 +62,9 @@ class TestAnalysisFunctions:
 
 class TestAnalysisCallbacks:
     
-    @patch('ms_mint_app.plugins.analysis.dash.callback_context')
-    @patch('ms_mint_app.plugins.analysis.duckdb_connection')
-    def test_show_tab_content_pca(self, mock_conn, mock_ctx, db_con):
+    @patch('ms_mint_app.plugins.analysis.plugin.dash.callback_context')
+    @patch('ms_mint_app.plugins.analysis.plugin.duckdb_connection')
+    def test_update_content_pca(self, mock_conn, mock_ctx, db_con):
         mock_conn.return_value.__enter__.return_value = db_con
         mock_ctx.triggered = []
         
@@ -76,7 +73,7 @@ class TestAnalysisCallbacks:
         # norm_value, group_by, regen_clicks, tsne_regen_clicks, cluster_rows, cluster_cols,
         # fontsize_x, fontsize_y, wdir, tsne_x_comp, tsne_y_comp, tsne_perplexity
         
-        res = show_tab_content(
+        res = update_content(
             {'page': 'Analysis'}, 'pca', 'PC1', 'PC2', [], [], 'peak_area', 'zscore',
             'sample_type', 0, 0, False, False, 10, 10, '/tmp/wdir', None, None, None
         )
@@ -87,16 +84,16 @@ class TestAnalysisCallbacks:
         assert 'data' in fig
         assert len(fig['data']) > 0 # Should have traces
 
-    @patch('ms_mint_app.plugins.analysis.dash.callback_context')
-    @patch('ms_mint_app.plugins.analysis.duckdb_connection')
-    def test_show_tab_content_empty_db(self, mock_conn, mock_ctx):
+    @patch('ms_mint_app.plugins.analysis.plugin.dash.callback_context')
+    @patch('ms_mint_app.plugins.analysis.plugin.duckdb_connection')
+    def test_update_content_empty_db(self, mock_conn, mock_ctx):
         # Empty DB connection
         mock_ctx.triggered = []
         con = duckdb.connect(':memory:')
         _create_tables(con)
         mock_conn.return_value.__enter__.return_value = con
         
-        res = show_tab_content(
+        res = update_content(
              {'page': 'Analysis'}, 'pca', 'PC1', 'PC2', [], [], 'peak_area', 'zscore',
             'sample_type', 0, 0, False, False, 10, 10, '/tmp/wdir', None, None, None
         )
@@ -106,13 +103,13 @@ class TestAnalysisCallbacks:
         # Returns: None, empty_fig, [], [], []
         assert res[1].layout.height == 10
 
-    @patch('ms_mint_app.plugins.analysis.dash.callback_context')
-    @patch('ms_mint_app.plugins.analysis.duckdb_connection')
-    def test_show_tab_content_clustermap(self, mock_conn, mock_ctx, db_con):
+    @patch('ms_mint_app.plugins.analysis.plugin.dash.callback_context')
+    @patch('ms_mint_app.plugins.analysis.plugin.duckdb_connection')
+    def test_update_content_clustermap(self, mock_conn, mock_ctx, db_con):
         mock_conn.return_value.__enter__.return_value = db_con
         mock_ctx.triggered = []
         
-        res = show_tab_content(
+        res = update_content(
             {'page': 'Analysis'}, 'clustermap', 'PC1', 'PC2', [], [], 'peak_area', 'zscore',
             'sample_type', 0, 0, True, True, 10, 10, '/tmp/wdir', None, None, None
         )
