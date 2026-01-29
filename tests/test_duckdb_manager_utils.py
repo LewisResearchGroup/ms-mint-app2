@@ -9,7 +9,7 @@ def test_calculate_optimal_params_with_user_values(monkeypatch):
     cpus, ram_gb, batch_size = dm.calculate_optimal_params(user_cpus=2, user_ram=8)
 
     assert cpus == 2
-    assert ram_gb == 4  # capped at 2x CPU
+    assert ram_gb == 3  # capped at 1.5x CPU
     assert batch_size == 1000  # minimum enforced
 
 
@@ -25,8 +25,8 @@ def test_calculate_optimal_params_auto(monkeypatch):
     cpus, ram_gb, batch_size = dm.calculate_optimal_params()
 
     assert cpus == 4
-    assert ram_gb == 8
-    assert batch_size == 1600
+    assert ram_gb == 6
+    assert batch_size == 1200
 
 
 def test_calculate_optimal_batch_size_limits(monkeypatch):
