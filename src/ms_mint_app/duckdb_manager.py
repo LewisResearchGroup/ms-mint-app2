@@ -273,16 +273,17 @@ def calculate_optimal_params(user_cpus: int = None, user_ram: int = None) -> tup
         usable_ram = int(available_ram * 0.5)  # 50% of available
         usable_ram = max(4, usable_ram)  # Minimum 4GB
     
-    # Step 3: Balance CPUs and RAM (1GB per CPU minimum)
-    if usable_ram < target_cpus:
+    # Step 3: Balance CPUs and RAM (1.5GB per CPU minimum)
+    min_ram_per_cpu = 1.5
+    if usable_ram < target_cpus * min_ram_per_cpu:
         # RAM is limiting factor - reduce CPUs to match
-        cpus = usable_ram
+        cpus = max(1, int(usable_ram // min_ram_per_cpu))
         ram_gb = usable_ram
     else:
         # CPU is limiting factor
         cpus = target_cpus
-        # Cap RAM at 2× CPUs (no benefit beyond that based on experiments)
-        ram_gb = min(usable_ram, cpus * 2)
+        # Cap RAM at 1.5× CPUs (no benefit beyond that based on experiments)
+        ram_gb = min(usable_ram, int(cpus * min_ram_per_cpu))
     
     # Step 4: Batch size optimization
     # Benchmarks (Jan 2026) showed 1000-3000 is the "sweet spot" for throughput
