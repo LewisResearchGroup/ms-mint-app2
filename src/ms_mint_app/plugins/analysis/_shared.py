@@ -153,14 +153,17 @@ def _calc_y_range_numpy(data, x_left, x_right, is_log=False):
     return [y_min, y_max * 1.05]
 
 
-def _build_color_map(color_df: pd.DataFrame, group_col: str) -> dict:
+def _build_color_map(color_df: pd.DataFrame, group_col: str, *, use_sample_colors: bool = True) -> dict:
     if not group_col or group_col not in color_df.columns or color_df.empty:
         return {}
     working = color_df[[group_col, 'color']].copy()
     working = working[working[group_col].notna()]
-    working['color'] = working['color'].apply(
-        lambda c: c if isinstance(c, str) and c.strip() and c.strip() != '#bbbbbb' else None
-    )
+    if use_sample_colors:
+        working['color'] = working['color'].apply(
+            lambda c: c if isinstance(c, str) and c.strip() and c.strip() != '#bbbbbb' else None
+        )
+    else:
+        working['color'] = None
     color_map = (
         working.dropna(subset=['color'])
         .drop_duplicates(subset=[group_col])

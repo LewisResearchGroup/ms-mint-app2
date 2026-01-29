@@ -106,11 +106,14 @@ def create_layout():
     )
 
 
-def generate_pca_figure(ndf, color_labels, color_map, group_label, x_comp, y_comp):
+def generate_pca_figure(ndf, color_labels, color_map, group_label, x_comp, y_comp, pca_results=None):
     """Generate the PCA figure."""
     logger.info(f"Generating PCA ({x_comp} vs {y_comp})...")
     # n_components should be <= min(n_samples, n_features)
-    results = run_pca_samples_in_cols(ndf, n_components=min(ndf.shape[0], ndf.shape[1], 5))
+    if pca_results is None:
+        results = run_pca_samples_in_cols(ndf, n_components=min(ndf.shape[0], ndf.shape[1], 5))
+    else:
+        results = pca_results
     results['scores']['color_group'] = color_labels
     results['scores']['sample_label'] = results['scores'].index
     x_axis = x_comp or 'PC1'
