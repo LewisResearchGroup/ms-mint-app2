@@ -1030,8 +1030,8 @@ def mark_page_load_active(workspace_path: Path | str | None, page_load_id: str |
     # If the token changed (e.g., user refreshed/reopened tab), give running
     # jobs time to see the change and self-cancel before we proceed.
     if previous_page_load_id and previous_page_load_id != page_load_id:
-        logger.info(
-            "Page ID change detected (old=%s, new=%s); waiting for background jobs to cancel...",
+        logger.debug(
+            "Workspace session token changed (old=%s, new=%s); waiting for background jobs to cancel...",
             previous_page_load_id[:8] + "..." if previous_page_load_id else None,
             page_load_id[:8] + "..." if page_load_id else None,
         )
