@@ -96,39 +96,42 @@ def create_layout():
     )
 
 
-def generate_tsne_figure(ndf, color_labels, color_map, group_label, x_comp, y_comp, perplexity):
+def generate_tsne_figure(ndf, color_labels, color_map, group_label, x_comp, y_comp, perplexity, tsne_scores=None):
     """Generate the t-SNE figure."""
     logger.info("Generating t-SNE...")
     
-    # CPU limit logic
-    # n_jobs = max(1, min((os.cpu_count() or 4) // 2, get_physical_cores()))
-    # Deadlock fix: Scikit-learn t-SNE with n_jobs > 1 causes deadlocks in this Dash app context.
-    n_jobs = 1
+    if tsne_scores is None:
+        # CPU limit logic
+        # n_jobs = max(1, min((os.cpu_count() or 4) // 2, get_physical_cores()))
+        # Deadlock fix: Scikit-learn t-SNE with n_jobs > 1 causes deadlocks in this Dash app context.
+        n_jobs = 1
 
-    # t-SNE components (usually 2, sometimes 3)
-    n_components = 3
-    # Use random_state for reproducibility
-    perplexity = perplexity if perplexity else 30
-    
-    # Ensure perplexity is valid for sample size
-    n_samples = ndf.shape[0]
-    if n_samples > 0:
-            perplexity = min(perplexity, max(1, n_samples - 1))
-            
-    tsne = TSNE(n_components=n_components, perplexity=perplexity, n_jobs=n_jobs, random_state=42, init='pca')
-    
-    # Handle sparse/empty
-    if ndf.empty or ndf.shape[0] < 2:
-        return create_invisible_figure()
+        # t-SNE components (usually 2, sometimes 3)
+        n_components = 3
+        # Use random_state for reproducibility
+        perplexity = perplexity if perplexity else 30
+        
+        # Ensure perplexity is valid for sample size
+        n_samples = ndf.shape[0]
+        if n_samples > 0:
+                perplexity = min(perplexity, max(1, n_samples - 1))
+                
+        tsne = TSNE(n_components=n_components, perplexity=perplexity, n_jobs=n_jobs, random_state=42, init='pca')
+        
+        # Handle sparse/empty
+        if ndf.empty or ndf.shape[0] < 2:
+            return create_invisible_figure()
 
-    # Fit t-SNE
-    # For t-SNE, use the normalized data
-    data_for_tsne = ndf.to_numpy()
-    embedded = tsne.fit_transform(data_for_tsne)
-    
-    # Create results DataFrame
-    tsne_cols = [f"t-SNE-{i+1}" for i in range(n_components)]
-    scores_df = pd.DataFrame(embedded, index=ndf.index, columns=tsne_cols)
+        # Fit t-SNE
+        # For t-SNE, use the normalized data
+        data_for_tsne = ndf.to_numpy()
+        embedded = tsne.fit_transform(data_for_tsne)
+        
+        # Create results DataFrame
+        tsne_cols = [f"t-SNE-{i+1}" for i in range(n_components)]
+        scores_df = pd.DataFrame(embedded, index=ndf.index, columns=tsne_cols)
+    else:
+        scores_df = tsne_scores.copy()
     
     # Add metadata for plotting
     scores_df['color_group'] = color_labels
