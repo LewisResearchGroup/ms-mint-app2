@@ -1,0 +1,128 @@
+name: Publish to PyPI
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Git ref (tag or branch) to build (e.g., v2.0.0-rc.1)"
+        required: true
+        default: "v2.0.0-rc.1"
+        type: string
+      test_pypi:
+        description: "Publish to TestPyPI instead of PyPI"
+        required: false
+        default: true
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: publish-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build distribution
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          # For manual runs, build exactly the ref the user provided (tag or branch).
+          # For release runs, build the release ref.
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.ref || github.ref }}
+
+      - name: Show git version info
+        run: |
+          echo "GITHUB_REF=$GITHUB_REF"
+          echo "GITHUB_SHA=$GITHUB_SHA"
+          git describe --tags --dirty --always || true
+          echo "Tags pointing at HEAD:"
+          git tag --points-at HEAD || true
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install build dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install build wheel setuptools versioneer
+
+      - name: Build package
+        run: python -m build
+
+      - name: Fail if local version (+...) would be uploaded
+        run: |
+          ls -1 dist/
+          if ls dist/*+* 1> /dev/null 2>&1; then
+            echo "ERROR: Local version (+...) detected in dist filename. Build from a tag (e.g., v2.0.0-rc.1) or override version."
+            exit 1
+          fi
+
+      - name: Store the distribution packages
+        uses: actions/upload-artifact@v4
+        with:
+          name: python-package-distributions
+          path: dist/
+          if-no-files-found: error
+
+  publish-to-testpypi:
+    name: Publish to TestPyPI
+    needs: [build]
+    runs-on: ubuntu-latest
+    if: >
+      github.event_name == 'workflow_dispatch' &&
+      (inputs.test_pypi == true || inputs.test_pypi == 'true')
+
+    environment:
+      name: testpypi
+      url: https://test.pypi.org/p/ms-mint-app2
+
+    permissions:
+      id-token: write
+
+    steps:
+      - name: Download all the dists
+        uses: actions/download-artifact@v4
+        with:
+          name: python-package-distributions
+          path: dist/
+
+      - name: Publish distribution to TestPyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          repository-url: https://test.pypi.org/legacy/
+          skip-existing: true
+
+  publish-to-pypi:
+    name: Publish to PyPI
+    needs: [build]
+    runs-on: ubuntu-latest
+    if: github.event_name == 'release' && github.event.action == 'published'
+
+    environment:
+      name: pypi
+      url: https://pypi.org/p/ms-mint-app2
+
+    permissions:
+      id-token: write
+
+    steps:
+      - name: Download all the dists
+        uses: actions/download-artifact@v4
+        with:
+          name: python-package-distributions
+          path: dist/
+
+      - name: Publish distribution to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        # Optional: uncomment if you want reruns to be non-fatal on PyPI too
+        # with:
+        #   skip-existing: true

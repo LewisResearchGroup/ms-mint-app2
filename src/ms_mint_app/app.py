@@ -82,6 +82,7 @@ def _build_layout(*, plugins, file_explorer, initial_page_children=None, initial
                 'optimization_samples_count': 0
             }),
             dcc.Store(id='section-context', data=initial_section_context),
+            dcc.Store(id='workspace-busy-tracker', data=None),  # Tracks if busy notification was shown
             dcc.Interval(id="page-load-trigger", n_intervals=0, interval=200, max_intervals=1),
             dcc.Interval(id="page-heartbeat-interval", n_intervals=0, interval=4000),
             dcc.Interval(id="progress-interval", n_intervals=0, interval=20000, disabled=False),
@@ -285,6 +286,7 @@ def _build_layout(*, plugins, file_explorer, initial_page_children=None, initial
 
 def register_callbacks(app, cache, fsc, args, *, plugins, file_explorer):
     from dash.dependencies import Input, Output, State
+    import dash
     from dash import html
     from dash.exceptions import PreventUpdate
     from flask_login import current_user
@@ -294,8 +296,9 @@ def register_callbacks(app, cache, fsc, args, *, plugins, file_explorer):
         duckdb_connection_mint,
         ensure_exploration_workspace,
         is_workspace_corrupted,
-        is_workspace_busy,
+        is_workspace_busy_probe,
         get_busy_notification,
+        clear_busy_flag,
         mark_page_load_active,
     )
 
@@ -392,13 +395,16 @@ def register_callbacks(app, cache, fsc, args, *, plugins, file_explorer):
 
     @app.callback(
         Output('corruption-notifications-container', 'children'),
+        Output('workspace-busy-tracker', 'data'),
 
         Input('section-context', 'data'),
         Input('wdir', 'data'),
-        prevent_initial_call=True
+        prevent_initial_call=False
     )
     def check_corruption_on_navigation(section_context, wdir):
         """Show notification when navigating to a tab or when workspace changes if corrupted/busy."""
+        if not section_context or section_context.get('page') != 'Workspaces':
+            raise PreventUpdate
         if not wdir:
             raise PreventUpdate
         if is_workspace_corrupted(wdir):
@@ -409,12 +415,77 @@ def register_callbacks(app, cache, fsc, args, *, plugins, file_explorer):
                 duration=15,
                 placement='bottom',
                 showProgress=True,
-            )
-        if is_workspace_busy(wdir):
+            ), None
+        if is_workspace_busy_probe(wdir):
             busy = get_busy_notification(wdir)
             if busy:
-                return fac.AntdNotification(**busy)
+                # Mark that we showed a busy notification for this workspace
+                return fac.AntdNotification(**busy), {'wdir': wdir, 'busy': True, 'ts': time.time()}
         raise PreventUpdate
+
+    @app.callback(
+        Output('corruption-notifications-container', 'children', allow_duplicate=True),
+        Output('workspace-busy-tracker', 'data', allow_duplicate=True),
+
+        Input('page-heartbeat-interval', 'n_intervals'),
+        Input('workspace-busy-tracker', 'data'),
+        State('wdir', 'data'),
+        State('section-context', 'data'),
+        prevent_initial_call=True
+    )
+    def check_database_ready(n_intervals, busy_tracker, wdir, section_context):
+        """
+        Polls for busy/ready state.
+        1. If busy, ensures we are tracking it.
+        2. If previously busy and now free, notifies the user.
+        """
+        if not section_context or section_context.get('page') != 'Workspaces':
+            raise PreventUpdate
+
+        if not wdir:
+            # logging.info("No wdir.")
+            raise PreventUpdate
+
+        if not busy_tracker:
+            is_busy = is_workspace_busy_probe(wdir)
+            if is_busy:
+                busy = get_busy_notification(wdir)
+                if busy:
+                    return fac.AntdNotification(**busy), {'wdir': wdir, 'busy': True, 'ts': time.time()}
+            raise PreventUpdate
+        
+        # Only check for the same workspace that was busy
+        tracked_wdir = busy_tracker.get('wdir')
+        if tracked_wdir != wdir:
+            logging.debug("Wdir mismatch: tracked=%s, current=%s", tracked_wdir, wdir)
+            raise PreventUpdate
+        
+        # Check if still busy
+        is_busy = is_workspace_busy_probe(wdir)
+        # logging.info(f"Checking database ready: trigger={trigger}, wdir={wdir}, busy={is_busy}, tracker={busy_tracker}")
+        
+        if is_busy:
+            # If not tracking yet, start tracking!
+            if not busy_tracker or not busy_tracker.get('busy'):
+                logging.debug("Polling detected busy state for %s. Starting tracking.", wdir)
+                return dash.no_update, {'wdir': wdir, 'busy': True, 'ts': time.time()}
+            return dash.no_update, busy_tracker # Keep tracking
+
+        # Database is now available! Clear the busy flag and notify user
+        if busy_tracker and busy_tracker.get('busy'):
+            logging.debug("Database ready! sending notification for %s", wdir)
+            clear_busy_flag(wdir)
+            return fac.AntdNotification(
+                message="Database Ready",
+                description="The workspace database is now available. You can continue your work.",
+                type="success",
+                duration=5,
+                placement='bottom',
+                showProgress=True,
+                key=str(time.time()) # Force re-render
+            ), None
+
+        return dash.no_update, None
 
 
     @app.callback(

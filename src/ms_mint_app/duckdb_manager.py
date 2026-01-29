@@ -927,7 +927,7 @@ _corrupted_workspaces: set[str] = set()
 _busy_workspaces: dict[str, dict] = {}
 _workspace_page_loads: dict[str, dict] = {}
 _workspace_page_loads_lock = Lock()
-_PAGE_LOAD_TTL_SECONDS = 20.0
+_PAGE_LOAD_TTL_SECONDS = 300.0  # 5 minutes - long enough for sleep/throttling, short enough for abandoned jobs
 _PAGE_LOAD_STATE_FILENAME = ".mint_page_load_state.json"
 
 
@@ -1015,16 +1015,8 @@ def mark_page_load_active(workspace_path: Path | str | None, page_load_id: str |
             previous = _workspace_page_loads.get(key)
             if previous:
                 previous_page_load_id = previous.get('page_load_id')
-    # If the token changed (e.g., user refreshed), aggressively clean up
-    # other MINT processes still holding the workspace DB.
-    if previous_page_load_id and previous_page_load_id != page_load_id:
-        cleaned = _cleanup_workspace_db_users(key, aggressive=True)
-        if cleaned:
-            logger.warning(
-                "Refresh detected; terminated %s prior DB process(es) for workspace=%s",
-                cleaned,
-                key,
-            )
+    
+    # CRITICAL: Write new ID FIRST so running jobs can detect the change
     payload = {
         'page_load_id': page_load_id,
         'timestamp': time.time(),
@@ -1032,6 +1024,25 @@ def mark_page_load_active(workspace_path: Path | str | None, page_load_id: str |
     _write_page_state(state_path, payload)
     with _workspace_page_loads_lock:
         _workspace_page_loads[key] = payload
+    
+    # If the token changed (e.g., user refreshed/reopened tab), give running
+    # jobs time to see the change and self-cancel before we proceed.
+    if previous_page_load_id and previous_page_load_id != page_load_id:
+        logger.info(
+            "Page ID change detected (old=%s, new=%s); waiting for background jobs to cancel...",
+            previous_page_load_id[:8] + "..." if previous_page_load_id else None,
+            page_load_id[:8] + "..." if page_load_id else None,
+        )
+        # Brief pause to let running jobs detect the ID mismatch and self-cancel
+        time.sleep(1.0)
+        # Then aggressively clean up any external processes still holding the DB
+        cleaned = _cleanup_workspace_db_users(key, aggressive=True)
+        if cleaned:
+            logger.warning(
+                "Terminated %s prior DB process(es) for workspace=%s",
+                cleaned,
+                key,
+            )
 
 
 def is_page_load_active(
@@ -1053,8 +1064,8 @@ def is_page_load_active(
         return True
     if entry.get('page_load_id') != page_load_id:
         return False
-    age = time.time() - float(entry.get('timestamp', 0.0))
-    return age <= ttl_seconds
+    # ID matches - page is active (no TTL check to avoid false positives from sleep/throttling)
+    return True
 
 
 def ensure_page_load_active(
@@ -1139,12 +1150,12 @@ def get_busy_notification(workspace_path: Path | str):
     if pid:
         description = (
             f"This workspace is currently write-locked by another MINT process (PID {pid}). "
-            "Please close the other session or wait a moment and try again."
+            "Please wait; you'll be notified when it is available again."
         )
     else:
         description = (
             "This workspace is currently write-locked by another MINT process. "
-            "Please close the other session or wait a moment and try again."
+            "Please wait; you'll be notified when it is available again."
         )
     return {
         'message': "[!] Database Busy",
@@ -1162,6 +1173,44 @@ class DatabaseBusyError(RuntimeError):
 
 def _db_lockfile_path(db_file: Path) -> Path:
     return db_file.with_suffix(db_file.suffix + ".lock")
+
+
+def is_workspace_busy_probe(workspace_path: Path | str | None) -> bool:
+    """
+    Best-effort busy check that does NOT open the database.
+    Uses the app-level lockfile and validates the owning PID when possible.
+    """
+    if not workspace_path:
+        return False
+    try:
+        workspace_path = Path(workspace_path).resolve()
+    except Exception:
+        workspace_path = Path(str(workspace_path))
+    db_file = workspace_path / 'workspace_mint.db'
+    lock_file = _db_lockfile_path(db_file)
+
+    if not lock_file.exists():
+        clear_busy_flag(workspace_path)
+        return False
+
+    if psutil is None:
+        # Without psutil we can't verify ownership; treat as busy.
+        return True
+
+    info = _safe_read_lockfile(lock_file) or {}
+    other_pid = int(info.get('pid', -1))
+    other_ctime = info.get('create_time')
+
+    if other_pid > 0 and _pid_matches_create_time(other_pid, other_ctime):
+        return True
+
+    # Stale lockfile or dead process: clear and mark free.
+    try:
+        lock_file.unlink(missing_ok=True)
+    except Exception:
+        pass
+    clear_busy_flag(workspace_path)
+    return False
 
 
 def _safe_read_lockfile(lock_file: Path) -> dict | None:
