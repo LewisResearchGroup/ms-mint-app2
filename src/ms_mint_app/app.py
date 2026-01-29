@@ -84,6 +84,7 @@ def _build_layout(*, plugins, file_explorer, initial_page_children=None, initial
             dcc.Store(id='section-context', data=initial_section_context),
             dcc.Store(id='workspace-busy-tracker', data=None),  # Tracks if busy notification was shown
             dcc.Store(id='workspace-corrupt-tracker', data=None),  # Tracks last selected workspace for corruption notices
+            dcc.Interval(id="workspace-busy-poll", n_intervals=0, interval=4000),
             dcc.Interval(id="page-load-trigger", n_intervals=0, interval=200, max_intervals=1),
             dcc.Interval(id="page-heartbeat-interval", n_intervals=0, interval=4000),
             dcc.Interval(id="progress-interval", n_intervals=0, interval=20000, disabled=False),
@@ -399,26 +400,23 @@ def register_callbacks(app, cache, fsc, args, *, plugins, file_explorer):
         Output('workspace-busy-tracker', 'data'),
         Output('workspace-corrupt-tracker', 'data'),
 
-        Input('ws-table', 'selectedRowKeys'),
+        Input('wdir', 'data'),
         State('section-context', 'data'),
-        State('tmpdir', 'data'),
         State('workspace-corrupt-tracker', 'data'),
         prevent_initial_call=False
     )
-    def check_corruption_on_selection(selectedRowKeys, section_context, tmpdir, corrupt_tracker):
+    def check_corruption_on_selection(wdir, section_context, corrupt_tracker):
         """Show notification when a workspace is selected if corrupted/busy."""
         if not section_context or section_context.get('page') != 'Workspaces':
             raise PreventUpdate
-        if not tmpdir or not selectedRowKeys:
+        if not wdir:
             raise PreventUpdate
 
-        ws_key = selectedRowKeys[0]
-        wdir = str(Path(tmpdir, 'workspaces', ws_key))
         last_selected = (corrupt_tracker or {}).get('last_selected')
-        if last_selected == ws_key:
+        if last_selected == wdir:
             raise PreventUpdate
 
-        tracker_update = {'last_selected': ws_key}
+        tracker_update = {'last_selected': wdir}
 
         if is_workspace_corrupted(wdir):
             return fac.AntdNotification(
@@ -441,13 +439,13 @@ def register_callbacks(app, cache, fsc, args, *, plugins, file_explorer):
         Output('corruption-notifications-container', 'children', allow_duplicate=True),
         Output('workspace-busy-tracker', 'data', allow_duplicate=True),
 
-        Input('page-heartbeat-interval', 'n_intervals'),
+        Input('workspace-busy-poll', 'n_intervals'),
         Input('workspace-busy-tracker', 'data'),
         State('wdir', 'data'),
         State('section-context', 'data'),
         prevent_initial_call=True
     )
-    def check_database_ready(n_intervals, busy_tracker, wdir, section_context):
+    def check_database_ready(_n_intervals, busy_tracker, wdir, section_context):
         """
         Polls for busy/ready state.
         1. If busy, ensures we are tracking it.
@@ -457,7 +455,6 @@ def register_callbacks(app, cache, fsc, args, *, plugins, file_explorer):
             raise PreventUpdate
 
         if not wdir:
-            # logging.info("No wdir.")
             raise PreventUpdate
 
         if not busy_tracker:
