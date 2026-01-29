@@ -83,6 +83,7 @@ def _build_layout(*, plugins, file_explorer, initial_page_children=None, initial
             }),
             dcc.Store(id='section-context', data=initial_section_context),
             dcc.Store(id='workspace-busy-tracker', data=None),  # Tracks if busy notification was shown
+            dcc.Store(id='workspace-corrupt-tracker', data=None),  # Tracks last selected workspace for corruption notices
             dcc.Interval(id="page-load-trigger", n_intervals=0, interval=200, max_intervals=1),
             dcc.Interval(id="page-heartbeat-interval", n_intervals=0, interval=4000),
             dcc.Interval(id="progress-interval", n_intervals=0, interval=20000, disabled=False),
@@ -396,32 +397,45 @@ def register_callbacks(app, cache, fsc, args, *, plugins, file_explorer):
     @app.callback(
         Output('corruption-notifications-container', 'children'),
         Output('workspace-busy-tracker', 'data'),
+        Output('workspace-corrupt-tracker', 'data'),
 
-        Input('section-context', 'data'),
-        Input('wdir', 'data'),
+        Input('ws-table', 'selectedRowKeys'),
+        State('section-context', 'data'),
+        State('tmpdir', 'data'),
+        State('workspace-corrupt-tracker', 'data'),
         prevent_initial_call=False
     )
-    def check_corruption_on_navigation(section_context, wdir):
-        """Show notification when navigating to a tab or when workspace changes if corrupted/busy."""
+    def check_corruption_on_selection(selectedRowKeys, section_context, tmpdir, corrupt_tracker):
+        """Show notification when a workspace is selected if corrupted/busy."""
         if not section_context or section_context.get('page') != 'Workspaces':
             raise PreventUpdate
-        if not wdir:
+        if not tmpdir or not selectedRowKeys:
             raise PreventUpdate
+
+        ws_key = selectedRowKeys[0]
+        wdir = str(Path(tmpdir, 'workspaces', ws_key))
+        last_selected = (corrupt_tracker or {}).get('last_selected')
+        if last_selected == ws_key:
+            raise PreventUpdate
+
+        tracker_update = {'last_selected': ws_key}
+
         if is_workspace_corrupted(wdir):
             return fac.AntdNotification(
                 message="[!] Database Corrupted",
                 description="This workspace's database is corrupted. Please go to Workspaces tab and delete this workspace, then restore from backup or recreate it.",
                 type="error",
-                duration=15,
+                duration=5,
                 placement='bottom',
                 showProgress=True,
-            ), None
+                key=f"corrupted-{wdir}",
+            ), dash.no_update, tracker_update
         if is_workspace_busy_probe(wdir):
             busy = get_busy_notification(wdir)
             if busy:
                 # Mark that we showed a busy notification for this workspace
-                return fac.AntdNotification(**busy), {'wdir': wdir, 'busy': True, 'ts': time.time()}
-        raise PreventUpdate
+                return fac.AntdNotification(**busy), {'wdir': wdir, 'busy': True, 'ts': time.time()}, tracker_update
+        return dash.no_update, dash.no_update, tracker_update
 
     @app.callback(
         Output('corruption-notifications-container', 'children', allow_duplicate=True),

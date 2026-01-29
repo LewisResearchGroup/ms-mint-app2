@@ -20,6 +20,7 @@ from ..duckdb_manager import (
     validate_mint_database,
     import_database_as_workspace,
     is_workspace_busy_probe,
+    is_workspace_corrupted,
 )
 from ..logging_setup import activate_workspace_logging, deactivate_workspace_logging
 from ..plugin_interface import PluginInterface
@@ -947,6 +948,18 @@ def callbacks(app, fsc, cache):
 
             if not data.empty:
                 data["key"] = data["key"].astype(str)
+                # Annotate corrupted workspaces in the description
+                for idx, row in data.iterrows():
+                    ws_key = row.get("key")
+                    if not ws_key:
+                        continue
+                    ws_path = Path(tmpdir, "workspaces", str(ws_key))
+                    if is_workspace_corrupted(ws_path):
+                        desc = row.get("description") or ""
+                        note = "[CORRUPTED]"
+                        if note not in desc:
+                            desc = f"{desc} {note}".strip()
+                        data.at[idx, "description"] = desc
 
             cols = ['created_at', 'last_activity']
             data[cols] = data[cols].apply(lambda col: col.dt.strftime("%y-%m-%d %H:%M:%S"))
