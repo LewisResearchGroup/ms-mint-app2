@@ -14,7 +14,13 @@ from dash import html, dcc
 from dash.dependencies import Input, Output, State, ALL
 from dash.exceptions import PreventUpdate
 
-from ..duckdb_manager import duckdb_connection_mint, duckdb_connection, validate_mint_database, import_database_as_workspace
+from ..duckdb_manager import (
+    duckdb_connection_mint,
+    duckdb_connection,
+    validate_mint_database,
+    import_database_as_workspace,
+    is_workspace_busy_probe,
+)
 from ..logging_setup import activate_workspace_logging, deactivate_workspace_logging
 from ..plugin_interface import PluginInterface
 
@@ -44,6 +50,7 @@ class WorkspacesPlugin(PluginInterface):
 _layout = html.Div(
     [
         dcc.Store(id="ws-action-store"),
+        dcc.Interval(id="ws-table-refresh-interval", n_intervals=0, interval=4000),
         fac.AntdFlex(
             [
                 fac.AntdTitle('Workspaces', level=4, style={'margin': '0'}),
@@ -488,7 +495,19 @@ def _delete_workspace(okCounts, tmpdir, selectedRowKeys):
 
 def _ws_activate(selectedRowKeys, tmpdir, ws_action):
     if not selectedRowKeys:
-        return dash.no_update, '', '', None
+        if not tmpdir:
+            return dash.no_update, '', '', None
+        try:
+            with duckdb_connection_mint(tmpdir) as mint_conn:
+                ws_row = mint_conn.execute(
+                    "SELECT key FROM workspaces WHERE active = true"
+                ).fetchone()
+                if ws_row:
+                    selectedRowKeys = [str(ws_row[0])]
+                else:
+                    return dash.no_update, '', '', None
+        except Exception:
+            return dash.no_update, '', '', None
 
     ws_key = selectedRowKeys[0]
 
@@ -759,9 +778,10 @@ def callbacks(app, fsc, cache):
 
         Input('section-context', 'data'),
         Input('ws-action-store', 'data'),
+        Input('ws-table-refresh-interval', 'n_intervals'),
         Input("tmpdir", "data"), # Changed from State to Input to auto-update
     )
-    def ws_table(section_context, ws_action, tmpdir):
+    def ws_table(section_context, ws_action, _n_intervals, tmpdir):
 
         if section_context and  section_context['page'] != 'Workspaces':
             raise PreventUpdate
@@ -791,6 +811,14 @@ def callbacks(app, fsc, cache):
                 )
 
                 try:
+                    if is_workspace_busy_probe(_path):
+                        return fac.AntdFlex(
+                            [
+                                path_info,
+                                fac.AntdText("Database busy...", type='secondary')
+                            ],
+                            wrap=True
+                        )
                     # Avoid bumping last_activity just for rendering the preview table
                     with duckdb_connection(_path, register_activity=False) as conn:
                         if conn is None:
@@ -798,7 +826,7 @@ def callbacks(app, fsc, cache):
                             return fac.AntdFlex(
                                 [
                                     path_info,
-                                    fac.AntdText("Database busy...", type='secondary')
+                                    fac.AntdText("Database unavailable...", type='secondary')
                                 ],
                                 wrap=True
                             )
@@ -899,7 +927,7 @@ def callbacks(app, fsc, cache):
         Input("ws-table", "selectedRowKeys"),
         State("tmpdir", "data"),
         State("ws-action-store", "data"),
-        prevent_initial_call=True
+        prevent_initial_call='initial_duplicate'
     )
     def ws_activate(selectedRowKeys, tmpdir, ws_action):
         notification, ws_name, wdir_path, wdir_path2 = _ws_activate(selectedRowKeys, tmpdir, ws_action)
@@ -1253,5 +1281,3 @@ def callbacks(app, fsc, cache):
             {'type': 'import', 'key': workspace_key},
             False, None, None, None,
         )
-
-
