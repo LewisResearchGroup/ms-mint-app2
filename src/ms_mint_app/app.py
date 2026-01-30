@@ -339,10 +339,12 @@ def register_callbacks(app, cache, fsc, args, *, plugins, file_explorer):
         Input('sidebar-menu', 'currentKey'),
         prevent_initial_call='initial_duplicate',
     )
-    def collapse_main_sidebar_on_analysis(current_key):
-        if current_key != 'Analysis':
+    def sync_main_sidebar_on_tab_change(current_key):
+        if not current_key:
             return dash.no_update, dash.no_update
-        return True, 'antd-right'
+        if current_key == 'Analysis':
+            return True, 'antd-right'
+        return False, 'antd-left'
 
     app.clientside_callback(
         """(n, current) => {
