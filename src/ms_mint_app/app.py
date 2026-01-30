@@ -333,6 +333,17 @@ def register_callbacks(app, cache, fsc, args, *, plugins, file_explorer):
         prevent_initial_call=True,
     )
 
+    @app.callback(
+        Output('main-sidebar', 'collapsed', allow_duplicate=True),
+        Output('main-sidebar-collapse-icon', 'icon', allow_duplicate=True),
+        Input('sidebar-menu', 'currentKey'),
+        prevent_initial_call='initial_duplicate',
+    )
+    def collapse_main_sidebar_on_analysis(current_key):
+        if current_key != 'Analysis':
+            return dash.no_update, dash.no_update
+        return True, 'antd-right'
+
     app.clientside_callback(
         """(n, current) => {
             if (current) {

@@ -86,7 +86,7 @@ _layout = fac.AntdLayout(
                                     type='text',
                                     icon=fac.AntdIcon(
                                         id='analysis-sidebar-collapse-icon',
-                                        icon='antd-left',
+                                        icon='antd-right',
                                         style={'fontSize': '14px'},
                                     ),
                                     shape='default',
@@ -107,7 +107,7 @@ _layout = fac.AntdLayout(
                     ],
                     id='analysis-sidebar',
                     collapsible=True,
-                    collapsed=False,
+                    collapsed=True,
                     collapsedWidth=60,
                     width=180,
                     trigger=None,
