@@ -52,7 +52,7 @@ def create_layout():
                             text='Loading Violin...',
                             style={'minHeight': '300px', 'width': '100%'},
                         ),
-                        style={'width': 'calc(55% - 6px)', 'height': '450px', 'overflowY': 'auto'},
+                        style={'width': 'calc(60% - 6px)', 'height': '450px', 'overflowY': 'auto'},
                     ),
                     # Chromatogram container (right side)
                     html.Div(
@@ -61,7 +61,7 @@ def create_layout():
                                 dcc.Graph(
                                     id='violin-chromatogram',
                                     config={'displayModeBar': True, 'responsive': True},
-                                    style={'height': '435px', 'width': '100%'},
+                                    style={'height': '410px', 'width': '100%'},
                                 ),
                                 text='Loading Chromatogram...',
                             ),
@@ -82,7 +82,7 @@ def create_layout():
                             )
                         ],
                         id='violin-chromatogram-container',
-                        style={'display': 'block', 'width': 'calc(43% - 6px)', 'height': 'auto'} # Allow height to grow
+                        style={'display': 'block', 'width': 'calc(38% - 6px)', 'height': 'auto'} # Allow height to grow
                     ),
                 ],
                 gap='middle',
@@ -173,19 +173,20 @@ def _build_violin_graphs(violin_matrix, group_series, color_map, group_label, me
             yaxis=dict(rangemode='tozero' if norm_value in ['none', 'durbin'] else 'normal', fixedrange=False),
 
             margin=dict(l=0, r=10, t=110, b=80),
-            height=450,
+            height=410,
             legend=dict(
                     title=dict(text=f"{group_label}: ", font=dict(size=13)),
                     font=dict(size=12),
-                    orientation='h',
+                    orientation='v',
                     yanchor='top',
-                    y=-0.3,
-                    xanchor='left',
-                    x=0,
+                    y=1.0,
+                    xanchor='right',
+                    x=-0.1,
                 ),
             xaxis_title_font=dict(size=16),
             yaxis_title_font=dict(size=16),
             xaxis_tickfont=dict(size=12),
+            xaxis_showticklabels=False,
             yaxis_tickfont=dict(size=12),
             template='plotly_white',
             paper_bgcolor='white',
@@ -195,7 +196,7 @@ def _build_violin_graphs(violin_matrix, group_series, color_map, group_label, me
         graphs.append(dcc.Graph(
             id={'type': 'violin-plot', 'index': 'main'},
             figure=fig, 
-            style={'height': '450px', 'width': '100%'},
+            style={'height': '410px', 'width': '100%'},
             config=config
         ))
     return graphs
@@ -375,7 +376,7 @@ def register_callbacks(app):
                 template="plotly_white",
                 margin=dict(l=0, r=0, t=0, b=0),
             )
-            return fig, {'display': 'block', 'width': 'calc(43% - 6px)', 'height': '435px'}, None
+            return fig, {'display': 'block', 'width': 'calc(38% - 6px)', 'height': '410px'}, None
 
         # Fetch data
         with duckdb_connection(wdir) as conn:
@@ -470,7 +471,7 @@ def register_callbacks(app):
             if not chrom_data:
                 fig = go.Figure()
                 fig.add_annotation(text="No chromatogram data found", showarrow=False)
-                return fig, {'display': 'block', 'width': 'calc(43% - 6px)', 'height': '435px'}, ms_file_label
+                return fig, {'display': 'block', 'width': 'calc(38% - 6px)', 'height': '410px'}, ms_file_label
 
             # Organize data
             # chrom_data: [(ms_file_label, scan_time, intensity, color), ...]
@@ -597,7 +598,7 @@ def register_callbacks(app):
                 yaxis_tickfont=dict(size=12),
                 template="plotly_white",
                 margin=dict(l=50, r=20, t=110, b=80),
-                height=450,
+                height=410,
                 showlegend=True,
                 legend=dict(
                     title=dict(text=f"{group_label}: ", font=dict(size=13)),
@@ -617,7 +618,7 @@ def register_callbacks(app):
                     autorange=y_range is None,
                 ),
             )
-            return fig, {'display': 'block', 'width': 'calc(43% - 6px)', 'height': '435px'}, ms_file_label
+            return fig, {'display': 'block', 'width': 'calc(38% - 6px)', 'height': '410px'}, ms_file_label
 
     @app.callback(
         Output('violin-chromatogram', 'figure', allow_duplicate=True),
