@@ -3,7 +3,8 @@
 from ._shared import (
     fac, html, dcc, go, px, pd, np, logger, os,
     TSNE_COMPONENT_OPTIONS, PLOTLY_HIGH_RES_CONFIG,
-    get_physical_cores, create_invisible_figure, dash
+    get_physical_cores, create_invisible_figure, dash,
+    Input, Output, PreventUpdate
 )
 from sklearn.manifold import TSNE
 
@@ -88,6 +89,8 @@ def create_layout():
                         }
                     },
                 ),
+                id='tsne-spinner',
+                spinning=False,
                 text='Loading t-SNE...',
                 style={'minHeight': '20vh', 'width': '100%'},
             ),
@@ -183,4 +186,29 @@ def generate_tsne_figure(ndf, color_labels, color_map, group_label, x_comp, y_co
 
 def register_callbacks(app):
     """Register t-SNE callbacks."""
-    pass
+    @app.callback(
+        Output('tsne-spinner', 'spinning'),
+        Input('analysis-sidebar-menu', 'currentKey'),
+        Input('tsne-regenerate-btn', 'nClicks'),
+        Input('tsne-x-comp', 'value'),
+        Input('tsne-y-comp', 'value'),
+        Input('tsne-perplexity-slider', 'value'),
+        Input('tsne-graph', 'figure'),
+        prevent_initial_call=True,
+    )
+    def toggle_tsne_spinner(active_tab, _regen, _x_comp, _y_comp, _perplexity, _figure):
+        if active_tab != 'tsne':
+            return False
+        ctx = dash.callback_context
+        trigger = ctx.triggered[0]["prop_id"].split(".")[0] if ctx.triggered else ""
+        if trigger == 'tsne-graph':
+            return False
+        if trigger in (
+            'analysis-sidebar-menu',
+            'tsne-regenerate-btn',
+            'tsne-x-comp',
+            'tsne-y-comp',
+            'tsne-perplexity-slider',
+        ):
+            return True
+        raise PreventUpdate
