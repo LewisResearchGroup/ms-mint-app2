@@ -26,6 +26,7 @@ from ..duckdb_manager import (
     get_chromatogram_envelope,
     calculate_optimal_params,
     ensure_page_load_active,
+    get_workspace_name_from_wdir,
 )
 from ..plugin_interface import PluginInterface
 from ..tools import sparsify_chrom, proportional_min1_selection
@@ -39,6 +40,7 @@ from ..plugins.analysis_tools.trace_helper import (
 )
 from ..rt_span_optimizer import optimize_rt_spans_batch
 from .workspaces import activate_workspace_logging
+from .. import tools as T
 
 _label = "Optimization"
 
@@ -873,14 +875,22 @@ EMPTY_PLOTLY_FIGURE = {"data": [], "layout": {"template": "plotly_white"}}
 # High-resolution export configuration for Plotly graphs
 PLOTLY_HIGH_RES_CONFIG = {
     'toImageButtonOptions': {
-        'format': 'png',
-        'scale': 4,  # 4x scale ≈ 300 DPI
+        'format': 'svg',
+        'scale': 1,  # Scale does not matter for SVG, but good to keep clean
         'height': None,
         'width': None,
     },
     'displayModeBar': True,
     'displaylogo': False,
 }
+
+
+def _get_download_config(filename: str) -> dict:
+    config = PLOTLY_HIGH_RES_CONFIG.copy()
+    config['toImageButtonOptions'] = config['toImageButtonOptions'].copy()
+    config['toImageButtonOptions']['filename'] = filename
+    config['edits'] = {'shapePosition': True}
+    return config
 
 _layout = fac.AntdLayout(
     [
@@ -1470,7 +1480,7 @@ _layout = fac.AntdLayout(
                                             margin=dict(l=40, r=10, t=50, b=80),
                                         )
                                     ),
-                                    config={**PLOTLY_HIGH_RES_CONFIG, 'edits': {'shapePosition': True}},
+                                    config=_get_download_config("mint_plot"),
                                     style={'width': '100%', 'height': '600px'}
                                 ),
                                 # Invisible placeholder for spinner callbacks (keeps callbacks valid)
@@ -5431,6 +5441,23 @@ def callbacks(app, fsc, cache, cpu=None):
         fig['layout']['shapes'][0]['yref'] = 'y domain'
 
         return config_patch, fig
+
+    @app.callback(
+        Output('chromatogram-view-plot', 'config', allow_duplicate=True),
+        Input('chromatogram-view-modal', 'title'),
+        State('chromatogram-view-modal', 'visible'),
+        State('wdir', 'data'),
+        prevent_initial_call=True,
+    )
+    def update_chromatogram_download_filename(modal_title, modal_visible, wdir):
+        if not modal_visible:
+            raise PreventUpdate
+        ws_name = get_workspace_name_from_wdir(wdir) if wdir else "workspace"
+        date_str = T.today()
+        target_label = modal_title or "chromatogram"
+        safe_target = re.sub(r"[^A-Za-z0-9._-]+", "_", str(target_label)).strip("_") or "chromatogram"
+        filename = f"{date_str}-MINT__{ws_name}-Optimization-{safe_target}"
+        return _get_download_config(filename)
 
     @app.callback(
         Output('chromatogram-view-plot', 'figure', allow_duplicate=True),
