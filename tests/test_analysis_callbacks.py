@@ -51,14 +51,14 @@ def _seed_analysis_data(conn):
 def test_update_content_requires_analysis_context():
     with pytest.raises(dash.exceptions.PreventUpdate):
         update_content(None, "pca", None, None, [], [], "peak_area", None, "sample_type",
-                       0, 0, True, True, 10, 10, "/tmp", None, None, 30)
+                       0, 0, True, True, 10, 10, "/tmp", None, None, 30, None, None, None)
 
 
 def test_update_content_requires_wdir(monkeypatch):
     _patch_callback_context(monkeypatch)
     with pytest.raises(dash.exceptions.PreventUpdate):
         update_content({"page": "Analysis"}, "pca", None, None, [], [], "peak_area", None, "sample_type",
-                       0, 0, True, True, 10, 10, None, None, None, 30)
+                       0, 0, True, True, 10, 10, None, None, None, 30, None, None, None)
 
 
 def test_update_content_no_results(monkeypatch, tmp_path):
@@ -85,11 +85,14 @@ def test_update_content_no_results(monkeypatch, tmp_path):
         None,
         None,
         30,
+        None,
+        None,
+        None,
     )
 
-    assert len(result) == 9
+    assert len(result) == 12
     assert result[0] is None
-    assert result[3:] == ([], [], [], [], [], [])
+    assert result[3:9] == ([], [], [], [], [], [])
 
 
 def test_update_content_scalir_missing(monkeypatch, tmp_path):
@@ -122,6 +125,9 @@ def test_update_content_scalir_missing(monkeypatch, tmp_path):
         None,
         None,
         30,
+        None,
+        None,
+        None,
     )
 
     assert result[0] is None
@@ -155,6 +161,9 @@ def test_update_content_pca_basic(monkeypatch, tmp_path):
         None,
         None,
         30,
+        None,
+        None,
+        None,
     )
 
     fig = result[1]
@@ -176,8 +185,8 @@ def test_update_content_tsne_basic(monkeypatch, tmp_path):
             import numpy as np
             return np.zeros((data.shape[0], self.n_components))
 
-    # Patch TSNE in the submodule that uses it
-    monkeypatch.setattr(tsne_module, "TSNE", DummyTSNE)
+    # Patch TSNE in the plugin module
+    monkeypatch.setattr(analysis_plugin, "TSNE", DummyTSNE)
 
     with duckdb_connection(wdir, register_activity=False) as conn:
         _create_tables(conn)
@@ -203,6 +212,9 @@ def test_update_content_tsne_basic(monkeypatch, tmp_path):
         None,
         None,
         5,
+        None,
+        None,
+        None,
     )
 
     fig = result[2]
@@ -251,6 +263,9 @@ def test_update_content_raincloud_basic(monkeypatch, tmp_path):
         None,
         None,
         30,
+        None,
+        None,
+        None,
     )
 
     graphs = result[3]
@@ -289,6 +304,9 @@ def test_update_content_bar_basic(monkeypatch, tmp_path):
         None,
         None,
         30,
+        None,
+        None,
+        None,
     )
 
     graphs = result[6]
@@ -327,6 +345,9 @@ def test_update_content_raincloud_user_selection(monkeypatch, tmp_path):
         None,
         None,
         30,
+        None,
+        None,
+        None,
     )
 
     selected = result[5]
@@ -361,6 +382,9 @@ def test_update_content_bar_user_selection(monkeypatch, tmp_path):
         None,
         None,
         30,
+        None,
+        None,
+        None,
     )
 
     selected = result[8]

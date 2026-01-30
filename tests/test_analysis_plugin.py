@@ -75,7 +75,8 @@ class TestAnalysisCallbacks:
         
         res = update_content(
             {'page': 'Analysis'}, 'pca', 'PC1', 'PC2', [], [], 'peak_area', 'zscore',
-            'sample_type', 0, 0, False, False, 10, 10, '/tmp/wdir', None, None, None
+            'sample_type', 0, 0, False, False, 10, 10, '/tmp/wdir', None, None, None,
+            None, None, None
         )
         
         # Outputs: bar_graph_matplotlib, pca_graph, violin_graphs, violin_opts, violin_val
@@ -95,7 +96,8 @@ class TestAnalysisCallbacks:
         
         res = update_content(
              {'page': 'Analysis'}, 'pca', 'PC1', 'PC2', [], [], 'peak_area', 'zscore',
-            'sample_type', 0, 0, False, False, 10, 10, '/tmp/wdir', None, None, None
+            'sample_type', 0, 0, False, False, 10, 10, '/tmp/wdir', None, None, None,
+            None, None, None
         )
         
         # Should return None/empty figs, not crash
@@ -111,7 +113,8 @@ class TestAnalysisCallbacks:
         
         res = update_content(
             {'page': 'Analysis'}, 'clustermap', 'PC1', 'PC2', [], [], 'peak_area', 'zscore',
-            'sample_type', 0, 0, True, True, 10, 10, '/tmp/wdir', None, None, None
+            'sample_type', 0, 0, True, True, 10, 10, '/tmp/wdir', None, None, None,
+            None, None, None
         )
         
         # Outputs[0] is bar_graph_matplotlib (src string)
