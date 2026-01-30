@@ -2211,8 +2211,13 @@ def _compute_chromatograms_logic(
     wdir,
     page_load_id: str | None = None,
 ):
+    last_percent = 0
+
     def progress_adapter(percent, stage="", detail=""):
+        nonlocal last_percent
         if set_progress:
+            percent = max(last_percent, percent)
+            last_percent = percent
             set_progress((percent, stage or "", detail or ""))
 
     activate_workspace_logging(wdir)
@@ -2247,6 +2252,7 @@ def _compute_chromatograms_logic(
             logger.info(f"Optimized RT spans for {updated_count} auto-adjusted targets")
         except Exception as e:
             logger.warning(f"Could not optimize RT spans: {e}")
+        progress_adapter(100, "Chromatograms", "Done")
         
     return True, False
 
