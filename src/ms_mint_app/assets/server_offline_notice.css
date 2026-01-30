@@ -1,0 +1,52 @@
+#mint-server-offline-banner {
+    position: fixed;
+    left: 50%;
+    bottom: 24px;
+    transform: translateX(-50%);
+    max-width: 420px;
+    padding: 12px 14px;
+    border: 1px solid #f2b8b5;
+    border-radius: 10px;
+    background: #fff4f4;
+    color: #7a1f1f;
+    box-shadow: 0 10px 24px rgba(0, 0, 0, 0.18);
+    display: none;
+    gap: 12px;
+    align-items: flex-start;
+    z-index: 9999;
+    font-family: inherit;
+}
+
+#mint-server-offline-banner.is-visible {
+    display: flex;
+}
+
+#mint-server-offline-banner .mint-banner-text {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+#mint-server-offline-banner .mint-banner-title {
+    font-weight: 600;
+    font-size: 14px;
+}
+
+#mint-server-offline-banner .mint-banner-body {
+    font-size: 13px;
+    line-height: 1.4;
+}
+
+#mint-server-offline-banner .mint-banner-close {
+    border: 0;
+    background: transparent;
+    color: #7a1f1f;
+    cursor: pointer;
+    font-size: 12px;
+    padding: 4px 6px;
+    border-radius: 6px;
+}
+
+#mint-server-offline-banner .mint-banner-close:hover {
+    background: rgba(122, 31, 31, 0.08);
+}
