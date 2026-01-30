@@ -3,8 +3,8 @@
 from ._shared import (
     fac, html, dcc, go, px, pd, np, logger,
     Input, Output, State, ALL, MATCH, PreventUpdate,
-    duckdb_connection, GROUP_LABELS, METRIC_OPTIONS, PLOTLY_HIGH_RES_CONFIG,
-    _calc_y_range_numpy, dash, get_download_config
+    duckdb_connection, GROUP_LABELS, GROUP_COLUMNS, METRIC_OPTIONS, PLOTLY_HIGH_RES_CONFIG,
+    _calc_y_range_numpy, _build_color_map, dash, get_download_config
 )
 from scipy.stats import ttest_ind, f_oneway
 from .pca import run_pca_samples_in_cols
@@ -61,7 +61,7 @@ def create_layout():
                                 dcc.Graph(
                                     id='violin-chromatogram',
                                     config={'displayModeBar': True, 'responsive': True},
-                                    style={'height': '450px', 'width': '100%'},
+                                    style={'height': '435px', 'width': '100%'},
                                 ),
                                 text='Loading Chromatogram...',
                             ),
@@ -78,7 +78,7 @@ def create_layout():
                                 ],
                                 justify='end',
                                 align='center',
-                                style={'marginTop': '4px', 'width': '100%'}
+                                style={'marginTop': '12px', 'width': '100%'}
                             )
                         ],
                         id='violin-chromatogram-container',
@@ -100,56 +100,8 @@ def create_layout():
 violin_selected_sample_store = dcc.Store(id='violin-selected-sample', data=None)
 
 
-def generate_violin_plots(violin_matrix, group_series, color_map, group_label, metric, norm_value, violin_comp_checks, compound_options, filename='violin_plot'):
-    """Generate the Violin/Raincloud plots."""
+def _build_violin_graphs(violin_matrix, group_series, color_map, group_label, metric, norm_value, selected_compound, filename='violin_plot'):
     config = get_download_config(filename=filename, image_format='svg')
-    logger.info("Generating Violin/Raincloud plots...")
-    # Build options list; sort by absolute PC1 loading if available so the most
-    # influential metabolites surface first.
-    loadings_for_sort = None
-    violin_options = compound_options
-    # Default selection: highest absolute loading on PC1 (per current metric/norm).
-    default_violin = None
-    if violin_options:
-        try:
-            pca_results = run_pca_samples_in_cols(
-                violin_matrix,
-                n_components=min(violin_matrix.shape[0], violin_matrix.shape[1], 5)
-            )
-            loadings = pca_results.get('loadings')
-            if loadings is not None and 'PC1' in loadings.columns:
-                loadings_for_sort = loadings
-                default_violin = loadings['PC1'].abs().idxmax()
-        except Exception:
-            if violin_options:
-                default_violin = violin_options[0]['value']
-    
-    if not default_violin and violin_options:
-            default_violin = violin_options[0]['value']
-
-    if loadings_for_sort is not None and 'PC1' in loadings_for_sort.columns:
-        pc1_sorted = loadings_for_sort['PC1'].abs().sort_values(ascending=False)
-        option_map = {opt['value']: opt for opt in compound_options}
-        violin_options = [option_map[val] for val in pc1_sorted.index if val in option_map]
-    
-    from dash import callback_context
-    triggered = callback_context.triggered[0]["prop_id"].split(".")[0] if callback_context.triggered else ""
-    user_selected = triggered == 'violin-comp-checks'
-    
-    selected_compound = None
-    if user_selected and violin_comp_checks:
-            # Handle potential legacy list value or single value
-            if isinstance(violin_comp_checks, list):
-                selected_compound = violin_comp_checks[0] if violin_comp_checks else default_violin
-            else:
-                selected_compound = violin_comp_checks
-    else:
-            # Use current selection if valid and not triggering a reset, otherwise default
-            if violin_comp_checks and not isinstance(violin_comp_checks, list) and violin_comp_checks in violin_matrix.columns:
-                selected_compound = violin_comp_checks
-            else:
-                selected_compound = default_violin
-    
     graphs = []
     if selected_compound and selected_compound in violin_matrix.columns:
         selected = selected_compound
@@ -246,6 +198,61 @@ def generate_violin_plots(violin_matrix, group_series, color_map, group_label, m
             style={'height': '450px', 'width': '100%'},
             config=config
         ))
+    return graphs
+
+
+def generate_violin_plots(violin_matrix, group_series, color_map, group_label, metric, norm_value, violin_comp_checks, compound_options, filename='violin_plot'):
+    """Generate the Violin/Raincloud plots."""
+    logger.info("Generating Violin/Raincloud plots...")
+    # Build options list; sort by absolute PC1 loading if available so the most
+    # influential metabolites surface first.
+    loadings_for_sort = None
+    violin_options = compound_options
+    # Default selection: highest absolute loading on PC1 (per current metric/norm).
+    default_violin = None
+    if violin_options:
+        try:
+            pca_results = run_pca_samples_in_cols(
+                violin_matrix,
+                n_components=min(violin_matrix.shape[0], violin_matrix.shape[1], 5)
+            )
+            loadings = pca_results.get('loadings')
+            if loadings is not None and 'PC1' in loadings.columns:
+                loadings_for_sort = loadings
+                default_violin = loadings['PC1'].abs().idxmax()
+        except Exception:
+            if violin_options:
+                default_violin = violin_options[0]['value']
+    
+    if not default_violin and violin_options:
+            default_violin = violin_options[0]['value']
+
+    if loadings_for_sort is not None and 'PC1' in loadings_for_sort.columns:
+        pc1_sorted = loadings_for_sort['PC1'].abs().sort_values(ascending=False)
+        option_map = {opt['value']: opt for opt in compound_options}
+        violin_options = [option_map[val] for val in pc1_sorted.index if val in option_map]
+    
+    from dash import callback_context
+    triggered = callback_context.triggered[0]["prop_id"].split(".")[0] if callback_context.triggered else ""
+    user_selected = triggered == 'violin-comp-checks'
+    
+    selected_compound = None
+    if user_selected and violin_comp_checks:
+            # Handle potential legacy list value or single value
+            if isinstance(violin_comp_checks, list):
+                selected_compound = violin_comp_checks[0] if violin_comp_checks else default_violin
+            else:
+                selected_compound = violin_comp_checks
+    else:
+            # Use current selection if valid and not triggering a reset, otherwise default
+            if violin_comp_checks and not isinstance(violin_comp_checks, list) and violin_comp_checks in violin_matrix.columns:
+                selected_compound = violin_comp_checks
+            else:
+                selected_compound = default_violin
+    
+    graphs = _build_violin_graphs(
+        violin_matrix, group_series, color_map, group_label, metric, norm_value, selected_compound, filename=filename
+    )
     return graphs, violin_options, selected_compound
 
 
@@ -291,6 +298,7 @@ def register_callbacks(app):
     )
     def update_chromatogram_on_click(clickData_list, peak_label, group_by_col, metric, normalization, log_scale, current_selection, wdir):
         import random
+        import hashlib
         from dash import ALL
         ctx = dash.callback_context
         if not ctx.triggered:
@@ -367,7 +375,7 @@ def register_callbacks(app):
                 template="plotly_white",
                 margin=dict(l=0, r=0, t=0, b=0),
             )
-            return fig, {'display': 'block', 'width': 'calc(43% - 6px)', 'height': '450px'}, None
+            return fig, {'display': 'block', 'width': 'calc(43% - 6px)', 'height': '435px'}, None
 
         # Fetch data
         with duckdb_connection(wdir) as conn:
@@ -416,10 +424,34 @@ def register_callbacks(app):
                     logger.warning(f"Failed to fetch neighbors: {e}")
                     pass
 
+            color_map = {}
+            if group_by_col:
+                try:
+                    colors_df = conn.execute(
+                        f'SELECT ms_file_label, color, sample_type, "{group_by_col}" FROM samples'
+                    ).df()
+                    color_map = _build_color_map(
+                        colors_df, group_by_col, use_sample_colors=(group_by_col == 'sample_type')
+                    )
+                except Exception as e:
+                    logger.warning(f"Failed to build color map: {e}")
+                    color_map = {}
+
             # Determine display value for legend
             display_val = group_val
             if group_by_col and not group_val:
                  display_val = f"{group_label} (unset)"
+
+            group_color = None
+            if group_by_col:
+                if not group_val:
+                    group_color = '#bbbbbb'
+                else:
+                    group_color = color_map.get(group_val)
+                    if not group_color:
+                        palette = px.colors.qualitative.Plotly
+                        digest = hashlib.md5(str(group_val).encode('utf-8')).hexdigest()
+                        group_color = palette[int(digest, 16) % len(palette)]
 
             # 3. Fetch chromatograms
             # We need the clicked sample + neighbors
@@ -438,7 +470,7 @@ def register_callbacks(app):
             if not chrom_data:
                 fig = go.Figure()
                 fig.add_annotation(text="No chromatogram data found", showarrow=False)
-                return fig, {'display': 'block', 'width': 'calc(43% - 6px)', 'height': '450px'}, ms_file_label
+                return fig, {'display': 'block', 'width': 'calc(43% - 6px)', 'height': '435px'}, ms_file_label
 
             # Organize data
             # chrom_data: [(ms_file_label, scan_time, intensity, color), ...]
@@ -456,9 +488,8 @@ def register_callbacks(app):
                     if len(intensities) > 0 and min(intensities) == max(intensities):
                         continue
 
-                    # If grouping is active but value is missing, use the "unset" color (gray)
-                    if group_by_col and group_val is None:
-                        n_color = '#bbbbbb'
+                    if group_by_col:
+                        n_color = group_color
                     
                     if log_scale:
                          intensities = np.log2(np.array(intensities) + 1)
@@ -492,8 +523,8 @@ def register_callbacks(app):
                     )
                 else:
                     # If grouping is active but value is missing, use the "unset" color (gray)
-                    if group_by_col and not group_val:
-                        main_color = '#bbbbbb'
+                    if group_by_col:
+                        main_color = group_color
 
                     legend_name = str(display_val) if group_by_col else ms_file_label
                     
@@ -586,7 +617,7 @@ def register_callbacks(app):
                     autorange=y_range is None,
                 ),
             )
-            return fig, {'display': 'block', 'width': 'calc(43% - 6px)', 'height': '450px'}, ms_file_label
+            return fig, {'display': 'block', 'width': 'calc(43% - 6px)', 'height': '435px'}, ms_file_label
 
     @app.callback(
         Output('violin-chromatogram', 'figure', allow_duplicate=True),

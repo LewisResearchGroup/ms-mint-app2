@@ -247,6 +247,7 @@ _layout = fac.AntdLayout(
         dcc.Store(id='analysis-tabs', data={'activeKey': 'pca'}),
         dcc.Store(id='analysis-pca-cache', data=None),
         dcc.Store(id='analysis-tsne-cache', data=None),
+        dcc.Store(id='analysis-violin-cache', data=None),
         fac.AntdTour(
             locale='en-us',
             steps=[],
@@ -288,6 +289,9 @@ def _pca_cache_key(wdir, metric, norm_value):
 
 def _tsne_cache_key(wdir, metric, norm_value, perplexity):
     return f"{wdir}|{metric}|{norm_value}|{perplexity}"
+
+def _violin_cache_key(wdir, metric, norm_value):
+    return f"{wdir}|{metric}|{norm_value}"
 
 
 def _serialize_pca_results(results):
@@ -332,6 +336,17 @@ def _deserialize_tsne_results(payload):
     scores = payload.get('scores') or {}
     scores_df = pd.DataFrame(scores.get('data', []), columns=scores.get('columns', []), index=scores.get('index', []))
     return scores_df
+
+def _serialize_violin_series(series_df):
+    return {
+        'series': series_df.to_dict(orient='split'),
+    }
+
+
+def _deserialize_violin_series(payload):
+    series = payload.get('series') or {}
+    series_df = pd.DataFrame(series.get('data', []), columns=series.get('columns', []), index=series.get('index', []))
+    return series_df
 
 def _analysis_tour_steps(active_tab: str):
     # Common steps for all views
@@ -668,6 +683,7 @@ def callbacks(app, fsc=None, cache=None):
         Output('bar-comp-checks', 'value'),
         Output('analysis-pca-cache', 'data'),
         Output('analysis-tsne-cache', 'data'),
+        Output('analysis-violin-cache', 'data'),
 
         Input('section-context', 'data'),
         Input('analysis-sidebar-menu', 'currentKey'),
@@ -690,21 +706,22 @@ def callbacks(app, fsc=None, cache=None):
         Input('tsne-perplexity-slider', 'value'),
         State('analysis-pca-cache', 'data'),
         State('analysis-tsne-cache', 'data'),
+        State('analysis-violin-cache', 'data'),
         prevent_initial_call=False,
     )
     def update_content_wrapper(section_context, tab_key, x_comp, y_comp, violin_comp_checks, bar_comp_checks, metric_value, norm_value,
                         group_by, regen_clicks, tsne_regen_clicks, cluster_rows, cluster_cols, fontsize_x, fontsize_y, wdir,
-                        tsne_x_comp, tsne_y_comp, tsne_perplexity, pca_cache, tsne_cache):
+                        tsne_x_comp, tsne_y_comp, tsne_perplexity, pca_cache, tsne_cache, violin_cache):
         return update_content(
             section_context, tab_key, x_comp, y_comp, violin_comp_checks, bar_comp_checks, metric_value, norm_value,
             group_by, regen_clicks, tsne_regen_clicks, cluster_rows, cluster_cols, fontsize_x, fontsize_y, wdir,
-            tsne_x_comp, tsne_y_comp, tsne_perplexity, pca_cache, tsne_cache
+            tsne_x_comp, tsne_y_comp, tsne_perplexity, pca_cache, tsne_cache, violin_cache
         )
 
 
 def update_content(section_context, tab_key, x_comp, y_comp, violin_comp_checks, bar_comp_checks, metric_value, norm_value,
                     group_by, regen_clicks, tsne_regen_clicks, cluster_rows, cluster_cols, fontsize_x, fontsize_y, wdir,
-                    tsne_x_comp, tsne_y_comp, tsne_perplexity, pca_cache, tsne_cache):
+                    tsne_x_comp, tsne_y_comp, tsne_perplexity, pca_cache, tsne_cache, violin_cache):
     
         
         if not section_context or section_context.get('page') != 'Analysis':
@@ -738,6 +755,7 @@ def update_content(section_context, tab_key, x_comp, y_comp, violin_comp_checks,
         cache_key = _pca_cache_key(wdir, metric, norm_value)
         tsne_perplexity_value = tsne_perplexity if tsne_perplexity else 30
         tsne_cache_key = _tsne_cache_key(wdir, metric, norm_value, tsne_perplexity_value)
+        violin_cache_key = _violin_cache_key(wdir, metric, norm_value)
         triggered_only_group = (
             bool(triggered_props)
             and all(prop.startswith('analysis-grouping-select') for prop in triggered_props)
@@ -783,6 +801,7 @@ def update_content(section_context, tab_key, x_comp, y_comp, violin_comp_checks,
                 return (
                     dash.no_update,
                     fig,
+                    dash.no_update,
                     dash.no_update,
                     dash.no_update,
                     dash.no_update,
@@ -848,6 +867,66 @@ def update_content(section_context, tab_key, x_comp, y_comp, violin_comp_checks,
                     dash.no_update,
                     dash.no_update,
                     dash.no_update,
+                    dash.no_update,
+                )
+            except Exception:
+                pass
+
+        if tab_key == 'raincloud' and triggered_only_group and violin_cache and violin_cache.get('key') == violin_cache_key:
+            try:
+                series_df = _deserialize_violin_series(violin_cache.get('results', {}))
+                if series_df.empty:
+                    raise ValueError("Empty violin cache")
+                samples_meta = pd.DataFrame(violin_cache.get('samples_meta', []))
+                if not samples_meta.empty and 'ms_file_label' in samples_meta.columns:
+                    samples_meta = samples_meta.set_index('ms_file_label')
+
+                group_field = selected_group if selected_group in samples_meta.columns else (
+                    'sample_type' if 'sample_type' in samples_meta.columns else None
+                )
+                group_label = GROUP_LABELS.get(group_field, 'Group')
+                missing_group_label = f"{group_label} (unset)"
+
+                if group_field and group_field in samples_meta.columns:
+                    group_series = samples_meta[group_field]
+                    group_series = group_series.reindex(series_df.index)
+                else:
+                    group_series = pd.Series(series_df.index, index=series_df.index, name='group')
+
+                if isinstance(group_series, pd.Series):
+                    group_series = group_series.replace("", pd.NA)
+                group_series.name = group_field or 'group'
+                group_series = group_series.fillna(missing_group_label)
+
+                if samples_meta.empty:
+                    color_map = {}
+                else:
+                    color_source = samples_meta.reset_index()
+                    color_map = _build_color_map(
+                        color_source, group_field, use_sample_colors=(group_field == 'sample_type')
+                    )
+                if missing_group_label in group_series.values:
+                    color_map.setdefault(missing_group_label, '#bbbbbb')
+
+                selected_compound = violin_cache.get('selected_compound')
+                violin_options = violin_cache.get('options', [])
+                graphs = violin._build_violin_graphs(
+                    series_df, group_series, color_map, group_label, metric, norm_value, selected_compound,
+                    filename=f"{T.today()}-MINT__{get_workspace_name_from_wdir(wdir)}-Analysis-Violin"
+                )
+                return (
+                    dash.no_update,
+                    dash.no_update,
+                    dash.no_update,
+                    graphs,
+                    violin_options,
+                    selected_compound,
+                    dash.no_update,
+                    dash.no_update,
+                    dash.no_update,
+                    dash.no_update,
+                    dash.no_update,
+                    dash.no_update,
                 )
             except Exception:
                 pass
@@ -861,20 +940,20 @@ def update_content(section_context, tab_key, x_comp, y_comp, violin_comp_checks,
 
         with duckdb_connection(wdir, n_cpus=cpus, ram=ram) as conn:
             if conn is None:
-                return None, invisible_fig, invisible_fig, [], [], [], [], [], [], dash.no_update, dash.no_update
+                return None, invisible_fig, invisible_fig, [], [], [], [], [], [], dash.no_update, dash.no_update, dash.no_update
 
             try:
                 results_count = conn.execute("SELECT COUNT(*) FROM results").fetchone()[0]
                 if results_count == 0:
-                    return None, invisible_fig, invisible_fig, [], [], [], [], [], [], dash.no_update, dash.no_update
+                    return None, invisible_fig, invisible_fig, [], [], [], [], [], [], dash.no_update, dash.no_update, dash.no_update
             except Exception:
-                return None, invisible_fig, invisible_fig, [], [], [], [], [], [], dash.no_update, dash.no_update
+                return None, invisible_fig, invisible_fig, [], [], [], [], [], [], dash.no_update, dash.no_update, dash.no_update
             
             target_table = 'results'
             if metric == 'scalir_conc':
                 scalir_path = Path(wdir) / "results" / "scalir" / "concentrations.csv"
                 if not scalir_path.exists():
-                    return None, invisible_fig, invisible_fig, [], [], [], [], [], [], dash.no_update, dash.no_update
+                    return None, invisible_fig, invisible_fig, [], [], [], [], [], [], dash.no_update, dash.no_update, dash.no_update
                 try:
                     conn.execute(f"CREATE OR REPLACE TEMP VIEW scalir_temp_conc AS SELECT * FROM read_csv_auto('{scalir_path}')")
                     conn.execute("""
@@ -890,7 +969,7 @@ def update_content(section_context, tab_key, x_comp, y_comp, violin_comp_checks,
                     target_table = 'scalir_results_view'
                 except Exception as e:
                     logger.error(f"Error preparing SCALiR data: {e}")
-                    return None, invisible_fig, invisible_fig, [], [], [], [], [], [], dash.no_update, dash.no_update
+                    return None, invisible_fig, invisible_fig, [], [], [], [], [], [], dash.no_update, dash.no_update, dash.no_update
 
             df = _create_pivot_custom(conn, value=metric, table=target_table)
             df.set_index('ms_file_label', inplace=True)
@@ -906,7 +985,7 @@ def update_content(section_context, tab_key, x_comp, y_comp, violin_comp_checks,
                 "SELECT ms_file_label FROM samples ORDER BY ms_file_label"
             ).df()
             if order_df_raw.empty:
-                return None, invisible_fig, invisible_fig, [], [], [], [], [], [], dash.no_update, dash.no_update
+                return None, invisible_fig, invisible_fig, [], [], [], [], [], [], dash.no_update, dash.no_update, dash.no_update
             
             order_df = order_df_raw["ms_file_label"].tolist()
             ordered_labels = [lbl for lbl in order_df if lbl in df.index]
@@ -958,7 +1037,7 @@ def update_content(section_context, tab_key, x_comp, y_comp, violin_comp_checks,
             color_labels = group_series.reindex(df.index).fillna(missing_group_label)
             
             if df.empty or raw_numeric.empty:
-                return None, invisible_fig, invisible_fig, [], [], [], [], [], [], dash.no_update, dash.no_update
+                return None, invisible_fig, invisible_fig, [], [], [], [], [], [], dash.no_update, dash.no_update, dash.no_update
             
             from ...pca import StandardScaler
             scaler = StandardScaler()
@@ -992,13 +1071,13 @@ def update_content(section_context, tab_key, x_comp, y_comp, violin_comp_checks,
                 violin_matrix = df
             
             if violin_matrix.empty:
-                return dash.no_update, invisible_fig, invisible_fig, [], [], [], [], [], [], dash.no_update, dash.no_update
+                return dash.no_update, invisible_fig, invisible_fig, [], [], [], [], [], [], dash.no_update, dash.no_update, dash.no_update
 
         # Route logic to submodules
         if tab_key == 'clustermap':
              triggered_prop = triggered_props[0].split('.')[0] if triggered_props else None
              src = clustermap.generate_clustermap(zdf, color_labels, color_map, group_label, norm_value, cluster_rows, cluster_cols, fontsize_x, fontsize_y, wdir, metric, triggered_prop, norm_value)
-             return src, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update
+             return src, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update
 
         elif tab_key == 'pca':
              pca_results = pca.run_pca_samples_in_cols(ndf, n_components=min(ndf.shape[0], ndf.shape[1], 5))
@@ -1010,7 +1089,7 @@ def update_content(section_context, tab_key, x_comp, y_comp, violin_comp_checks,
                  'results': _serialize_pca_results(pca_results),
                  'samples_meta': colors_df.to_dict(orient='records') if not colors_df.empty else [],
              }
-             return dash.no_update, fig, dash.no_update, dash.no_update, compound_options, dash.no_update, dash.no_update, dash.no_update, dash.no_update, pca_cache_data, dash.no_update
+             return dash.no_update, fig, dash.no_update, dash.no_update, compound_options, dash.no_update, dash.no_update, dash.no_update, dash.no_update, pca_cache_data, dash.no_update, dash.no_update
         
         elif tab_key == 'tsne':
              tsne_scores = None
@@ -1039,16 +1118,26 @@ def update_content(section_context, tab_key, x_comp, y_comp, violin_comp_checks,
                  'results': _serialize_tsne_results(tsne_scores) if tsne_scores is not None else {},
                  'samples_meta': colors_df.to_dict(orient='records') if not colors_df.empty else [],
              } if tsne_scores is not None else None
-             return dash.no_update, dash.no_update, fig, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, tsne_cache_data
+             return dash.no_update, dash.no_update, fig, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, tsne_cache_data, dash.no_update
         
         elif tab_key == 'raincloud':
              file_name = f"{base_name}-Violin"
              graphs, options, val = violin.generate_violin_plots(violin_matrix, group_series, color_map, group_label, metric, norm_value, violin_comp_checks, compound_options, filename=file_name)
-             return dash.no_update, dash.no_update, dash.no_update, graphs, options, val, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update
+             violin_cache_data = None
+             if val and val in violin_matrix.columns:
+                 series_df = violin_matrix[[val]].copy()
+                 violin_cache_data = {
+                     'key': violin_cache_key,
+                     'results': _serialize_violin_series(series_df),
+                     'selected_compound': val,
+                     'options': options,
+                     'samples_meta': colors_df.to_dict(orient='records') if not colors_df.empty else [],
+                 }
+             return dash.no_update, dash.no_update, dash.no_update, graphs, options, val, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, violin_cache_data
 
         elif tab_key == 'bar':
              file_name = f"{base_name}-Bar"
              graphs, options, val = bar.generate_bar_plots(violin_matrix, group_series, color_map, group_label, metric, norm_value, bar_comp_checks, compound_options, filename=file_name)
-             return dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, graphs, options, val, dash.no_update, dash.no_update
+             return dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, graphs, options, val, dash.no_update, dash.no_update, dash.no_update
 
-        return dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update
+        return dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update
