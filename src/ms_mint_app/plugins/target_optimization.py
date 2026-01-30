@@ -49,6 +49,7 @@ SAVGOL_WINDOW = 10
 SAVGOL_ORDER = 2
 SAVGOL_MIN_RT_SPAN = 30.0
 RT_FALLBACK_PAD_SECONDS = 30.0
+PREVIEW_RT_PAD_SECONDS = 2.0
 
 _SESSION_RENDER_REVISIONS = defaultdict(int)
 _SESSION_RENDER_LOCK = Lock()
@@ -2985,7 +2986,7 @@ def callbacks(app, fsc, cache, cpu=None):
             except Exception:
                 pass
 
-            preview_pad = RT_FALLBACK_PAD_SECONDS
+            preview_pad = PREVIEW_RT_PAD_SECONDS
             query = f"""
                                 WITH picked_samples AS (
                                     SELECT ms_file_label, color, label, sample_type
@@ -3184,7 +3185,7 @@ def callbacks(app, fsc, cache, cpu=None):
                     if shift != 0:
                         scan_time = scan_time + shift
                 
-                window_min, window_max = _get_rt_span_with_pad(rt_min, rt_max)
+                window_min, window_max = _get_rt_span_with_pad(rt_min, rt_max, pad_seconds=PREVIEW_RT_PAD_SECONDS)
                 if window_min is None or window_max is None:
                     continue
 
