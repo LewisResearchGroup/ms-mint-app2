@@ -945,8 +945,14 @@ def _confirm_and_delete(okCounts, selectedRows, clickedKey, wdir, workspace_stat
             if conn is None:
                 raise PreventUpdate
             try:
+                total_count_row = conn.execute("SELECT COUNT(*) FROM samples").fetchone()
+                total_count = total_count_row[0] if total_count_row else 0
+                deleting_all = total_count > 0 and len(remove_ms_files) >= total_count
                 conn.execute("BEGIN")
-                if remove_ms_files:
+                if deleting_all:
+                    for t in ("ms1_data", "ms2_data", "chromatograms", "results", "samples"):
+                        conn.execute(f"TRUNCATE {t}")
+                elif remove_ms_files:
                     conn.execute("DELETE FROM ms1_data WHERE ms_file_label IN ?", (remove_ms_files,))
                     conn.execute("DELETE FROM ms2_data WHERE ms_file_label IN ?", (remove_ms_files,))
                     conn.execute("DELETE FROM chromatograms WHERE ms_file_label IN ?", (remove_ms_files,))
@@ -968,10 +974,17 @@ def _confirm_and_delete(okCounts, selectedRows, clickedKey, wdir, workspace_stat
                             style=NOTIFICATION_COMPACT_STYLE
                         ),
                         {'action': 'delete', 'status': 'failed'},
-                        dash.no_update)
+                        dash.no_update,
+                        "Updating table...")
 
         total_removed = len(remove_ms_files)
         ms_table_action_store = {'action': 'delete', 'status': 'success'}
+        if deleting_all and ms_table_action_store.get('status') == 'success':
+            compact_success, compact_msg = compact_database(wdir)
+            if compact_success:
+                logger.info(f"Database compacted after deleting all MS files: {compact_msg}")
+            else:
+                logger.warning(f"Failed to compact database: {compact_msg}")
     else:
         with duckdb_connection(wdir) as conn:
             if conn is None:
@@ -1023,6 +1036,7 @@ def _confirm_and_delete(okCounts, selectedRows, clickedKey, wdir, workspace_stat
                                  ),
             ms_table_action_store,
             dash.no_update,
+            "Updating table...",
             new_status)
 
 
@@ -1398,6 +1412,7 @@ def callbacks(cls, app, fsc, cache, args_namespace):
         Output("notifications-container", "children", allow_duplicate=True),
         Output("ms-table-action-store", "data", allow_duplicate=True),
         Output("ms-files-table-spin", "spinning"),
+        Output("ms-files-table-spin", "text", allow_duplicate=True),
         Output("workspace-status", "data", allow_duplicate=True),
 
         Input("delete-confirmation-modal", "okCounts"),
@@ -1408,6 +1423,7 @@ def callbacks(cls, app, fsc, cache, args_namespace):
         background=True,
         running=[
             (Output("ms-files-table-spin", "spinning"), True, False),
+            (Output("ms-files-table-spin", "text"), "Removing MS files. Please wait...", "Updating table..."),
             (Output("delete-confirmation-modal", "confirmLoading"), True, False),
         ],
         prevent_initial_call=True,

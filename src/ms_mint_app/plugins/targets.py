@@ -896,10 +896,18 @@ def _target_delete(okCounts, selectedRows, clickedKey, wdir, workspace_status):
                 logger.debug("_target_delete: PreventUpdate because database connection is None")
                 raise PreventUpdate
             try:
+                total_count_row = conn.execute("SELECT COUNT(*) FROM targets").fetchone()
+                total_count = total_count_row[0] if total_count_row else 0
+                deleting_all = total_count > 0 and len(remove_targets) >= total_count
                 conn.execute("BEGIN")
-                conn.execute("DELETE FROM targets WHERE peak_label IN ?", (remove_targets,))
-                conn.execute("DELETE FROM chromatograms WHERE peak_label IN ?", (remove_targets,))
-                conn.execute("DELETE FROM results WHERE peak_label IN ?", (remove_targets,))
+                if deleting_all:
+                    conn.execute("DELETE FROM targets")
+                    conn.execute("DELETE FROM chromatograms")
+                    conn.execute("DELETE FROM results")
+                else:
+                    conn.execute("DELETE FROM targets WHERE peak_label IN ?", (remove_targets,))
+                    conn.execute("DELETE FROM chromatograms WHERE peak_label IN ?", (remove_targets,))
+                    conn.execute("DELETE FROM results WHERE peak_label IN ?", (remove_targets,))
                 conn.execute("COMMIT")
             except Exception as e:
                 conn.execute("ROLLBACK")
@@ -914,9 +922,16 @@ def _target_delete(okCounts, selectedRows, clickedKey, wdir, workspace_status):
                             stack=True
                         ),
                         {'action': 'delete', 'status': 'failed'},
-                        dash.no_update)
+                        dash.no_update,
+                        "Loading data...")
         total_removed = len(remove_targets)
         targets_action_store = {'action': 'delete', 'status': 'success'}
+        if deleting_all and targets_action_store.get('status') == 'success':
+            compact_success, compact_msg = compact_database(wdir)
+            if compact_success:
+                logger.info(f"Database compacted after deleting all targets: {compact_msg}")
+            else:
+                logger.warning(f"Failed to compact database: {compact_msg}")
     elif clickedKey == "delete-all":
         with duckdb_connection(wdir) as conn:
             if conn is None:
@@ -956,7 +971,8 @@ def _target_delete(okCounts, selectedRows, clickedKey, wdir, workspace_status):
                                 stack=True
                             ),
                             {'action': 'delete', 'status': 'failed'},
-                            dash.no_update)
+                            dash.no_update,
+                            "Loading data...")
         
         # Compact database only when clearing the entire table (outside the 'with' block)
         if targets_action_store.get('status') == 'success' and should_compact:
@@ -989,6 +1005,7 @@ def _target_delete(okCounts, selectedRows, clickedKey, wdir, workspace_status):
                                  ),
             targets_action_store,
             dash.no_update,
+            "Loading data...",
             new_status)
 
 
@@ -1274,6 +1291,7 @@ def callbacks(app, fsc=None, cache=None):
         Output('notifications-container', 'children', allow_duplicate=True),
         Output('targets-action-store', "data", allow_duplicate=True),
         Output("targets-table-spin", "spinning"),
+        Output("targets-table-spin", "text", allow_duplicate=True),
         Output("workspace-status", "data", allow_duplicate=True),
 
         Input('delete-table-targets-modal', 'okCounts'),
@@ -1284,6 +1302,7 @@ def callbacks(app, fsc=None, cache=None):
         background=True,
         running=[
             (Output("targets-table-spin", "spinning"), True, False),
+            (Output("targets-table-spin", "text"), "Removing targets. Please wait...", "Loading data..."),
             (Output("delete-table-targets-modal", "confirmLoading"), True, False),
         ],
         prevent_initial_call=True
