@@ -1,10 +1,13 @@
 """QC (Quality Control) tab for Analysis plugin."""
 
+from pathlib import Path
+
 from ._shared import (
     fac, html, dcc, go, px, pd, np, logger,
     duckdb_connection, PLOTLY_HIGH_RES_CONFIG,
     Input, Output, State, PreventUpdate, dash,
-    GROUP_COLUMNS, GROUP_LABELS, _calc_y_range_numpy
+    GROUP_COLUMNS, GROUP_LABELS, METRIC_OPTIONS, allowed_metrics,
+    rocke_durbin, _calc_y_range_numpy
 )
 
 
@@ -192,10 +195,12 @@ def register_callbacks(app):
         Output('qc-spinner', 'spinning'),
         Input('qc-target-select', 'value'),
         Input('analysis-grouping-select', 'value'),
+        Input('analysis-metric-select', 'value'),
+        Input('analysis-normalization-select', 'value'),
         Input('wdir', 'data'),
         prevent_initial_call=False,
     )
-    def generate_qc_plots(peak_label, group_by, wdir):
+    def generate_qc_plots(peak_label, group_by, metric_value, norm_value, wdir):
         """Generate QC plots: RT and m/z in separate figures."""
         if not peak_label or not wdir:
             raise PreventUpdate
@@ -209,6 +214,40 @@ def register_callbacks(app):
                 return empty_fig, empty_fig, False
             
             group_col = group_by if group_by else 'sample_type'
+
+            metric = 'peak_area'
+            if metric_value == 'scalir_conc' or metric_value in allowed_metrics:
+                metric = metric_value
+            norm_value = norm_value or 'none'
+
+            target_table = 'results'
+            if metric == 'scalir_conc':
+                scalir_path = Path(wdir) / "results" / "scalir" / "concentrations.csv"
+                if not scalir_path.exists():
+                    empty_fig = go.Figure()
+                    empty_fig.update_layout(title="SCALiR concentrations not found", paper_bgcolor='white', plot_bgcolor='white')
+                    return empty_fig, empty_fig, False
+                try:
+                    conn.execute(f"CREATE OR REPLACE TEMP VIEW scalir_temp_conc AS SELECT * FROM read_csv_auto('{scalir_path}')")
+                    conn.execute("""
+                        CREATE OR REPLACE TEMP VIEW scalir_results_view AS 
+                        SELECT 
+                            r.ms_file_label, 
+                            r.peak_label,
+                            r.peak_rt_of_max,
+                            r.peak_mz_of_max,
+                            r.peak_area,
+                            s.pred_conc AS scalir_conc 
+                        FROM results r 
+                        LEFT JOIN scalir_temp_conc s 
+                        ON r.ms_file_label = CAST(s.ms_file AS VARCHAR) AND r.peak_label = s.peak_label
+                    """)
+                    target_table = 'scalir_results_view'
+                except Exception as e:
+                    logger.error(f"Error preparing SCALiR data: {e}")
+                    empty_fig = go.Figure()
+                    empty_fig.update_layout(title="Failed to prepare SCALiR data", paper_bgcolor='white', plot_bgcolor='white')
+                    return empty_fig, empty_fig, False
             
             # Check if peak_mz_of_max exists
             has_peak_mz = False
@@ -226,7 +265,7 @@ def register_callbacks(app):
                     r.ms_file_label,
                     r.peak_rt_of_max,
                     {mz_col_sql}
-                    r.peak_area,
+                    r.{metric},
                     t.rt_min,
                     t.rt_max,
                     t.mz_mean,
@@ -235,7 +274,7 @@ def register_callbacks(app):
                     s.color,
                     s.acquisition_datetime,
                     ROW_NUMBER() OVER (ORDER BY s.acquisition_datetime NULLS LAST, s.ms_file_label) as sample_order
-                FROM results r
+                FROM {target_table} r
                 JOIN targets t ON r.peak_label = t.peak_label
                 JOIN samples s ON r.ms_file_label = s.ms_file_label
                 WHERE r.peak_label = ?
@@ -296,8 +335,17 @@ def register_callbacks(app):
             # === RT FIGURE ===
             fig_rt = go.Figure()
             
-            # === PEAK AREA FIGURE ===
+            # === METRIC FIGURE ===
             fig_mz = go.Figure()
+
+            metric_label = next((opt['label'] for opt in METRIC_OPTIONS if opt['value'] == metric), metric)
+            metric_values = df[metric].astype(float)
+            if norm_value in ('zscore', 'zscore_durbin'):
+                std = metric_values.std(ddof=0)
+                metric_values = (metric_values - metric_values.mean()) / std if std and np.isfinite(std) else metric_values * 0
+            if norm_value in ('durbin', 'zscore_durbin'):
+                metric_values = rocke_durbin(pd.DataFrame({metric: metric_values}), c=10)[metric]
+            df[metric] = metric_values
             
             # Add traces for each group
             for group in unique_groups:
@@ -329,7 +377,7 @@ def register_callbacks(app):
                 fig_mz.add_trace(
                     go.Scatter(
                         x=group_df[x_col],
-                        y=group_df['peak_area'],
+                        y=group_df[metric],
                         mode='markers',
                         name=str(group),
                         marker=dict(color=scatter_colors, size=6),
@@ -367,7 +415,7 @@ def register_callbacks(app):
             # Update Peak Area Figure Layout
             fig_mz.update_layout(
                 **layout_common,
-                yaxis_title='Peak Area',
+                yaxis_title=metric_label,
                 xaxis_title=x_title,
                 xaxis=dict(showticklabels=True)
             )

@@ -608,11 +608,6 @@ def callbacks(app, fsc=None, cache=None):
         prevent_initial_call=False,
     )
     def toggle_metric_visibility(active_tab):
-        # For QC tab, hide Metric and Transformations (show only Group by)
-        if active_tab == 'qc':
-            hidden_style = {'display': 'none'}
-            return hidden_style, hidden_style
-        # For other tabs, show all controls
         visible_style = {'display': 'flex'}
         return visible_style, visible_style
 
