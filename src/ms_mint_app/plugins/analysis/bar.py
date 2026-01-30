@@ -1,10 +1,10 @@
 """Bar Chart tab for Analysis plugin."""
 
 from ._shared import (
-    fac, html, dcc, go, pd, np, logger,
+    fac, html, dcc, go, px, pd, np, logger,
     Input, Output, State, ALL, MATCH, PreventUpdate,
-    duckdb_connection, GROUP_LABELS, METRIC_OPTIONS, PLOTLY_HIGH_RES_CONFIG,
-    _calc_y_range_numpy, dash, get_download_config
+    duckdb_connection, GROUP_LABELS, GROUP_COLUMNS, METRIC_OPTIONS, PLOTLY_HIGH_RES_CONFIG,
+    _calc_y_range_numpy, _build_color_map, dash, get_download_config
 )
 from scipy.stats import ttest_ind, f_oneway
 from .pca import run_pca_samples_in_cols
@@ -52,7 +52,7 @@ def create_layout():
                             text='Loading Bar Plot...',
                             style={'minHeight': '300px', 'width': '100%'},
                         ),
-                        style={'width': 'calc(55% - 6px)', 'height': '450px', 'overflowY': 'auto'},
+                        style={'width': 'calc(60% - 6px)', 'height': '450px', 'overflowY': 'auto'},
                     ),
                     # Chromatogram container (right side)
                     html.Div(
@@ -61,7 +61,7 @@ def create_layout():
                                 dcc.Graph(
                                     id='bar-chromatogram',
                                     config={'displayModeBar': True, 'responsive': True},
-                                    style={'height': '450px', 'width': '100%'},
+                                    style={'height': '410px', 'width': '100%'},
                                 ),
                                 text='Loading Chromatogram...',
                             ),
@@ -82,7 +82,7 @@ def create_layout():
                             )
                         ],
                         id='bar-chromatogram-container',
-                        style={'display': 'block', 'width': 'calc(43% - 6px)', 'height': 'auto'} # Allow height to grow
+                        style={'display': 'block', 'width': 'calc(38% - 6px)', 'height': 'auto'} # Allow height to grow
                     ),
                 ],
                 gap='middle',
@@ -210,6 +210,18 @@ def generate_bar_plots(bar_matrix, group_series, color_map, group_label, metric,
             showlegend=False
         ))
 
+        # Legend entries per group (single bar trace doesn't create categorical legend)
+        if color_map:
+            for g in unique_groups:
+                fig.add_trace(go.Scatter(
+                    x=[None],
+                    y=[None],
+                    mode='markers',
+                    marker=dict(color=color_map.get(g, '#333'), size=8),
+                    name=str(g),
+                    showlegend=True,
+                ))
+
         # Significance tests (reuse logic)
         groups = [
             g['PlotValue'].dropna().to_numpy()
@@ -240,19 +252,30 @@ def generate_bar_plots(bar_matrix, group_series, color_map, group_label, metric,
                 tickmode='array',
                 tickvals=list(range(len(unique_groups))),
                 ticktext=unique_groups,
-                range=[-0.5, len(unique_groups) - 0.5] # Ensure nicely centered view
+                range=[-0.5, len(unique_groups) - 0.5], # Ensure nicely centered view
+                showticklabels=False,
             ),
-            margin=dict(l=60, r=20, t=80, b=80),
-            height=450,
+            margin=dict(l=140, r=20, t=80, b=80),
+            height=410,
+            legend=dict(
+                title=dict(text=f"{group_label}: ", font=dict(size=13)),
+                font=dict(size=12),
+                orientation='v',
+                yanchor='top',
+                y=1.0,
+                xanchor='right',
+                x=-0.1,
+            ),
             template='plotly_white',
             paper_bgcolor='white',
             plot_bgcolor='white',
-            clickmode='event'
+            clickmode='event',
+            showlegend=True,
         )
         graphs.append(dcc.Graph(
             id={'type': 'bar-plot', 'index': 'main'},
             figure=fig, 
-            style={'height': '450px', 'width': '100%'},
+            style={'height': '410px', 'width': '100%'},
             config=config
         ))
     return graphs, bar_options, selected_compound
@@ -276,6 +299,7 @@ def register_callbacks(app):
     )
     def update_bar_chromatogram_on_click(clickData_list, peak_label, group_by_col, metric, normalization, log_scale, current_selection, wdir):
         import random
+        import hashlib
         from dash import ALL
         ctx = dash.callback_context
         if not ctx.triggered:
@@ -352,7 +376,7 @@ def register_callbacks(app):
                 template="plotly_white",
                 margin=dict(l=0, r=0, t=0, b=0),
             )
-            return fig, {'display': 'block', 'width': 'calc(43% - 6px)', 'height': '450px'}, None
+            return fig, {'display': 'block', 'width': 'calc(38% - 6px)', 'height': '410px'}, None
 
         # Fetch data
         with duckdb_connection(wdir) as conn:
@@ -401,10 +425,34 @@ def register_callbacks(app):
                     logger.warning(f"Failed to fetch neighbors: {e}")
                     pass
 
+            color_map = {}
+            if group_by_col:
+                try:
+                    colors_df = conn.execute(
+                        f'SELECT ms_file_label, color, sample_type, "{group_by_col}" FROM samples'
+                    ).df()
+                    color_map = _build_color_map(
+                        colors_df, group_by_col, use_sample_colors=(group_by_col == 'sample_type')
+                    )
+                except Exception as e:
+                    logger.warning(f"Failed to build color map: {e}")
+                    color_map = {}
+
             # Determine display value for legend
             display_val = group_val
             if group_by_col and not group_val:
                  display_val = f"{group_label} (unset)"
+
+            group_color = None
+            if group_by_col:
+                if not group_val:
+                    group_color = '#bbbbbb'
+                else:
+                    group_color = color_map.get(group_val)
+                    if not group_color:
+                        palette = px.colors.qualitative.Plotly
+                        digest = hashlib.md5(str(group_val).encode('utf-8')).hexdigest()
+                        group_color = palette[int(digest, 16) % len(palette)]
 
             # 3. Fetch chromatograms
             # We need the clicked sample + neighbors
@@ -423,7 +471,7 @@ def register_callbacks(app):
             if not chrom_data:
                 fig = go.Figure()
                 fig.add_annotation(text="No chromatogram data found", showarrow=False)
-                return fig, {'display': 'block', 'width': 'calc(43% - 6px)', 'height': '450px'}, ms_file_label
+                return fig, {'display': 'block', 'width': 'calc(38% - 6px)', 'height': '410px'}, ms_file_label
 
             # Organize data
             # chrom_data: [(ms_file_label, scan_time, intensity, color), ...]
@@ -441,9 +489,8 @@ def register_callbacks(app):
                     if len(intensities) > 0 and min(intensities) == max(intensities):
                         continue
 
-                    # If grouping is active but value is missing, use the "unset" color (gray)
-                    if group_by_col and group_val is None:
-                        n_color = '#bbbbbb'
+                    if group_by_col:
+                        n_color = group_color
                     
                     if log_scale:
                          intensities = np.log2(np.array(intensities) + 1)
@@ -476,9 +523,8 @@ def register_callbacks(app):
                         font=dict(size=14, color="gray")
                     )
                 else:
-                    # If grouping is active but value is missing, use the "unset" color (gray)
-                    if group_by_col and not group_val:
-                        main_color = '#bbbbbb'
+                    if group_by_col:
+                        main_color = group_color
 
                     legend_name = str(display_val) if group_by_col else ms_file_label
                     
@@ -551,7 +597,7 @@ def register_callbacks(app):
                 yaxis_tickfont=dict(size=12),
                 template="plotly_white",
                 margin=dict(l=50, r=20, t=110, b=80),
-                height=450,
+                height=410,
                 showlegend=True,
                 legend=dict(
                     title=dict(text=f"{group_label}: ", font=dict(size=13)),
@@ -571,4 +617,4 @@ def register_callbacks(app):
                     autorange=y_range is None,
                 ),
             )
-            return fig, {'display': 'block', 'width': 'calc(43% - 6px)', 'height': '450px'}, ms_file_label
+            return fig, {'display': 'block', 'width': 'calc(38% - 6px)', 'height': '410px'}, ms_file_label
