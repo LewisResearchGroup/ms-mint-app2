@@ -7,7 +7,7 @@ from ._shared import (
     duckdb_connection, PLOTLY_HIGH_RES_CONFIG,
     Input, Output, State, PreventUpdate, dash,
     GROUP_COLUMNS, GROUP_LABELS, METRIC_OPTIONS, allowed_metrics,
-    rocke_durbin, _calc_y_range_numpy
+    rocke_durbin, _calc_y_range_numpy, _build_color_map
 )
 
 
@@ -294,22 +294,16 @@ def register_callbacks(app):
                 empty_fig.update_layout(title="No results for selected target", paper_bgcolor='white', plot_bgcolor='white')
                 return empty_fig, empty_fig, False
             
-            # Use colors from database (samples table)
+            # Use cached color map for consistent group colors across tabs
             unique_groups = df['group_val'].unique()
-            
-            color_discrete_map = {}
-            default_colors = px.colors.qualitative.Plotly
-            
-            for i, group in enumerate(unique_groups):
-                # meaningful color from database?
-                group_color = df[df['group_val'] == group]['color'].iloc[0]
-                
-                if group == 'unset':
-                     color_discrete_map[group] = '#bbbbbb'
-                elif group_color and group_color != '#BBBBBB':
-                     color_discrete_map[group] = group_color
-                else:
-                     color_discrete_map[group] = default_colors[i % len(default_colors)]
+            use_sample_colors = (not group_by or group_by == 'sample_type')
+            color_df = df[['group_val', 'color']].rename(columns={'group_val': group_col})
+            color_df.loc[color_df[group_col] == 'unset', 'color'] = '#bbbbbb'
+            color_discrete_map = _build_color_map(
+                color_df,
+                group_col,
+                use_sample_colors=use_sample_colors,
+            )
 
             # X-axis configuration
             x_col = 'sample_order'

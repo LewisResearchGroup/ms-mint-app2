@@ -154,9 +154,13 @@ def _calc_y_range_numpy(data, x_left, x_right, is_log=False):
     return [y_min, y_max * 1.05]
 
 
+_COLOR_MAP_CACHE = {}
+
+
 def _build_color_map(color_df: pd.DataFrame, group_col: str, *, use_sample_colors: bool = True) -> dict:
     if not group_col or group_col not in color_df.columns or color_df.empty:
         return {}
+
     working = color_df[[group_col, 'color']].copy()
     working = working[working[group_col].notna()]
     if use_sample_colors:
@@ -165,17 +169,40 @@ def _build_color_map(color_df: pd.DataFrame, group_col: str, *, use_sample_color
         )
     else:
         working['color'] = None
-    color_map = (
+
+    # Start with explicit colors from data, then merge with cached assignments.
+    explicit_map = (
         working.dropna(subset=['color'])
         .drop_duplicates(subset=[group_col])
         .set_index(group_col)['color']
         .to_dict()
     )
+
+    cached_map = _COLOR_MAP_CACHE.get(group_col, {}).copy()
+    color_map = {**cached_map, **explicit_map}
+
     missing = [val for val in working[group_col].dropna().unique() if val not in color_map]
+    # Optionally force the largest group to a neutral gray for readability
+    if missing and not use_sample_colors:
+        top_group = working[group_col].value_counts().idxmax()
+        if top_group in missing:
+            color_map[top_group] = '#bbbbbb'
+            missing = [val for val in missing if val != top_group]
     if missing:
         palette = plotly_colors.qualitative.Plotly
-        for val, color in zip(missing, cycle(palette)):
+        used_colors = set(color_map.values())
+        palette_cycle = cycle(palette)
+        for val in sorted(missing, key=lambda v: str(v).lower()):
+            color = next(palette_cycle)
+            # Avoid reusing colors if possible; fall back if palette exhausted.
+            attempts = 0
+            while color in used_colors and attempts < len(palette):
+                color = next(palette_cycle)
+                attempts += 1
             color_map[val] = color
+            used_colors.add(color)
+
+    _COLOR_MAP_CACHE[group_col] = color_map.copy()
     return color_map
 
 
