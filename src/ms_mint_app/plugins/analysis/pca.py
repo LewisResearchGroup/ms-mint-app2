@@ -5,7 +5,7 @@ from ._shared import (
     PCA_COMPONENT_OPTIONS, PLOTLY_HIGH_RES_CONFIG,
     make_subplots, px, dash
 )
-from ...pca import SciPyPCA as PCA
+from sklearn.decomposition import PCA
 
 
 def run_pca_samples_in_cols(df: pd.DataFrame, n_components=None, random_state=0):
@@ -13,7 +13,7 @@ def run_pca_samples_in_cols(df: pd.DataFrame, n_components=None, random_state=0)
 
     X = df.to_numpy(dtype=float)  # samples x targets
 
-    pca = PCA(n_components=n_components, random_state=random_state)
+    pca = PCA(n_components=n_components, random_state=random_state, svd_solver="full")
     scores = pca.fit_transform(X)  # samples x components
 
     explained = pca.explained_variance_ratio_

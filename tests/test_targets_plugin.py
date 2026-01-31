@@ -78,7 +78,7 @@ class TestTargetsCRUD:
         selected_rows = [{'peak_label': 'Target1'}]
         result = _target_delete(1, selected_rows, 'delete-selected', temp_wdir, {})
         
-        notification, action_store, _, _ = result
+        notification, action_store, _, _, _ = result
         assert action_store['status'] == 'success'
         
         with duckdb_connection(temp_wdir) as conn:
@@ -90,7 +90,7 @@ class TestTargetsCRUD:
     def test_target_delete_all(self, temp_wdir):
         result = _target_delete(1, [], 'delete-all', temp_wdir, {})
         
-        notification, action_store, _, _ = result
+        notification, action_store, _, _, _ = result
         assert action_store['status'] == 'success'
         
         with duckdb_connection(temp_wdir) as conn:

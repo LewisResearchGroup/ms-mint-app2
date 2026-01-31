@@ -1073,7 +1073,7 @@ def update_content(section_context, tab_key, x_comp, y_comp, violin_comp_checks,
             if df.empty or raw_numeric.empty:
                 return None, invisible_fig, invisible_fig, [], [], [], [], [], [], dash.no_update, dash.no_update, dash.no_update
             
-            from ...pca import StandardScaler
+            from sklearn.preprocessing import StandardScaler
             scaler = StandardScaler()
             
             if norm_value == 'zscore':
