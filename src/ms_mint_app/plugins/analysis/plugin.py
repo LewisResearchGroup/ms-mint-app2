@@ -245,6 +245,10 @@ _layout = fac.AntdLayout(
         ),
         # Hidden store for maintaining tab state compatibility with callbacks
         dcc.Store(id='analysis-tabs', data={'activeKey': 'pca'}),
+        dcc.Store(
+            id='analysis-shared-settings',
+            data={'metric': 'peak_area', 'group_by': 'sample_type'},
+        ),
         dcc.Store(id='analysis-pca-cache', data=None),
         dcc.Store(id='analysis-tsne-cache', data=None),
         dcc.Store(id='analysis-violin-cache', data=None),
@@ -618,6 +622,41 @@ def callbacks(app, fsc=None, cache=None):
     )
     def set_norm_default_for_tab(active_tab):
         return TAB_DEFAULT_NORM.get(active_tab, 'zscore')
+
+    @app.callback(
+        Output('analysis-shared-settings', 'data'),
+        Input('analysis-metric-select', 'value'),
+        Input('analysis-grouping-select', 'value'),
+        State('analysis-shared-settings', 'data'),
+        prevent_initial_call=False,
+    )
+    def persist_shared_settings(metric_value, group_by_value, stored):
+        data = stored.copy() if isinstance(stored, dict) else {}
+        if metric_value:
+            data['metric'] = metric_value
+        if group_by_value:
+            data['group_by'] = group_by_value
+        if not data:
+            data = {'metric': 'peak_area', 'group_by': 'sample_type'}
+        return data
+
+    @app.callback(
+        Output('analysis-metric-select', 'value'),
+        Output('analysis-grouping-select', 'value'),
+        Input('analysis-sidebar-menu', 'currentKey'),
+        State('analysis-shared-settings', 'data'),
+        State('analysis-metric-select', 'value'),
+        State('analysis-grouping-select', 'value'),
+        prevent_initial_call=False,
+    )
+    def sync_shared_controls_on_tab_switch(active_tab, stored, current_metric, current_group):
+        if not isinstance(stored, dict):
+            return dash.no_update, dash.no_update
+        metric_value = stored.get('metric') or current_metric
+        group_by_value = stored.get('group_by') or current_group
+        if metric_value == current_metric and group_by_value == current_group:
+            return dash.no_update, dash.no_update
+        return metric_value, group_by_value
 
     @app.callback(
         Output('analysis-tour', 'current'),

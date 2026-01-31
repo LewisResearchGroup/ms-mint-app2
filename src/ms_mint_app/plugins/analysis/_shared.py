@@ -44,6 +44,7 @@ TAB_DEFAULT_NORM = {
     'clustermap': 'zscore',
     'pca': 'durbin',
     'tsne': 'zscore',
+    'qc': 'durbin',
     'raincloud': 'durbin',
     'bar': 'durbin',
 }
