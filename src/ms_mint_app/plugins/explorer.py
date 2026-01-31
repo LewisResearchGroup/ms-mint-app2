@@ -444,7 +444,7 @@ class FileExplorer:
                 style = {'display': 'none'}
             elif prop_data['type'] in ("targets", "targets-empty"):
                 title = "Load Targets"
-                file_extensions = [".csv", ".tsv", ".txt", ".xls", ".xlsx"]
+                file_extensions = [".csv", ".tsv", ".txt", ".xls", ".xlsx", ".json"]
                 style = {'display': 'none'}
                 # Normalize type for downstream processing
                 prop_data['type'] = "targets"

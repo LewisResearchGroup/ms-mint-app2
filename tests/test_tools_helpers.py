@@ -21,6 +21,7 @@ def test_normalize_column_names_priority_and_rt_conversion():
     df = pd.DataFrame(
         {
             "compoundId": ["A"],
+            "compound": ["B"],
             "medMz": [100.0],
             "medRt": [2.0],
             "parent": [999.0],
@@ -33,7 +34,41 @@ def test_normalize_column_names_priority_and_rt_conversion():
     assert "mz_mean" in out.columns
     assert "rt" in out.columns
     assert out["mz_mean"].iloc[0] == 100.0
-    assert out["rt"].iloc[0] == 120.0
+    assert out["peak_label"].iloc[0] == "B"
+
+
+def test_read_el_maven_json_groups(tmp_path):
+    path = tmp_path / "maven.json"
+    path.write_text(
+        """
+{
+  "groups": [
+    {
+      "groupId": 1,
+      "meanMz": 250.0945892,
+      "meanRt": 7.975498199,
+      "rtmin": 7.860666752,
+      "rtmax": 8.25313282,
+      "compound": {
+        "compoundId": "C00559",
+        "compoundName": "deoxyadenosine",
+        "expectedRt": 8,
+        "expectedMz": 250.0945587,
+        "adductName": "[M-H]-"
+      }
+    }
+  ]
+}
+"""
+    )
+    from ms_mint_app.tools import read_tabular_file
+    df = read_tabular_file(path)
+    df = normalize_column_names(df)
+    assert df["peak_label"].iloc[0] == "deoxyadenosine"
+    assert df["mz_mean"].iloc[0] == 250.0945892
+    assert df["rt"].iloc[0] == 7.975498199 * 60.0
+    assert df["rt_min"].iloc[0] == 7.860666752 * 60.0
+    assert df["rt_max"].iloc[0] == 8.25313282 * 60.0
 
 
 def test_sparsify_chrom_filters_signal_and_neighbors():

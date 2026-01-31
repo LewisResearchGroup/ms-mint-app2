@@ -67,7 +67,10 @@ def read_tabular_file(file_path: str | Path, dtype: dict = None, nrows: int = No
             first_line = f.readline()
         sep = '\t' if '\t' in first_line else ','
         return pd.read_csv(file_path, sep=sep, **read_kwargs)
-    
+
+    elif ext == '.json':
+        return _read_json_table(file_path)
+
     elif ext in ('.xls', '.xlsx'):
         # Excel files - read first sheet by default
         # Note: nrows works differently for Excel - need to filter after
@@ -91,6 +94,8 @@ COLUMN_MAPPINGS = {
     'compoundid': 'peak_label',
     'compound': 'peak_label',
     'compoundname': 'peak_label',
+    'meanmz': 'mz_mean',
+    'meanrt': 'rt',
     'medmz': 'mz_mean',
     'parent': 'mz_mean',
     'medrt': 'rt',
@@ -117,9 +122,9 @@ COLUMN_MAPPINGS = {
 # When multiple source columns are present, the first one found in this list wins.
 # Keys are MINT target column names, values are lists of source column names in priority order.
 PRIORITY_MAPPINGS = {
-    'mz_mean': ['medmz', 'parent', 'row m/z', 'precursor_mz', 'precursormz'],
-    'peak_label': ['compoundid', 'compound', 'compoundname', 'compound name', 'name', 'target', 'target_name'],
-    'rt': ['medrt', 'expectedrt', 'row retention time', 'retention_time', 'retentiontime'],
+    'mz_mean': ['meanmz', 'medmz', 'parent', 'row m/z', 'precursor_mz', 'precursormz'],
+    'peak_label': ['compound', 'compoundid', 'compoundname', 'compound name', 'name', 'target', 'target_name'],
+    'rt': ['meanrt', 'medrt', 'expectedrt', 'row retention time', 'retention_time', 'retentiontime'],
 }
 
 
@@ -128,7 +133,7 @@ def normalize_column_names(df: pd.DataFrame) -> pd.DataFrame:
     Normalize column names from external software formats to MINT format.
     
     Supports automatic detection and mapping of columns from:
-    - EL-MAVEN (compoundId, medMz, medRt) - RT is in minutes, converted to seconds
+    - EL-MAVEN (compound, meanMz/medMz, meanRt/medRt) - RT is in minutes, converted to seconds
     - MZmine (row m/z, row retention time)
     - Generic alternatives (name, mz, rt, etc.)
     
@@ -185,7 +190,7 @@ def normalize_column_names(df: pd.DataFrame) -> pd.DataFrame:
             mapped_info.append(f"'{col}' → '{mint_col}'")
             
             # EL-MAVEN medRt is in minutes - needs conversion to seconds
-            if col_lower == 'medrt':
+            if col_lower in ('medrt', 'meanrt'):
                 needs_rt_conversion = True
     
     if mapped_info:
@@ -207,6 +212,50 @@ def normalize_column_names(df: pd.DataFrame) -> pd.DataFrame:
             df['rt_max'] = df['rt_max'] * 60.0
     
     return df
+
+
+def _read_json_table(file_path: str | Path) -> pd.DataFrame:
+    """
+    Read JSON tables with support for EL-MAVEN group exports.
+
+    EL-MAVEN format example:
+      { "groups": [ { "meanMz": ..., "meanRt": ..., "rtmin": ..., "rtmax": ..., "compound": {...} }, ... ] }
+    """
+    import json
+
+    with open(file_path, "r") as fh:
+        payload = json.load(fh)
+
+    # EL-MAVEN group export
+    if isinstance(payload, dict) and isinstance(payload.get("groups"), list):
+        rows = []
+        for group in payload.get("groups", []):
+            compound = group.get("compound") or {}
+            rows.append({
+                "compound": compound.get("compoundName") or compound.get("compoundId") or group.get("label"),
+                "compoundId": compound.get("compoundId"),
+                "compoundName": compound.get("compoundName"),
+                "formula": compound.get("formula"),
+                "meanMz": group.get("meanMz"),
+                "meanRt": group.get("meanRt"),
+                "rtmin": group.get("rtmin"),
+                "rtmax": group.get("rtmax"),
+                "expectedRt": compound.get("expectedRt"),
+                "expectedMz": compound.get("expectedMz"),
+                "adductName": compound.get("adductName"),
+                "tagString": compound.get("tagString"),
+            })
+        return pd.DataFrame(rows)
+
+    # Generic JSON list of records
+    if isinstance(payload, list):
+        return pd.DataFrame(payload)
+
+    # Fallback: try to normalize dict to a single-row DataFrame
+    if isinstance(payload, dict):
+        return pd.DataFrame([payload])
+
+    raise ValueError("Unsupported JSON format for target table.")
 
 
 _RT_SECONDS = re.compile(
