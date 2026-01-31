@@ -34,7 +34,7 @@ class TestTargetsTable:
             mock_ctx.triggered = [{'prop_id': 'targets-table.pagination'}]
             result = _targets_table({'page': 'Targets'}, pagination, filter_, sorter, filterOptions, temp_wdir)
         
-        data, selected_keys, pagination_out, filter_out = result
+        data, selected_keys, pagination_out, filter_out, _ = result
         assert len(data) == 2
         # Check if Target1 or Target2 is present (order might vary depending on default sort if not specified)
         labels = [row['peak_label'] for row in data]
@@ -52,7 +52,7 @@ class TestTargetsTable:
             mock_ctx.triggered = [{'prop_id': 'targets-table.filter'}]
             result = _targets_table({'page': 'Targets'}, pagination, filter_, sorter, filterOptions, temp_wdir)
         
-        data, _, pagination_out, _ = result
+        data, _, pagination_out, _, _ = result
         assert len(data) == 1
         assert data[0]['peak_label'] == 'Target1'
 
@@ -66,7 +66,7 @@ class TestTargetsTable:
             mock_ctx.triggered = [{'prop_id': 'targets-table.sorter'}]
             result = _targets_table({'page': 'Targets'}, pagination, filter_, sorter, filterOptions, temp_wdir)
         
-        data, _, _, _ = result
+        data, _, _, _, _ = result
         assert data[0]['peak_label'] == 'Target2' # 200.0 > 100.0
 
     def test_targets_table_prevent_update_wrong_page(self, temp_wdir):

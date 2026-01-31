@@ -917,7 +917,8 @@ def _ms_files_table(section_context, processing_output, processed_action, pagina
              'total': number_records,
              'current': current,
              'pageSizeOptions': sorted(set([5, 10, 15, 25, 50, 100] + ([number_records] if number_records else [])))},
-            output_filterOptions
+            output_filterOptions,
+            "Updating table..."
         ]
     return dash.no_update
 
@@ -1327,6 +1328,7 @@ def callbacks(cls, app, fsc, cache, args_namespace):
         Output("ms-files-table", "selectedRowKeys"),
         Output("ms-files-table", "pagination"),
         Output("ms-files-table", "filterOptions"),
+        Output("ms-files-table-spin", "text", allow_duplicate=True),
 
         Input('section-context', 'data'),
         Input("ms-table-action-store", "data"),

@@ -870,7 +870,8 @@ def _targets_table(section_context, pagination, filter_, sorter, filterOptions, 
             [],
             {**pagination, 'total': number_records, 'current': current, 'pageSizeOptions': sorted([5, 10, 15, 25, 50,
             100, number_records])},
-            output_filterOptions
+            output_filterOptions,
+            "Loading data..."
         ]
     return dash.no_update
 
@@ -1214,6 +1215,7 @@ def callbacks(app, fsc=None, cache=None):
         Output("targets-table", "selectedRowKeys"),
         Output("targets-table", "pagination"),
         Output("targets-table", "filterOptions"),
+        Output("targets-table-spin", "text", allow_duplicate=True),
 
         Input('section-context', 'data'),
         Input("targets-action-store", "data"),
