@@ -2255,8 +2255,23 @@ def callbacks(app, fsc, cache):
             default_cpus,
             default_ram,
             help_cpu,
+            help_cpu,
             help_ram
         )
+
+    @app.callback(
+        Output('processing-chromatogram-compute-batch-size', 'value', allow_duplicate=True),
+        Input('processing-chromatogram-compute-ram', 'value'),
+        Input('processing-chromatogram-compute-cpu', 'value'),
+        prevent_initial_call=True
+    )
+    def update_batch_size_proc(ram_gb, n_cpus):
+        """Update batch size when RAM or CPUs change."""
+        if not ram_gb or not n_cpus:
+            return dash.no_update
+            
+        return calculate_optimal_batch_size(ram_gb=ram_gb, n_cpus=n_cpus, total_pairs=1000000)
+
 
     @app.callback(
         Output('results-action-store', 'data'),

@@ -241,7 +241,7 @@ def calculate_optimal_params(user_cpus: int = None, user_ram: int = None) -> tup
     Algorithm (data-driven from experimental benchmarks):
     1. CPUs: min(logical // 2, physical_cores) - avoids hyperthreads
     2. RAM: 50% of available, balanced with 1.5GB per CPU minimum
-    3. Batch: 200 × RAM_GB, capped at 5000
+    3. Batch: 300 × RAM_GB, capped at 5000
     
     If user provides explicit values, those are used instead of auto-detection.
     
@@ -282,14 +282,19 @@ def calculate_optimal_params(user_cpus: int = None, user_ram: int = None) -> tup
     else:
         # CPU is limiting factor
         cpus = target_cpus
-        # Cap RAM at 1.5× CPUs (no benefit beyond that based on experiments)
-        ram_gb = min(usable_ram, int(cpus * min_ram_per_cpu))
+        
+        if user_ram is not None:
+            # If user explicitly set RAM, respect it fully
+            ram_gb = usable_ram
+        else:
+            # Cap RAM at 1.5× CPUs (no benefit beyond that based on experiments)
+            ram_gb = min(usable_ram, int(cpus * min_ram_per_cpu))
     
     # Step 4: Batch size optimization
     # Benchmarks (Jan 2026) showed 1000-3000 is the "sweet spot" for throughput
     # and stability. Larger batches (5000+) reduced speed by 3x and increased crash risk.
-    # New formula: 200 * RAM_GB, capped at 5000.
-    batch_size = min(200 * ram_gb, 5000)
+    # New formula: 300 * RAM_GB, capped at 5000.
+    batch_size = min(300 * ram_gb, 5000)
     batch_size = max(1000, batch_size)  # Minimum 1000 for efficiency
     
     return cpus, ram_gb, batch_size
@@ -303,7 +308,7 @@ def calculate_optimal_batch_size(ram_gb: int = None, total_pairs: int = 0, n_cpu
     backward compatibility with existing code that only needs batch_size.
     
     Formula (revised Jan 2026 based on large dataset benchmarks):
-    - batch = 200 × RAM_GB, capped at 5000
+    - batch = 300 × RAM_GB, capped at 5000
     - Experiments showed batch 1000 was 3x faster than batch 5000
     - Large batches (8000+) caused high memory pressure and crashes
     

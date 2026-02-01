@@ -2508,6 +2508,20 @@ def callbacks(app, fsc, cache, cpu=None):
             "",  # progress stage
             ""   # progress detail
         )
+
+    @app.callback(
+        Output('chromatogram-compute-batch-size', 'value'),
+        Input('chromatogram-compute-ram', 'value'),
+        Input('chromatogram-compute-cpu', 'value'),
+        prevent_initial_call=True
+    )
+    def update_batch_size_opt(ram_gb, n_cpus):
+        """Update batch size when RAM or CPUs change."""
+        if not ram_gb or not n_cpus:
+            return dash.no_update
+            
+        return calculate_optimal_batch_size(ram_gb=ram_gb, n_cpus=n_cpus, total_pairs=1000000)
+
     # Clientside callback to detect container width for smart auto-sizing
     app.clientside_callback(
         """(n_intervals, sidebar_collapsed) => {
