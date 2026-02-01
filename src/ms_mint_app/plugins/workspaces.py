@@ -20,6 +20,7 @@ from ..duckdb_manager import (
     validate_mint_database,
     import_database_as_workspace,
     is_workspace_corrupted,
+    ensure_workspace_name_marker,
 )
 from ..logging_setup import activate_workspace_logging, deactivate_workspace_logging
 from ..plugin_interface import PluginInterface
@@ -410,6 +411,7 @@ def _create_workspace(okCounts, tmpdir, ws_name, ws_description):
         if key:
             ws_path = Path(tmpdir, 'workspaces', str(key[0]))
             ws_path.mkdir(parents=True, exist_ok=True)
+            ensure_workspace_name_marker(ws_path, ws_name, workspace_key=str(key[0]))
             # Note: "Created workspace" is logged after activation in _load_workspace_directories_and_tables
 
     return 'create', None, None, None

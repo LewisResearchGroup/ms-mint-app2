@@ -32,7 +32,7 @@ def init_global_logging(level: int = logging.INFO) -> None:
 
 
 def activate_workspace_logging(workspace_dir: str | Path,
-                               filename: str = "ws.log",
+                               filename: str = "workspace_mint.log",
                                level: int | None = None,
                                workspace_name: str | None = None) -> Path:
     """

@@ -506,6 +506,7 @@ def import_database_as_workspace(
     workspace_path = mint_root / 'workspaces' / workspace_key
     try:
         workspace_path.mkdir(parents=True, exist_ok=True)
+        ensure_workspace_name_marker(workspace_path, workspace_name, workspace_key=workspace_key)
     except Exception as e:
         # Rollback: delete the workspace record
         try:
@@ -572,6 +573,7 @@ def ensure_exploration_workspace(mint_root: Path, *, seed: int = 7) -> bool:
     workspace_path = mint_root / "workspaces" / workspace_key
     try:
         workspace_path.mkdir(parents=True, exist_ok=True)
+        ensure_workspace_name_marker(workspace_path, ws_name, workspace_key=workspace_key)
         if bundle_path and _seed_exploration_workspace_from_bundle(workspace_path, bundle_path):
             logger.info(f"Seeded exploration workspace from bundle: {bundle_path}")
         else:
@@ -604,6 +606,40 @@ def _create_exploration_workspace_record(
     except Exception as e:
         logger.error(f"Failed to create exploration workspace record: {e}", exc_info=True)
         return None
+
+
+def _workspace_marker_filename(workspace_name: str) -> str:
+    safe_name = re.sub(r"[\\/]", "_", workspace_name).strip()
+    if not safe_name:
+        safe_name = "workspace"
+    return f"{safe_name}.txt"
+
+
+def ensure_workspace_name_marker(
+    workspace_path: Path | str,
+    workspace_name: str | None,
+    workspace_key: str | None = None,
+    created_at: datetime | None = None,
+) -> None:
+    if not workspace_path or not workspace_name:
+        return
+
+    try:
+        marker_path = Path(workspace_path) / _workspace_marker_filename(workspace_name)
+        if marker_path.exists():
+            return
+
+        created_at = created_at or datetime.utcnow()
+        lines = [
+            "MINT Workspace",
+            f"Name: {workspace_name}",
+        ]
+        if workspace_key:
+            lines.append(f"Key: {workspace_key}")
+        lines.append(f"Created (UTC): {created_at.isoformat(timespec='seconds')}")
+        marker_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    except Exception as exc:
+        logger.debug("Failed to write workspace marker for %s: %s", workspace_name, exc)
 
 
 def _resolve_exploration_bundle_path() -> Path | None:
