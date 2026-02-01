@@ -859,9 +859,9 @@ Expected result: the <code>DEMO</code> workspace appears with a blue toggle indi
 <p>Some demo files are available for download on the MINT Google Drive. Download the files from <a href="https://downgit.github.io/#/home?url=https://github.com/LewisResearchGroup/ms-mint-app2/tree/main/tests/test_MS1">here</a> and extract the archive.</p>
 <p>This is the directory tree of the demo files:</p>
 <pre><code>.
-├── README.md
 ├── metadata
-│&nbsp;&nbsp; └── metadata.csv
+│&nbsp;&nbsp; ├── metadata.csv
+│&nbsp;&nbsp; └── metadata_template.csv
 ├── ms-files
 │&nbsp;&nbsp; ├── CA_B1.mzXML
 │&nbsp;&nbsp; ├── CA_B2.mzXML
@@ -874,11 +874,12 @@ Expected result: the <code>DEMO</code> workspace appears with a blue toggle indi
 │&nbsp;&nbsp; ├── SA_B1.mzML
 │&nbsp;&nbsp; ├── SA_B2.mzML
 │&nbsp;&nbsp; ├── SA_B3.mzML
-│&nbsp;&nbsp; ├── SA_B4.mzML
+│&nbsp;&nbsp; └── SA_B4.mzML
 └── targets
-    └── targets.csv
+    ├── targets.csv
+    └── targets_template.csv
 
-4 directories, 15 files
+3 directories, 16 files
 </code></pre>
 <ul>
 <li>A folder (<code>ms-files</code>) with 12 mass spectrometry (MS) files from microbial samples. We have four files for each <em>Escherichia coli</em> (EC), <em>Candida albicans</em> (CA), and <em>Staphylococcus aureus</em> (SA). Each file belongs to one of four batches (B1-B4).</li>
