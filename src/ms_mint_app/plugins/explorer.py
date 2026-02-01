@@ -961,7 +961,7 @@ def _background_processing(set_progress, okCounts, processing_type, selected_fil
                     n_cpus = cpu_count()
                     default_cpus = max(1, n_cpus // 2)
                     ram_avail = psutil.virtual_memory().available / (1024 ** 3)
-                    default_ram = round(min(float(default_cpus), ram_avail), 1)
+                    default_ram = round(min(float(default_cpus) * 1.5, ram_avail), 1)
 
                     workspace_status = {
                         'ms_files_count': counts[0] or 0,

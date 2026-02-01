@@ -2427,7 +2427,7 @@ def callbacks(app, fsc, cache, cpu=None):
         n_cpus = cpu_count()
         default_cpus = max(1, n_cpus // 2)
         ram_avail = psutil.virtual_memory().available / (1024 ** 3)
-        default_ram = round(min(float(default_cpus), ram_avail), 1)
+        default_ram = round(min(float(default_cpus) * 1.5, ram_avail), 1)
         
         # Default values if DB unavailable
         chromatograms_count = 0

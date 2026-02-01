@@ -240,8 +240,8 @@ def calculate_optimal_params(user_cpus: int = None, user_ram: int = None) -> tup
     
     Algorithm (data-driven from experimental benchmarks):
     1. CPUs: min(logical // 2, physical_cores) - avoids hyperthreads
-    2. RAM: 50% of available, balanced with 1GB per CPU minimum
-    3. Batch: 500 × RAM_GB, capped at 8000
+    2. RAM: 50% of available, balanced with 1.5GB per CPU minimum
+    3. Batch: 200 × RAM_GB, capped at 5000
     
     If user provides explicit values, those are used instead of auto-detection.
     
@@ -288,8 +288,8 @@ def calculate_optimal_params(user_cpus: int = None, user_ram: int = None) -> tup
     # Step 4: Batch size optimization
     # Benchmarks (Jan 2026) showed 1000-3000 is the "sweet spot" for throughput
     # and stability. Larger batches (5000+) reduced speed by 3x and increased crash risk.
-    # New formula: 200 * RAM_GB, capped at 3000.
-    batch_size = min(200 * ram_gb, 3000)
+    # New formula: 200 * RAM_GB, capped at 5000.
+    batch_size = min(200 * ram_gb, 5000)
     batch_size = max(1000, batch_size)  # Minimum 1000 for efficiency
     
     return cpus, ram_gb, batch_size
@@ -303,7 +303,7 @@ def calculate_optimal_batch_size(ram_gb: int = None, total_pairs: int = 0, n_cpu
     backward compatibility with existing code that only needs batch_size.
     
     Formula (revised Jan 2026 based on large dataset benchmarks):
-    - batch = 200 × RAM_GB, capped at 3000
+    - batch = 200 × RAM_GB, capped at 5000
     - Experiments showed batch 1000 was 3x faster than batch 5000
     - Large batches (8000+) caused high memory pressure and crashes
     
@@ -329,7 +329,7 @@ def calculate_optimal_batch_size(ram_gb: int = None, total_pairs: int = 0, n_cpu
 
 def get_effective_cpus(n_cpus: int, ram_gb: int) -> int:
     """
-    Calculate effective CPUs, capped at RAM (1GB per CPU minimum).
+    Calculate effective CPUs, capped at RAM (1.5GB per CPU minimum).
     
     Args:
         n_cpus: Requested number of CPUs
@@ -340,7 +340,7 @@ def get_effective_cpus(n_cpus: int, ram_gb: int) -> int:
     """
     if not n_cpus or not ram_gb:
         return n_cpus or 4  # Default to 4 if not specified
-    return min(n_cpus, ram_gb)
+    return min(n_cpus, int(ram_gb / 1.5))
 
 
 # Required tables and their core columns for validation
