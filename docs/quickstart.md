@@ -33,9 +33,9 @@ This is the directory tree of the demo files:
 
 ```
 .
-├── README.md
 ├── metadata
-│   └── metadata.csv
+│   ├── metadata.csv
+│   └── metadata_template.csv
 ├── ms-files
 │   ├── CA_B1.mzXML
 │   ├── CA_B2.mzXML
@@ -48,11 +48,12 @@ This is the directory tree of the demo files:
 │   ├── SA_B1.mzML
 │   ├── SA_B2.mzML
 │   ├── SA_B3.mzML
-│   ├── SA_B4.mzML
+│   └── SA_B4.mzML
 └── targets
-    └── targets.csv
+    ├── targets.csv
+    └── targets_template.csv
 
-4 directories, 15 files
+3 directories, 16 files
 ```
 
 - A folder (`ms-files`) with 12 mass spectrometry (MS) files from microbial samples. We have four files for each _Escherichia coli_ (EC), _Candida albicans_ (CA), and _Staphylococcus aureus_ (SA). Each file belongs to one of four batches (B1-B4).

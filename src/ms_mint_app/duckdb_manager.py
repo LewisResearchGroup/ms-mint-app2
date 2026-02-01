@@ -640,7 +640,7 @@ def _exploration_workspace_description(manifest: dict | None) -> str:
     if not manifest:
         return "Auto-generated exploration workspace (synthetic demo data)."
     source = manifest.get("source_label") or "sampled real data"
-    return f"Auto-generated exploration workspace ({source})."
+    return f"Auto-generated exploration workspace."
 
 
 def _seed_exploration_workspace_from_bundle(
