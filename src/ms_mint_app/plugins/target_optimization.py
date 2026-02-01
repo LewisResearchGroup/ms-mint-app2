@@ -2436,6 +2436,8 @@ def callbacks(app, fsc, cache, cpu=None):
         selected_targets_count = 0
         total_targets_count = 0
         optimization_samples_count = 0
+        computed_targets_count = 0
+        computed_samples_count = 0
         batch_size = 1000
         
         # Query DB for current counts
@@ -2450,7 +2452,9 @@ def callbacks(app, fsc, cache, cpu=None):
                                 (SELECT COUNT(*) FROM chromatograms WHERE ms_type = 'ms2') as chroms_ms2,
                                 (SELECT COUNT(*) FROM targets) as total_targets,
                                 (SELECT COUNT(*) FROM targets WHERE peak_selection = TRUE) as selected_targets,
-                                (SELECT COUNT(*) FROM samples WHERE use_for_optimization = TRUE) as opt_samples
+                                (SELECT COUNT(*) FROM samples WHERE use_for_optimization = TRUE) as opt_samples,
+                                (SELECT COUNT(DISTINCT peak_label) FROM chromatograms) as computed_targets,
+                                (SELECT COUNT(DISTINCT ms_file_label) FROM chromatograms) as computed_samples
                         """).fetchone()
                         if counts:
                             chromatograms_count = counts[0] or 0
@@ -2459,6 +2463,8 @@ def callbacks(app, fsc, cache, cpu=None):
                             total_targets_count = counts[3] or 0
                             selected_targets_count = counts[4] or 0
                             optimization_samples_count = counts[5] or 0
+                            computed_targets_count = counts[6] or 0
+                            computed_samples_count = counts[7] or 0
                             
                             # Calculate optimal batch size
                             batch_size = calculate_optimal_batch_size(
@@ -2471,7 +2477,7 @@ def callbacks(app, fsc, cache, cpu=None):
         
         # Calculate display values
         warning_style = {'display': 'flex'} if chromatograms_count > 0 else {'display': 'none'}
-        warning_message = f"There are already computed {chromatograms_count} chromatograms" if chromatograms_count > 0 else ""
+        warning_message = f"There are already computed {chromatograms_count} chromatograms for {computed_targets_count} targets and {computed_samples_count} samples" if chromatograms_count > 0 else ""
         targets_for_compute = selected_targets_count if selected_targets_count > 0 else total_targets_count
         selection_note = "" if selected_targets_count > 0 else " (no targets selected; using all)"
         info_message = (
