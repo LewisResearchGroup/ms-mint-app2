@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ms-mint-app2"
-description = "Metabolomics Integrator Interactive Web-Application (Mint)"
+description = "Metabolomics Integrator Interactive Web-Application"
 readme = "README.md"
 requires-python = ">=3.12"
 license = {file = "LICENSE"}
@@ -18,7 +18,7 @@ maintainers = [
   {name = "Mario S. Valdes-Tresanco"},
   {name = "Soren Wacker"},
 ]
-keywords = ["metabolomics", "integrator", "mint"]
+keywords = ["MINT", "metabolomics", "large-scale", "analysis"]
 classifiers = [
   "Programming Language :: Python :: 3",
   "Programming Language :: Python :: 3.12",
