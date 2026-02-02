@@ -10,7 +10,7 @@
         <link rel="canonical" href="https://lewisresearchgroup.github.io/ms-mint-app2/developer-notes/">
       
       
-        <link rel="prev" href="../gui/analysis/">
+        <link rel="prev" href="../concepts/">
       
       
       
@@ -505,6 +505,33 @@
       
   
   
+  
+  
+    <li class="md-nav__item">
+      <a href="../concepts/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Concepts
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
     
   
   
@@ -579,10 +606,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#windows-executables" class="md-nav__link">
+  <a href="#executables" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Windows Executables
+        Executables
       
     </span>
   </a>
@@ -601,10 +628,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#example-nginx-configuration" class="md-nav__link">
+  <a href="#duckdb-performance-tuning" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Example NGINX Configuration
+        DuckDB Performance Tuning
       
     </span>
   </a>
@@ -657,10 +684,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#windows-executables" class="md-nav__link">
+  <a href="#executables" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Windows Executables
+        Executables
       
     </span>
   </a>
@@ -679,10 +706,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#example-nginx-configuration" class="md-nav__link">
+  <a href="#duckdb-performance-tuning" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Example NGINX Configuration
+        DuckDB Performance Tuning
       
     </span>
   </a>
@@ -722,8 +749,8 @@
 <pre><code class="language-bash">python -m twine upload dist/*
 </code></pre>
 <p>If you use a custom repository, configure it in <code>~/.pypirc</code> and pass <code>--repository &lt;name&gt;</code>.</p>
-<h2 id="windows-executables">Windows Executables</h2>
-<p>To create Windows executables for the <code>ms-mint-app2</code> application, use <code>pyinstaller</code>. Follow the full guide in <code>pyinstaller/BUILD_GUIDE.md</code>. The short version is:</p>
+<h2 id="executables">Executables</h2>
+<p>To create executables for the <code>ms-mint-app2</code> application, use <code>pyinstaller</code>. Follow the full guide in <code>pyinstaller/BUILD_GUIDE.md</code>. The short version is:</p>
 <pre><code class="language-bash">cd pyinstaller
 python create_asari_env.py
 python prebuild_matplotlib_cache.py
@@ -739,26 +766,36 @@ pyinstaller Mint.spec
 <pre><code class="language-bash">mkdocs build &amp;&amp; mkdocs gh-deploy
 </code></pre>
 <p>The <code>mkdocs build</code> command generates the static site in the <code>site</code> directory, and <code>mkdocs gh-deploy</code> pushes it to the <code>gh-pages</code> branch of your GitHub repository.</p>
-<h2 id="example-nginx-configuration">Example NGINX Configuration</h2>
-<p>To run <code>ms-mint-app2</code> on a remote server, you need to set up a reverse proxy using NGINX. Here is an example configuration:</p>
-<pre><code>server {
-    ...
-    location / {
-        proxy_pass              http://localhost:9999;
-        client_max_body_size    100G;
-        proxy_set_header        X-Forwarded-Proto https;
-        proxy_set_header        Host $host;
+<!-- ## Example NGINX Configuration
+
+To run `ms-mint-app2` on a remote server, you need to set up a reverse proxy using NGINX. Here is an example configuration:
+
+    server {
+        ...
+        location / {
+            proxy_pass              http://localhost:9999;
+            client_max_body_size    100G;
+            proxy_set_header        X-Forwarded-Proto https;
+            proxy_set_header        Host $host;
+        }
     }
-}
-</code></pre>
-<p>Explanation:</p>
+
+Explanation:
+
+  - `proxy_pass http://localhost:9999;`: Forwards all requests to the MINT application running on port 9999 (default).
+  - `client_max_body_size 100G;`: Increases the maximum allowed size of client request bodies to 100GB.
+  - `proxy_set_header X-Forwarded-Proto https;`: Sets the `X-Forwarded-Proto` header to `https`.
+  - `proxy_set_header Host $host;`: Ensures the `Host` header from the original request is passed to the proxied server.
+
+Then start MINT with `Mint --host 0.0.0.0 --port 9999` (or your chosen port). -->
+
+<h2 id="duckdb-performance-tuning">DuckDB Performance Tuning</h2>
+<p>MINT includes an automated resource detection system to optimize DuckDB performance:</p>
 <ul>
-<li><code>proxy_pass http://localhost:9999;</code>: Forwards all requests to the MINT application running on port 9999 (default).</li>
-<li><code>client_max_body_size 100G;</code>: Increases the maximum allowed size of client request bodies to 100GB.</li>
-<li><code>proxy_set_header X-Forwarded-Proto https;</code>: Sets the <code>X-Forwarded-Proto</code> header to <code>https</code>.</li>
-<li><code>proxy_set_header Host $host;</code>: Ensures the <code>Host</code> header from the original request is passed to the proxied server.</li>
+<li><strong>CPU &amp; RAM Auto-detection</strong>: The application automatically detects physical CPU cores and available RAM. It targets 50% of available RAM and matches CPU count to a minimum of 1.5GB RAM per core.</li>
+<li><strong>Batch Processing</strong>: Chromatogram extraction and results processing are performed in batches. The optimal batch size is dynamically calculated (typically between 1000 and 5000 pairs for MS1 data, and starting with default 1000 pairs for MS2 data) to balance memory pressure and throughput.</li>
+<li><strong>Progressive Loading</strong>: Large chromatogram datasets use LTTB downsampling and pre-calculated envelopes to ensure the UI remains responsive.</li>
 </ul>
-<p>Then start MINT with <code>Mint --host 0.0.0.0 --port 9999</code> (or your chosen port).</p>
 
 
 

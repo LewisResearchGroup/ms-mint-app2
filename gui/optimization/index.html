@@ -616,6 +616,33 @@
   
   
     <li class="md-nav__item">
+      <a href="../../concepts/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Concepts
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../../developer-notes/" class="md-nav__link">
         
   
@@ -762,14 +789,21 @@
 <li><strong>Interactive Tuning</strong>: Click and drag on the plot to manually set the new Retention Time (RT) start and end points for the target. The green shaded area represents the integration window.</li>
 <li><strong>Intensity Scale</strong>: Toggle between <code>Linear</code> and <code>Log</code> scales to better visualize low-intensity peaks.</li>
 <li><strong>Legend Behavior</strong>: Switch between <code>Group</code> (aggregate by sample type/metadata) or <code>Single</code> (individual file traces).</li>
-<li><strong>Megatrace</strong>: Toggle a "Megatrace" view that aggregates signals to help identify global peak shapes.</li>
-<li><strong>Edit RT-span</strong>: <ul>
-<li><strong>Edit</strong>: Enable dragging/resizing the RT window.</li>
-<li><strong>Lock</strong>: Prevent accidental changes to the release time range.</li>
+<li><strong>Envelopes / Shadow Plots</strong>: When <code>Group</code> legend mode or <code>Megatrace</code> is active, MINT displays an "Envelope" (Shadow Plot) representing the min, max, and mean intensities for each group. This allows for rapid inspection of large datasets without visual clutter.</li>
+<li><strong>RT Alignment</strong>: Enable automatic Retention Time alignment for the current target. <ul>
+<li><strong>Logic</strong>: MINT calculates shifts based on the median apex position across all selected samples within the defined RT span.</li>
+<li><strong>Authoritative State</strong>: Alignment shifts are stored per-target in the database and persisted across sessions.</li>
+<li><strong>Auto-Notes</strong>: When enabled, alignment details (reference RT, shifts per sample type) are automatically appended to the target notes.</li>
 </ul>
 </li>
-<li><strong>Notes</strong>: Add custom notes for specific targets in the provided text area.</li>
-<li><strong>Save/Reset</strong>: Save your adjusted RT bounds to the target list or reset them to the original attributes.</li>
+<li><strong>Megatrace</strong>: Toggle an aggregated "Megatrace" view. When RT alignment is active, Megatrace displays the aligned envelope, helping identify global peak shapes after correcting for shifts.</li>
+<li><strong>Edit RT-span</strong>: <ul>
+<li><strong>Edit</strong>: Enable dragging/resizing the RT window.</li>
+<li><strong>Lock</strong>: Prevent accidental changes to the RT range.</li>
+</ul>
+</li>
+<li><strong>Notes</strong>: Add custom notes for specific targets. RT alignment data is preserved even if you edit notes manually.</li>
+<li><strong>Save/Reset</strong>: Save your adjusted RT bounds and alignment state to the target list or reset them to the original attributes.</li>
 </ul>
 <h3 id="bookmarking-targets">Bookmarking Targets</h3>
 <p>Each optimization card features a <strong>Star icon</strong> (Bookmark). 
