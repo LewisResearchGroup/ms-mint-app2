@@ -13,6 +13,7 @@ nav:
       - Optimization: 'gui/optimization.md'
       - Processing: 'gui/processing.md'
       - Analysis: 'gui/analysis.md'
+  - Concepts: 'concepts.md'
   - Developer Notes: 'developer-notes.md'
 extra:
   analytics:

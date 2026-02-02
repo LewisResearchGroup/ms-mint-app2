@@ -21,9 +21,9 @@ python -m twine upload dist/*
 
    If you use a custom repository, configure it in `~/.pypirc` and pass `--repository <name>`.
 
-## Windows Executables
+## Executables
 
-To create Windows executables for the `ms-mint-app2` application, use `pyinstaller`. Follow the full guide in `pyinstaller/BUILD_GUIDE.md`. The short version is:
+To create executables for the `ms-mint-app2` application, use `pyinstaller`. Follow the full guide in `pyinstaller/BUILD_GUIDE.md`. The short version is:
 
 ```bash
 cd pyinstaller
@@ -47,7 +47,7 @@ mkdocs build && mkdocs gh-deploy
 
    The `mkdocs build` command generates the static site in the `site` directory, and `mkdocs gh-deploy` pushes it to the `gh-pages` branch of your GitHub repository.
 
-## Example NGINX Configuration
+<!-- ## Example NGINX Configuration
 
 To run `ms-mint-app2` on a remote server, you need to set up a reverse proxy using NGINX. Here is an example configuration:
 
@@ -68,4 +68,12 @@ Explanation:
   - `proxy_set_header X-Forwarded-Proto https;`: Sets the `X-Forwarded-Proto` header to `https`.
   - `proxy_set_header Host $host;`: Ensures the `Host` header from the original request is passed to the proxied server.
 
-Then start MINT with `Mint --host 0.0.0.0 --port 9999` (or your chosen port).
+Then start MINT with `Mint --host 0.0.0.0 --port 9999` (or your chosen port). -->
+
+## DuckDB Performance Tuning
+
+MINT includes an automated resource detection system to optimize DuckDB performance:
+
+- **CPU & RAM Auto-detection**: The application automatically detects physical CPU cores and available RAM. It targets 50% of available RAM and matches CPU count to a minimum of 1.5GB RAM per core.
+- **Batch Processing**: Chromatogram extraction and results processing are performed in batches. The optimal batch size is dynamically calculated (typically between 1000 and 5000 pairs for MS1 data, and starting with default 1000 pairs for MS2 data) to balance memory pressure and throughput.
+- **Progressive Loading**: Large chromatogram datasets use LTTB downsampling and pre-calculated envelopes to ensure the UI remains responsive.

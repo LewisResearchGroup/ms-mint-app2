@@ -27,6 +27,7 @@ The toolbar at the top of the Analysis tab controls the data input for all visua
     *   **RT Plot**: Retention-time stability across samples, grouped by your selected metadata column.
     *   **m/z Plot**: Observed m/z (if available) across samples.
     *   **Chromatogram**: Click a sample in either scatter plot to inspect the chromatogram for that target.
+    *   **Progressive Loading**: For large datasets, MINT initially loads a "Shadow Plot" (Envelope) to provide immediate feedback while detailed chromatogram data finishes loading in the background.
 
 === "PCA"
     **Principal Component Analysis**: Reduces the dimensionality of your data to visualize sample similarity.
