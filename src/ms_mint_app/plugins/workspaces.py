@@ -458,9 +458,22 @@ def _delete_workspace(okCounts, tmpdir, selectedRowKeys):
                     func(p)
                 except Exception:
                     raise
+            
+            def _onexc(func, p, exc):
+                import os
+                try:
+                    os.chmod(p, 0o700)
+                    func(p)
+                except Exception:
+                    raise
 
             try:
-                shutil.rmtree(ws_path, onerror=_onerror)
+                import inspect
+                rmtree_params = inspect.signature(shutil.rmtree).parameters
+                if "onexc" in rmtree_params:
+                    shutil.rmtree(ws_path, onexc=_onexc)
+                else:
+                    shutil.rmtree(ws_path, onerror=_onerror)
             except Exception as fs_err:
                 mint_conn.execute("ROLLBACK")
                 return fac.AntdNotification(
