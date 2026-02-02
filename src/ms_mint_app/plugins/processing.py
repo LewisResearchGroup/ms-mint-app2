@@ -2166,6 +2166,8 @@ def callbacks(app, fsc, cache):
         Output("processing-chromatogram-compute-ram", "value"),
         Output("processing-chromatogram-compute-cpu-item", "help", allow_duplicate=True),
         Output("processing-chromatogram-compute-ram-item", "help", allow_duplicate=True),
+        Output("processing-chromatogram-compute-batch-size", "value", allow_duplicate=True),
+
 
         Input("processing-btn", "nClicks"),
         Input("processing-empty-btn", "nClicks"),
@@ -2199,6 +2201,9 @@ def callbacks(app, fsc, cache):
                     False,
                     dash.no_update,
                     dash.no_update,
+                    dash.no_update,
+                    dash.no_update,
+                    dash.no_update,
                 )
 
             ms_files = conn.execute("SELECT COUNT(*) FROM samples").fetchone()
@@ -2220,6 +2225,7 @@ def callbacks(app, fsc, cache):
                     "",
                     "",
                     False,
+                    dash.no_update,
                     dash.no_update,
                     dash.no_update,
                     dash.no_update,
@@ -2246,6 +2252,13 @@ def callbacks(app, fsc, cache):
         help_cpu = f"Selected {default_cpus} / {n_cpus_total} cpus"
         help_ram = f"Selected {default_ram}GB / {available_ram_gb_rounded}GB available RAM"
 
+        default_batch = calculate_optimal_batch_size(
+            ram_gb=default_ram, 
+            n_cpus=default_cpus, 
+            total_pairs=1000000, 
+            ms_type='ms1'
+        )
+
         return (
             dash.no_update, 
             True, 
@@ -2257,22 +2270,10 @@ def callbacks(app, fsc, cache):
             default_cpus,
             default_ram,
             help_cpu,
-            help_cpu,
-            help_ram
+            help_ram,
+            default_batch
         )
 
-    @app.callback(
-        Output('processing-chromatogram-compute-batch-size', 'value', allow_duplicate=True),
-        Input('processing-chromatogram-compute-ram', 'value'),
-        Input('processing-chromatogram-compute-cpu', 'value'),
-        prevent_initial_call=True
-    )
-    def update_batch_size_proc(ram_gb, n_cpus):
-        """Update batch size when RAM or CPUs change."""
-        if not ram_gb or not n_cpus:
-            return dash.no_update
-            
-        return calculate_optimal_batch_size(ram_gb=ram_gb, n_cpus=n_cpus, total_pairs=1000000)
 
 
     @app.callback(
@@ -2520,7 +2521,7 @@ def callbacks(app, fsc, cache):
             round(ram) if ram else 8,
             100000,  # Estimate for total pairs
             int(cpu) if cpu else max(1, cpu_count() // 2),
-            ms_type=None  # Default to 1000 for unspecified MS-Type in processing
+            ms_type='ms1'  # Assume MS1 for optimized batch size
         )
         return help_cpu, help_ram, optimal_batch
 

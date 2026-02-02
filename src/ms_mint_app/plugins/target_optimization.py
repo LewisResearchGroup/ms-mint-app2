@@ -61,6 +61,31 @@ _SESSION_RENDER_LOCK = Lock()
 _RT_ALIGN_NOTE_START = "--- RT alignment (auto) ---"
 _RT_ALIGN_NOTE_END = "--- End RT alignment (auto) ---"
 
+def _normalize_ms_type(ms_type):
+    if ms_type is None:
+        return None
+    value = str(ms_type).strip().lower()
+    return value or None
+
+
+def _infer_samples_ms_type(conn, use_for_optimization=True):
+    if conn is None:
+        return None
+    ms_types = set()
+    if use_for_optimization:
+        rows = conn.execute(
+            "SELECT DISTINCT lower(ms_type) FROM samples WHERE use_for_optimization = TRUE"
+        ).fetchall()
+        ms_types = {row[0] for row in rows if row and row[0]}
+    if not ms_types:
+        rows = conn.execute("SELECT DISTINCT lower(ms_type) FROM samples").fetchall()
+        ms_types = {row[0] for row in rows if row and row[0]}
+    if ms_types == {"ms1"}:
+        return "ms1"
+    if ms_types == {"ms2"}:
+        return "ms2"
+    return None
+
 
 def _strip_rt_alignment_auto_note(note_text: str) -> str:
     """Remove any previously auto-generated RT alignment note block."""
@@ -1059,7 +1084,7 @@ _layout = fac.AntdLayout(
                                                     fac.AntdSelect(
                                                         id='chromatogram-preview-filter-ms-type',
                                                         options=['All', 'ms1', 'ms2'],
-                                                        value='All',
+                                                        value='ms1',
                                                         placeholder='Select ms_type',
                                                         style={'width': '100%'},
                                                         allowClear=False,
@@ -2487,12 +2512,15 @@ def callbacks(app, fsc, cache, cpu=None):
                             computed_targets_count = counts[6] or 0
                             computed_samples_count = counts[7] or 0
                             
+                            inferred_ms_type = _infer_samples_ms_type(conn)
+                            ms_type_for_batch = inferred_ms_type or _normalize_ms_type(ms_type)
+
                             # Calculate optimal batch size
                             batch_size = calculate_optimal_batch_size(
                                 default_ram,
                                 max(selected_targets_count * optimization_samples_count, 100000),
                                 default_cpus,
-                                ms_type=ms_type
+                                ms_type=ms_type_for_batch
                             )
             except Exception as e:
                 logger.warning(f"Could not query DB for modal defaults: {e}")
@@ -2536,14 +2564,29 @@ def callbacks(app, fsc, cache, cpu=None):
         Input('chromatogram-compute-ram', 'value'),
         Input('chromatogram-compute-cpu', 'value'),
         Input('chromatogram-preview-filter-ms-type', 'value'),
+        State('wdir', 'data'),
         prevent_initial_call=True
     )
-    def update_batch_size_opt(ram_gb, n_cpus, ms_type):
+    def update_batch_size_opt(ram_gb, n_cpus, ms_type, wdir):
         """Update batch size when RAM or CPUs change or MS-Type changes."""
         if not ram_gb or not n_cpus:
             return dash.no_update
-            
-        return calculate_optimal_batch_size(ram_gb=ram_gb, n_cpus=n_cpus, total_pairs=1000000, ms_type=ms_type)
+
+        inferred_ms_type = None
+        if wdir:
+            try:
+                with duckdb_connection(wdir) as conn:
+                    inferred_ms_type = _infer_samples_ms_type(conn)
+            except Exception as e:
+                logger.warning(f"Could not infer MS type for batch size: {e}")
+
+        ms_type_for_batch = inferred_ms_type or _normalize_ms_type(ms_type)
+        return calculate_optimal_batch_size(
+            ram_gb=ram_gb,
+            n_cpus=n_cpus,
+            total_pairs=1000000,
+            ms_type=ms_type_for_batch
+        )
 
     # Clientside callback to detect container width for smart auto-sizing
     app.clientside_callback(
@@ -2614,10 +2657,12 @@ def callbacks(app, fsc, cache, cpu=None):
                         ram_avail = psutil.virtual_memory().available / (1024 ** 3)
                         default_ram = round(min(float(default_cpus), ram_avail), 1)
 
+                        inferred_ms_type = _infer_samples_ms_type(conn)
                         batch_size = calculate_optimal_batch_size(
                             default_ram,
                             max((counts[1] or 0) * (counts[6] or 0), 100000),
-                            default_cpus
+                            default_cpus,
+                            ms_type=inferred_ms_type
                         )
 
                         workspace_status = {

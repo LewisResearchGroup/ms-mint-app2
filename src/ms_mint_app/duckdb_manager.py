@@ -1,5 +1,6 @@
 from contextlib import contextmanager
-from datetime import datetime, timedelta, UTC
+from datetime import datetime, timedelta, timezone
+UTC = timezone.utc
 from pathlib import Path
 from threading import Thread, Lock
 
@@ -320,6 +321,10 @@ def calculate_optimal_batch_size(ram_gb: int = None, total_pairs: int = 0, n_cpu
     Returns:
         Optimal batch size
     """
+    if ms_type is not None:
+        ms_type = str(ms_type).strip().lower()
+    logger.debug(f"DEBUG_BATCH: ram_gb={ram_gb}, n_cpus={n_cpus}, ms_type={ms_type}, total_pairs={total_pairs}")
+    
     _, effective_ram, batch_size = calculate_optimal_params(
         user_cpus=n_cpus,
         user_ram=ram_gb
@@ -334,6 +339,7 @@ def calculate_optimal_batch_size(ram_gb: int = None, total_pairs: int = 0, n_cpu
     if ms_type != 'ms1':
         batch_size = min(batch_size, 1000)
     
+    logger.debug(f"DEBUG_BATCH: Result batch_size={batch_size}")
     return batch_size
 
 
