@@ -27,6 +27,8 @@ from ..duckdb_manager import (
     calculate_optimal_params,
     ensure_page_load_active,
     get_workspace_name_from_wdir,
+    clear_processing_errors,
+    get_processing_errors,
 )
 from ..plugin_interface import PluginInterface
 from ..tools import sparsify_chrom, proportional_min1_selection
@@ -2221,6 +2223,7 @@ def _compute_chromatograms_logic(
             set_progress((percent, stage or "", detail or ""))
 
     activate_workspace_logging(wdir)
+    clear_processing_errors(wdir)
     ensure_page_load_active(wdir, page_load_id, where="target_optimization:compute_chromatograms:start")
 
     with duckdb_connection(wdir, n_cpus=n_cpus, ram=ram, page_load_id=page_load_id) as con:
@@ -2254,7 +2257,24 @@ def _compute_chromatograms_logic(
             logger.warning(f"Could not optimize RT spans: {e}")
         progress_adapter(100, "Chromatograms", "Done")
         
-    return True, False
+    notification = None
+    errors = get_processing_errors(wdir)
+    if errors:
+        unique_errors = list(set(errors))
+        error_msg = "\n".join(unique_errors[:5])
+        if len(unique_errors) > 5:
+            error_msg += f"\n... and {len(unique_errors) - 5} more errors."
+        
+        notification = fac.AntdNotification(
+            message="Optimization completed with errors",
+            description=f"Unique errors: {error_msg}",
+            type="warning",
+            duration=15,
+            placement="bottom",
+            showProgress=True
+        )
+
+    return True, False, notification
 
 
 def _calc_y_range_numpy(data, x_left, x_right, is_log=False):
@@ -2416,9 +2436,10 @@ def callbacks(app, fsc, cache, cpu=None):
         Input('compute-chromatograms-btn', 'nClicks'),
         Input('compute-chromatograms-empty-btn', 'nClicks'),
         State('wdir', 'data'),
+        State('chromatogram-preview-filter-ms-type', 'value'),
         prevent_initial_call=True,
     )
-    def open_compute_chromatograms_modal(nClicks, nClicks_empty, wdir):
+    def open_compute_chromatograms_modal(nClicks, nClicks_empty, wdir, ms_type):
         """Open modal and populate all values in one atomic operation."""
         if not nClicks and not nClicks_empty:
             raise PreventUpdate
@@ -2470,7 +2491,8 @@ def callbacks(app, fsc, cache, cpu=None):
                             batch_size = calculate_optimal_batch_size(
                                 default_ram,
                                 max(selected_targets_count * optimization_samples_count, 100000),
-                                default_cpus
+                                default_cpus,
+                                ms_type=ms_type
                             )
             except Exception as e:
                 logger.warning(f"Could not query DB for modal defaults: {e}")
@@ -2513,14 +2535,15 @@ def callbacks(app, fsc, cache, cpu=None):
         Output('chromatogram-compute-batch-size', 'value'),
         Input('chromatogram-compute-ram', 'value'),
         Input('chromatogram-compute-cpu', 'value'),
+        Input('chromatogram-preview-filter-ms-type', 'value'),
         prevent_initial_call=True
     )
-    def update_batch_size_opt(ram_gb, n_cpus):
-        """Update batch size when RAM or CPUs change."""
+    def update_batch_size_opt(ram_gb, n_cpus, ms_type):
+        """Update batch size when RAM or CPUs change or MS-Type changes."""
         if not ram_gb or not n_cpus:
             return dash.no_update
             
-        return calculate_optimal_batch_size(ram_gb=ram_gb, n_cpus=n_cpus, total_pairs=1000000)
+        return calculate_optimal_batch_size(ram_gb=ram_gb, n_cpus=n_cpus, total_pairs=1000000, ms_type=ms_type)
 
     # Clientside callback to detect container width for smart auto-sizing
     app.clientside_callback(
@@ -5599,6 +5622,7 @@ def callbacks(app, fsc, cache, cpu=None):
     @app.callback(
         Output('chromatograms', 'data'),
         Output('compute-chromatogram-modal', 'visible', allow_duplicate=True),
+        Output('optimization-notifications-container', 'children', allow_duplicate=True),
 
         Input('compute-chromatogram-modal', 'okCounts'),
         State("chromatograms-recompute-ms1", "checked"),

@@ -300,7 +300,7 @@ def calculate_optimal_params(user_cpus: int = None, user_ram: int = None) -> tup
     return cpus, ram_gb, batch_size
 
 
-def calculate_optimal_batch_size(ram_gb: int = None, total_pairs: int = 0, n_cpus: int = None) -> int:
+def calculate_optimal_batch_size(ram_gb: int = None, total_pairs: int = 0, n_cpus: int = None, ms_type: str = None) -> int:
     """
     Calculate optimal batch size for chromatogram/results extraction.
     
@@ -328,6 +328,11 @@ def calculate_optimal_batch_size(ram_gb: int = None, total_pairs: int = 0, n_cpu
     # Ensure at least 10 batches for progress reporting
     if total_pairs > 0:
         batch_size = min(batch_size, max(total_pairs // 10, 500))
+
+    # For non-MS1 data (MS2, All, or unspecified), we cap the batch size at 1000 to avoid OOM issues.
+    # MS1 data can safely use larger batches (up to 5000) for better throughput.
+    if ms_type != 'ms1':
+        batch_size = min(batch_size, 1000)
     
     return batch_size
 
@@ -973,6 +978,10 @@ _workspace_page_loads_lock = Lock()
 _PAGE_LOAD_TTL_SECONDS = 300.0  # 5 minutes - long enough for sleep/throttling, short enough for abandoned jobs
 _PAGE_LOAD_STATE_FILENAME = ".mint_page_load_state.json"
 
+# Global registry for errors encountered during background processing
+_PROCESSING_ERRORS: dict[str, list[str]] = {}
+_PROCESSING_ERRORS_LOCK = Lock()
+
 
 def is_workspace_corrupted(workspace_path: Path | str) -> bool:
     """Check if a workspace has been marked as corrupted."""
@@ -997,6 +1006,28 @@ def clear_corruption_flag(workspace_path: Path | str):
 def clear_busy_flag(workspace_path: Path | str):
     """Clear the busy flag for a workspace."""
     _busy_workspaces.pop(str(workspace_path), None)
+
+
+def clear_processing_errors(workspace_path: Path | str):
+    """Clear any recorded processing errors for a workspace."""
+    with _PROCESSING_ERRORS_LOCK:
+        _PROCESSING_ERRORS.pop(str(workspace_path), None)
+
+
+def _add_processing_error(workspace_path: Path | str, message: str):
+    """Record a processing error for a workspace."""
+    ws_key = str(workspace_path)
+    with _PROCESSING_ERRORS_LOCK:
+        if ws_key not in _PROCESSING_ERRORS:
+            _PROCESSING_ERRORS[ws_key] = []
+        _PROCESSING_ERRORS[ws_key].append(message)
+
+
+def get_processing_errors(workspace_path: Path | str) -> list[str]:
+    """Retrieve and clear any recorded processing errors for a workspace."""
+    ws_key = str(workspace_path)
+    with _PROCESSING_ERRORS_LOCK:
+        return _PROCESSING_ERRORS.pop(ws_key, [])
 
 
 def _normalize_workspace_key(workspace_path: Path | str | None) -> str | None:
@@ -3133,6 +3164,7 @@ def compute_chromatograms_in_batches(wdir: str,
                         failed += batch_count
 
                         logger.error(f"Error processing batch: {batch_elapsed:>5.2f}s | Error: {str(e)[:80]}")
+                        _add_processing_error(wdir, str(e))
 
 
                         with open(f'failed_batches_{ms_type}.log', 'a') as f:
@@ -3932,6 +3964,7 @@ def compute_results_in_batches(wdir: str,
                 failed += batch_count if 'batch_count' in locals() else 0
 
                 logger.error(f"Error processing batch: {batch_elapsed:>5.2f}s | Error: {str(e)[:80]}")
+                _add_processing_error(wdir, str(e))
 
                 # Recover from aborted transaction to allow subsequent batches to proceed
                 try:
@@ -4183,6 +4216,7 @@ def compute_fitted_results(
                     
             except Exception as e:
                 logger.error(f"Failed to update {result['peak_label']}: {e}")
+                _add_processing_error(wdir, str(e))
                 failed_count += 1
             
             # Progress update every batch

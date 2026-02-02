@@ -38,6 +38,8 @@ from ..duckdb_manager import (
     get_physical_cores,
     get_workspace_name_from_wdir,
     ensure_page_load_active,
+    clear_processing_errors,
+    get_processing_errors,
 )
 from ..plugin_interface import PluginInterface
 from .target_optimization import (
@@ -2277,6 +2279,7 @@ def callbacks(app, fsc, cache):
         Output('results-action-store', 'data'),
         Output('processing-modal', 'visible', allow_duplicate=True),
         Output('workspace-status', 'data', allow_duplicate=True),
+        Output('processing-notifications-container', 'children', allow_duplicate=True),
 
         Input('processing-modal', 'okCounts'),
         State('processing-recompute', 'checked'),
@@ -2336,6 +2339,7 @@ def callbacks(app, fsc, cache):
             raise PreventUpdate
 
         activate_workspace_logging(wdir)
+        clear_processing_errors(wdir)
         ensure_page_load_active(wdir, page_load_id, where="processing:compute_results:start")
         start = time.perf_counter()
         
@@ -2455,7 +2459,24 @@ def callbacks(app, fsc, cache):
                     }
         logger.debug(f"workspace-status updated after processing: {workspace_status}")
 
-        return {'action': 'processing', 'status': 'completed', 'timestamp': time.time()}, False, workspace_status
+        notification = None
+        errors = get_processing_errors(wdir)
+        if errors:
+            unique_errors = list(set(errors))
+            error_msg = "\n".join(unique_errors[:5])
+            if len(unique_errors) > 5:
+                error_msg += f"\n... and {len(unique_errors) - 5} more errors."
+            
+            notification = fac.AntdNotification(
+                message="Processing completed with errors",
+                description=f"Unique errors: {error_msg}",
+                type="warning",
+                duration=15,
+                placement="bottom",
+                showProgress=True
+            )
+
+        return {'action': 'processing', 'status': 'completed', 'timestamp': time.time()}, False, workspace_status, notification
 
     @app.callback(
         Output('results-action-store', 'data', allow_duplicate=True),
@@ -2498,7 +2519,8 @@ def callbacks(app, fsc, cache):
         optimal_batch = calculate_optimal_batch_size(
             round(ram) if ram else 8,
             100000,  # Estimate for total pairs
-            int(cpu) if cpu else max(1, cpu_count() // 2)
+            int(cpu) if cpu else max(1, cpu_count() // 2),
+            ms_type=None  # Default to 1000 for unspecified MS-Type in processing
         )
         return help_cpu, help_ram, optimal_batch
 
