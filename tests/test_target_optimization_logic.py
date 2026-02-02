@@ -165,7 +165,7 @@ def test_compute_chromatograms_logic_success(monkeypatch):
         page_load_id="test_id",
     )
 
-    assert result == (True, False)
+    assert result == (True, False, None)
     assert calls["compute"]["use_for_optimization"] is True
     assert calls["compute"]["batch_size"] == 10
     assert calls["compute"]["recompute_ms1"] is True
@@ -218,4 +218,4 @@ def test_compute_chromatograms_logic_optimize_failure(monkeypatch):
         wdir="/tmp",
     )
 
-    assert result == (True, False)
+    assert result == (True, False, None)

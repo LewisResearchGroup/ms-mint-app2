@@ -113,7 +113,7 @@ class TestTargetOptimizationLogic:
         # Mock successful computation
         res = _compute_chromatograms_logic(set_progress, False, False, 1, 1, 1000, temp_wdir)
         
-        assert res == (True, False)
+        assert res == (True, False, None)
         assert mock_compute.called
         # Check if first progress call was made
         set_progress.assert_any_call((0, "Chromatograms", "Preparing batches..."))

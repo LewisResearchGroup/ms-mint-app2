@@ -1,5 +1,5 @@
 from contextlib import contextmanager
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, UTC
 from pathlib import Path
 from threading import Thread, Lock
 
@@ -350,7 +350,7 @@ def get_effective_cpus(n_cpus: int, ram_gb: int) -> int:
     """
     if not n_cpus or not ram_gb:
         return n_cpus or 4  # Default to 4 if not specified
-    return min(n_cpus, int(ram_gb / 1.5))
+    return max(1, min(n_cpus, int(ram_gb / 1.5)))
 
 
 # Required tables and their core columns for validation
@@ -639,7 +639,7 @@ def ensure_workspace_name_marker(
         if marker_path.exists():
             return
 
-        created_at = created_at or datetime.utcnow()
+        created_at = created_at or datetime.now(UTC)
         lines = [
             "MINT Workspace",
             f"Name: {workspace_name}",
