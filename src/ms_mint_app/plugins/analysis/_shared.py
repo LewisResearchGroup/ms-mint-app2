@@ -18,6 +18,7 @@ from plotly.subplots import make_subplots
 import plotly.express as px
 from plotly import colors as plotly_colors
 import os
+from sklearn.preprocessing import StandardScaler
 
 from ...duckdb_manager import duckdb_connection, create_pivot, get_physical_cores
 from ...sample_metadata import GROUP_COLUMNS, GROUP_LABELS
@@ -47,6 +48,7 @@ TAB_DEFAULT_NORM = {
     'qc': 'durbin',
     'raincloud': 'durbin',
     'bar': 'durbin',
+    'comparison': 'durbin',
 }
 GROUPING_FIELDS = ['sample_type'] + GROUP_COLUMNS
 GROUP_SELECT_OPTIONS = [
@@ -92,6 +94,7 @@ allowed_metrics = {
     'peak_max',
     'peak_mean',
     'peak_median',
+    'peak_area_fitted',
     'scalir_conc',
 }
 
@@ -212,6 +215,58 @@ def _clean_numeric(numeric_df: pd.DataFrame) -> pd.DataFrame:
     if cleaned.isna().any().any():
         cleaned = cleaned.fillna(0)
     return cleaned
+
+
+def prepare_metric_table(conn, wdir, metric):
+    target_table = 'results'
+    if metric == 'scalir_conc':
+        scalir_path = Path(wdir) / "results" / "scalir" / "concentrations.csv"
+        if not scalir_path.exists():
+            return None
+        try:
+            conn.execute(
+                f"CREATE OR REPLACE TEMP VIEW scalir_temp_conc AS SELECT * FROM read_csv_auto('{scalir_path}')"
+            )
+            conn.execute(
+                """
+                CREATE OR REPLACE TEMP VIEW scalir_results_view AS
+                SELECT
+                    r.ms_file_label,
+                    r.peak_label,
+                    s.pred_conc AS scalir_conc
+                FROM results r
+                LEFT JOIN scalir_temp_conc s
+                ON r.ms_file_label = CAST(s.ms_file AS VARCHAR) AND r.peak_label = s.peak_label
+                """
+            )
+            target_table = 'scalir_results_view'
+        except Exception as exc:
+            logger.error(f"Error preparing SCALiR data: {exc}")
+            return None
+    return _create_pivot_custom(conn, value=metric, table=target_table)
+
+
+def normalize_matrices(df: pd.DataFrame, norm_value: str):
+    df = _clean_numeric(df)
+    if df.empty:
+        return df, df
+    scaler = StandardScaler()
+    if norm_value == 'zscore':
+        zdf = pd.DataFrame(scaler.fit_transform(df), index=df.index, columns=df.columns)
+        return zdf, zdf
+    if norm_value == 'durbin':
+        ndf = _clean_numeric(rocke_durbin(df, c=10))
+        return ndf, ndf
+    if norm_value == 'zscore_durbin':
+        z_tmp = pd.DataFrame(scaler.fit_transform(df), index=df.index, columns=df.columns)
+        ndf = _clean_numeric(rocke_durbin(z_tmp, c=10))
+        return ndf, ndf
+    return df, df
+
+
+def normalize_matrix(df: pd.DataFrame, norm_value: str):
+    ndf, _ = normalize_matrices(df, norm_value)
+    return ndf
 
 
 def _create_pivot_custom(conn, value='peak_area', table='results'):
