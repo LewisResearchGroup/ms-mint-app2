@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import logging
 import os
 import numpy as np
 import pandas as pd
+
+logger = logging.getLogger(__name__)
 
 
 def classic_lstsqr(x_list, y_list):
@@ -241,7 +244,7 @@ def setting_from_stdinfo(std_info, results_):
     try:
         output.ms_file = output.ms_file.apply(lambda x: os.path.basename(x).replace(".mzXML", ""))
     except Exception:
-        pass
+        logger.warning("Failed to normalize ms_file basenames", exc_info=True)
     long_std = std_info.melt(id_vars="peak_label", var_name="ms_file", value_name="STD_CONC")
     merged = output.merge(long_std, on=["peak_label", "ms_file"], how="left")
     return merged[merged["STD_CONC"].notna()]
