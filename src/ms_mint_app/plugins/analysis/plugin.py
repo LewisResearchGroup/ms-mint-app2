@@ -1006,6 +1006,8 @@ def update_content(section_context, tab_key, x_comp, y_comp, violin_comp_checks,
                     return None, invisible_fig, invisible_fig, [], [], [], [], [], [], dash.no_update, dash.no_update, dash.no_update
 
             df = _create_pivot_custom(conn, value=metric, table=target_table)
+            if df.empty or 'ms_file_label' not in df.columns:
+                return None, invisible_fig, invisible_fig, [], [], [], [], [], [], dash.no_update, dash.no_update, dash.no_update
             df.set_index('ms_file_label', inplace=True)
             
             group_field = selected_group if selected_group in df.columns else (
