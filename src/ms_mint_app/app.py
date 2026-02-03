@@ -582,8 +582,12 @@ def create_app(**kwargs):
     from dash_extensions.enrich import FileSystemCache
     from flask_caching import Cache
 
+
     from .plugin_manager import PluginManager
     from .plugins.explorer import FileExplorer
+
+    def _background_cache_by(*_args, **_kwargs):
+        return os.environ.get("MINT_BUILD_ID", ms_mint_app.__version__)
 
     if 'REDIS_URL' in os.environ:
         # Use Redis & Celery if REDIS_URL set as an env variable
@@ -614,7 +618,9 @@ def create_app(**kwargs):
                 raise e2
 
         background_callback_manager = DiskcacheManager(
-            cache, expire=60,
+            cache,
+            expire=60,
+            cache_by=[_background_cache_by],
         )
 
     plugin_manager = PluginManager()

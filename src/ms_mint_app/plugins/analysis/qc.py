@@ -255,8 +255,8 @@ def register_callbacks(app):
                 res_cols = [c[0] for c in conn.execute("DESCRIBE results").fetchall()]
                 if 'peak_mz_of_max' in res_cols:
                     has_peak_mz = True
-            except:
-                pass
+            except Exception as e:
+                logger.warning("Failed to inspect results columns for peak_mz_of_max: %s", e)
 
             mz_col_sql = "r.peak_mz_of_max," if has_peak_mz else "NULL as peak_mz_of_max,"
 
@@ -515,8 +515,8 @@ def register_callbacks(app):
                         """, [peak_label]).fetchone()
                         if top_sample:
                             ms_file_label = top_sample[0]
-                    except:
-                        pass
+                    except Exception as e:
+                        logger.warning("Failed to auto-select sample for peak %s: %s", peak_label, e)
         
         return ms_file_label
 
@@ -764,8 +764,8 @@ def register_callbacks(app):
                                trace.selected = dict(marker=dict(color='red', size=10, opacity=1.0))
                                trace.unselected = dict(marker=dict(opacity=0.6))
                                found = True
-                      except:
-                          pass
+                      except Exception as e:
+                          logger.warning("Failed to update trace selection for %s: %s", ms_file_label, e)
 
              figs.append(fig)
              
