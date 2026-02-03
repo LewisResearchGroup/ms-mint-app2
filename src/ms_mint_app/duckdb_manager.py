@@ -1804,13 +1804,42 @@ def duckdb_connection_mint(mint_path: Path, workspace=None):
             logger.warning(f"Error during mint.db auto-compaction check: {e}")
 
     con = None
-    try:
-        con = duckdb.connect(database=str(db_file), read_only=False)
-        _create_workspace_tables(con)
-    except Exception as e:
-        logger.error(f"Error connecting to DuckDB: {e}")
+    max_retries = 5
+    retry_delay = 0.3
+    last_error = None
+    
+    for attempt in range(max_retries):
+        try:
+            con = duckdb.connect(database=str(db_file), read_only=False)
+            _create_workspace_tables(con)
+            break  # Success
+        except (duckdb.IOException, duckdb.BinderException) as e:
+            last_error = e
+            error_str = str(e).lower()
+            # Check for recoverable connection conflicts
+            if "already attached" in error_str or "lock" in error_str or "file handle conflict" in error_str:
+                if attempt < max_retries - 1:
+                    logger.debug(
+                        f"mint.db connection conflict (attempt {attempt + 1}/{max_retries}): {e}. "
+                        f"Retrying in {retry_delay:.1f}s..."
+                    )
+                    time.sleep(retry_delay)
+                    retry_delay *= 2  # Exponential backoff
+                    continue
+            # Non-recoverable or exhausted retries
+            logger.error(f"Error connecting to mint.db: {e}")
+            yield None
+            return
+        except Exception as e:
+            logger.error(f"Unexpected error connecting to mint.db: {e}")
+            yield None
+            return
+    
+    if con is None:
+        logger.error(f"Failed to connect to mint.db after {max_retries} attempts: {last_error}")
         yield None
         return
+        
     try:
         yield con
     finally:
