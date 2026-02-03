@@ -724,7 +724,7 @@
   <h1>Analysis</h1>
 
 <h2 id="analysis">Analysis</h2>
-<p>The <code>Analysis</code> tab provides a suite of interactive visualizations for exploring your processed data. It allows you to switch between six main analytical views: <code>QC</code>, <code>PCA</code>, <code>t-SNE</code>, <code>Violin</code>, <code>Bar</code>, and <code>Clustermap</code>.</p>
+<p>The <code>Analysis</code> tab provides a suite of interactive visualizations for exploring your processed data. It allows you to switch between seven main analytical views: <code>QC</code>, <code>PCA</code>, <code>t-SNE</code>, <code>Violin</code>, <code>Bar</code>, <code>Comparison</code>, and <code>Clustermap</code>.</p>
 <blockquote>
 <p><strong>Tip</strong>: Click the help icon (small "i" symbol) next to the "Analysis" title to take a guided tour of this section.</p>
 </blockquote>
@@ -744,7 +744,7 @@
 <li><strong>Target (QC only)</strong>: Select a peak to inspect QC plots and chromatograms.</li>
 </ul>
 <h3 id="analytical-views">Analytical Views</h3>
-<div class="tabbed-set tabbed-alternate" data-tabs="1:6"><input checked="checked" id="__tabbed_1_1" name="__tabbed_1" type="radio"><input id="__tabbed_1_2" name="__tabbed_1" type="radio"><input id="__tabbed_1_3" name="__tabbed_1" type="radio"><input id="__tabbed_1_4" name="__tabbed_1" type="radio"><input id="__tabbed_1_5" name="__tabbed_1" type="radio"><input id="__tabbed_1_6" name="__tabbed_1" type="radio"><div class="tabbed-labels"><label for="__tabbed_1_1">QC</label><label for="__tabbed_1_2">PCA</label><label for="__tabbed_1_3">t-SNE</label><label for="__tabbed_1_4">Violin (Distributions)</label><label for="__tabbed_1_5">Bar</label><label for="__tabbed_1_6">Clustermap (Heatmap)</label></div>
+<div class="tabbed-set tabbed-alternate" data-tabs="1:7"><input checked="checked" id="__tabbed_1_1" name="__tabbed_1" type="radio"><input id="__tabbed_1_2" name="__tabbed_1" type="radio"><input id="__tabbed_1_3" name="__tabbed_1" type="radio"><input id="__tabbed_1_4" name="__tabbed_1" type="radio"><input id="__tabbed_1_5" name="__tabbed_1" type="radio"><input id="__tabbed_1_6" name="__tabbed_1" type="radio"><input id="__tabbed_1_7" name="__tabbed_1" type="radio"><div class="tabbed-labels"><label for="__tabbed_1_1">QC</label><label for="__tabbed_1_2">PCA</label><label for="__tabbed_1_3">t-SNE</label><label for="__tabbed_1_4">Violin (Distributions)</label><label for="__tabbed_1_5">Bar</label><label for="__tabbed_1_6">Comparison</label><label for="__tabbed_1_7">Clustermap (Heatmap)</label></div>
 <div class="tabbed-content">
 <div class="tabbed-block">
 <p>Quality-control view for a selected target.</p>
@@ -785,6 +785,14 @@
 <li><strong>Mean ± SEM</strong>: Bar chart with error bars.</li>
 <li><strong>Individual Samples</strong>: Jittered points overlaid on bars.</li>
 <li><strong>Chromatogram</strong>: Click a sample point to inspect its chromatogram.</li>
+</ul>
+</div>
+<div class="tabbed-block">
+<p><strong>Feature Comparison</strong>: Compare feature intensities between two selected groups using statistical tests.</p>
+<ul>
+<li><strong>Controls</strong>: Select two groups ("Sample 1" and "Sample 2") and set a P-value threshold and FDR correction method.</li>
+<li><strong>Plots</strong>: Toggle between a <strong>Scatter Plot</strong> (Mean vs Mean) and a <strong>Volcano Plot</strong> (Log2 Fold Change vs -Log10 P-value). Features meeting the significance threshold are colored.</li>
+<li><strong>Chromatogram</strong>: Click on any point in the plot to inspect the chromatograms for that feature across the two groups.</li>
 </ul>
 </div>
 <div class="tabbed-block">
