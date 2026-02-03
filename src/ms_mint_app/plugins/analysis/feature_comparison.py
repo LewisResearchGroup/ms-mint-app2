@@ -24,7 +24,7 @@ def create_layout():
         [
             fac.AntdFlex(
                 [
-                    fac.AntdText('Sample 1', strong=False),
+                    fac.AntdText('Sample 1:', strong=False),
                     fac.AntdSelect(
                         id='comparison-sample1-select',
                         options=[],
@@ -34,7 +34,7 @@ def create_layout():
                         optionFilterMode='case-insensitive',
                         style={'width': '200px'},
                     ),
-                    fac.AntdText('Sample 2', strong=False),
+                    fac.AntdText('Sample 2:', strong=False),
                     fac.AntdSelect(
                         id='comparison-sample2-select',
                         options=[],
@@ -44,7 +44,7 @@ def create_layout():
                         optionFilterMode='case-insensitive',
                         style={'width': '200px'},
                     ),
-                    fac.AntdText('P-value', strong=False),
+                    fac.AntdText('P-value:', strong=False),
                     fac.AntdInputNumber(
                         id='comparison-pvalue-threshold',
                         value=0.05,
@@ -53,7 +53,7 @@ def create_layout():
                         step=0.001,
                         style={'width': '120px'},
                     ),
-                    fac.AntdText('FDR', strong=False),
+                    fac.AntdText('FDR:', strong=False),
                     fac.AntdSelect(
                         id='comparison-fdr-method',
                         options=FDR_OPTIONS,
@@ -61,7 +61,7 @@ def create_layout():
                         allowClear=False,
                         style={'width': '200px'},
                     ),
-                    fac.AntdText('Plot Type', strong=False),
+                    fac.AntdText('Plot Type:', strong=False),
                     fac.AntdSwitch(
                         id='comparison-plot-type',
                         checked=False,
@@ -570,7 +570,7 @@ def register_callbacks(app):
                 y_min = 0.0
                 y_max = float(np.nanmax(y_vals))
                 y_max += (y_max * 0.05)
-                fig.update_xaxes(range=[-x_max, x_max], scaleratio=1)
+                fig.update_xaxes(range=[-x_max - (x_max * 0.05), x_max + (x_max * 0.05)], scaleratio=1)
                 fig.update_yaxes(range=[y_min, y_max])
         else:
             x_vals = plot_df['mean_a'].to_numpy() if no_sig else plot_df.loc[sig_mask, 'mean_a'].to_numpy()
