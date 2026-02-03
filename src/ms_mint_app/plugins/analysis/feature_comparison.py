@@ -70,34 +70,35 @@ def create_layout():
                     ),
                 ],
                 align='center',
-                gap='small',
+                gap='middle',
                 wrap=True,
                 style={'paddingBottom': '0.75rem'},
             ),
             fac.AntdFlex(
                 [
+                    # Left panel: Comparison plot (more square - narrower width)
                     html.Div(
                         fac.AntdSpin(
                             dcc.Graph(
                                 id={'type': 'comparison-plot', 'index': 'main'},
                                 config=PLOTLY_HIGH_RES_CONFIG,
-                                style={'height': '410px', 'width': '100%'},
+                                style={'height': 'calc(100vh - 220px)', 'width': '100%', 'minHeight': '400px'},
                             ),
                             id='comparison-spinner',
                             spinning=False,
                             text='Loading Comparison Plot...',
-                            style={'minHeight': '300px', 'width': '100%'},
+                            style={'width': '100%'},
                         ),
-                        style={'width': 'calc(60% - 6px)', 'height': '650px', 'overflowY': 'auto'},
-                        # style={'width': '650px', 'height': '650px', 'overflowY': 'auto'},
+                        style={'width': '40%'},
                     ),
+                    # Right panel: Chromatogram (wider)
                     html.Div(
                         [
                             fac.AntdSpin(
                                 dcc.Graph(
                                     id='comparison-chromatogram',
                                     config=PLOTLY_HIGH_RES_CONFIG,
-                                    style={'height': '410px', 'width': '100%'},
+                                    style={'height': 'calc(100vh - 230px)', 'width': '100%', 'minHeight': '400px'},
                                 ),
                                 text='Loading Chromatogram...',
                             ),
@@ -114,18 +115,18 @@ def create_layout():
                                 ],
                                 justify='end',
                                 align='center',
-                                style={'marginTop': '12px', 'width': '100%'}
-                            )
+                                style={'marginTop': '8px', 'width': '100%'},
+                            ),
                         ],
                         id='comparison-chromatogram-container',
-                        style={'display': 'block', 'width': 'calc(38% - 6px)', 'height': 'auto'},
+                        style={'width': '50%'},
                     ),
                 ],
-                gap='middle',
+                gap='large',
                 wrap=False,
                 justify='center',
                 align='center',
-                style={'width': '100%', 'height': 'calc(100vh - 150px)'},
+                style={'width': '100%'},
             ),
         ],
         id='analysis-comparison-content',
@@ -183,6 +184,24 @@ def _empty_plot(message, height=410):
 
 def register_callbacks(app):
     """Register Feature Comparison callbacks."""
+
+    # Clientside callback to trigger resize when the comparison tab is shown
+    # This fixes Plotly sizing issues with calc() viewport heights
+    app.clientside_callback(
+        """
+        function(currentKey) {
+            if (currentKey === 'comparison') {
+                // Small delay to ensure DOM is ready
+                setTimeout(function() {
+                    window.dispatchEvent(new Event('resize'));
+                }, 150);
+            }
+            return window.dash_clientside.no_update;
+        }
+        """,
+        Output('analysis-comparison-content', 'data-resize-trigger'),
+        Input('analysis-sidebar-menu', 'currentKey'),
+    )
 
     @app.callback(
         Output('comparison-sample1-select', 'options'),
@@ -414,6 +433,45 @@ def register_callbacks(app):
         if sample2 == missing_group_label:
             group2_color = '#bbbbbb'
 
+        def _hex_to_rgb(value):
+            if not isinstance(value, str):
+                return (120, 120, 120)
+            value = value.strip().lstrip('#')
+            if len(value) != 6:
+                return (120, 120, 120)
+            return tuple(int(value[i:i + 2], 16) for i in (0, 2, 4))
+
+        def _rgba(hex_color, alpha):
+            r, g, b = _hex_to_rgb(hex_color)
+            return f"rgba({r}, {g}, {b}, {alpha:.3f})"
+
+        # Intensity based on adjusted p-values (lower p => more intense)
+        p_adj_vals = plot_df['p_adj'].to_numpy(dtype=float)
+        p_adj_clip = np.clip(p_adj_vals, 1e-300, 1.0)
+        logp = -np.log10(p_adj_clip)
+        finite_mask = np.isfinite(logp)
+        if finite_mask.any():
+            min_lp = float(np.nanmin(logp[finite_mask]))
+            max_lp = float(np.nanmax(logp[finite_mask]))
+        else:
+            min_lp = max_lp = 0.0
+        denom = max_lp - min_lp if max_lp != min_lp else 1.0
+        strength = (logp - min_lp) / denom
+        strength = np.clip(strength, 0.0, 1.0)
+        alpha_vals = 0.2 + 0.8 * strength
+
+        # Size based on absolute difference between group means
+        diff_vals = np.abs(plot_df['mean_b'].to_numpy() - plot_df['mean_a'].to_numpy())
+        if np.isfinite(diff_vals).any():
+            min_d = float(np.nanmin(diff_vals))
+            max_d = float(np.nanmax(diff_vals))
+        else:
+            min_d = max_d = 0.0
+        denom_d = max_d - min_d if max_d != min_d else 1.0
+        size_strength = (diff_vals - min_d) / denom_d
+        size_strength = np.clip(size_strength, 0.0, 1.0)
+        size_vals = 6 + 10 * size_strength
+
         def build_customdata(frame, cols):
             if frame.empty:
                 return np.empty((0, len(cols)))
@@ -429,7 +487,11 @@ def register_callbacks(app):
                     y=plot_df['neg_log10_p'],
                     mode='markers',
                     name='Not significant',
-                    marker=dict(color='#9aa0a6', size=7, opacity=0.7),
+                    marker=dict(
+                        color=[_rgba('#9aa0a6', a) for a in alpha_vals],
+                        size=size_vals,
+                        line=dict(width=0.6, color='#444'),
+                    ),
                     customdata=build_customdata(
                         plot_df,
                         ['feature', 'mean_a', 'mean_b', 'p_value', 'p_adj'],
@@ -451,7 +513,11 @@ def register_callbacks(app):
                     y=plot_df.loc[higher_in_1, 'neg_log10_p'],
                     mode='markers',
                     name=str(sample1),
-                    marker=dict(color=group1_color, size=8, opacity=0.85),
+                    marker=dict(
+                        color=[_rgba(group1_color, a) for a in alpha_vals[higher_in_1]],
+                        size=size_vals[higher_in_1],
+                        line=dict(width=0.6, color='#444'),
+                    ),
                     customdata=build_customdata(
                         plot_df.loc[higher_in_1],
                         ['feature', 'mean_a', 'mean_b', 'p_value', 'p_adj'],
@@ -470,7 +536,11 @@ def register_callbacks(app):
                     y=plot_df.loc[higher_in_2, 'neg_log10_p'],
                     mode='markers',
                     name=str(sample2),
-                    marker=dict(color=group2_color, size=8, opacity=0.85),
+                    marker=dict(
+                        color=[_rgba(group2_color, a) for a in alpha_vals[higher_in_2]],
+                        size=size_vals[higher_in_2],
+                        line=dict(width=0.6, color='#444'),
+                    ),
                     customdata=build_customdata(
                         plot_df.loc[higher_in_2],
                         ['feature', 'mean_a', 'mean_b', 'p_value', 'p_adj'],
@@ -491,9 +561,9 @@ def register_callbacks(app):
                 xaxis_title=fc_label,
                 yaxis_title="-Log10(FDR)",
                 template='plotly_white',
-                height=620,
                 margin=dict(l=40, r=20, t=80, b=60),
                 clickmode='event',
+                autosize=True,
             )
             if x_vals.size and y_vals.size:
                 x_max = float(np.nanmax(x_vals))
@@ -511,7 +581,11 @@ def register_callbacks(app):
                     y=plot_df['mean_b'],
                     mode='markers',
                     name='Not significant',
-                    marker=dict(color='#9aa0a6', size=7, opacity=0.7),
+                    marker=dict(
+                        color=[_rgba('#9aa0a6', a) for a in alpha_vals],
+                        size=size_vals,
+                        line=dict(width=0.6, color='#444'),
+                    ),
                     customdata=build_customdata(
                         plot_df,
                         ['feature', 'log2fc', 'p_value', 'p_adj'],
@@ -533,7 +607,11 @@ def register_callbacks(app):
                     y=plot_df.loc[higher_in_1, 'mean_b'],
                     mode='markers',
                     name=str(sample1),
-                    marker=dict(color=group1_color, size=8, opacity=0.85),
+                    marker=dict(
+                        color=[_rgba(group1_color, a) for a in alpha_vals[higher_in_1]],
+                        size=size_vals[higher_in_1],
+                        line=dict(width=0.6, color='#444'),
+                    ),
                     customdata=build_customdata(
                         plot_df.loc[higher_in_1],
                         ['feature', 'log2fc', 'p_value', 'p_adj'],
@@ -552,7 +630,11 @@ def register_callbacks(app):
                     y=plot_df.loc[higher_in_2, 'mean_b'],
                     mode='markers',
                     name=str(sample2),
-                    marker=dict(color=group2_color, size=8, opacity=0.85),
+                    marker=dict(
+                        color=[_rgba(group2_color, a) for a in alpha_vals[higher_in_2]],
+                        size=size_vals[higher_in_2],
+                        line=dict(width=0.6, color='#444'),
+                    ),
                     customdata=build_customdata(
                         plot_df.loc[higher_in_2],
                         ['feature', 'log2fc', 'p_value', 'p_adj'],
@@ -579,10 +661,9 @@ def register_callbacks(app):
                 )
             fig.update_layout(
                 title=title,
-                xaxis_title=f"Mean ({sample1})",
-                yaxis_title=f"Mean ({sample2})",
+                xaxis_title="Signal Intensity in Sample 1",
+                yaxis_title="Signal Intensity in Sample 2",
                 template='plotly_white',
-                height=620,
                 margin=dict(l=40, r=20, t=80, b=60),
                 clickmode='event',
             )
@@ -622,32 +703,22 @@ def register_callbacks(app):
         prevent_initial_call=True,
     )
     def update_chromatogram(clickData, sample1, sample2, group_by_col, log_scale, wdir):
+        default_chrom_style = {'width': '50%'}
+
         if not wdir or not sample1 or not sample2:
-            return _empty_plot("Click a feature to view chromatograms."), {
-                'display': 'block',
-                'width': 'calc(38% - 6px)',
-                'height': '410px',
-            }
+            return _empty_plot("Click a feature to view chromatograms."), default_chrom_style
 
         try:
             peak_label = clickData['points'][0]['customdata'][0]
         except (KeyError, IndexError, TypeError):
-            return _empty_plot("Click a feature to view chromatograms."), {
-                'display': 'block',
-                'width': 'calc(38% - 6px)',
-                'height': '410px',
-            }
+            return _empty_plot("Click a feature to view chromatograms."), default_chrom_style
 
         group_label = GROUP_LABELS.get(group_by_col, group_by_col or 'Group')
         missing_group_label = f"{group_label} (unset)"
 
         with duckdb_connection(wdir) as conn:
             if conn is None:
-                return _empty_plot("Unable to connect to workspace database."), {
-                    'display': 'block',
-                    'width': 'calc(38% - 6px)',
-                    'height': '410px',
-                }
+                return _empty_plot("Unable to connect to workspace database."), default_chrom_style
 
             rt_info = conn.execute(
                 "SELECT rt_min, rt_max FROM targets WHERE peak_label = ?",
@@ -682,11 +753,7 @@ def register_callbacks(app):
             group2_samples = fetch_group_samples(sample2, 6)
             files_to_fetch = [row[0] for row in group1_samples + group2_samples]
             if not files_to_fetch:
-                return _empty_plot("No chromatogram data found for selected groups."), {
-                    'display': 'block',
-                    'width': 'calc(38% - 6px)',
-                    'height': '410px',
-                }
+                return _empty_plot("No chromatogram data found for selected groups."), default_chrom_style
 
             placeholders = ','.join(['?'] * len(files_to_fetch))
             chrom_query = f"""
@@ -697,11 +764,7 @@ def register_callbacks(app):
             """
             chrom_data = conn.execute(chrom_query, [peak_label] + files_to_fetch).fetchall()
             if not chrom_data:
-                return _empty_plot("No chromatogram data found."), {
-                    'display': 'block',
-                    'width': 'calc(38% - 6px)',
-                    'height': '410px',
-                }
+                return _empty_plot("No chromatogram data found."), default_chrom_style
 
             data_map = {row[0]: row for row in chrom_data}
             colors_df = conn.execute(
@@ -790,7 +853,6 @@ def register_callbacks(app):
             yaxis_tickfont=dict(size=12),
             template="plotly_white",
             margin=dict(l=50, r=20, t=110, b=80),
-            height=410,
             showlegend=True,
             legend=dict(
                 title=dict(text=f"{group_label}: ", font=dict(size=13)),
@@ -811,7 +873,9 @@ def register_callbacks(app):
             ),
         )
 
-        return fig, {'display': 'block', 'width': 'calc(38% - 6px)', 'height': '410px'}
+        fig.update_layout(autosize=True)
+
+        return fig, default_chrom_style
 
     @app.callback(
         Output('comparison-chromatogram', 'figure', allow_duplicate=True),
