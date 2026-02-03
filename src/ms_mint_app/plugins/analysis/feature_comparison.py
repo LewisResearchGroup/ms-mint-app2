@@ -125,7 +125,7 @@ def create_layout():
                 wrap=False,
                 justify='center',
                 align='center',
-                style={'width': '100%', 'height': 'calc(100vh - 200px)'},
+                style={'width': '100%', 'height': 'calc(100vh - 150px)'},
             ),
         ],
         id='analysis-comparison-content',
