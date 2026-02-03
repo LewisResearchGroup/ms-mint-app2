@@ -139,6 +139,7 @@ def run_asari_workflow(wdir, params, set_progress=None):
     
     
     logs = []
+    start_time = time.perf_counter()
 
     def report_progress(percent, message, detail="", current_logs=None):
         if set_progress:
@@ -586,8 +587,14 @@ def run_asari_workflow(wdir, params, set_progress=None):
     except Exception as cleanup_ex:
         logger.warning(f"Failed to cleanup intermediate files: {cleanup_ex}")
     
+    end_time = time.perf_counter()
+    duration = end_time - start_time
+    msg = f"Asari processing computed in {duration:.2f} seconds"
+    logger.info(msg)
+    logs.append(msg)
+
     return {
-        "success": True, 
+        "success": True,  
         "message": f"Asari analysis completed successfully. {len(df)} targets saved to {backup_path}",
         "result_path": backup_path
     }
