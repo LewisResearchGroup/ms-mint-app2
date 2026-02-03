@@ -17,14 +17,6 @@ from dash.exceptions import PreventUpdate
 from .. import tools as T
 from ..logging_setup import activate_workspace_logging
 import logging
-from .scalir import (
-    intersect_peaks,
-    fit_estimator,
-    build_concentration_table,
-    training_plot_frame,
-    plot_standard_curve,
-    slugify_label,
-)
 from ..duckdb_manager import (
     build_order_by,
     build_where_and_params,
@@ -50,6 +42,14 @@ from .target_optimization import (
 _label = "Processing"
 
 logger = logging.getLogger(__name__)
+
+def _load_scalir():
+    try:
+        from . import scalir as scalir_module
+        return scalir_module
+    except Exception as exc:
+        logger.warning("SCALiR integration unavailable: %s", exc)
+        return None
 
 RESULTS_TABLE_COLUMNS = [
     {
@@ -2722,6 +2722,9 @@ def run_scalir(n_clicks, standards_contents, standards_filename, intensity, slop
         'paddingTop': '8px',
         'justifyContent': 'flex-start',
     }
+    scalir_module = _load_scalir()
+    if scalir_module is None:
+        return ("SCALiR is unavailable. Check installation and logs.", "", [], None, [], hidden_style, None, False)
     if not wdir:
         return ("No active workspace.", "", [], None, [], hidden_style, None, False)
     try:
@@ -2756,7 +2759,7 @@ def run_scalir(n_clicks, standards_contents, standards_filename, intensity, slop
         standards_df = standards_df.drop(columns=["unit"])
 
     try:
-        mint_filtered, standards_filtered, units_filtered, common = intersect_peaks(
+        mint_filtered, standards_filtered, units_filtered, common = scalir_module.intersect_peaks(
             mint_df, standards_df, units_df
         )
     except Exception as exc:
@@ -2773,12 +2776,12 @@ def run_scalir(n_clicks, standards_contents, standards_filename, intensity, slop
     try:
         logger.info(f"SCALiR: Before fit - mint_filtered: {len(mint_filtered)} rows, cols: {list(mint_filtered.columns)}")
         logger.info(f"SCALiR: Before fit - standards_filtered: {len(standards_filtered)} rows, cols: {list(standards_filtered.columns)}")
-        estimator, std_results, x_train, y_train, params = fit_estimator(
+        estimator, std_results, x_train, y_train, params = scalir_module.fit_estimator(
             mint_filtered, standards_filtered, intensity, slope_mode or "fixed", slope_interval
         )
         logger.info(f"SCALiR: After fit - std_results: {len(std_results)} rows, x_train: {len(x_train)} rows")
         logger.info(f"SCALiR: Fitting completed. Metabolites: {len(common)}")
-        concentrations = build_concentration_table(
+        concentrations = scalir_module.build_concentration_table(
             estimator, mint_filtered, intensity, units_filtered
         )
     except Exception as exc:
@@ -2801,7 +2804,7 @@ def run_scalir(n_clicks, standards_contents, standards_filename, intensity, slop
         logger.info(f"SCALiR: x_train has {len(x_train)} rows, columns: {list(x_train.columns)}")
         if 'value' in x_train.columns:
             logger.info(f"SCALiR: x_train.value stats - min: {x_train['value'].min()}, max: {x_train['value'].max()}, values > 0: {(x_train['value'] > 0).sum()}")
-        train_frame = training_plot_frame(estimator, x_train, y_train, params)
+        train_frame = scalir_module.training_plot_frame(estimator, x_train, y_train, params)
         train_frame_path = output_dir / "train_frame.csv"
         train_frame.to_csv(train_frame_path, index=False)
         logger.info(f"SCALiR: train_frame has {len(train_frame)} rows, columns: {list(train_frame.columns)}")
@@ -2815,7 +2818,7 @@ def run_scalir(n_clicks, standards_contents, standards_filename, intensity, slop
 
     if generate_plots and not train_frame.empty:
         for label in common:
-            plot_standard_curve(train_frame, label, units_filtered, plots_dir)
+            scalir_module.plot_standard_curve(train_frame, label, units_filtered, plots_dir)
 
     sorted_common = sorted(common)
     metabolite_options = [{'label': label, 'value': label} for label in sorted_common]
@@ -2934,9 +2937,11 @@ def update_scalir_plot(selected_label, store_data):
     plot_dir = Path(store_data.get("plot_dir", ""))
     plot_path = ""
     if selected_label and store_data.get("generated_all_plots") and plot_dir:
-        candidate = plot_dir / f"{slugify_label(selected_label)}_curve.png"
-        if candidate.exists():
-            plot_path = f"Plot saved at: {candidate}"
+        scalir_module = _load_scalir()
+        if scalir_module is not None:
+            candidate = plot_dir / f"{scalir_module.slugify_label(selected_label)}_curve.png"
+            if candidate.exists():
+                plot_path = f"Plot saved at: {candidate}"
 
     return plots, {
         'display': 'block',
