@@ -122,7 +122,7 @@ def create_layout():
                         style={'width': '50%'},
                     ),
                 ],
-                gap='large',
+                gap='50px',
                 wrap=False,
                 justify='center',
                 align='center',
@@ -648,8 +648,8 @@ def register_callbacks(app):
                         "FDR: %{customdata[3]:.3e}<extra></extra>"
                     ),
                 ))
-            min_val = float(np.nanmin([plot_df['mean_a'].min(), plot_df['mean_b'].min()]))
-            max_val = float(np.nanmax([plot_df['mean_a'].max(), plot_df['mean_b'].max()]))
+            min_val = float(np.nanmin([plot_df['mean_a'].min(), plot_df['mean_b'].min(), 0]))
+            max_val = float(np.nanmax([plot_df['mean_a'].max(), plot_df['mean_b'].max(), 0]))
             if np.isfinite(min_val) and np.isfinite(max_val):
                 fig.add_shape(
                     type='line',
@@ -661,8 +661,8 @@ def register_callbacks(app):
                 )
             fig.update_layout(
                 title=title,
-                xaxis_title="Signal Intensity in Sample 1",
-                yaxis_title="Signal Intensity in Sample 2",
+                xaxis_title=f"Signal Intensity in {sample1} Samples",
+                yaxis_title=f"Signal Intensity in {sample2} Samples",
                 template='plotly_white',
                 margin=dict(l=40, r=20, t=80, b=60),
                 clickmode='event',
