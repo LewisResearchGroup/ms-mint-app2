@@ -1,7 +1,6 @@
 """Analysis plugin orchestrator."""
 
 import base64
-from pathlib import Path
 from io import BytesIO, StringIO
 import logging
 import dash
@@ -21,10 +20,10 @@ from ...duckdb_manager import duckdb_connection, get_physical_cores, calculate_o
 from ._shared import (
     METRIC_OPTIONS, NORM_OPTIONS, GROUP_SELECT_OPTIONS, TAB_DEFAULT_NORM,
     GROUPING_FIELDS, GROUP_LABELS, GROUP_COLUMNS,
-    rocke_durbin, _build_color_map, _clean_numeric, _create_pivot_custom,
+    _build_color_map, _clean_numeric, prepare_metric_table, normalize_matrices,
     create_invisible_figure, get_download_config
 )
-from . import qc, pca, tsne, violin, bar, clustermap
+from . import qc, pca, tsne, violin, bar, clustermap, feature_comparison
 
 logger = logging.getLogger(__name__)
 
@@ -35,6 +34,7 @@ ANALYSIS_MENU_ITEMS = [
     {'component': 'Item', 'props': {'key': 'qc', 'title': 'QC', 'icon': 'antd-check-circle'}},
     {'component': 'Item', 'props': {'key': 'raincloud', 'title': 'Violin', 'icon': 'antd-control'}},
     {'component': 'Item', 'props': {'key': 'bar', 'title': 'Bar', 'icon': 'antd-bar-chart'}},
+    {'component': 'Item', 'props': {'key': 'comparison', 'title': 'Comparison', 'icon': 'antd-swap'}},
     {'component': 'Item', 'props': {'key': 'clustermap', 'title': 'Clustermap', 'icon': 'antd-build'}},
 ]
 
@@ -146,7 +146,7 @@ _layout = fac.AntdLayout(
                                             fac.AntdSelect(
                                                 id='analysis-normalization-select',
                                                 options=NORM_OPTIONS,
-                                                value='zscore',
+                                                value='durbin',
                                                 optionFilterProp='label',
                                                 optionFilterMode='case-insensitive',
                                                 allowClear=False,
@@ -228,6 +228,12 @@ _layout = fac.AntdLayout(
                         html.Div(
                             bar.create_layout(),
                             id='analysis-bar-container',
+                            style={'display': 'none', 'padding': '16px'}
+                        ),
+                        # Comparison content
+                        html.Div(
+                            feature_comparison.create_layout(),
+                            id='analysis-comparison-container',
                             style={'display': 'none', 'padding': '16px'}
                         ),
                         # Clustermap content
@@ -482,6 +488,24 @@ def _analysis_tour_steps(active_tab: str):
                 'targetSelector': '#bar-chromatogram-container',
             },
         ]
+    elif active_tab == 'comparison':
+        view_steps = [
+            {
+                'title': 'Sample Selection',
+                'description': 'Choose two groups to compare and set the significance threshold.',
+                'targetSelector': '#comparison-sample1-select',
+            },
+            {
+                'title': 'Comparison Plot',
+                'description': 'Scatter or Volcano plot highlighting significant features. Click a point to view chromatograms.',
+                'targetSelector': '[id="{\\"type\\":\\"comparison-plot\\",\\"index\\":\\"main\\"}"]',
+            },
+            {
+                'title': 'Chromatogram',
+                'description': 'Compare chromatograms for the selected feature across both groups.',
+                'targetSelector': '#comparison-chromatogram-container',
+            },
+        ]
     elif active_tab == 'clustermap':
         view_steps = [
             {
@@ -514,6 +538,7 @@ def callbacks(app, fsc=None, cache=None):
     tsne.register_callbacks(app)
     violin.register_callbacks(app)
     bar.register_callbacks(app)
+    feature_comparison.register_callbacks(app)
     clustermap.register_callbacks(app)
 
     @app.callback(
@@ -579,6 +604,7 @@ def callbacks(app, fsc=None, cache=None):
         Output('analysis-tsne-container', 'style'),
         Output('analysis-violin-container', 'style'),
         Output('analysis-bar-container', 'style'),
+        Output('analysis-comparison-container', 'style'),
         Output('analysis-clustermap-container', 'style'),
         Output('analysis-tabs', 'data'),
         Input('analysis-sidebar-menu', 'currentKey'),
@@ -593,6 +619,7 @@ def callbacks(app, fsc=None, cache=None):
         tsne_style = {'display': 'block', 'padding': '16px'} if active_key == 'tsne' else {'display': 'none', 'padding': '16px'}
         violin_style = {'display': 'block', 'padding': '16px'} if active_key == 'raincloud' else {'display': 'none', 'padding': '16px'}
         bar_style = {'display': 'block', 'padding': '16px'} if active_key == 'bar' else {'display': 'none', 'padding': '16px'}
+        comparison_style = {'display': 'block', 'padding': '16px'} if active_key == 'comparison' else {'display': 'none', 'padding': '16px'}
         # Clustermap needs explicit height for spinner centering to work on first access
         clustermap_style = {
             'display': 'block' if active_key == 'clustermap' else 'none',
@@ -603,7 +630,7 @@ def callbacks(app, fsc=None, cache=None):
         # Sync to legacy analysis-tabs store for backward compatibility with other callbacks
         tabs_data = {'activeKey': active_key}
         
-        return qc_style, pca_style, tsne_style, violin_style, bar_style, clustermap_style, tabs_data
+        return qc_style, pca_style, tsne_style, violin_style, bar_style, comparison_style, clustermap_style, tabs_data
 
     @app.callback(
         Output('analysis-metric-wrapper', 'style'),
@@ -687,6 +714,8 @@ def callbacks(app, fsc=None, cache=None):
         Output('tsne-graph', 'config'),
         Output('violin-chromatogram', 'config'),
         Output('bar-chromatogram', 'config'),
+        Output({'type': 'comparison-plot', 'index': 'main'}, 'config'),
+        Output('comparison-chromatogram', 'config'),
         Input('wdir', 'data'),
     )
     def update_graph_configs(wdir):
@@ -703,6 +732,8 @@ def callbacks(app, fsc=None, cache=None):
             get_download_config(filename=f"{base_name}-tSNE"),
             get_download_config(filename=f"{base_name}-Violin-Chromatogram"),
             get_download_config(filename=f"{base_name}-Bar-Chromatogram"),
+            get_download_config(filename=f"{base_name}-Comparison-Plot"),
+            get_download_config(filename=f"{base_name}-Comparison-Chromatogram"),
         )
 
     @app.callback(
@@ -983,30 +1014,8 @@ def update_content(section_context, tab_key, x_comp, y_comp, violin_comp_checks,
             except Exception:
                 return None, invisible_fig, invisible_fig, [], [], [], [], [], [], dash.no_update, dash.no_update, dash.no_update
             
-            target_table = 'results'
-            if metric == 'scalir_conc':
-                scalir_path = Path(wdir) / "results" / "scalir" / "concentrations.csv"
-                if not scalir_path.exists():
-                    return None, invisible_fig, invisible_fig, [], [], [], [], [], [], dash.no_update, dash.no_update, dash.no_update
-                try:
-                    conn.execute(f"CREATE OR REPLACE TEMP VIEW scalir_temp_conc AS SELECT * FROM read_csv_auto('{scalir_path}')")
-                    conn.execute("""
-                        CREATE OR REPLACE TEMP VIEW scalir_results_view AS 
-                        SELECT 
-                            r.ms_file_label, 
-                            r.peak_label, 
-                            s.pred_conc AS scalir_conc 
-                        FROM results r 
-                        LEFT JOIN scalir_temp_conc s 
-                        ON r.ms_file_label = CAST(s.ms_file AS VARCHAR) AND r.peak_label = s.peak_label
-                    """)
-                    target_table = 'scalir_results_view'
-                except Exception as e:
-                    logger.error(f"Error preparing SCALiR data: {e}")
-                    return None, invisible_fig, invisible_fig, [], [], [], [], [], [], dash.no_update, dash.no_update, dash.no_update
-
-            df = _create_pivot_custom(conn, value=metric, table=target_table)
-            if df.empty or 'ms_file_label' not in df.columns:
+            df = prepare_metric_table(conn, wdir, metric)
+            if df is None or df.empty:
                 return None, invisible_fig, invisible_fig, [], [], [], [], [], [], dash.no_update, dash.no_update, dash.no_update
             df.set_index('ms_file_label', inplace=True)
             
@@ -1075,25 +1084,7 @@ def update_content(section_context, tab_key, x_comp, y_comp, violin_comp_checks,
             if df.empty or raw_numeric.empty:
                 return None, invisible_fig, invisible_fig, [], [], [], [], [], [], dash.no_update, dash.no_update, dash.no_update
             
-            from sklearn.preprocessing import StandardScaler
-            scaler = StandardScaler()
-            
-            if norm_value == 'zscore':
-                zdf = pd.DataFrame(scaler.fit_transform(df), index=df.index, columns=df.columns)
-                ndf = zdf
-            elif norm_value == 'durbin':
-                ndf = rocke_durbin(df, c=10)
-                ndf = _clean_numeric(ndf)
-                zdf = ndf
-            elif norm_value == 'zscore_durbin':
-                z_tmp = pd.DataFrame(scaler.fit_transform(df), index=df.index, columns=df.columns)
-                ndf_tmp = rocke_durbin(z_tmp, c=10)
-                ndf = _clean_numeric(ndf_tmp)
-                zdf = ndf
-            else:
-                # raw/none: use df directly
-                ndf = df
-                zdf = df
+            ndf, zdf = normalize_matrices(df, norm_value)
             
             if ndf.empty or zdf.empty:
                 raise PreventUpdate

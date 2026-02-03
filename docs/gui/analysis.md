@@ -1,6 +1,6 @@
 ## Analysis {: #analysis }
 
-The `Analysis` tab provides a suite of interactive visualizations for exploring your processed data. It allows you to switch between six main analytical views: `QC`, `PCA`, `t-SNE`, `Violin`, `Bar`, and `Clustermap`.
+The `Analysis` tab provides a suite of interactive visualizations for exploring your processed data. It allows you to switch between seven main analytical views: `QC`, `PCA`, `t-SNE`, `Violin`, `Bar`, `Comparison`, and `Clustermap`.
 
 > **Tip**: Click the help icon (small "i" symbol) next to the "Analysis" title to take a guided tour of this section.
 
@@ -58,6 +58,13 @@ The toolbar at the top of the Analysis tab controls the data input for all visua
     *   **Mean ± SEM**: Bar chart with error bars.
     *   **Individual Samples**: Jittered points overlaid on bars.
     *   **Chromatogram**: Click a sample point to inspect its chromatogram.
+
+=== "Comparison"
+    **Feature Comparison**: Compare feature intensities between two selected groups using statistical tests.
+
+    *   **Controls**: Select two groups ("Sample 1" and "Sample 2") and set a P-value threshold and FDR correction method.
+    *   **Plots**: Toggle between a **Scatter Plot** (Mean vs Mean) and a **Volcano Plot** (Log2 Fold Change vs -Log10 P-value). Features meeting the significance threshold are colored.
+    *   **Chromatogram**: Click on any point in the plot to inspect the chromatograms for that feature across the two groups.
 
 === "Clustermap (Heatmap)"
     Displays a hierarchical clustering of samples (columns) and metabolites (rows). It helps identify patterns and outliers in your dataset.

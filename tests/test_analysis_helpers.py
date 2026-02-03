@@ -16,6 +16,9 @@ from ms_mint_app.plugins.analysis._shared import (
     _clean_numeric,
     _calc_y_range_numpy,
     _create_pivot_custom,
+    prepare_metric_table,
+    normalize_matrices,
+    normalize_matrix,
 )
 from ms_mint_app.duckdb_manager import _create_tables
 import duckdb
@@ -133,6 +136,51 @@ def test_create_pivot_custom_basic():
     assert "Peak2" in df.columns
     assert df.loc[0, "Peak1"] == 100.0
     assert df.loc[0, "Peak2"] == 200.0
+
+
+def test_prepare_metric_table_scalir(tmp_path):
+    con = duckdb.connect(":memory:")
+    _create_tables(con)
+
+    con.execute(
+        "INSERT INTO samples (ms_file_label, sample_type, ms_type, use_for_analysis) VALUES ('S1', 'Sample', 'ms1', TRUE)"
+    )
+    con.execute("INSERT INTO targets (peak_label, ms_type) VALUES ('Peak1', 'ms1')")
+    con.execute("INSERT INTO results (ms_file_label, peak_label, peak_area) VALUES ('S1', 'Peak1', 100.0)")
+
+    scalir_dir = tmp_path / "results" / "scalir"
+    scalir_dir.mkdir(parents=True)
+    (scalir_dir / "concentrations.csv").write_text("ms_file,peak_label,pred_conc\nS1,Peak1,1.23\n")
+
+    df = prepare_metric_table(con, str(tmp_path), "scalir_conc")
+
+    assert df is not None
+    assert "Peak1" in df.columns
+    assert df.loc[0, "Peak1"] == 1.23
+
+
+def test_normalize_matrices_variants():
+    df = pd.DataFrame({"a": [1.0, 2.0, 3.0], "b": [2.0, 4.0, 6.0]})
+
+    ndf, zdf = normalize_matrices(df, "none")
+    assert np.allclose(ndf.values, df.values)
+    assert np.allclose(zdf.values, df.values)
+
+    ndf, zdf = normalize_matrices(df, "zscore")
+    assert np.allclose(zdf.mean().values, [0.0, 0.0], atol=1e-7)
+    assert np.allclose(ndf.values, zdf.values)
+
+    ndf, zdf = normalize_matrices(df, "durbin")
+    assert ndf.shape == df.shape
+    assert np.allclose(ndf.values, zdf.values)
+
+    ndf, zdf = normalize_matrices(df, "zscore_durbin")
+    assert ndf.shape == df.shape
+    assert np.allclose(ndf.values, zdf.values)
+
+    zscore_ndf, zscore_zdf = normalize_matrices(df, "zscore")
+    ndf_single = normalize_matrix(df, "zscore")
+    assert np.allclose(ndf_single.values, zscore_zdf.values)
 
 
 def test_load_persisted_scalir_results(tmp_path):

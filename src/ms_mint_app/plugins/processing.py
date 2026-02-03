@@ -51,6 +51,15 @@ def _load_scalir():
         logger.warning("SCALiR integration unavailable: %s", exc)
         return None
 
+
+def slugify_label(label: str) -> str:
+    scalir_module = _load_scalir()
+    if scalir_module is not None and hasattr(scalir_module, "slugify_label"):
+        return scalir_module.slugify_label(label)
+    safe = "".join(ch if ch.isalnum() or ch in "-_" else "_" for ch in label)
+    safe = safe.strip("_")
+    return safe or "compound"
+
 RESULTS_TABLE_COLUMNS = [
     {
         'title': 'Target',
@@ -2937,11 +2946,9 @@ def update_scalir_plot(selected_label, store_data):
     plot_dir = Path(store_data.get("plot_dir", ""))
     plot_path = ""
     if selected_label and store_data.get("generated_all_plots") and plot_dir:
-        scalir_module = _load_scalir()
-        if scalir_module is not None:
-            candidate = plot_dir / f"{scalir_module.slugify_label(selected_label)}_curve.png"
-            if candidate.exists():
-                plot_path = f"Plot saved at: {candidate}"
+        candidate = plot_dir / f"{slugify_label(selected_label)}_curve.png"
+        if candidate.exists():
+            plot_path = f"Plot saved at: {candidate}"
 
     return plots, {
         'display': 'block',
