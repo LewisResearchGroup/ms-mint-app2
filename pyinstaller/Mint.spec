@@ -58,6 +58,31 @@ if os.path.isdir(asari_env_dir):
     datas_list.append((asari_env_dir, 'asari_env'))
 
 # ============================================================================
+# INCLUDE SOURCE FILES FOR DASH BACKGROUND CALLBACKS
+# ============================================================================
+# Include .py source files so inspect.getsource() works in frozen executable.
+# This is needed for Dash's DiskcacheManager to build cache keys for
+# background callbacks.
+# ============================================================================
+import glob
+
+def collect_source_files(package_path, package_name):
+    """Collect all .py files from a package for inclusion in frozen app."""
+    py_files = []
+    for py_file in glob.glob(os.path.join(package_path, '**', '*.py'), recursive=True):
+        # Get relative path from package root
+        rel_path = os.path.relpath(py_file, package_path)
+        dest_dir = os.path.join(package_name, os.path.dirname(rel_path))
+        py_files.append((py_file, dest_dir))
+    return py_files
+
+# Add ms_mint_app source files
+ms_mint_app_src = os.path.join(package_root, 'ms_mint_app')
+source_files = collect_source_files(ms_mint_app_src, 'ms_mint_app')
+datas_list.extend(source_files)
+print(f"[OK] Bundling {len(source_files)} source files for background callbacks")
+
+# ============================================================================
 # MATPLOTLIB FONT CACHE - Startup Optimization
 # ============================================================================
 # Bundle pre-built matplotlib font cache to eliminate 5-second first-time delay.
