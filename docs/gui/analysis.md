@@ -4,7 +4,7 @@ The `Analysis` tab provides a suite of interactive visualizations for exploring 
 
 > **Tip**: Click the help icon (small "i" symbol) next to the "Analysis" title to take a guided tour of this section.
 
-![Analysis](../image/analysis_v1.1.1.png "Analysis")
+
 
 ### Global Settings {: #global-settings }
 
@@ -17,17 +17,8 @@ The toolbar at the top of the Analysis tab controls the data input for all visua
     *   **Rocke-Durbin**: Variance stabilization.
     *   **Z-score + Rocke-Durbin**: Standardize, then stabilize variance.
 *   **Group by**: Choose a metadata column to group samples. This determines the coloring in QC, Clustermap, PCA, t-SNE, Violin, and Bar plots.
-*   **Target (QC only)**: Select a peak to inspect QC plots and chromatograms.
 
 ### Analytical Views {: #analytical-views }
-
-=== "QC"
-    Quality-control view for a selected target.
-
-    *   **RT Plot**: Retention-time stability across samples, grouped by your selected metadata column.
-    *   **m/z Plot**: Observed m/z (if available) across samples.
-    *   **Chromatogram**: Click a sample in either scatter plot to inspect the chromatogram for that target.
-    *   **Progressive Loading**: For large datasets, MINT initially loads a "Shadow Plot" (Envelope) to provide immediate feedback while detailed chromatogram data finishes loading in the background.
 
 === "PCA"
     **Principal Component Analysis**: Reduces the dimensionality of your data to visualize sample similarity.
@@ -36,13 +27,25 @@ The toolbar at the top of the Analysis tab controls the data input for all visua
     *   **Cumulative Variance**: Displays how much of the total dataset variance is explained by the first N components.
     *   **Loadings**: A bar chart showing which metabolites contribute most to each PC.
 
-    ![PCA](../quickstart/analysis-3.png "PCA")
+    ![PCA](../image/analysis_pca.png "PCA")
 
 === "t-SNE"
     **t-Distributed Stochastic Neighbor Embedding**: Nonlinear embedding to reveal local sample neighborhoods.
 
     *   **Axes**: Select the t-SNE dimensions to display (typically t-SNE-1 vs t-SNE-2).
     *   **Perplexity**: Adjust neighborhood size and regenerate to explore different structures.
+    
+    ![t-SNE](../image/analysis_tsne.png "t-SNE")
+    
+=== "QC"
+    Quality-control view for a selected target.
+
+    *   **RT Plot**: Retention-time stability across samples, grouped by your selected metadata column.
+    *   **Metric Plot**: Observed metric (e.g., peak area, peak area top3, etc.) across samples.
+    *   **Chromatogram**: Click a sample in either scatter plot to inspect the chromatogram for that target.
+    *   **Progressive Loading**: For large datasets, MINT initially loads a "Shadow Plot" (Envelope) to provide immediate feedback while detailed chromatogram data finishes loading in the background.
+
+    ![QC](../image/analysis_qc.png "QC - Quality Control")
 
 === "Violin (Distributions)"
     Focuses on the distribution of peak intensities for individual metabolites.
@@ -50,7 +53,7 @@ The toolbar at the top of the Analysis tab controls the data input for all visua
     *   **Selection**: Use the dropdown to search for and select a specific peak.
     *   **Stats**: Displays the distribution density and boxplots, grouped by your selected metadata column, along with ANOVA p-values for statistical significance.
 
-    ![Violin Plots](../quickstart/analysis-4.png "Violin Plots")
+    ![Violin Plots](../image/analysis_violin.png "Violin Plots")
 
 === "Bar"
     Aggregated summary view by group.
@@ -59,6 +62,8 @@ The toolbar at the top of the Analysis tab controls the data input for all visua
     *   **Individual Samples**: Jittered points overlaid on bars.
     *   **Chromatogram**: Click a sample point to inspect its chromatogram.
 
+    ![Bar Plot](../image/analysis_bar.png "Bar Plot")
+
 === "Comparison"
     **Feature Comparison**: Compare feature intensities between two selected groups using statistical tests.
 
@@ -66,7 +71,9 @@ The toolbar at the top of the Analysis tab controls the data input for all visua
     *   **Plots**: Toggle between a **Scatter Plot** (Mean vs Mean) and a **Volcano Plot** (Log2 Fold Change vs -Log10 P-value). Features meeting the significance threshold are colored.
     *   **Chromatogram**: Click on any point in the plot to inspect the chromatograms for that feature across the two groups.
 
+    ![Feature Comparison](../image/analysis_comparison.png "Feature Comparison")
+
 === "Clustermap (Heatmap)"
     Displays a hierarchical clustering of samples (columns) and metabolites (rows). It helps identify patterns and outliers in your dataset.
 
-    ![Clustermap](../quickstart/analysis-2.png "Clustermap")
+    ![Clustermap](../image/analysis_clustermap.png "Clustermap")
