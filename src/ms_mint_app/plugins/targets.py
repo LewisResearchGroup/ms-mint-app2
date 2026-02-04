@@ -479,8 +479,8 @@ _layout = html.Div(
                         description=fac.AntdFlex(
                             [
                                 fac.AntdText('No Targets loaded', strong=True, style={'fontSize': '16px'}),
-                                fac.AntdText('Click "Load Targets" to import your data or', type='secondary'),
-                                fac.AntdText('"Untargeted Analysis" to populate the table with features detected using Asari', type='secondary'),
+                                fac.AntdText('Click "Load Targets" to import peak list (e.g., MINT targets, MAVEN peak list, MAVEN results) or', type='secondary'),
+                                fac.AntdText('"Untargeted Analysis" to populate the table with features detected using Asari (needs MS-files loaded)', type='secondary'),
                             ],
                             vertical=True,
                             align='center',

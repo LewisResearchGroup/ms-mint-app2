@@ -291,7 +291,7 @@ _layout = html.Div(
                         description=fac.AntdFlex(
                             [
                                 fac.AntdText('No MS files loaded', strong=True, style={'fontSize': '16px'}),
-                                fac.AntdText('Click "Load MS-Files" to import your data', type='secondary'),
+                                fac.AntdText('Click "Load MS-Files" to import mzML/mzXML files', type='secondary'),
                             ],
                             vertical=True,
                             align='center',
@@ -509,7 +509,7 @@ _layout = html.Div(
                 },
                 {
                     'title': 'Load raw files',
-                    'description': 'Click "Load MS-Files" to browse and add raw data files (mzML, mzXML) to this workspace.',
+                    'description': 'Click "Load MS-Files" to browse and add raw data files (*.mzML, *.mzXML) to this workspace.',
                     'targetSelector': "[id='{\"action\":\"file-explorer\",\"type\":\"ms-files\"}']"
                 },
                 {
