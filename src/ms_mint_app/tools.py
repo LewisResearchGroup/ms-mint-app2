@@ -2226,6 +2226,53 @@ def process_targets(wdir, set_progress, selected_files):
     with duckdb_connection(wdir) as conn:
         if conn is None:
             raise PreventUpdate
+
+        # ------------------------------------------------------------------
+        # Auto-Populate Polarity from MS Files (for MS1 targets)
+        # ------------------------------------------------------------------
+        try:
+            # Check if we have a consistent polarity across all loaded MS files
+            existing_pols = conn.execute("SELECT DISTINCT polarity FROM samples WHERE polarity IS NOT NULL").fetchall()
+            
+            # If exactly one unique polarity is found (e.g., only "Positive")
+            if len(existing_pols) == 1:
+                inferred_pol = existing_pols[0][0]
+                if inferred_pol:
+                    logging.info(f"Auto-populating missing target polarities with '{inferred_pol}' (inferred from MS files)")
+                    if 'polarity' in targets_df.columns:
+                        targets_df['polarity'] = targets_df['polarity'].fillna(inferred_pol)
+                    else:
+                        targets_df['polarity'] = inferred_pol
+            
+            # ------------------------------------------------------------------
+            # Polarity Validation: Check for explicit conflicts
+            # ------------------------------------------------------------------
+            if len(existing_pols) == 1 and inferred_pol and 'polarity' in targets_df.columns:
+                # Identify targets that have a polarity set (not NA) AND it differs from the file polarity
+                mismatches = targets_df[
+                    (targets_df['polarity'].notna()) & 
+                    (targets_df['polarity'] != inferred_pol)
+                ]
+                
+                if not mismatches.empty:
+                    n_mismatch = len(mismatches)
+                    mismatched_labels = mismatches['peak_label'].head(3).tolist()
+                    example_str = ", ".join(map(str, mismatched_labels))
+                    if n_mismatch > 3:
+                        example_str += ", ..."
+                        
+                    warn_msg = (
+                        f"Polarity Mismatch Warning: {n_mismatch} targets explicitly specify a polarity "
+                        f"different from the loaded MS files (which are '{inferred_pol}'). "
+                        f"Examples: {example_str}. "
+                        f"These targets may not yield valid results."
+                    )
+                    logging.warning(warn_msg)
+                    # Note: We do NOT stop processing or drop them, we just warn.
+            # ------------------------------------------------------------------
+        except Exception as e:
+            logging.warning(f"Failed to auto-populate polarity: {e}")
+        # ------------------------------------------------------------------
         conn.execute(
             "INSERT OR REPLACE INTO targets(peak_label, mz_mean, mz_width, mz, rt, rt_min, rt_max, rt_unit, "
             "intensity_threshold, polarity, filterLine, ms_type, category, score, peak_selection, bookmark, source, notes, rt_auto_adjusted, formula, maven_id) "
