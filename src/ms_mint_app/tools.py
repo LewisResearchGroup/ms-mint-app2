@@ -22,6 +22,7 @@ from scipy.ndimage import binary_opening
 
 from .duckdb_manager import duckdb_connection
 from .sample_metadata import GROUP_COLUMNS
+from .mass_calculator import MassCalculator, IonizationType
 
 logger = logging.getLogger(__name__)
 
@@ -2289,9 +2290,63 @@ def process_targets(wdir, set_progress, selected_files):
                 targets_df.loc[mask_missing, 'adduct_name'] = targets_df.loc[mask_missing, 'polarity'].apply(_get_adduct)
             # ------------------------------------------------------------------
 
+            # ------------------------------------------------------------------
+            # Calculate m/z from Formula (using MassCalculator)
+            # ------------------------------------------------------------------
+            # Rows where mz_mean is missing but formula is present
+            mask_calc = (targets_df['mz_mean'].isna()) & (targets_df['formula'].notna())
+            
+            if mask_calc.any():
+                calc = MassCalculator(IonizationType.ESI)
+                
+                def _calc_mz(row):
+                    formula = row['formula']
+                    pol = str(row['polarity']).lower()
+                    charge = 0
+                    if 'positive' in pol: charge = 1
+                    elif 'negative' in pol: charge = -1
+                    
+                    if charge != 0:
+                        try:
+                            # compute_mass returns 0.0 if elements are invalid/unknown
+                            mass = calc.compute_mass(formula, charge)
+                            return mass if mass > 1 else None # Basic sanity check, H+ is ~1
+                        except Exception:
+                            return None
+                    return None
+
+                # Calculate m/z
+                calculated_mz = targets_df.loc[mask_calc].apply(_calc_mz, axis=1)
+                
+                # Round to 6 decimal places
+                calculated_mz = calculated_mz.astype(float).round(6)
+                
+                targets_df.loc[mask_calc, 'mz_mean'] = calculated_mz
+                # targets_df.loc[mask_calc, 'mz'] = calculated_mz # User requested not to fill this for MS1/Maven data
+                
+                n_calced = mask_calc.sum()
+                logging.info(f"Calculated m/z for {n_calced} targets based on formula")
+            # ------------------------------------------------------------------
+            
         except Exception as e:
-            logging.warning(f"Failed to auto-populate polarity/adduct: {e}")
+            logging.warning(f"Failed to auto-populate polarity/adduct/mz: {e}")
         # ------------------------------------------------------------------
+        
+        # ------------------------------------------------------------------
+        # Post-Processing Cleanup
+        # ------------------------------------------------------------------
+        # Ensure 'mz' column (Precursor m/z) is empty for MS1 targets
+        # User feedback indicates this is redundant and confusing for Maven/MS1 data
+        if 'mz' in targets_df.columns and 'ms_type' in targets_df.columns:
+            # Case-insensitive check for ms1
+            mask_ms1 = targets_df['ms_type'].astype(str).str.lower() == 'ms1'
+            if mask_ms1.any():
+                start_n = targets_df.loc[mask_ms1, 'mz'].notna().sum()
+                if start_n > 0:
+                    targets_df.loc[mask_ms1, 'mz'] = None
+                    logging.info(f"Cleared 'mz' column for {start_n} MS1 targets (redundant for MS1).")
+        # ------------------------------------------------------------------
+
         conn.execute(
             "INSERT OR REPLACE INTO targets(peak_label, mz_mean, mz_width, mz, rt, rt_min, rt_max, rt_unit, "
             "intensity_threshold, polarity, filterLine, ms_type, category, score, peak_selection, bookmark, source, notes, rt_auto_adjusted, formula, maven_id, adduct_name) "
