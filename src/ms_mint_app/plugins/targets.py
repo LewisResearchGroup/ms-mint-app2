@@ -36,7 +36,9 @@ TARGET_TEMPLATE_COLUMNS = [
     'filterLine',
     'ms_type',
     'category',
-    'score',
+    'formula',
+    'maven_id',
+    'adduct_name',
     'notes',
     'source',
 ]
@@ -56,9 +58,11 @@ TARGET_TEMPLATE_DESCRIPTIONS = [
     'Filter ID for MS2 scans',
     'MS1 or MS2',
     'Category',
-    'Score',
+    'Chemical Formula',
+    'Maven ID or Group ID',
+    'Adduct Name (e.g. [M+H]+)',
     'Free-form notes',
-    'Data source or file',
+    'Source filename'
 ]
 TARGET_TEMPLATE_CSV = ",".join(TARGET_TEMPLATE_COLUMNS) + "\n" + ",".join(TARGET_TEMPLATE_DESCRIPTIONS) + "\n"
 TARGET_DESCRIPTION_MAP = dict(zip(TARGET_TEMPLATE_COLUMNS, TARGET_TEMPLATE_DESCRIPTIONS))
@@ -374,17 +378,13 @@ _layout = html.Div(
                                 'title': 'filterLine',
                                 'content': TARGET_DESCRIPTION_MAP['filterLine'],
                             },
-                            'proton': {
-                                'title': 'proton',
-                                'content': 'Ion charge state (Neutral, Positive, or Negative)',
+                            'adduct_name': {
+                                'title': 'adduct_name',
+                                'content': TARGET_DESCRIPTION_MAP['adduct_name'],
                             },
                             'category': {
                                 'title': 'category',
                                 'content': TARGET_DESCRIPTION_MAP['category'],
-                            },
-                            'score': {
-                                'title': 'score',
-                                'content': TARGET_DESCRIPTION_MAP['score'],
                             },
                             'notes': {
                                 'title': 'notes',
@@ -393,6 +393,14 @@ _layout = html.Div(
                             'source': {
                                 'title': 'source',
                                 'content': TARGET_DESCRIPTION_MAP['source'],
+                            },
+                            'formula': {
+                                'title': 'formula',
+                                'content': TARGET_DESCRIPTION_MAP['formula'],
+                            },
+                            'maven_id': {
+                                'title': 'maven_id',
+                                'content': TARGET_DESCRIPTION_MAP['maven_id'],
                             },
                         },
                         filterOptions={
@@ -417,21 +425,21 @@ _layout = html.Div(
                                          'filterCustomItems': ['Negative', 'Positive']
                                          },
                             'filterLine': {'filterMode': 'keyword'},
-                            'proton': {'filterMode': 'checkbox',
-                                       'filterCustomItems': ['Neutral', 'Positive', 'Negative']},
+                            'adduct_name': {'filterMode': 'keyword'},
                             'category': {'filterMode': 'checkbox',
                                          # 'filterCustomItems': ['True', 'False']
                                          },
-                            'score': {'filterMode': 'keyword'},
                             'notes': {'filterMode': 'keyword'},
                             'source': {'filterMode': 'keyword'},
+                            'formula': {'filterMode': 'keyword'},
+                            'maven_id': {'filterMode': 'keyword'},
 
                         },
                         sortOptions={
                             'sortDataIndexes': ['peak_label', 'peak_selection', 'bookmark', 'mz_mean', 'mz_width',
                                                 'mz', 'rt', 'rt_min', 'rt_max',
                                                 'intensity_threshold', 'polarity', 'filterLine', 'ms_type',
-                                                'category', 'score']},
+                                                'category', 'formula', 'maven_id', 'adduct_name']},
                         pagination={
                             'position': 'bottomCenter',
                             'pageSize': 15,
