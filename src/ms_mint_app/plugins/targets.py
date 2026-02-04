@@ -269,12 +269,12 @@ _layout = html.Div(
                                 'width': '150px',
                                 'editable': True,
                             },
-                            {
-                                'title': 'Maven ID',
-                                'dataIndex': 'maven_id',
-                                'width': '150px',
-                                'editable': True,
-                            },
+#                             {
+#                                 'title': 'Maven ID',
+#                                 'dataIndex': 'maven_id',
+#                                 'width': '150px',
+#                                 'editable': True,
+#                             },
                             {
                                 'title': 'MS-Type',
                                 'dataIndex': 'ms_type',
@@ -300,11 +300,11 @@ _layout = html.Div(
                                 'dataIndex': 'category',
                                 'width': '150px',
                             },
-                            {
-                                'title': 'Score',
-                                'dataIndex': 'score',
-                                'width': '120px',
-                            },
+#                             {
+#                                 'title': 'Score',
+#                                 'dataIndex': 'score',
+#                                 'width': '120px',
+#                             },
                             {
                                 'title': 'Notes',
                                 'dataIndex': 'notes',
