@@ -2270,14 +2270,33 @@ def process_targets(wdir, set_progress, selected_files):
                     logging.warning(warn_msg)
                     # Note: We do NOT stop processing or drop them, we just warn.
             # ------------------------------------------------------------------
+            # ------------------------------------------------------------------
+            # Auto-Populate Adduct Name
+            # ------------------------------------------------------------------
+            if 'adduct_name' not in targets_df.columns:
+                targets_df['adduct_name'] = None
+                
+            def _get_adduct(pol):
+                if not pol: return None
+                p = str(pol).lower()
+                if 'positive' in p: return '[M+H]+'
+                if 'negative' in p: return '[M-H]-'
+                return None
+                
+            # Apply only where adduct_name is missing
+            mask_missing = targets_df['adduct_name'].isna()
+            if mask_missing.any():
+                targets_df.loc[mask_missing, 'adduct_name'] = targets_df.loc[mask_missing, 'polarity'].apply(_get_adduct)
+            # ------------------------------------------------------------------
+
         except Exception as e:
-            logging.warning(f"Failed to auto-populate polarity: {e}")
+            logging.warning(f"Failed to auto-populate polarity/adduct: {e}")
         # ------------------------------------------------------------------
         conn.execute(
             "INSERT OR REPLACE INTO targets(peak_label, mz_mean, mz_width, mz, rt, rt_min, rt_max, rt_unit, "
-            "intensity_threshold, polarity, filterLine, ms_type, category, score, peak_selection, bookmark, source, notes, rt_auto_adjusted, formula, maven_id) "
+            "intensity_threshold, polarity, filterLine, ms_type, category, score, peak_selection, bookmark, source, notes, rt_auto_adjusted, formula, maven_id, adduct_name) "
             "SELECT peak_label, mz_mean, mz_width, mz, rt, rt_min, rt_max, rt_unit, intensity_threshold, polarity, "
-            "filterLine, ms_type, category, score, peak_selection, bookmark, source, notes, rt_auto_adjusted, formula, maven_id "
+            "filterLine, ms_type, category, score, peak_selection, bookmark, source, notes, rt_auto_adjusted, formula, maven_id, adduct_name "
             "FROM targets_df ORDER BY mz_mean, peak_label"
         )
         

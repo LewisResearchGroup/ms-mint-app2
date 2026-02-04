@@ -291,8 +291,8 @@ _layout = html.Div(
                                 'width': '300px',
                             },
                             {
-                                'title': 'Proton',
-                                'dataIndex': 'proton',
+                                'title': 'Adduct',
+                                'dataIndex': 'adduct_name',
                                 'width': '120px',
                             },
                             {
