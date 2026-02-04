@@ -1410,6 +1410,8 @@ def get_targets_v2(files_path):
         "source": 'string',
         "notes": 'string',
         "rt_auto_adjusted": 'boolean',
+        "formula": 'string',
+        "maven_id": 'string',
     }
     # Only peak_label is strictly required - RT values are smartly derived
     # from various combinations of rt, rt_min, rt_max (at least one required)
@@ -1665,18 +1667,29 @@ def get_targets_v2(files_path):
     # Build DataFrame with valid targets
     targets_df = pd.DataFrame(valid_targets)
 
-    # Eliminar duplicados basados en peak_label, pero registrar los duplicados encontrados
-    duplicate_labels = (
-        targets_df[targets_df.duplicated(subset="peak_label", keep=False)]
-        .get("peak_label", pd.Series([], dtype="string"))
-        .dropna()
-        .unique()
-        .tolist()
-    )
-    if duplicate_labels:
+    duplicate_labels = []
+    # Rename duplicates by appending RT
+    if targets_df.duplicated(subset="peak_label", keep=False).any():
+        dupe_mask = targets_df.duplicated(subset="peak_label", keep=False)
+        
+        # Log the original duplicates
+        duplicate_labels = targets_df.loc[dupe_mask, "peak_label"].unique().tolist()
         logging.warning(
-            "Found duplicate target labels; keeping first occurrence: %s", duplicate_labels
+            f"Found {dupe_mask.sum()} duplicate target labels: {duplicate_labels}. "
+            "Renaming them to 'Label@RT' format."
         )
+
+        def _rename_duplicate(row):
+            # Ensure RT is available
+            rt_val = row.get('rt')
+            if pd.notna(rt_val):
+                return f"{row['peak_label']}@{float(rt_val):.2f}"
+            return row['peak_label']
+
+        targets_df.loc[dupe_mask, 'peak_label'] = targets_df[dupe_mask].apply(_rename_duplicate, axis=1)
+
+    # Final check: if duplicates still exist (exact same label AND exact same RT), drop them
+    # This handles true redundant entries
     targets_df = targets_df.drop_duplicates(subset="peak_label")
 
     # Ensure all reference columns exist
@@ -2204,9 +2217,9 @@ def process_targets(wdir, set_progress, selected_files):
             raise PreventUpdate
         conn.execute(
             "INSERT OR REPLACE INTO targets(peak_label, mz_mean, mz_width, mz, rt, rt_min, rt_max, rt_unit, "
-            "intensity_threshold, polarity, filterLine, ms_type, category, score, peak_selection, bookmark, source, notes, rt_auto_adjusted) "
+            "intensity_threshold, polarity, filterLine, ms_type, category, score, peak_selection, bookmark, source, notes, rt_auto_adjusted, formula, maven_id) "
             "SELECT peak_label, mz_mean, mz_width, mz, rt, rt_min, rt_max, rt_unit, intensity_threshold, polarity, "
-            "filterLine, ms_type, category, score, peak_selection, bookmark, source, notes, rt_auto_adjusted "
+            "filterLine, ms_type, category, score, peak_selection, bookmark, source, notes, rt_auto_adjusted, formula, maven_id "
             "FROM targets_df ORDER BY mz_mean, peak_label"
         )
         

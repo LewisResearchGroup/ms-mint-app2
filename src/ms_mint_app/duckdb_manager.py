@@ -2158,11 +2158,15 @@ def _create_tables(conn: duckdb.DuckDBPyConnection):
                      bookmark            BOOLEAN,             -- Bookmark the target
                      source              VARCHAR,             -- Filename of the target list
                      notes               VARCHAR,             -- Additional notes for the target
+                     formula             VARCHAR,             -- Chemical formula
+                     maven_id            VARCHAR,             -- Original ID from El-Maven
                      rt_auto_adjusted    BOOLEAN DEFAULT FALSE -- RT was auto-adjusted (outside span)
                  );
                  """)
     # Backfill rt_auto_adjusted for existing DBs
     conn.execute("ALTER TABLE targets ADD COLUMN IF NOT EXISTS rt_auto_adjusted BOOLEAN DEFAULT FALSE;")
+    conn.execute("ALTER TABLE targets ADD COLUMN IF NOT EXISTS formula VARCHAR;")
+    conn.execute("ALTER TABLE targets ADD COLUMN IF NOT EXISTS maven_id VARCHAR;")
     
     # RT Alignment columns for storing alignment parameters
     conn.execute("ALTER TABLE targets ADD COLUMN IF NOT EXISTS rt_align_enabled BOOLEAN DEFAULT FALSE;")

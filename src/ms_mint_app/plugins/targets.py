@@ -3,6 +3,7 @@ import base64
 import math
 
 import dash
+import pandas as pd
 import feffery_antd_components as fac
 import polars as pl
 from multiprocessing import cpu_count
@@ -151,6 +152,18 @@ _layout = html.Div(
                                     title="Download the current target list as a CSV file",
                                     placement="bottom"
                                 ),
+#                                 fac.AntdTooltip(
+#                                     fac.AntdButton(
+#                                         'Download (Maven)',
+#                                         id='download-target-list-maven-btn',
+#                                         icon=fac.AntdIcon(icon='antd-download'),
+#                                         iconPosition='end',
+#                                         style={'textTransform': 'uppercase', 'marginLeft': '5px'},
+#                                     ),
+#                                     id='download-target-list-maven-tooltip',
+#                                     title="Download targets in Maven-compatible format",
+#                                     placement="bottom"
+#                                 ),
                                 html.Div(
                                     fac.AntdDropdown(
                                         id='targets-options',
@@ -248,6 +261,18 @@ _layout = html.Div(
                                 'title': 'Intensity Threshold',
                                 'dataIndex': 'intensity_threshold',
                                 'width': '200px',
+                                'editable': True,
+                            },
+                            {
+                                'title': 'Formula',
+                                'dataIndex': 'formula',
+                                'width': '150px',
+                                'editable': True,
+                            },
+                            {
+                                'title': 'Maven ID',
+                                'dataIndex': 'maven_id',
+                                'width': '150px',
                                 'editable': True,
                             },
                             {
@@ -1028,6 +1053,8 @@ def _save_target_table_on_edit(row_edited, column_edited, wdir):
         "notes",
         "category",
         "score",
+        "formula",
+        "maven_id",
     }
     if column_edited not in allowed_columns:
         logger.debug(f"_save_target_table_on_edit: PreventUpdate because column '{column_edited}' is not editable")
@@ -1340,6 +1367,7 @@ def callbacks(app, fsc=None, cache=None):
         Input("targets-options", "nClicks"),
         Input("download-target-template-btn", "nClicks"),
         Input("download-target-list-btn", "nClicks"),
+#         Input("download-target-list-maven-btn", "nClicks"),
         State("wdir", "data"),
         prevent_initial_call=True,
     )
@@ -1358,7 +1386,7 @@ def callbacks(app, fsc=None, cache=None):
             ws_name = get_workspace_name_from_wdir(wdir) or ws_name
 
         trigger = ctx.triggered[0]['prop_id'].split('.')[0]
-        if trigger not in ("download-target-template-btn", "download-target-list-btn"):
+        if trigger not in ("download-target-template-btn", "download-target-list-btn", "download-target-list-maven-btn"):
             logger.debug("download_results: PreventUpdate (unexpected trigger or no action required)")
             raise PreventUpdate
 
@@ -1435,6 +1463,33 @@ def callbacks(app, fsc=None, cache=None):
             return {'open': False}
 
         return store_data or {'open': True}
+
+#     @app.callback(
+#         Output('download-target-list-maven-btn', 'disabled'),
+#         Output('download-target-list-maven-tooltip', 'title'),
+#         Input('targets-action-store', 'data'),
+#         Input('wdir', 'data'),
+#     )
+#     def update_maven_button_state(action_data, wdir):
+#         if not wdir:
+#             return True, "No workspace active"
+#         
+#         try:
+#             with duckdb_connection(wdir) as conn:
+#                 if conn is None:
+#                     return True, "Database connection failed"
+#                 
+#                 # Check if we have any valid formulas
+#                 count = conn.execute("SELECT COUNT(*) FROM targets WHERE formula IS NOT NULL AND formula != ''").fetchone()
+#                 has_formulas = count and count[0] > 0
+#                 
+#                 if has_formulas:
+#                     return False, "Download targets in Maven-compatible format"
+#                 else:
+#                     return True, "Maven export unavailable: 'formula' information is missing"
+#         except Exception as e:
+#             logger.error(f"Error checking maven compatibility: {e}")
+#             return True, "Error checking compatibility"
 
     @app.callback(
         Output("asari-open-modal-btn", "disabled"),
