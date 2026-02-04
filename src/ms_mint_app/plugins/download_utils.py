@@ -16,6 +16,13 @@ def handle_template_or_list_download(
 
     trigger = ctx.triggered[0]["prop_id"].split(".")[0]
     if trigger == template_trigger_id:
+        if callable(template_payload):
+            try:
+                df = template_payload()
+                return dcc.send_data_frame(df.to_csv, template_filename, index=False)
+            except Exception as e:
+                # Fallback or error handling if needed, but for now let it propagate or return None
+                 return None
         return dcc.send_string(template_payload, template_filename)
     if trigger == list_trigger_id:
         df = list_df_builder()
