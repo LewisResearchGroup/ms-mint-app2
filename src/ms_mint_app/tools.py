@@ -1,3 +1,4 @@
+from __future__ import annotations
 import base64
 import io
 import logging
@@ -116,6 +117,13 @@ COLUMN_MAPPINGS = {
     'retentiontime': 'rt',
     'rtmin': 'rt_min',
     'rtmax': 'rt_max',
+    
+    # Formula and IDs
+    'formula': 'formula',
+    'parentformula': 'formula',
+    'id': 'maven_id',
+    'groupid': 'maven_id',
+    'maven_id': 'maven_id',
 }
 
 # Priority order for target columns that can come from multiple source columns.
@@ -125,6 +133,8 @@ PRIORITY_MAPPINGS = {
     'mz_mean': ['meanmz', 'medmz', 'parent', 'row m/z', 'precursor_mz', 'precursormz'],
     'peak_label': ['compound', 'compoundid', 'compoundname', 'compound name', 'name', 'target', 'target_name'],
     'rt': ['meanrt', 'medrt', 'expectedrt', 'row retention time', 'retention_time', 'retentiontime'],
+    'formula': ['formula', 'parentformula'],
+    'maven_id': ['id', 'groupid', 'maven_id'],
 }
 
 
@@ -190,7 +200,8 @@ def normalize_column_names(df: pd.DataFrame) -> pd.DataFrame:
             mapped_info.append(f"'{col}' → '{mint_col}'")
             
             # EL-MAVEN medRt is in minutes - needs conversion to seconds
-            if col_lower in ('medrt', 'meanrt'):
+            # EL-MAVEN format detection - used to trigger RT conversion (minutes -> seconds)
+            if col_lower in ('medrt', 'meanrt', 'expectedrt', 'rtmin', 'rtmax', 'compound', 'compoundid'):
                 needs_rt_conversion = True
     
     if mapped_info:
