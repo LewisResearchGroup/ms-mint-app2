@@ -4446,13 +4446,13 @@ def callbacks(app, fsc, cache, cpu=None):
             d = conn.execute("""
             SELECT rt, rt_min, rt_max, COALESCE(notes, ''), ms_type,
                    rt_align_enabled, rt_align_reference_rt, rt_align_shifts,
-                   rt_align_rt_min, rt_align_rt_max, bookmark
+                   rt_align_rt_min, rt_align_rt_max, bookmark, mz_mean, mz_width
             FROM targets 
             WHERE peak_label = ?
         """, [target_clicked]).fetchall()
         
             if d:
-                rt, rt_min, rt_max, note, target_ms_type, align_enabled, align_ref_rt, align_shifts_json, align_rt_min, align_rt_max, bookmark_state = d[0]
+                rt, rt_min, rt_max, note, target_ms_type, align_enabled, align_ref_rt, align_shifts_json, align_rt_min, align_rt_max, bookmark_state, mz_mean, mz_width = d[0]
             else:
                 rt, rt_min, rt_max, note = None, None, None, ''
                 target_ms_type = None
@@ -4462,6 +4462,7 @@ def callbacks(app, fsc, cache, cpu=None):
                 align_rt_min = None
                 align_rt_max = None
                 bookmark_state = False
+                mz_mean, mz_width = None, None
 
             logger.debug(
                 "Modal open RT alignment DB state for '%s': enabled=%s, has_shifts=%s, ref_rt=%s, span=[%s,%s]",
@@ -4987,7 +4988,15 @@ def callbacks(app, fsc, cache, cpu=None):
         # Savgol smoothing is disabled; keep the switch permanently off/disabled.
         savgol_disabled = True
 
-        return (fig, f"{target_clicked}", False, slider_reference,
+        modal_title = f"{target_clicked}"
+        if mz_mean is not None and mz_width is not None:
+             # Calculate mass window (ppm)
+             tolerance = mz_mean * mz_width * 1e-6
+             mz_lower = mz_mean - tolerance
+             mz_upper = mz_mean + tolerance
+             modal_title += f" (m/z: {mz_lower:.4f} - {mz_upper:.4f})"
+
+        return (fig, modal_title, False, slider_reference,
                 slider_dict, {"min_y": y_min, "max_y": y_max}, total_points, log_scale, group_legend, 
                 full_range, full_range_disabled, full_range_tooltip, rt_align_toggle_state, rt_alignment_data_to_load, note, False, bookmark_icon_node, 
                 # Background trigger data (if megatrace/envelope is used)
