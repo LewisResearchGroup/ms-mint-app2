@@ -1106,28 +1106,51 @@ def register_callbacks(app):
         Input('comparison-download-btn', 'nClicks'),
         State('comparison-selection-store', 'data'),
         State('wdir', 'data'),
+        State('analysis-metric-select', 'value'),
         prevent_initial_call=True
     )
-    def download_selection_list(n_clicks, selection, wdir):
+    def download_selection_list(n_clicks, selection, wdir, metric):
         if not n_clicks or not selection:
             return dash.no_update
         
         if not wdir:
-             # Fallback if no WDIR (unlikely)
              df = pd.DataFrame({'peak_label': selection})
              return dcc.send_data_frame(df.to_csv, "selected_features.csv", index=False)
 
+        metric = metric or 'peak_max'
+        
         with duckdb_connection(wdir) as conn:
              if conn is None:
                  return dash.no_update
              
-             # Fetch full target details for selected peaks
-             placeholders = ','.join(['?'] * len(selection))
-             query = f"SELECT * FROM targets WHERE peak_label IN ({placeholders})"
+             # Sanitize and format selection for SQL injection (safely for internal state)
+             # Escaping single quotes in peak labels if necessary
+             safe_selection = [s.replace("'", "''") for s in selection]
+             in_clause = ", ".join([f"'{s}'" for s in safe_selection])
+             
              try:
-                 df = conn.execute(query, selection).df()
+                 # 1. Get Targets Metadata
+                 # We can use parameters here as it is a standard SELECT
+                 placeholders = ','.join(['?'] * len(selection))
+                 targets_query = f"SELECT * FROM targets WHERE peak_label IN ({placeholders})"
+                 df_targets = conn.execute(targets_query, selection).df()
+                 
+                 # 2. Get Pivot (Using formatted string for IN clause to avoid Pivot+Param limitations)
+                 pivot_query = f"""
+                    PIVOT (
+                        SELECT peak_label, ms_file_label, {metric}
+                        FROM results
+                        WHERE peak_label IN ({in_clause})
+                    ) ON ms_file_label USING FIRST({metric})
+                 """
+                 df_pivot = conn.execute(pivot_query).df()
+                 
+                 # 3. Merge
+                 final_df = pd.merge(df_targets, df_pivot, on='peak_label', how='left')
+                 
              except Exception:
-                 # Fallback to simple list if query fails
-                 df = pd.DataFrame({'peak_label': selection})
+                 # Fallback: just targets
+                 final_df = conn.execute(f"SELECT * FROM targets WHERE peak_label IN ({placeholders})", selection).df()
         
-        return dcc.send_data_frame(df.to_csv, "selected_features_details.csv", index=False)
+        filename = f"selected_features_{metric}.csv"
+        return dcc.send_data_frame(final_df.to_csv, filename, index=False)
