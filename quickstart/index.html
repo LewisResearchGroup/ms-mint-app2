@@ -293,10 +293,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#1-open-mint" class="md-nav__link">
+  <a href="#1-download-and-open-mint" class="md-nav__link">
     <span class="md-ellipsis">
       
-        1. Open MINT
+        1. Download and Open MINT
       
     </span>
   </a>
@@ -741,10 +741,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#1-open-mint" class="md-nav__link">
+  <a href="#1-download-and-open-mint" class="md-nav__link">
     <span class="md-ellipsis">
       
-        1. Open MINT
+        1. Download and Open MINT
       
     </span>
   </a>
@@ -869,9 +869,10 @@
 
 <h1 id="quickstart-guide-for-mint">Quickstart Guide for MINT</h1>
 <p>Welcome to the MINT quickstart guide! This guide helps you get up and running with the application so you can start analyzing mass spectrometry data efficiently. Follow the steps below to install the app, create a workspace, and begin processing your data.</p>
-<h2 id="1-open-mint">1. Open <code>MINT</code></h2>
+<h2 id="1-download-and-open-mint">1. Download and Open <code>MINT</code></h2>
 <p>Download an executable compatible with your OS and open MINT (see other installation options <a href="../install/">here</a>).
 Once the app starts, you should see the <code>Workspaces</code> tab.</p>
+<p><a class="md-button" href="https://example.com">Button Text</a></p>
 <h2 id="2-create-a-workspace">2. Create a workspace</h2>
 <p>On first launch, MINT creates a <strong>My first Workspace</strong> workspace with sample data so you can tour the interface immediately. You can keep it for reference or create a new workspace for your project. A workspace provides easy access to all data files and results for a given project.</p>
 <p><a class="glightbox" data-type="image" data-width="auto" data-height="auto" href="first-start.png" data-desc-position="bottom"><img alt="" src="first-start.png"></a></p>
@@ -1095,30 +1096,65 @@ For the demo data, this should take a few seconds-minutes depending on your mach
 <p>Now, you can download the results in long format or dense <code>peak_max</code> values by clicking <code>DOWNLOAD RESULTS</code>. The tidy format contains all results, while the dense format contains a selected metric (<code>peak_max</code> by default) as a matrix of values.</p>
 <p><a class="glightbox" data-type="image" data-width="auto" data-height="auto" href="run-mint-3.png" data-desc-position="bottom"><img alt="" src="run-mint-3.png"></a></p>
 <h2 id="9-analyze-the-results">9. Analyze the results</h2>
-<p>Once the results are generated, there are several analyses you can perform. The Analysis section includes <strong>QC</strong>, <strong>PCA</strong>, <strong>t-SNE</strong>, <strong>Violin</strong>, <strong>Bar</strong>, and <strong>Clustermap</strong> views. If you are new, start with QC to validate retention times and m/z stability, then use the Clustermap to quickly spot outliers or batch effects.</p>
-<p><a class="glightbox" data-type="image" data-width="auto" data-height="auto" href="analysis-1.png" data-desc-position="bottom"><img alt="" src="analysis-1.png"></a></p>
-<div class="tabbed-set tabbed-alternate" data-tabs="1:6"><input checked="checked" id="__tabbed_1_1" name="__tabbed_1" type="radio"><input id="__tabbed_1_2" name="__tabbed_1" type="radio"><input id="__tabbed_1_3" name="__tabbed_1" type="radio"><input id="__tabbed_1_4" name="__tabbed_1" type="radio"><input id="__tabbed_1_5" name="__tabbed_1" type="radio"><input id="__tabbed_1_6" name="__tabbed_1" type="radio"><div class="tabbed-labels"><label for="__tabbed_1_1">QC</label><label for="__tabbed_1_2">PCA</label><label for="__tabbed_1_3">t-SNE</label><label for="__tabbed_1_4">Violin</label><label for="__tabbed_1_5">Bar</label><label for="__tabbed_1_6">Clustermap</label></div>
+<p>Once the results are generated, there are several analyses you can perform. The Analysis section includes <strong>QC</strong>, <strong>PCA</strong>, <strong>t-SNE</strong>, <strong>Violin</strong>, <strong>Bar</strong>, <strong>Comparison</strong>, and <strong>Clustermap</strong> views. If you are new, start with QC to validate retention times and m/z stability, then use the Clustermap to quickly spot outliers or batch effects.</p>
+<div class="tabbed-set tabbed-alternate" data-tabs="1:7"><input checked="checked" id="__tabbed_1_1" name="__tabbed_1" type="radio"><input id="__tabbed_1_2" name="__tabbed_1" type="radio"><input id="__tabbed_1_3" name="__tabbed_1" type="radio"><input id="__tabbed_1_4" name="__tabbed_1" type="radio"><input id="__tabbed_1_5" name="__tabbed_1" type="radio"><input id="__tabbed_1_6" name="__tabbed_1" type="radio"><input id="__tabbed_1_7" name="__tabbed_1" type="radio"><div class="tabbed-labels"><label for="__tabbed_1_1">PCA</label><label for="__tabbed_1_2">t-SNE</label><label for="__tabbed_1_3">QC</label><label for="__tabbed_1_4">Violin (Distributions)</label><label for="__tabbed_1_5">Bar</label><label for="__tabbed_1_6">Comparison</label><label for="__tabbed_1_7">Clustermap (Heatmap)</label></div>
 <div class="tabbed-content">
 <div class="tabbed-block">
-<p>Quality control plots for a selected target. You can review retention-time and m/z stability across samples (left) and inspect the chromatogram of any clicked sample (right).</p>
+<p><strong>Principal Component Analysis</strong>: Reduces the dimensionality of your data to visualize sample similarity.</p>
+<ul>
+<li><strong>Score Plot</strong>: An interactive scatter plot of samples projected onto Principal Components (PCs).</li>
+<li><strong>Cumulative Variance</strong>: Displays how much of the total dataset variance is explained by the first N components.</li>
+<li><strong>Loadings</strong>: A bar chart showing which metabolites contribute most to each PC.</li>
+</ul>
+<p><a class="glightbox" data-type="image" data-width="auto" data-height="auto" href="../image/analysis_pca.png" data-desc-position="bottom"><img alt="PCA" src="../image/analysis_pca.png" title="PCA"></a></p>
 </div>
 <div class="tabbed-block">
-<p>Principal component analysis plot for sample-level patterns. Includes a score plot (PC1 to PC5) on the left side, cumulative variance (top right), and absolute loading values for a selected PC on the x-axis (bottom right).</p>
-<p><a class="glightbox" data-type="image" data-width="auto" data-height="auto" href="analysis-3.png" data-desc-position="bottom"><img alt="" src="analysis-3.png"></a></p>
+<p><strong>t-Distributed Stochastic Neighbor Embedding</strong>: Nonlinear embedding to reveal local sample neighborhoods.</p>
+<ul>
+<li><strong>Axes</strong>: Select the t-SNE dimensions to display (typically t-SNE-1 vs t-SNE-2).</li>
+<li><strong>Perplexity</strong>: Adjust neighborhood size and regenerate to explore different structures.</li>
+</ul>
+<p><a class="glightbox" data-type="image" data-width="auto" data-height="auto" href="../image/analysis_tsne.png" data-desc-position="bottom"><img alt="t-SNE" src="../image/analysis_tsne.png" title="t-SNE"></a></p>
 </div>
 <div class="tabbed-block">
-<p>Nonlinear dimensionality reduction for visualizing local sample neighborhoods. Use the regenerate button to recompute and choose which t-SNE dimensions to display.</p>
+<p>Quality-control view for a selected target.</p>
+<ul>
+<li><strong>RT Plot</strong>: Retention-time stability across samples, grouped by your selected metadata column.</li>
+<li><strong>Metric Plot</strong>: Observed metric (e.g., peak area, peak area top3, etc.) across samples.</li>
+<li><strong>Chromatogram</strong>: Click a sample in either scatter plot to inspect the chromatogram for that target.</li>
+<li><strong>Progressive Loading</strong>: For large datasets, MINT initially loads a "Shadow Plot" (Envelope) to provide immediate feedback while detailed chromatogram data finishes loading in the background.</li>
+</ul>
+<p><a class="glightbox" data-type="image" data-width="auto" data-height="auto" href="../image/analysis_qc.png" data-desc-position="bottom"><img alt="QC" src="../image/analysis_qc.png" title="QC - Quality Control"></a></p>
 </div>
 <div class="tabbed-block">
-<p>Distribution plots by group (for example, Sample type, Group 1, Group 2) to compare target values. Includes a hypothesis test result (t-test for two samples, ANOVA for more than two samples) on the top right corner.</p>
-<p><a class="glightbox" data-type="image" data-width="auto" data-height="auto" href="analysis-4.png" data-desc-position="bottom"><img alt="" src="analysis-4.png"></a></p>
+<p>Focuses on the distribution of peak intensities for individual metabolites.</p>
+<ul>
+<li><strong>Selection</strong>: Use the dropdown to search for and select a specific peak.</li>
+<li><strong>Stats</strong>: Displays the distribution density and boxplots, grouped by your selected metadata column, along with ANOVA p-values for statistical significance.</li>
+</ul>
+<p><a class="glightbox" data-type="image" data-width="auto" data-height="auto" href="../image/analysis_violin.png" data-desc-position="bottom"><img alt="Violin Plots" src="../image/analysis_violin.png" title="Violin Plots"></a></p>
 </div>
 <div class="tabbed-block">
-<p>Summary view that aggregates values by group and shows mean ± SEM with individual sample points overlaid. Click a sample point to inspect its chromatogram.</p>
+<p>Aggregated summary view by group.</p>
+<ul>
+<li><strong>Mean ± SEM</strong>: Bar chart with error bars.</li>
+<li><strong>Individual Samples</strong>: Jittered points overlaid on bars.</li>
+<li><strong>Chromatogram</strong>: Click a sample point to inspect its chromatogram.</li>
+</ul>
+<p><a class="glightbox" data-type="image" data-width="auto" data-height="auto" href="../image/analysis_bar.png" data-desc-position="bottom"><img alt="Bar Plot" src="../image/analysis_bar.png" title="Bar Plot"></a></p>
 </div>
 <div class="tabbed-block">
-<p>Clustered heatmap showing relationships between samples and targets. In this tab you can select different metrics (for example, peak_area, peak_top3), transformations (for example, z-score, log2), and groupings (for example, Sample type, Group 1, Group 2).</p>
-<p><a class="glightbox" data-type="image" data-width="auto" data-height="auto" href="analysis-2.png" data-desc-position="bottom"><img alt="" src="analysis-2.png"></a></p>
+<p><strong>Feature Comparison</strong>: Compare feature intensities between two selected groups using statistical tests.</p>
+<ul>
+<li><strong>Controls</strong>: Select two groups ("Sample 1" and "Sample 2") and set a P-value threshold and FDR correction method.</li>
+<li><strong>Plots</strong>: Toggle between a <strong>Scatter Plot</strong> (Mean vs Mean) and a <strong>Volcano Plot</strong> (Log2 Fold Change vs -Log10 P-value). Features meeting the significance threshold are colored.</li>
+<li><strong>Chromatogram</strong>: Click on any point in the plot to inspect the chromatograms for that feature across the two groups.</li>
+</ul>
+<p><a class="glightbox" data-type="image" data-width="auto" data-height="auto" href="../image/analysis_comparison.png" data-desc-position="bottom"><img alt="Feature Comparison" src="../image/analysis_comparison.png" title="Feature Comparison"></a></p>
+</div>
+<div class="tabbed-block">
+<p>Displays a hierarchical clustering of samples (columns) and metabolites (rows). It helps identify patterns and outliers in your dataset.</p>
+<p><a class="glightbox" data-type="image" data-width="auto" data-height="auto" href="../image/analysis_clustermap.png" data-desc-position="bottom"><img alt="Clustermap" src="../image/analysis_clustermap.png" title="Clustermap"></a></p>
 </div>
 </div>
 </div>

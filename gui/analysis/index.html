@@ -728,7 +728,6 @@
 <blockquote>
 <p><strong>Tip</strong>: Click the help icon (small "i" symbol) next to the "Analysis" title to take a guided tour of this section.</p>
 </blockquote>
-<p><a class="glightbox" data-type="image" data-width="auto" data-height="auto" href="../../image/analysis_v1.1.1.png" data-desc-position="bottom"><img alt="Analysis" src="../../image/analysis_v1.1.1.png" title="Analysis"></a></p>
 <h3 id="global-settings">Global Settings</h3>
 <p>The toolbar at the top of the Analysis tab controls the data input for all visualizations:</p>
 <ul>
@@ -741,20 +740,10 @@
 </ul>
 </li>
 <li><strong>Group by</strong>: Choose a metadata column to group samples. This determines the coloring in QC, Clustermap, PCA, t-SNE, Violin, and Bar plots.</li>
-<li><strong>Target (QC only)</strong>: Select a peak to inspect QC plots and chromatograms.</li>
 </ul>
 <h3 id="analytical-views">Analytical Views</h3>
-<div class="tabbed-set tabbed-alternate" data-tabs="1:7"><input checked="checked" id="__tabbed_1_1" name="__tabbed_1" type="radio"><input id="__tabbed_1_2" name="__tabbed_1" type="radio"><input id="__tabbed_1_3" name="__tabbed_1" type="radio"><input id="__tabbed_1_4" name="__tabbed_1" type="radio"><input id="__tabbed_1_5" name="__tabbed_1" type="radio"><input id="__tabbed_1_6" name="__tabbed_1" type="radio"><input id="__tabbed_1_7" name="__tabbed_1" type="radio"><div class="tabbed-labels"><label for="__tabbed_1_1">QC</label><label for="__tabbed_1_2">PCA</label><label for="__tabbed_1_3">t-SNE</label><label for="__tabbed_1_4">Violin (Distributions)</label><label for="__tabbed_1_5">Bar</label><label for="__tabbed_1_6">Comparison</label><label for="__tabbed_1_7">Clustermap (Heatmap)</label></div>
+<div class="tabbed-set tabbed-alternate" data-tabs="1:7"><input checked="checked" id="__tabbed_1_1" name="__tabbed_1" type="radio"><input id="__tabbed_1_2" name="__tabbed_1" type="radio"><input id="__tabbed_1_3" name="__tabbed_1" type="radio"><input id="__tabbed_1_4" name="__tabbed_1" type="radio"><input id="__tabbed_1_5" name="__tabbed_1" type="radio"><input id="__tabbed_1_6" name="__tabbed_1" type="radio"><input id="__tabbed_1_7" name="__tabbed_1" type="radio"><div class="tabbed-labels"><label for="__tabbed_1_1">PCA</label><label for="__tabbed_1_2">t-SNE</label><label for="__tabbed_1_3">QC</label><label for="__tabbed_1_4">Violin (Distributions)</label><label for="__tabbed_1_5">Bar</label><label for="__tabbed_1_6">Comparison</label><label for="__tabbed_1_7">Clustermap (Heatmap)</label></div>
 <div class="tabbed-content">
-<div class="tabbed-block">
-<p>Quality-control view for a selected target.</p>
-<ul>
-<li><strong>RT Plot</strong>: Retention-time stability across samples, grouped by your selected metadata column.</li>
-<li><strong>m/z Plot</strong>: Observed m/z (if available) across samples.</li>
-<li><strong>Chromatogram</strong>: Click a sample in either scatter plot to inspect the chromatogram for that target.</li>
-<li><strong>Progressive Loading</strong>: For large datasets, MINT initially loads a "Shadow Plot" (Envelope) to provide immediate feedback while detailed chromatogram data finishes loading in the background.</li>
-</ul>
-</div>
 <div class="tabbed-block">
 <p><strong>Principal Component Analysis</strong>: Reduces the dimensionality of your data to visualize sample similarity.</p>
 <ul>
@@ -762,7 +751,7 @@
 <li><strong>Cumulative Variance</strong>: Displays how much of the total dataset variance is explained by the first N components.</li>
 <li><strong>Loadings</strong>: A bar chart showing which metabolites contribute most to each PC.</li>
 </ul>
-<p><a class="glightbox" data-type="image" data-width="auto" data-height="auto" href="../../quickstart/analysis-3.png" data-desc-position="bottom"><img alt="PCA" src="../../quickstart/analysis-3.png" title="PCA"></a></p>
+<p><a class="glightbox" data-type="image" data-width="auto" data-height="auto" href="../../image/analysis_pca.png" data-desc-position="bottom"><img alt="PCA" src="../../image/analysis_pca.png" title="PCA"></a></p>
 </div>
 <div class="tabbed-block">
 <p><strong>t-Distributed Stochastic Neighbor Embedding</strong>: Nonlinear embedding to reveal local sample neighborhoods.</p>
@@ -770,6 +759,17 @@
 <li><strong>Axes</strong>: Select the t-SNE dimensions to display (typically t-SNE-1 vs t-SNE-2).</li>
 <li><strong>Perplexity</strong>: Adjust neighborhood size and regenerate to explore different structures.</li>
 </ul>
+<p><a class="glightbox" data-type="image" data-width="auto" data-height="auto" href="../../image/analysis_tsne.png" data-desc-position="bottom"><img alt="t-SNE" src="../../image/analysis_tsne.png" title="t-SNE"></a></p>
+</div>
+<div class="tabbed-block">
+<p>Quality-control view for a selected target.</p>
+<ul>
+<li><strong>RT Plot</strong>: Retention-time stability across samples, grouped by your selected metadata column.</li>
+<li><strong>Metric Plot</strong>: Observed metric (e.g., peak area, peak area top3, etc.) across samples.</li>
+<li><strong>Chromatogram</strong>: Click a sample in either scatter plot to inspect the chromatogram for that target.</li>
+<li><strong>Progressive Loading</strong>: For large datasets, MINT initially loads a "Shadow Plot" (Envelope) to provide immediate feedback while detailed chromatogram data finishes loading in the background.</li>
+</ul>
+<p><a class="glightbox" data-type="image" data-width="auto" data-height="auto" href="../../image/analysis_qc.png" data-desc-position="bottom"><img alt="QC" src="../../image/analysis_qc.png" title="QC - Quality Control"></a></p>
 </div>
 <div class="tabbed-block">
 <p>Focuses on the distribution of peak intensities for individual metabolites.</p>
@@ -777,7 +777,7 @@
 <li><strong>Selection</strong>: Use the dropdown to search for and select a specific peak.</li>
 <li><strong>Stats</strong>: Displays the distribution density and boxplots, grouped by your selected metadata column, along with ANOVA p-values for statistical significance.</li>
 </ul>
-<p><a class="glightbox" data-type="image" data-width="auto" data-height="auto" href="../../quickstart/analysis-4.png" data-desc-position="bottom"><img alt="Violin Plots" src="../../quickstart/analysis-4.png" title="Violin Plots"></a></p>
+<p><a class="glightbox" data-type="image" data-width="auto" data-height="auto" href="../../image/analysis_violin.png" data-desc-position="bottom"><img alt="Violin Plots" src="../../image/analysis_violin.png" title="Violin Plots"></a></p>
 </div>
 <div class="tabbed-block">
 <p>Aggregated summary view by group.</p>
@@ -786,6 +786,7 @@
 <li><strong>Individual Samples</strong>: Jittered points overlaid on bars.</li>
 <li><strong>Chromatogram</strong>: Click a sample point to inspect its chromatogram.</li>
 </ul>
+<p><a class="glightbox" data-type="image" data-width="auto" data-height="auto" href="../../image/analysis_bar.png" data-desc-position="bottom"><img alt="Bar Plot" src="../../image/analysis_bar.png" title="Bar Plot"></a></p>
 </div>
 <div class="tabbed-block">
 <p><strong>Feature Comparison</strong>: Compare feature intensities between two selected groups using statistical tests.</p>
@@ -794,10 +795,11 @@
 <li><strong>Plots</strong>: Toggle between a <strong>Scatter Plot</strong> (Mean vs Mean) and a <strong>Volcano Plot</strong> (Log2 Fold Change vs -Log10 P-value). Features meeting the significance threshold are colored.</li>
 <li><strong>Chromatogram</strong>: Click on any point in the plot to inspect the chromatograms for that feature across the two groups.</li>
 </ul>
+<p><a class="glightbox" data-type="image" data-width="auto" data-height="auto" href="../../image/analysis_comparison.png" data-desc-position="bottom"><img alt="Feature Comparison" src="../../image/analysis_comparison.png" title="Feature Comparison"></a></p>
 </div>
 <div class="tabbed-block">
 <p>Displays a hierarchical clustering of samples (columns) and metabolites (rows). It helps identify patterns and outliers in your dataset.</p>
-<p><a class="glightbox" data-type="image" data-width="auto" data-height="auto" href="../../quickstart/analysis-2.png" data-desc-position="bottom"><img alt="Clustermap" src="../../quickstart/analysis-2.png" title="Clustermap"></a></p>
+<p><a class="glightbox" data-type="image" data-width="auto" data-height="auto" href="../../image/analysis_clustermap.png" data-desc-position="bottom"><img alt="Clustermap" src="../../image/analysis_clustermap.png" title="Clustermap"></a></p>
 </div>
 </div>
 </div>
