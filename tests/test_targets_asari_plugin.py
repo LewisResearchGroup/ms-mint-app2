@@ -165,7 +165,11 @@ class TestAsariWorkflow:
                 assert result['success'] is False
                 assert "Asari failed with exit code 1" in result['message']
 
-    def test_run_asari_workflow_no_samples(self, temp_workspace):
+    @patch('ms_mint_app.plugins.targets_asari.subprocess.run')
+    def test_run_asari_workflow_no_samples(self, mock_run, temp_workspace):
+        # Mock asari check success
+        mock_run.return_value = MagicMock(returncode=0)
+
         # Create an empty db
         con = duckdb.connect(':memory:')
         _create_tables(con)
