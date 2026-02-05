@@ -1,6 +1,6 @@
 # MINT - Metabolomics Integrator
 
-MINT is a sophisticated post-processing tool designed for _liquid chromatography-mass spectrometry_ (LCMS) based _metabolomics_. [Metabolomics](https://en.wikipedia.org/wiki/Metabolomics), the comprehensive study of small molecule metabolites within biological samples, plays a pivotal role in biomedical research. These metabolites serve as crucial biomarkers for disease diagnostics, therapeutic interventions, and pathogen identification.
+MINT is a post-processing tool designed for _liquid chromatography-mass spectrometry_ (LCMS) based metabolomics analysis. [Metabolomics](https://en.wikipedia.org/wiki/Metabolomics), the comprehensive study of small molecule metabolites within biological samples, plays a pivotal role in biomedical research. These metabolites serve as crucial biomarkers for disease diagnostics, therapeutic interventions, and pathogen identification.
 
 
 ![Screenshot](quickstart/peak-preview.png)
@@ -27,7 +27,7 @@ _**Figure 3:**_ A zoom into the 2D histogram shown in Figure 1.
 This illustrates how dense and precise the information in an LCMS measurement is. For comparison, the M/Z value of an electron is 5.489e-4.
 
 ## Processing LCMS Data
-After the data has been collected on a mass spectrometer (MS) and stored in a (usually) vendor-specific format, the data can be subjected to analysis. To process data with MINT, the data has to be provided in an open format (mzML or mzXML).
+After the data has been collected on a mass spectrometer (MS) and stored in a (usually) vendor-specific format, the data can be subjected to analysis. To process data with MINT, the data has to be provided in an open format (*.mzML or *.mzXML).
 
 Instead of analyzing the raw LCMS data, it is common practice to deconvolute the data and sum up the signal of individual metabolites. The processed data should be proportional to the amount of metabolite in the sample. However, the measured intensities will not reflect the relative concentrations between different compounds, only between different samples. For example, due to different ion efficiencies, compound **A** might have a stronger signal than compound **B** even if compound **B** is present at a higher concentration. Therefore, the intensities can only be used to compare relative amounts. To estimate absolute concentrations, a calibration curve has to be created for every single metabolite.
 
