@@ -1,6 +1,9 @@
 """Feature comparison tab for Analysis plugin."""
 
 from scipy.stats import ttest_ind
+from pathlib import Path
+from datetime import date
+from ...duckdb_manager import get_workspace_name_from_wdir
 
 from ._shared import (
     fac, html, dcc, go, pd, np, logger,
@@ -1152,5 +1155,6 @@ def register_callbacks(app):
                  # Fallback: just targets
                  final_df = conn.execute(f"SELECT * FROM targets WHERE peak_label IN ({placeholders})", selection).df()
         
-        filename = f"selected_features_{metric}.csv"
+        ws_name = get_workspace_name_from_wdir(wdir) or "workspace"
+        filename = f"{date.today()}-MINT__{ws_name}_selected_{metric}.csv"
         return dcc.send_data_frame(final_df.to_csv, filename, index=False)
