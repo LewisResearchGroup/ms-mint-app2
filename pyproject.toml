@@ -47,7 +47,6 @@ dependencies = [
   "openpyxl",
   "pandas==2.3.2",
   "plotly==6.3.1",
-  "polars-lts-cpu",
   "polars==1.33.1",
   "psutil",
   "pyarrow==18.0.0",
