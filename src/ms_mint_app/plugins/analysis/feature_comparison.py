@@ -94,28 +94,79 @@ def create_layout():
                     # Right panel: Chromatogram (wider)
                     html.Div(
                         [
+                            # Chromatogram Graph
                             fac.AntdSpin(
                                 dcc.Graph(
                                     id='comparison-chromatogram',
                                     config=PLOTLY_HIGH_RES_CONFIG,
-                                    style={'height': 'calc(100vh - 230px)', 'width': '100%', 'minHeight': '400px'},
+                                    style={'height': 'calc(100vh - 400px)', 'width': '100%', 'minHeight': '250px'},
                                 ),
                                 text='Loading Chromatogram...',
                             ),
+                            
+                            # Controls Row (Bottom)
                             fac.AntdFlex(
                                 [
-                                    fac.AntdText("Log2 Scale", style={'marginRight': '8px', 'fontSize': '12px'}),
-                                    fac.AntdSwitch(
-                                        id='comparison-log-scale-switch',
-                                        checked=False,
-                                        checkedChildren='On',
-                                        unCheckedChildren='Off',
-                                        size='small',
+                                    # Left: Selection Controls
+                                    fac.AntdFlex(
+                                        [
+                                            fac.AntdButton(
+                                                'Add Selected Compound',
+                                                id='comparison-add-btn',
+                                                icon=fac.AntdIcon(icon='antd-plus'),
+                                                title='Add current feature to selection list',
+                                                style={'marginTop': '30px'}
+                                            ),
+                                            fac.AntdButton(
+                                                'Clear Selection',
+                                                id='comparison-clear-btn',
+                                                icon=fac.AntdIcon(icon='antd-clear'),
+                                                danger=True,
+                                                title='Clear selection list',
+                                                style={'marginTop': '30px'}
+                                            ),
+                                            fac.AntdButton(
+                                                'Download',
+                                                id='comparison-download-btn',
+                                                icon=fac.AntdIcon(icon='antd-download'),
+                                                title='Download selected features',
+                                                style={'marginTop': '30px'}
+                                            ),
+                                            fac.AntdText(
+                                                id='comparison-selection-count',
+                                                children='0 selected',
+                                                style={'fontWeight': 'bold', 'marginLeft': '30px', 'marginTop': '30px'},
+                                            ),
+                                        ],
+                                        gap='small',
+                                        align='center',
+                                    ),
+                                    
+                                    # Right: Log Scale & Count
+                                    fac.AntdFlex(
+                                        [
+                                            fac.AntdText("Log2 Scale", style={'marginRight': '8px', 'fontSize': '12px'}),
+                                            fac.AntdSwitch(
+                                                id='comparison-log-scale-switch',
+                                                checked=False,
+                                                checkedChildren='On',
+                                                unCheckedChildren='Off',
+                                                size='small',
+                                            ),
+                                        ],
+                                        gap='small',
+                                        align='center',
                                     ),
                                 ],
-                                justify='end',
+                                justify='space-between',
                                 align='center',
-                                style={'marginTop': '8px', 'width': '100%'},
+                                style={'marginTop': '10px', 'width': '100%'},
+                            ),
+
+                            # Selection List
+                            html.Div(
+                                id='comparison-selection-list-container',
+                                style={'marginTop': '10px', 'maxHeight': '100px', 'overflowY': 'auto', 'width': '100%'}
                             ),
                         ],
                         id='comparison-chromatogram-container',
@@ -128,6 +179,9 @@ def create_layout():
                 align='center',
                 style={'width': '100%'},
             ),
+            dcc.Store(id='comparison-active-peak-store'),
+            dcc.Store(id='comparison-selection-store', data=[]),
+            dcc.Download(id='comparison-download-selection'),
         ],
         id='analysis-comparison-content',
     )
@@ -694,6 +748,7 @@ def register_callbacks(app):
     @app.callback(
         Output('comparison-chromatogram', 'figure'),
         Output('comparison-chromatogram-container', 'style'),
+        Output('comparison-active-peak-store', 'data'),
         Input({'type': 'comparison-plot', 'index': 'main'}, 'clickData'),
         Input('comparison-sample1-select', 'value'),
         Input('comparison-sample2-select', 'value'),
@@ -706,19 +761,19 @@ def register_callbacks(app):
         default_chrom_style = {'width': '50%'}
 
         if not wdir or not sample1 or not sample2:
-            return _empty_plot("Click a feature to view chromatograms."), default_chrom_style
+            return _empty_plot("Click a feature to view chromatograms."), default_chrom_style, None
 
         try:
             peak_label = clickData['points'][0]['customdata'][0]
         except (KeyError, IndexError, TypeError):
-            return _empty_plot("Click a feature to view chromatograms."), default_chrom_style
+            return _empty_plot("Click a feature to view chromatograms."), default_chrom_style, None
 
         group_label = GROUP_LABELS.get(group_by_col, group_by_col or 'Group')
         missing_group_label = f"{group_label} (unset)"
 
         with duckdb_connection(wdir) as conn:
             if conn is None:
-                return _empty_plot("Unable to connect to workspace database."), default_chrom_style
+                return _empty_plot("Unable to connect to workspace database."), default_chrom_style, None
 
             rt_info = conn.execute(
                 "SELECT rt_min, rt_max FROM targets WHERE peak_label = ?",
@@ -753,7 +808,7 @@ def register_callbacks(app):
             group2_samples = fetch_group_samples(sample2, 6)
             files_to_fetch = [row[0] for row in group1_samples + group2_samples]
             if not files_to_fetch:
-                return _empty_plot("No chromatogram data found for selected groups."), default_chrom_style
+                return _empty_plot("No chromatogram data found for selected groups."), default_chrom_style, None
 
             placeholders = ','.join(['?'] * len(files_to_fetch))
             chrom_query = f"""
@@ -764,7 +819,7 @@ def register_callbacks(app):
             """
             chrom_data = conn.execute(chrom_query, [peak_label] + files_to_fetch).fetchall()
             if not chrom_data:
-                return _empty_plot("No chromatogram data found."), default_chrom_style
+                return _empty_plot("No chromatogram data found."), default_chrom_style, None
 
             data_map = {row[0]: row for row in chrom_data}
             colors_df = conn.execute(
@@ -873,9 +928,12 @@ def register_callbacks(app):
             ),
         )
 
+        fig.update_xaxes(rangemode='tozero')
+        fig.update_yaxes(rangemode='tozero')
+        fig.update_layout(clickmode='event')
         fig.update_layout(autosize=True)
 
-        return fig, default_chrom_style
+        return fig, default_chrom_style, peak_label
 
     @app.callback(
         Output('comparison-chromatogram', 'figure', allow_duplicate=True),
@@ -979,3 +1037,97 @@ def register_callbacks(app):
         ]
 
         return fig_patch
+
+
+    @app.callback(
+        Output('comparison-selection-store', 'data'),
+        Output('comparison-selection-count', 'children'),
+        Output('comparison-selection-list-container', 'children'),
+        Output('analysis-notifications-container', 'children', allow_duplicate=True),
+        Input('comparison-add-btn', 'nClicks'),
+        Input('comparison-clear-btn', 'nClicks'),
+        State('comparison-active-peak-store', 'data'),
+        State('comparison-selection-store', 'data'),
+        prevent_initial_call=True
+    )
+    def manage_selection_list(n_add, n_clear, active_peak, current_selection):
+        ctx = dash.callback_context
+        if not ctx.triggered:
+            return dash.no_update, dash.no_update, dash.no_update, dash.no_update
+        
+        trigger_id = ctx.triggered[0]['prop_id'].split('.')[0]
+        current_selection = current_selection or []
+        
+        def _render_tags(items):
+            if not items:
+                return None
+            return fac.AntdFlex(
+                [fac.AntdTag(content=item, color='blue') for item in items],
+                wrap='wrap',
+                gap='small'
+            )
+
+        if trigger_id == 'comparison-clear-btn':
+            return [], "0 selected", None, None
+        
+        if trigger_id == 'comparison-add-btn':
+            if not active_peak:
+                return dash.no_update, dash.no_update, dash.no_update, fac.AntdNotification(
+                    message="No feature selected",
+                    description="Click a point on the plot first to select a feature.",
+                    type="warning",
+                    duration=3,
+                    placement='bottomRight'
+                )
+            
+            if active_peak in current_selection:
+                return dash.no_update, dash.no_update, dash.no_update, fac.AntdNotification(
+                    message="Already selected",
+                    description=f"Feature '{active_peak}' is already in your list.",
+                    type="info",
+                    duration=2,
+                    placement='bottomRight'
+                )
+            
+            new_selection = current_selection + [active_peak]
+            return new_selection, f"{len(new_selection)} selected", _render_tags(new_selection), fac.AntdNotification(
+                message="Feature added",
+                description=f"Added '{active_peak}' to selection list.",
+                type="success",
+                duration=2,
+                placement='bottomRight'
+            )
+            
+        return dash.no_update, dash.no_update, dash.no_update, dash.no_update
+
+
+    @app.callback(
+        Output('comparison-download-selection', 'data'),
+        Input('comparison-download-btn', 'nClicks'),
+        State('comparison-selection-store', 'data'),
+        State('wdir', 'data'),
+        prevent_initial_call=True
+    )
+    def download_selection_list(n_clicks, selection, wdir):
+        if not n_clicks or not selection:
+            return dash.no_update
+        
+        if not wdir:
+             # Fallback if no WDIR (unlikely)
+             df = pd.DataFrame({'peak_label': selection})
+             return dcc.send_data_frame(df.to_csv, "selected_features.csv", index=False)
+
+        with duckdb_connection(wdir) as conn:
+             if conn is None:
+                 return dash.no_update
+             
+             # Fetch full target details for selected peaks
+             placeholders = ','.join(['?'] * len(selection))
+             query = f"SELECT * FROM targets WHERE peak_label IN ({placeholders})"
+             try:
+                 df = conn.execute(query, selection).df()
+             except Exception:
+                 # Fallback to simple list if query fails
+                 df = pd.DataFrame({'peak_label': selection})
+        
+        return dcc.send_data_frame(df.to_csv, "selected_features_details.csv", index=False)
