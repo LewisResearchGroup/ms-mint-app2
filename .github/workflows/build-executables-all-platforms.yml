@@ -45,7 +45,7 @@ jobs:
           pip install "matplotlib>=3.10.8"
           pip install -e . --no-cache-dir
           # Force LTS-CPU version for compatibility with older Windows VMs/CPUs
-          logging: "Switching to polars-lts-cpu for broad compatibility..."
+          echo "Switching to polars-lts-cpu for broad compatibility..."
           pip uninstall -y polars
           pip install polars-lts-cpu
         shell: bash
@@ -150,7 +150,7 @@ jobs:
           pip install "matplotlib>=3.10.8"
           pip install -e . --no-cache-dir
           # Force LTS-CPU version for compatibility with older Linux VMs/CPUs
-          logging: "Switching to polars-lts-cpu for broad compatibility..."
+          echo "Switching to polars-lts-cpu for broad compatibility..."
           pip uninstall -y polars
           pip install polars-lts-cpu
 
