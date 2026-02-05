@@ -437,7 +437,13 @@ def main():
             dev_tools_hot_reload_max_retry=30,
         )
     else:
-        serve(app.server, port=args.port, host=args.host)
+        import multiprocessing
+        # Dynamic thread scaling: at least 4, but scale up for powerful machines
+        try:
+             threads = max(4, multiprocessing.cpu_count() + 1)
+        except Exception:
+             threads = 4
+        serve(app.server, port=args.port, host=args.host, threads=threads)
 
 
 if __name__ == "__main__":
