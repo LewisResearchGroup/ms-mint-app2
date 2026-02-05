@@ -1,6 +1,9 @@
 """Feature comparison tab for Analysis plugin."""
 
 from scipy.stats import ttest_ind
+from pathlib import Path
+from datetime import date
+from ...duckdb_manager import get_workspace_name_from_wdir
 
 from ._shared import (
     fac, html, dcc, go, pd, np, logger,
@@ -24,7 +27,7 @@ def create_layout():
         [
             fac.AntdFlex(
                 [
-                    fac.AntdText('Sample 1', strong=False),
+                    fac.AntdText('Sample 1:', strong=False),
                     fac.AntdSelect(
                         id='comparison-sample1-select',
                         options=[],
@@ -34,7 +37,7 @@ def create_layout():
                         optionFilterMode='case-insensitive',
                         style={'width': '200px'},
                     ),
-                    fac.AntdText('Sample 2', strong=False),
+                    fac.AntdText('Sample 2:', strong=False),
                     fac.AntdSelect(
                         id='comparison-sample2-select',
                         options=[],
@@ -44,7 +47,7 @@ def create_layout():
                         optionFilterMode='case-insensitive',
                         style={'width': '200px'},
                     ),
-                    fac.AntdText('P-value', strong=False),
+                    fac.AntdText('P-value:', strong=False),
                     fac.AntdInputNumber(
                         id='comparison-pvalue-threshold',
                         value=0.05,
@@ -53,7 +56,7 @@ def create_layout():
                         step=0.001,
                         style={'width': '120px'},
                     ),
-                    fac.AntdText('FDR', strong=False),
+                    fac.AntdText('FDR:', strong=False),
                     fac.AntdSelect(
                         id='comparison-fdr-method',
                         options=FDR_OPTIONS,
@@ -61,7 +64,7 @@ def create_layout():
                         allowClear=False,
                         style={'width': '200px'},
                     ),
-                    fac.AntdText('Plot Type', strong=False),
+                    fac.AntdText('Plot Type:', strong=False),
                     fac.AntdSwitch(
                         id='comparison-plot-type',
                         checked=False,
@@ -70,63 +73,118 @@ def create_layout():
                     ),
                 ],
                 align='center',
-                gap='small',
+                gap='middle',
                 wrap=True,
                 style={'paddingBottom': '0.75rem'},
             ),
             fac.AntdFlex(
                 [
+                    # Left panel: Comparison plot (more square - narrower width)
                     html.Div(
                         fac.AntdSpin(
                             dcc.Graph(
                                 id={'type': 'comparison-plot', 'index': 'main'},
                                 config=PLOTLY_HIGH_RES_CONFIG,
-                                style={'height': '410px', 'width': '100%'},
+                                style={'height': 'calc(100vh - 220px)', 'width': '100%', 'minHeight': '400px'},
                             ),
                             id='comparison-spinner',
                             spinning=False,
                             text='Loading Comparison Plot...',
-                            style={'minHeight': '300px', 'width': '100%'},
+                            style={'width': '100%'},
                         ),
-                        style={'width': 'calc(60% - 6px)', 'height': '650px', 'overflowY': 'auto'},
-                        # style={'width': '650px', 'height': '650px', 'overflowY': 'auto'},
+                        style={'width': '40%'},
                     ),
+                    # Right panel: Chromatogram (wider)
                     html.Div(
                         [
+                            # Chromatogram Graph
                             fac.AntdSpin(
                                 dcc.Graph(
                                     id='comparison-chromatogram',
                                     config=PLOTLY_HIGH_RES_CONFIG,
-                                    style={'height': '410px', 'width': '100%'},
+                                    style={'height': 'calc(100vh - 400px)', 'width': '100%', 'minHeight': '250px'},
                                 ),
                                 text='Loading Chromatogram...',
                             ),
+                            
+                            # Controls Row (Bottom)
                             fac.AntdFlex(
                                 [
-                                    fac.AntdText("Log2 Scale", style={'marginRight': '8px', 'fontSize': '12px'}),
-                                    fac.AntdSwitch(
-                                        id='comparison-log-scale-switch',
-                                        checked=False,
-                                        checkedChildren='On',
-                                        unCheckedChildren='Off',
-                                        size='small',
+                                    # Left: Selection Controls
+                                    fac.AntdFlex(
+                                        [
+                                            fac.AntdButton(
+                                                'Add Selected Compound',
+                                                id='comparison-add-btn',
+                                                icon=fac.AntdIcon(icon='antd-plus'),
+                                                title='Add current feature to selection list',
+                                                style={'marginTop': '30px'}
+                                            ),
+                                            fac.AntdButton(
+                                                'Clear Selection',
+                                                id='comparison-clear-btn',
+                                                icon=fac.AntdIcon(icon='antd-clear'),
+                                                danger=True,
+                                                title='Clear selection list',
+                                                style={'marginTop': '30px'}
+                                            ),
+                                            fac.AntdButton(
+                                                'Download',
+                                                id='comparison-download-btn',
+                                                icon=fac.AntdIcon(icon='antd-download'),
+                                                title='Download selected features',
+                                                style={'marginTop': '30px'}
+                                            ),
+                                            fac.AntdText(
+                                                id='comparison-selection-count',
+                                                children='0 selected',
+                                                style={'fontWeight': 'bold', 'marginLeft': '30px', 'marginTop': '30px'},
+                                            ),
+                                        ],
+                                        gap='small',
+                                        align='center',
+                                    ),
+                                    
+                                    # Right: Log Scale & Count
+                                    fac.AntdFlex(
+                                        [
+                                            fac.AntdText("Log2 Scale", style={'marginRight': '8px', 'fontSize': '12px'}),
+                                            fac.AntdSwitch(
+                                                id='comparison-log-scale-switch',
+                                                checked=False,
+                                                checkedChildren='On',
+                                                unCheckedChildren='Off',
+                                                size='small',
+                                            ),
+                                        ],
+                                        gap='small',
+                                        align='center',
                                     ),
                                 ],
-                                justify='end',
+                                justify='space-between',
                                 align='center',
-                                style={'marginTop': '12px', 'width': '100%'}
-                            )
+                                style={'marginTop': '10px', 'width': '100%'},
+                            ),
+
+                            # Selection List
+                            html.Div(
+                                id='comparison-selection-list-container',
+                                style={'marginTop': '10px', 'maxHeight': '100px', 'overflowY': 'auto', 'width': '100%'}
+                            ),
                         ],
                         id='comparison-chromatogram-container',
-                        style={'display': 'block', 'width': 'calc(38% - 6px)', 'height': 'auto'},
+                        style={'width': '50%'},
                     ),
                 ],
-                gap='middle',
+                gap='50px',
                 wrap=False,
                 justify='center',
                 align='center',
-                style={'width': '100%', 'height': 'calc(100vh - 150px)'},
+                style={'width': '100%'},
             ),
+            dcc.Store(id='comparison-active-peak-store'),
+            dcc.Store(id='comparison-selection-store', data=[]),
+            dcc.Download(id='comparison-download-selection'),
         ],
         id='analysis-comparison-content',
     )
@@ -183,6 +241,24 @@ def _empty_plot(message, height=410):
 
 def register_callbacks(app):
     """Register Feature Comparison callbacks."""
+
+    # Clientside callback to trigger resize when the comparison tab is shown
+    # This fixes Plotly sizing issues with calc() viewport heights
+    app.clientside_callback(
+        """
+        function(currentKey) {
+            if (currentKey === 'comparison') {
+                // Small delay to ensure DOM is ready
+                setTimeout(function() {
+                    window.dispatchEvent(new Event('resize'));
+                }, 150);
+            }
+            return window.dash_clientside.no_update;
+        }
+        """,
+        Output('analysis-comparison-content', 'data-resize-trigger'),
+        Input('analysis-sidebar-menu', 'currentKey'),
+    )
 
     @app.callback(
         Output('comparison-sample1-select', 'options'),
@@ -414,6 +490,45 @@ def register_callbacks(app):
         if sample2 == missing_group_label:
             group2_color = '#bbbbbb'
 
+        def _hex_to_rgb(value):
+            if not isinstance(value, str):
+                return (120, 120, 120)
+            value = value.strip().lstrip('#')
+            if len(value) != 6:
+                return (120, 120, 120)
+            return tuple(int(value[i:i + 2], 16) for i in (0, 2, 4))
+
+        def _rgba(hex_color, alpha):
+            r, g, b = _hex_to_rgb(hex_color)
+            return f"rgba({r}, {g}, {b}, {alpha:.3f})"
+
+        # Intensity based on adjusted p-values (lower p => more intense)
+        p_adj_vals = plot_df['p_adj'].to_numpy(dtype=float)
+        p_adj_clip = np.clip(p_adj_vals, 1e-300, 1.0)
+        logp = -np.log10(p_adj_clip)
+        finite_mask = np.isfinite(logp)
+        if finite_mask.any():
+            min_lp = float(np.nanmin(logp[finite_mask]))
+            max_lp = float(np.nanmax(logp[finite_mask]))
+        else:
+            min_lp = max_lp = 0.0
+        denom = max_lp - min_lp if max_lp != min_lp else 1.0
+        strength = (logp - min_lp) / denom
+        strength = np.clip(strength, 0.0, 1.0)
+        alpha_vals = 0.2 + 0.8 * strength
+
+        # Size based on absolute difference between group means
+        diff_vals = np.abs(plot_df['mean_b'].to_numpy() - plot_df['mean_a'].to_numpy())
+        if np.isfinite(diff_vals).any():
+            min_d = float(np.nanmin(diff_vals))
+            max_d = float(np.nanmax(diff_vals))
+        else:
+            min_d = max_d = 0.0
+        denom_d = max_d - min_d if max_d != min_d else 1.0
+        size_strength = (diff_vals - min_d) / denom_d
+        size_strength = np.clip(size_strength, 0.0, 1.0)
+        size_vals = 6 + 10 * size_strength
+
         def build_customdata(frame, cols):
             if frame.empty:
                 return np.empty((0, len(cols)))
@@ -429,7 +544,11 @@ def register_callbacks(app):
                     y=plot_df['neg_log10_p'],
                     mode='markers',
                     name='Not significant',
-                    marker=dict(color='#9aa0a6', size=7, opacity=0.7),
+                    marker=dict(
+                        color=[_rgba('#9aa0a6', a) for a in alpha_vals],
+                        size=size_vals,
+                        line=dict(width=0.6, color='#444'),
+                    ),
                     customdata=build_customdata(
                         plot_df,
                         ['feature', 'mean_a', 'mean_b', 'p_value', 'p_adj'],
@@ -451,7 +570,11 @@ def register_callbacks(app):
                     y=plot_df.loc[higher_in_1, 'neg_log10_p'],
                     mode='markers',
                     name=str(sample1),
-                    marker=dict(color=group1_color, size=8, opacity=0.85),
+                    marker=dict(
+                        color=[_rgba(group1_color, a) for a in alpha_vals[higher_in_1]],
+                        size=size_vals[higher_in_1],
+                        line=dict(width=0.6, color='#444'),
+                    ),
                     customdata=build_customdata(
                         plot_df.loc[higher_in_1],
                         ['feature', 'mean_a', 'mean_b', 'p_value', 'p_adj'],
@@ -470,7 +593,11 @@ def register_callbacks(app):
                     y=plot_df.loc[higher_in_2, 'neg_log10_p'],
                     mode='markers',
                     name=str(sample2),
-                    marker=dict(color=group2_color, size=8, opacity=0.85),
+                    marker=dict(
+                        color=[_rgba(group2_color, a) for a in alpha_vals[higher_in_2]],
+                        size=size_vals[higher_in_2],
+                        line=dict(width=0.6, color='#444'),
+                    ),
                     customdata=build_customdata(
                         plot_df.loc[higher_in_2],
                         ['feature', 'mean_a', 'mean_b', 'p_value', 'p_adj'],
@@ -491,16 +618,16 @@ def register_callbacks(app):
                 xaxis_title=fc_label,
                 yaxis_title="-Log10(FDR)",
                 template='plotly_white',
-                height=620,
                 margin=dict(l=40, r=20, t=80, b=60),
                 clickmode='event',
+                autosize=True,
             )
             if x_vals.size and y_vals.size:
                 x_max = float(np.nanmax(x_vals))
                 y_min = 0.0
                 y_max = float(np.nanmax(y_vals))
                 y_max += (y_max * 0.05)
-                fig.update_xaxes(range=[-x_max, x_max], scaleratio=1)
+                fig.update_xaxes(range=[-x_max - (x_max * 0.05), x_max + (x_max * 0.05)], scaleratio=1)
                 fig.update_yaxes(range=[y_min, y_max])
         else:
             x_vals = plot_df['mean_a'].to_numpy() if no_sig else plot_df.loc[sig_mask, 'mean_a'].to_numpy()
@@ -511,7 +638,11 @@ def register_callbacks(app):
                     y=plot_df['mean_b'],
                     mode='markers',
                     name='Not significant',
-                    marker=dict(color='#9aa0a6', size=7, opacity=0.7),
+                    marker=dict(
+                        color=[_rgba('#9aa0a6', a) for a in alpha_vals],
+                        size=size_vals,
+                        line=dict(width=0.6, color='#444'),
+                    ),
                     customdata=build_customdata(
                         plot_df,
                         ['feature', 'log2fc', 'p_value', 'p_adj'],
@@ -533,7 +664,11 @@ def register_callbacks(app):
                     y=plot_df.loc[higher_in_1, 'mean_b'],
                     mode='markers',
                     name=str(sample1),
-                    marker=dict(color=group1_color, size=8, opacity=0.85),
+                    marker=dict(
+                        color=[_rgba(group1_color, a) for a in alpha_vals[higher_in_1]],
+                        size=size_vals[higher_in_1],
+                        line=dict(width=0.6, color='#444'),
+                    ),
                     customdata=build_customdata(
                         plot_df.loc[higher_in_1],
                         ['feature', 'log2fc', 'p_value', 'p_adj'],
@@ -552,7 +687,11 @@ def register_callbacks(app):
                     y=plot_df.loc[higher_in_2, 'mean_b'],
                     mode='markers',
                     name=str(sample2),
-                    marker=dict(color=group2_color, size=8, opacity=0.85),
+                    marker=dict(
+                        color=[_rgba(group2_color, a) for a in alpha_vals[higher_in_2]],
+                        size=size_vals[higher_in_2],
+                        line=dict(width=0.6, color='#444'),
+                    ),
                     customdata=build_customdata(
                         plot_df.loc[higher_in_2],
                         ['feature', 'log2fc', 'p_value', 'p_adj'],
@@ -566,8 +705,8 @@ def register_callbacks(app):
                         "FDR: %{customdata[3]:.3e}<extra></extra>"
                     ),
                 ))
-            min_val = float(np.nanmin([plot_df['mean_a'].min(), plot_df['mean_b'].min()]))
-            max_val = float(np.nanmax([plot_df['mean_a'].max(), plot_df['mean_b'].max()]))
+            min_val = float(np.nanmin([plot_df['mean_a'].min(), plot_df['mean_b'].min(), 0]))
+            max_val = float(np.nanmax([plot_df['mean_a'].max(), plot_df['mean_b'].max(), 0]))
             if np.isfinite(min_val) and np.isfinite(max_val):
                 fig.add_shape(
                     type='line',
@@ -579,10 +718,9 @@ def register_callbacks(app):
                 )
             fig.update_layout(
                 title=title,
-                xaxis_title=f"Mean ({sample1})",
-                yaxis_title=f"Mean ({sample2})",
+                xaxis_title=f"Signal Intensity in {sample1} Samples",
+                yaxis_title=f"Signal Intensity in {sample2} Samples",
                 template='plotly_white',
-                height=620,
                 margin=dict(l=40, r=20, t=80, b=60),
                 clickmode='event',
             )
@@ -613,6 +751,7 @@ def register_callbacks(app):
     @app.callback(
         Output('comparison-chromatogram', 'figure'),
         Output('comparison-chromatogram-container', 'style'),
+        Output('comparison-active-peak-store', 'data'),
         Input({'type': 'comparison-plot', 'index': 'main'}, 'clickData'),
         Input('comparison-sample1-select', 'value'),
         Input('comparison-sample2-select', 'value'),
@@ -622,32 +761,22 @@ def register_callbacks(app):
         prevent_initial_call=True,
     )
     def update_chromatogram(clickData, sample1, sample2, group_by_col, log_scale, wdir):
+        default_chrom_style = {'width': '50%'}
+
         if not wdir or not sample1 or not sample2:
-            return _empty_plot("Click a feature to view chromatograms."), {
-                'display': 'block',
-                'width': 'calc(38% - 6px)',
-                'height': '410px',
-            }
+            return _empty_plot("Click a feature to view chromatograms."), default_chrom_style, None
 
         try:
             peak_label = clickData['points'][0]['customdata'][0]
         except (KeyError, IndexError, TypeError):
-            return _empty_plot("Click a feature to view chromatograms."), {
-                'display': 'block',
-                'width': 'calc(38% - 6px)',
-                'height': '410px',
-            }
+            return _empty_plot("Click a feature to view chromatograms."), default_chrom_style, None
 
         group_label = GROUP_LABELS.get(group_by_col, group_by_col or 'Group')
         missing_group_label = f"{group_label} (unset)"
 
         with duckdb_connection(wdir) as conn:
             if conn is None:
-                return _empty_plot("Unable to connect to workspace database."), {
-                    'display': 'block',
-                    'width': 'calc(38% - 6px)',
-                    'height': '410px',
-                }
+                return _empty_plot("Unable to connect to workspace database."), default_chrom_style, None
 
             rt_info = conn.execute(
                 "SELECT rt_min, rt_max FROM targets WHERE peak_label = ?",
@@ -682,11 +811,7 @@ def register_callbacks(app):
             group2_samples = fetch_group_samples(sample2, 6)
             files_to_fetch = [row[0] for row in group1_samples + group2_samples]
             if not files_to_fetch:
-                return _empty_plot("No chromatogram data found for selected groups."), {
-                    'display': 'block',
-                    'width': 'calc(38% - 6px)',
-                    'height': '410px',
-                }
+                return _empty_plot("No chromatogram data found for selected groups."), default_chrom_style, None
 
             placeholders = ','.join(['?'] * len(files_to_fetch))
             chrom_query = f"""
@@ -697,11 +822,7 @@ def register_callbacks(app):
             """
             chrom_data = conn.execute(chrom_query, [peak_label] + files_to_fetch).fetchall()
             if not chrom_data:
-                return _empty_plot("No chromatogram data found."), {
-                    'display': 'block',
-                    'width': 'calc(38% - 6px)',
-                    'height': '410px',
-                }
+                return _empty_plot("No chromatogram data found."), default_chrom_style, None
 
             data_map = {row[0]: row for row in chrom_data}
             colors_df = conn.execute(
@@ -790,7 +911,6 @@ def register_callbacks(app):
             yaxis_tickfont=dict(size=12),
             template="plotly_white",
             margin=dict(l=50, r=20, t=110, b=80),
-            height=410,
             showlegend=True,
             legend=dict(
                 title=dict(text=f"{group_label}: ", font=dict(size=13)),
@@ -811,7 +931,12 @@ def register_callbacks(app):
             ),
         )
 
-        return fig, {'display': 'block', 'width': 'calc(38% - 6px)', 'height': '410px'}
+        fig.update_xaxes(rangemode='tozero')
+        fig.update_yaxes(rangemode='tozero')
+        fig.update_layout(clickmode='event')
+        fig.update_layout(autosize=True)
+
+        return fig, default_chrom_style, peak_label
 
     @app.callback(
         Output('comparison-chromatogram', 'figure', allow_duplicate=True),
@@ -915,3 +1040,121 @@ def register_callbacks(app):
         ]
 
         return fig_patch
+
+
+    @app.callback(
+        Output('comparison-selection-store', 'data'),
+        Output('comparison-selection-count', 'children'),
+        Output('comparison-selection-list-container', 'children'),
+        Output('analysis-notifications-container', 'children', allow_duplicate=True),
+        Input('comparison-add-btn', 'nClicks'),
+        Input('comparison-clear-btn', 'nClicks'),
+        State('comparison-active-peak-store', 'data'),
+        State('comparison-selection-store', 'data'),
+        prevent_initial_call=True
+    )
+    def manage_selection_list(n_add, n_clear, active_peak, current_selection):
+        ctx = dash.callback_context
+        if not ctx.triggered:
+            return dash.no_update, dash.no_update, dash.no_update, dash.no_update
+        
+        trigger_id = ctx.triggered[0]['prop_id'].split('.')[0]
+        current_selection = current_selection or []
+        
+        def _render_tags(items):
+            if not items:
+                return None
+            return fac.AntdFlex(
+                [fac.AntdTag(content=item, color='blue') for item in items],
+                wrap='wrap',
+                gap='small'
+            )
+
+        if trigger_id == 'comparison-clear-btn':
+            return [], "0 selected", None, None
+        
+        if trigger_id == 'comparison-add-btn':
+            if not active_peak:
+                return dash.no_update, dash.no_update, dash.no_update, fac.AntdNotification(
+                    message="No feature selected",
+                    description="Click a point on the plot first to select a feature.",
+                    type="warning",
+                    duration=3,
+                    placement='bottomRight'
+                )
+            
+            if active_peak in current_selection:
+                return dash.no_update, dash.no_update, dash.no_update, fac.AntdNotification(
+                    message="Already selected",
+                    description=f"Feature '{active_peak}' is already in your list.",
+                    type="info",
+                    duration=2,
+                    placement='bottomRight'
+                )
+            
+            new_selection = current_selection + [active_peak]
+            return new_selection, f"{len(new_selection)} selected", _render_tags(new_selection), fac.AntdNotification(
+                message="Feature added",
+                description=f"Added '{active_peak}' to selection list.",
+                type="success",
+                duration=2,
+                placement='bottomRight'
+            )
+            
+        return dash.no_update, dash.no_update, dash.no_update, dash.no_update
+
+
+    @app.callback(
+        Output('comparison-download-selection', 'data'),
+        Input('comparison-download-btn', 'nClicks'),
+        State('comparison-selection-store', 'data'),
+        State('wdir', 'data'),
+        State('analysis-metric-select', 'value'),
+        prevent_initial_call=True
+    )
+    def download_selection_list(n_clicks, selection, wdir, metric):
+        if not n_clicks or not selection:
+            return dash.no_update
+        
+        if not wdir:
+             df = pd.DataFrame({'peak_label': selection})
+             return dcc.send_data_frame(df.to_csv, "selected_features.csv", index=False)
+
+        metric = metric or 'peak_max'
+        
+        with duckdb_connection(wdir) as conn:
+             if conn is None:
+                 return dash.no_update
+             
+             # Sanitize and format selection for SQL injection (safely for internal state)
+             # Escaping single quotes in peak labels if necessary
+             safe_selection = [s.replace("'", "''") for s in selection]
+             in_clause = ", ".join([f"'{s}'" for s in safe_selection])
+             
+             try:
+                 # 1. Get Targets Metadata
+                 # We can use parameters here as it is a standard SELECT
+                 placeholders = ','.join(['?'] * len(selection))
+                 targets_query = f"SELECT * FROM targets WHERE peak_label IN ({placeholders})"
+                 df_targets = conn.execute(targets_query, selection).df()
+                 
+                 # 2. Get Pivot (Using formatted string for IN clause to avoid Pivot+Param limitations)
+                 pivot_query = f"""
+                    PIVOT (
+                        SELECT peak_label, ms_file_label, {metric}
+                        FROM results
+                        WHERE peak_label IN ({in_clause})
+                    ) ON ms_file_label USING FIRST({metric})
+                 """
+                 df_pivot = conn.execute(pivot_query).df()
+                 
+                 # 3. Merge
+                 final_df = pd.merge(df_targets, df_pivot, on='peak_label', how='left')
+                 
+             except Exception:
+                 # Fallback: just targets
+                 final_df = conn.execute(f"SELECT * FROM targets WHERE peak_label IN ({placeholders})", selection).df()
+        
+        ws_name = get_workspace_name_from_wdir(wdir) or "workspace"
+        filename = f"{date.today()}-MINT__{ws_name}_selected_{metric}.csv"
+        return dcc.send_data_frame(final_df.to_csv, filename, index=False)

@@ -2,10 +2,12 @@
 # Quickstart Guide for MINT
 Welcome to the MINT quickstart guide! This guide helps you get up and running with the application so you can start analyzing mass spectrometry data efficiently. Follow the steps below to install the app, create a workspace, and begin processing your data.
 
-## 1. Open `MINT`
+## 1. Download and Open `MINT`
 
 Download an executable compatible with your OS and open MINT (see other installation options [here](install.md)).
 Once the app starts, you should see the `Workspaces` tab.
+
+[Button Text](https://example.com){ .md-button }
 
 ## 2. Create a workspace
 On first launch, MINT creates a **My first Workspace** workspace with sample data so you can tour the interface immediately. You can keep it for reference or create a new workspace for your project. A workspace provides easy access to all data files and results for a given project.
@@ -162,33 +164,65 @@ Now, you can download the results in long format or dense `peak_max` values by c
 
 ## 9. Analyze the results
 
-Once the results are generated, there are several analyses you can perform. The Analysis section includes **QC**, **PCA**, **t-SNE**, **Violin**, **Bar**, and **Clustermap** views. If you are new, start with QC to validate retention times and m/z stability, then use the Clustermap to quickly spot outliers or batch effects.
-
-![](quickstart/analysis-1.png)
-
-=== "QC"
-    Quality control plots for a selected target. You can review retention-time and m/z stability across samples (left) and inspect the chromatogram of any clicked sample (right).
+Once the results are generated, there are several analyses you can perform. The Analysis section includes **QC**, **PCA**, **t-SNE**, **Violin**, **Bar**, **Comparison**, and **Clustermap** views. If you are new, start with QC to validate retention times and m/z stability, then use the Clustermap to quickly spot outliers or batch effects.
 
 === "PCA"
-    Principal component analysis plot for sample-level patterns. Includes a score plot (PC1 to PC5) on the left side, cumulative variance (top right), and absolute loading values for a selected PC on the x-axis (bottom right).
+    **Principal Component Analysis**: Reduces the dimensionality of your data to visualize sample similarity.
 
-    ![](quickstart/analysis-3.png)
+    *   **Score Plot**: An interactive scatter plot of samples projected onto Principal Components (PCs).
+    *   **Cumulative Variance**: Displays how much of the total dataset variance is explained by the first N components.
+    *   **Loadings**: A bar chart showing which metabolites contribute most to each PC.
+
+    ![PCA](./image/analysis_pca.png "PCA")
 
 === "t-SNE"
-    Nonlinear dimensionality reduction for visualizing local sample neighborhoods. Use the regenerate button to recompute and choose which t-SNE dimensions to display.
+    **t-Distributed Stochastic Neighbor Embedding**: Nonlinear embedding to reveal local sample neighborhoods.
 
-=== "Violin"
-    Distribution plots by group (for example, Sample type, Group 1, Group 2) to compare target values. Includes a hypothesis test result (t-test for two samples, ANOVA for more than two samples) on the top right corner.
+    *   **Axes**: Select the t-SNE dimensions to display (typically t-SNE-1 vs t-SNE-2).
+    *   **Perplexity**: Adjust neighborhood size and regenerate to explore different structures.
+    
+    ![t-SNE](./image/analysis_tsne.png "t-SNE")
+    
+=== "QC"
+    Quality-control view for a selected target.
 
-    ![](quickstart/analysis-4.png)
+    *   **RT Plot**: Retention-time stability across samples, grouped by your selected metadata column.
+    *   **Metric Plot**: Observed metric (e.g., peak area, peak area top3, etc.) across samples.
+    *   **Chromatogram**: Click a sample in either scatter plot to inspect the chromatogram for that target.
+    *   **Progressive Loading**: For large datasets, MINT initially loads a "Shadow Plot" (Envelope) to provide immediate feedback while detailed chromatogram data finishes loading in the background.
+
+    ![QC](./image/analysis_qc.png "QC - Quality Control")
+
+=== "Violin (Distributions)"
+    Focuses on the distribution of peak intensities for individual metabolites.
+
+    *   **Selection**: Use the dropdown to search for and select a specific peak.
+    *   **Stats**: Displays the distribution density and boxplots, grouped by your selected metadata column, along with ANOVA p-values for statistical significance.
+
+    ![Violin Plots](./image/analysis_violin.png "Violin Plots")
 
 === "Bar"
-    Summary view that aggregates values by group and shows mean ± SEM with individual sample points overlaid. Click a sample point to inspect its chromatogram.
+    Aggregated summary view by group.
 
-=== "Clustermap"
-    Clustered heatmap showing relationships between samples and targets. In this tab you can select different metrics (for example, peak_area, peak_top3), transformations (for example, z-score, log2), and groupings (for example, Sample type, Group 1, Group 2).
+    *   **Mean ± SEM**: Bar chart with error bars.
+    *   **Individual Samples**: Jittered points overlaid on bars.
+    *   **Chromatogram**: Click a sample point to inspect its chromatogram.
 
-    ![](quickstart/analysis-2.png)
+    ![Bar Plot](./image/analysis_bar.png "Bar Plot")
+
+=== "Comparison"
+    **Feature Comparison**: Compare feature intensities between two selected groups using statistical tests.
+
+    *   **Controls**: Select two groups ("Sample 1" and "Sample 2") and set a P-value threshold and FDR correction method.
+    *   **Plots**: Toggle between a **Scatter Plot** (Mean vs Mean) and a **Volcano Plot** (Log2 Fold Change vs -Log10 P-value). Features meeting the significance threshold are colored.
+    *   **Chromatogram**: Click on any point in the plot to inspect the chromatograms for that feature across the two groups.
+
+    ![Feature Comparison](./image/analysis_comparison.png "Feature Comparison")
+
+=== "Clustermap (Heatmap)"
+    Displays a hierarchical clustering of samples (columns) and metabolites (rows). It helps identify patterns and outliers in your dataset.
+
+    ![Clustermap](./image/analysis_clustermap.png "Clustermap")
 
 ## Next steps
 For a deeper tour of the interface, see the [GUI guide](gui/index.md).

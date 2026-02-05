@@ -3,6 +3,7 @@ import base64
 import math
 
 import dash
+import pandas as pd
 import feffery_antd_components as fac
 import polars as pl
 from multiprocessing import cpu_count
@@ -35,7 +36,9 @@ TARGET_TEMPLATE_COLUMNS = [
     'filterLine',
     'ms_type',
     'category',
-    'score',
+    'formula',
+    'maven_id',
+    'adduct_name',
     'notes',
     'source',
 ]
@@ -55,9 +58,11 @@ TARGET_TEMPLATE_DESCRIPTIONS = [
     'Filter ID for MS2 scans',
     'MS1 or MS2',
     'Category',
-    'Score',
+    'Chemical Formula',
+    'Maven ID or Group ID',
+    'Adduct Name (e.g. [M+H]+)',
     'Free-form notes',
-    'Data source or file',
+    'Source filename'
 ]
 TARGET_TEMPLATE_CSV = ",".join(TARGET_TEMPLATE_COLUMNS) + "\n" + ",".join(TARGET_TEMPLATE_DESCRIPTIONS) + "\n"
 TARGET_DESCRIPTION_MAP = dict(zip(TARGET_TEMPLATE_COLUMNS, TARGET_TEMPLATE_DESCRIPTIONS))
@@ -151,6 +156,18 @@ _layout = html.Div(
                                     title="Download the current target list as a CSV file",
                                     placement="bottom"
                                 ),
+#                                 fac.AntdTooltip(
+#                                     fac.AntdButton(
+#                                         'Download (Maven)',
+#                                         id='download-target-list-maven-btn',
+#                                         icon=fac.AntdIcon(icon='antd-download'),
+#                                         iconPosition='end',
+#                                         style={'textTransform': 'uppercase', 'marginLeft': '5px'},
+#                                     ),
+#                                     id='download-target-list-maven-tooltip',
+#                                     title="Download targets in Maven-compatible format",
+#                                     placement="bottom"
+#                                 ),
                                 html.Div(
                                     fac.AntdDropdown(
                                         id='targets-options',
@@ -251,6 +268,18 @@ _layout = html.Div(
                                 'editable': True,
                             },
                             {
+                                'title': 'Formula',
+                                'dataIndex': 'formula',
+                                'width': '150px',
+                                'editable': True,
+                            },
+#                             {
+#                                 'title': 'Maven ID',
+#                                 'dataIndex': 'maven_id',
+#                                 'width': '150px',
+#                                 'editable': True,
+#                             },
+                            {
                                 'title': 'MS-Type',
                                 'dataIndex': 'ms_type',
                                 'width': '150px',
@@ -266,8 +295,8 @@ _layout = html.Div(
                                 'width': '300px',
                             },
                             {
-                                'title': 'Proton',
-                                'dataIndex': 'proton',
+                                'title': 'Adduct',
+                                'dataIndex': 'adduct_name',
                                 'width': '120px',
                             },
                             {
@@ -275,11 +304,11 @@ _layout = html.Div(
                                 'dataIndex': 'category',
                                 'width': '150px',
                             },
-                            {
-                                'title': 'Score',
-                                'dataIndex': 'score',
-                                'width': '120px',
-                            },
+#                             {
+#                                 'title': 'Score',
+#                                 'dataIndex': 'score',
+#                                 'width': '120px',
+#                             },
                             {
                                 'title': 'Notes',
                                 'dataIndex': 'notes',
@@ -349,17 +378,13 @@ _layout = html.Div(
                                 'title': 'filterLine',
                                 'content': TARGET_DESCRIPTION_MAP['filterLine'],
                             },
-                            'proton': {
-                                'title': 'proton',
-                                'content': 'Ion charge state (Neutral, Positive, or Negative)',
+                            'adduct_name': {
+                                'title': 'adduct_name',
+                                'content': TARGET_DESCRIPTION_MAP['adduct_name'],
                             },
                             'category': {
                                 'title': 'category',
                                 'content': TARGET_DESCRIPTION_MAP['category'],
-                            },
-                            'score': {
-                                'title': 'score',
-                                'content': TARGET_DESCRIPTION_MAP['score'],
                             },
                             'notes': {
                                 'title': 'notes',
@@ -368,6 +393,14 @@ _layout = html.Div(
                             'source': {
                                 'title': 'source',
                                 'content': TARGET_DESCRIPTION_MAP['source'],
+                            },
+                            'formula': {
+                                'title': 'formula',
+                                'content': TARGET_DESCRIPTION_MAP['formula'],
+                            },
+                            'maven_id': {
+                                'title': 'maven_id',
+                                'content': TARGET_DESCRIPTION_MAP['maven_id'],
                             },
                         },
                         filterOptions={
@@ -392,21 +425,21 @@ _layout = html.Div(
                                          'filterCustomItems': ['Negative', 'Positive']
                                          },
                             'filterLine': {'filterMode': 'keyword'},
-                            'proton': {'filterMode': 'checkbox',
-                                       'filterCustomItems': ['Neutral', 'Positive', 'Negative']},
+                            'adduct_name': {'filterMode': 'keyword'},
                             'category': {'filterMode': 'checkbox',
                                          # 'filterCustomItems': ['True', 'False']
                                          },
-                            'score': {'filterMode': 'keyword'},
                             'notes': {'filterMode': 'keyword'},
                             'source': {'filterMode': 'keyword'},
+                            'formula': {'filterMode': 'keyword'},
+                            'maven_id': {'filterMode': 'keyword'},
 
                         },
                         sortOptions={
                             'sortDataIndexes': ['peak_label', 'peak_selection', 'bookmark', 'mz_mean', 'mz_width',
                                                 'mz', 'rt', 'rt_min', 'rt_max',
                                                 'intensity_threshold', 'polarity', 'filterLine', 'ms_type',
-                                                'category', 'score']},
+                                                'category', 'formula', 'maven_id', 'adduct_name']},
                         pagination={
                             'position': 'bottomCenter',
                             'pageSize': 15,
@@ -446,8 +479,8 @@ _layout = html.Div(
                         description=fac.AntdFlex(
                             [
                                 fac.AntdText('No Targets loaded', strong=True, style={'fontSize': '16px'}),
-                                fac.AntdText('Click "Load Targets" to import your data or', type='secondary'),
-                                fac.AntdText('"Untargeted Analysis" to populate the table with features detected using Asari', type='secondary'),
+                                fac.AntdText('Click "Load Targets" to import peak list (e.g., MINT targets, MAVEN peak list, MAVEN results) or', type='secondary'),
+                                fac.AntdText('"Untargeted Analysis" to populate the table with features detected using Asari (needs MS-files loaded)', type='secondary'),
                             ],
                             vertical=True,
                             align='center',
@@ -1028,6 +1061,8 @@ def _save_target_table_on_edit(row_edited, column_edited, wdir):
         "notes",
         "category",
         "score",
+        "formula",
+        "maven_id",
     }
     if column_edited not in allowed_columns:
         logger.debug(f"_save_target_table_on_edit: PreventUpdate because column '{column_edited}' is not editable")
@@ -1340,6 +1375,7 @@ def callbacks(app, fsc=None, cache=None):
         Input("targets-options", "nClicks"),
         Input("download-target-template-btn", "nClicks"),
         Input("download-target-list-btn", "nClicks"),
+#         Input("download-target-list-maven-btn", "nClicks"),
         State("wdir", "data"),
         prevent_initial_call=True,
     )
@@ -1358,7 +1394,7 @@ def callbacks(app, fsc=None, cache=None):
             ws_name = get_workspace_name_from_wdir(wdir) or ws_name
 
         trigger = ctx.triggered[0]['prop_id'].split('.')[0]
-        if trigger not in ("download-target-template-btn", "download-target-list-btn"):
+        if trigger not in ("download-target-template-btn", "download-target-list-btn", "download-target-list-maven-btn"):
             logger.debug("download_results: PreventUpdate (unexpected trigger or no action required)")
             raise PreventUpdate
 
@@ -1435,6 +1471,33 @@ def callbacks(app, fsc=None, cache=None):
             return {'open': False}
 
         return store_data or {'open': True}
+
+#     @app.callback(
+#         Output('download-target-list-maven-btn', 'disabled'),
+#         Output('download-target-list-maven-tooltip', 'title'),
+#         Input('targets-action-store', 'data'),
+#         Input('wdir', 'data'),
+#     )
+#     def update_maven_button_state(action_data, wdir):
+#         if not wdir:
+#             return True, "No workspace active"
+#         
+#         try:
+#             with duckdb_connection(wdir) as conn:
+#                 if conn is None:
+#                     return True, "Database connection failed"
+#                 
+#                 # Check if we have any valid formulas
+#                 count = conn.execute("SELECT COUNT(*) FROM targets WHERE formula IS NOT NULL AND formula != ''").fetchone()
+#                 has_formulas = count and count[0] > 0
+#                 
+#                 if has_formulas:
+#                     return False, "Download targets in Maven-compatible format"
+#                 else:
+#                     return True, "Maven export unavailable: 'formula' information is missing"
+#         except Exception as e:
+#             logger.error(f"Error checking maven compatibility: {e}")
+#             return True, "Error checking compatibility"
 
     @app.callback(
         Output("asari-open-modal-btn", "disabled"),

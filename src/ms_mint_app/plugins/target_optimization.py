@@ -3844,18 +3844,13 @@ def callbacks(app, fsc, cache, cpu=None):
                             downsample_n_out=LTTB_TARGET_POINTS,
                         )
                 if (not full_range) and not visible:
-                    fallback_min, fallback_max = _get_rt_fallback_window(
-                        target_rt, target_rt_min, target_rt_max
+                    logger.warning(
+                        "No signal detected in RT window for target '%s' (rt_min=%.2f, rt_max=%.2f). "
+                        "Consider adjusting the RT range or enabling Full Range mode.",
+                        target_clicked,
+                        target_rt_min if target_rt_min else 0,
+                        target_rt_max if target_rt_max else 0,
                     )
-                    if fallback_min is not None and fallback_max is not None:
-                        chrom_df = get_chromatogram_dataframe(
-                            conn,
-                            target_clicked,
-                            full_range=True,
-                            wdir=wdir,
-                            window_min=fallback_min,
-                            window_max=fallback_max,
-                        )
 
         if chrom_df is None or chrom_df.is_empty():
             logger.warning(
@@ -4131,20 +4126,13 @@ def callbacks(app, fsc, cache, cpu=None):
                     )
 
             if (not full_range) and not visible:
-                fallback_min, fallback_max = _get_rt_fallback_window(
-                    (rt_min + rt_max) / 2.0 if rt_min is not None and rt_max is not None else None,
-                    rt_min,
-                    rt_max,
+                logger.warning(
+                    "apply_rt_alignment: No signal in RT window for target '%s' (rt_min=%.2f, rt_max=%.2f). "
+                    "Consider adjusting the RT range or enabling Full Range mode.",
+                    target_clicked,
+                    rt_min if rt_min else 0,
+                    rt_max if rt_max else 0,
                 )
-                if fallback_min is not None and fallback_max is not None:
-                    chrom_df = get_chromatogram_dataframe(
-                        conn,
-                        target_clicked,
-                        full_range=True,
-                        wdir=wdir,
-                        window_min=fallback_min,
-                        window_max=fallback_max,
-                    )
 
         if chrom_df is None or chrom_df.is_empty():
             logger.warning(
@@ -4446,13 +4434,13 @@ def callbacks(app, fsc, cache, cpu=None):
             d = conn.execute("""
             SELECT rt, rt_min, rt_max, COALESCE(notes, ''), ms_type,
                    rt_align_enabled, rt_align_reference_rt, rt_align_shifts,
-                   rt_align_rt_min, rt_align_rt_max, bookmark
+                   rt_align_rt_min, rt_align_rt_max, bookmark, mz_mean, mz_width
             FROM targets 
             WHERE peak_label = ?
         """, [target_clicked]).fetchall()
         
             if d:
-                rt, rt_min, rt_max, note, target_ms_type, align_enabled, align_ref_rt, align_shifts_json, align_rt_min, align_rt_max, bookmark_state = d[0]
+                rt, rt_min, rt_max, note, target_ms_type, align_enabled, align_ref_rt, align_shifts_json, align_rt_min, align_rt_max, bookmark_state, mz_mean, mz_width = d[0]
             else:
                 rt, rt_min, rt_max, note = None, None, None, ''
                 target_ms_type = None
@@ -4462,6 +4450,7 @@ def callbacks(app, fsc, cache, cpu=None):
                 align_rt_min = None
                 align_rt_max = None
                 bookmark_state = False
+                mz_mean, mz_width = None, None
 
             logger.debug(
                 "Modal open RT alignment DB state for '%s': enabled=%s, has_shifts=%s, ref_rt=%s, span=[%s,%s]",
@@ -4617,16 +4606,13 @@ def callbacks(app, fsc, cache, cpu=None):
                             downsample_n_out=LTTB_TARGET_POINTS,
                         )
                 if (not full_range) and (not visible):
-                    fallback_min, fallback_max = _get_rt_fallback_window(rt, rt_min, rt_max)
-                    if fallback_min is not None and fallback_max is not None:
-                        chrom_df = get_chromatogram_dataframe(
-                            conn,
-                            target_clicked,
-                            full_range=True,
-                            wdir=wdir,
-                            window_min=fallback_min,
-                            window_max=fallback_max,
-                        )
+                    logger.warning(
+                        "Modal open: No signal in RT window for target '%s' (rt_min=%.2f, rt_max=%.2f). "
+                        "Consider adjusting the RT range or enabling Full Range mode.",
+                        target_clicked,
+                        rt_min if rt_min else 0,
+                        rt_max if rt_max else 0,
+                    )
 
         if chrom_df is None or chrom_df.is_empty():
             logger.warning(
@@ -4987,7 +4973,15 @@ def callbacks(app, fsc, cache, cpu=None):
         # Savgol smoothing is disabled; keep the switch permanently off/disabled.
         savgol_disabled = True
 
-        return (fig, f"{target_clicked}", False, slider_reference,
+        modal_title = f"{target_clicked}"
+        if mz_mean is not None and mz_width is not None:
+             # Calculate mass window (ppm)
+             tolerance = mz_mean * mz_width * 1e-6
+             mz_lower = mz_mean - tolerance
+             mz_upper = mz_mean + tolerance
+             modal_title += f" (m/z: {mz_lower:.4f} - {mz_upper:.4f})"
+
+        return (fig, modal_title, False, slider_reference,
                 slider_dict, {"min_y": y_min, "max_y": y_max}, total_points, log_scale, group_legend, 
                 full_range, full_range_disabled, full_range_tooltip, rt_align_toggle_state, rt_alignment_data_to_load, note, False, bookmark_icon_node, 
                 # Background trigger data (if megatrace/envelope is used)
@@ -5104,21 +5098,13 @@ def callbacks(app, fsc, cache, cpu=None):
                         downsample_n_out=LTTB_TARGET_POINTS,
                     )
                 if not visible:
-                    rt_center = None
-                    if rt_min is not None and rt_max is not None:
-                        rt_center = (rt_min + rt_max) / 2.0
-                    fallback_min, fallback_max = _get_rt_fallback_window(
-                        rt_center, rt_min, rt_max
+                    logger.warning(
+                        "load_detailed_traces: No signal in RT window for target '%s' (rt_min=%.2f, rt_max=%.2f). "
+                        "Consider adjusting the RT range or enabling Full Range mode.",
+                        target_clicked,
+                        rt_min if rt_min else 0,
+                        rt_max if rt_max else 0,
                     )
-                    if fallback_min is not None and fallback_max is not None:
-                        chrom_df = get_chromatogram_dataframe(
-                            conn,
-                            target_clicked,
-                            full_range=True,
-                            wdir=wdir,
-                            window_min=fallback_min,
-                            window_max=fallback_max,
-                        )
 
             # RT alignment can be lost here due to callback ordering (store not ready yet).
             # Fall back to the persisted DB alignment for this target when needed.
@@ -6095,8 +6081,28 @@ def callbacks(app, fsc, cache, cpu=None):
         else:
             raise PreventUpdate
         
-        # Auto-save notes and RT alignment before navigating
-        if wdir and current_target:
+        # Check if RT-span has actually changed before opening a DB connection
+        slider_changed = False
+        if slider_data and reference_data:
+            slider_value = slider_data.get("value") if isinstance(slider_data, dict) else None
+            reference_value = reference_data.get("value") if isinstance(reference_data, dict) else None
+            if slider_value and reference_value:
+                # Compare rt_min, rt_max, and rt values
+                slider_changed = (
+                    slider_value.get("rt_min") != reference_value.get("rt_min") or
+                    slider_value.get("rt_max") != reference_value.get("rt_max") or
+                    slider_value.get("rt") != reference_value.get("rt")
+                )
+            elif slider_value and not reference_value:
+                # New slider data with no reference means it's a change
+                slider_changed = True
+        elif slider_data and not reference_data:
+            # Slider data exists but no reference - treat as change only if slider has values
+            slider_value = slider_data.get("value") if isinstance(slider_data, dict) else None
+            slider_changed = bool(slider_value)
+
+        # Only open DB connection if something actually changed
+        if wdir and current_target and slider_changed:
             try:
                 with duckdb_connection(wdir) as conn:
                     if conn is not None:
@@ -6105,6 +6111,8 @@ def callbacks(app, fsc, cache, cpu=None):
                             current_target,
                             current_note,
                             slider_data=slider_data,
+                            reference_data=reference_data,
+                            check_slider_change=True,
                             rt_align_toggle=rt_align_toggle,
                             rt_alignment_data=rt_alignment_data,
                             allow_clear_rt_alignment=False,
@@ -6130,6 +6138,8 @@ def callbacks(app, fsc, cache, cpu=None):
                             )
             except Exception as e:
                 logger.warning(f"Failed to auto-save data for '{current_target}': {e}")
+        elif wdir and current_target and not slider_changed:
+            logger.debug(f"Skipped auto-save for '{current_target}': no RT-span changes detected")
         
         # Navigate directly (no more confirmation modal)
         new_target = targets[new_index]

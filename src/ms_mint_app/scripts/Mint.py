@@ -156,6 +156,25 @@ def main():
             mpl_cfg.mkdir(parents=True, exist_ok=True)
             os.environ.setdefault("MPLCONFIGDIR", str(mpl_cfg))
 
+            import platform
+            import shutil
+            
+            system = platform.system().lower()
+            bundled_cache = P(sys._MEIPASS) / "assets" / f"matplotlib_cache_{system}"
+            
+            if not bundled_cache.exists():
+                 bundled_cache = P(sys._MEIPASS) / "ms_mint_app" / "assets" / f"matplotlib_cache_{system}"
+
+            if bundled_cache.exists():
+                has_fontlist = any(mpl_cfg.glob("fontlist-*.json"))
+                if not has_fontlist:
+                    logging.info(f"Restoring bundled matplotlib cache from {bundled_cache}...")
+                    try:
+                        shutil.copytree(str(bundled_cache), str(mpl_cfg), dirs_exist_ok=True)
+                        logging.info("Matplotlib cache restored.")
+                    except Exception as e:
+                        logging.warning(f"Failed to restore matplotlib cache: {e}")
+
             import logging as _logging
 
             _logging.getLogger("matplotlib").setLevel(_logging.WARNING)
@@ -168,7 +187,7 @@ def main():
     # Create the distribution getter function with the necessary context
     get_distribution = _create_get_distribution(is_frozen, true_get_distribution, _Dist)
 
-    parser = argparse.ArgumentParser(description="MINT frontend.")
+    parser = argparse.ArgumentParser(description="MINT")
 
     parser.add_argument(
         "--no-browser",
@@ -418,7 +437,13 @@ def main():
             dev_tools_hot_reload_max_retry=30,
         )
     else:
-        serve(app.server, port=args.port, host=args.host)
+        import multiprocessing
+        # Dynamic thread scaling: at least 4, but scale up for powerful machines
+        try:
+             threads = max(4, multiprocessing.cpu_count() + 1)
+        except Exception:
+             threads = 4
+        serve(app.server, port=args.port, host=args.host, threads=threads)
 
 
 if __name__ == "__main__":

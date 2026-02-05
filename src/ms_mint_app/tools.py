@@ -1,3 +1,4 @@
+from __future__ import annotations
 import base64
 import io
 import logging
@@ -21,6 +22,7 @@ from scipy.ndimage import binary_opening
 
 from .duckdb_manager import duckdb_connection
 from .sample_metadata import GROUP_COLUMNS
+from .mass_calculator import MassCalculator, IonizationType
 
 logger = logging.getLogger(__name__)
 
@@ -116,6 +118,13 @@ COLUMN_MAPPINGS = {
     'retentiontime': 'rt',
     'rtmin': 'rt_min',
     'rtmax': 'rt_max',
+    
+    # Formula and IDs
+    'formula': 'formula',
+    'parentformula': 'formula',
+    'id': 'maven_id',
+    'groupid': 'maven_id',
+    'maven_id': 'maven_id',
 }
 
 # Priority order for target columns that can come from multiple source columns.
@@ -125,6 +134,8 @@ PRIORITY_MAPPINGS = {
     'mz_mean': ['meanmz', 'medmz', 'parent', 'row m/z', 'precursor_mz', 'precursormz'],
     'peak_label': ['compound', 'compoundid', 'compoundname', 'compound name', 'name', 'target', 'target_name'],
     'rt': ['meanrt', 'medrt', 'expectedrt', 'row retention time', 'retention_time', 'retentiontime'],
+    'formula': ['formula', 'parentformula'],
+    'maven_id': ['id', 'groupid', 'maven_id'],
 }
 
 
@@ -190,7 +201,8 @@ def normalize_column_names(df: pd.DataFrame) -> pd.DataFrame:
             mapped_info.append(f"'{col}' → '{mint_col}'")
             
             # EL-MAVEN medRt is in minutes - needs conversion to seconds
-            if col_lower in ('medrt', 'meanrt'):
+            # EL-MAVEN format detection - used to trigger RT conversion (minutes -> seconds)
+            if col_lower in ('medrt', 'meanrt', 'expectedrt', 'rtmin', 'rtmax', 'compound', 'compoundid'):
                 needs_rt_conversion = True
     
     if mapped_info:
@@ -1410,6 +1422,8 @@ def get_targets_v2(files_path):
         "source": 'string',
         "notes": 'string',
         "rt_auto_adjusted": 'boolean',
+        "formula": 'string',
+        "maven_id": 'string',
     }
     # Only peak_label is strictly required - RT values are smartly derived
     # from various combinations of rt, rt_min, rt_max (at least one required)
@@ -1665,18 +1679,29 @@ def get_targets_v2(files_path):
     # Build DataFrame with valid targets
     targets_df = pd.DataFrame(valid_targets)
 
-    # Eliminar duplicados basados en peak_label, pero registrar los duplicados encontrados
-    duplicate_labels = (
-        targets_df[targets_df.duplicated(subset="peak_label", keep=False)]
-        .get("peak_label", pd.Series([], dtype="string"))
-        .dropna()
-        .unique()
-        .tolist()
-    )
-    if duplicate_labels:
+    duplicate_labels = []
+    # Rename duplicates by appending RT
+    if targets_df.duplicated(subset="peak_label", keep=False).any():
+        dupe_mask = targets_df.duplicated(subset="peak_label", keep=False)
+        
+        # Log the original duplicates
+        duplicate_labels = targets_df.loc[dupe_mask, "peak_label"].unique().tolist()
         logging.warning(
-            "Found duplicate target labels; keeping first occurrence: %s", duplicate_labels
+            f"Found {dupe_mask.sum()} duplicate target labels: {duplicate_labels}. "
+            "Renaming them to 'Label@RT' format."
         )
+
+        def _rename_duplicate(row):
+            # Ensure RT is available
+            rt_val = row.get('rt')
+            if pd.notna(rt_val):
+                return f"{row['peak_label']}@{float(rt_val):.2f}"
+            return row['peak_label']
+
+        targets_df.loc[dupe_mask, 'peak_label'] = targets_df[dupe_mask].apply(_rename_duplicate, axis=1)
+
+    # Final check: if duplicates still exist (exact same label AND exact same RT), drop them
+    # This handles true redundant entries
     targets_df = targets_df.drop_duplicates(subset="peak_label")
 
     # Ensure all reference columns exist
@@ -2202,11 +2227,131 @@ def process_targets(wdir, set_progress, selected_files):
     with duckdb_connection(wdir) as conn:
         if conn is None:
             raise PreventUpdate
+
+        # ------------------------------------------------------------------
+        # Auto-Populate Polarity from MS Files (for MS1 targets)
+        # ------------------------------------------------------------------
+        try:
+            # Check if we have a consistent polarity across all loaded MS files
+            existing_pols = conn.execute("SELECT DISTINCT polarity FROM samples WHERE polarity IS NOT NULL").fetchall()
+            
+            # If exactly one unique polarity is found (e.g., only "Positive")
+            if len(existing_pols) == 1:
+                inferred_pol = existing_pols[0][0]
+                if inferred_pol:
+                    logging.info(f"Auto-populating missing target polarities with '{inferred_pol}' (inferred from MS files)")
+                    if 'polarity' in targets_df.columns:
+                        targets_df['polarity'] = targets_df['polarity'].fillna(inferred_pol)
+                    else:
+                        targets_df['polarity'] = inferred_pol
+            
+            # ------------------------------------------------------------------
+            # Polarity Validation: Check for explicit conflicts
+            # ------------------------------------------------------------------
+            if len(existing_pols) == 1 and inferred_pol and 'polarity' in targets_df.columns:
+                # Identify targets that have a polarity set (not NA) AND it differs from the file polarity
+                mismatches = targets_df[
+                    (targets_df['polarity'].notna()) & 
+                    (targets_df['polarity'] != inferred_pol)
+                ]
+                
+                if not mismatches.empty:
+                    n_mismatch = len(mismatches)
+                    mismatched_labels = mismatches['peak_label'].head(3).tolist()
+                    example_str = ", ".join(map(str, mismatched_labels))
+                    if n_mismatch > 3:
+                        example_str += ", ..."
+                        
+                    warn_msg = (
+                        f"Polarity Mismatch Warning: {n_mismatch} targets explicitly specify a polarity "
+                        f"different from the loaded MS files (which are '{inferred_pol}'). "
+                        f"Examples: {example_str}. "
+                        f"These targets may not yield valid results."
+                    )
+                    logging.warning(warn_msg)
+                    # Note: We do NOT stop processing or drop them, we just warn.
+            # ------------------------------------------------------------------
+            # ------------------------------------------------------------------
+            # Auto-Populate Adduct Name
+            # ------------------------------------------------------------------
+            if 'adduct_name' not in targets_df.columns:
+                targets_df['adduct_name'] = None
+                
+            def _get_adduct(pol):
+                if not pol: return None
+                p = str(pol).lower()
+                if 'positive' in p: return '[M+H]+'
+                if 'negative' in p: return '[M-H]-'
+                return None
+                
+            # Apply only where adduct_name is missing
+            mask_missing = targets_df['adduct_name'].isna()
+            if mask_missing.any():
+                targets_df.loc[mask_missing, 'adduct_name'] = targets_df.loc[mask_missing, 'polarity'].apply(_get_adduct)
+            # ------------------------------------------------------------------
+
+            # ------------------------------------------------------------------
+            # Calculate m/z from Formula (using MassCalculator)
+            # ------------------------------------------------------------------
+            # Rows where mz_mean is missing but formula is present
+            mask_calc = (targets_df['mz_mean'].isna()) & (targets_df['formula'].notna())
+            
+            if mask_calc.any():
+                calc = MassCalculator(IonizationType.ESI)
+                
+                def _calc_mz(row):
+                    formula = row['formula']
+                    pol = str(row['polarity']).lower()
+                    charge = 0
+                    if 'positive' in pol: charge = 1
+                    elif 'negative' in pol: charge = -1
+                    
+                    if charge != 0:
+                        try:
+                            # compute_mass returns 0.0 if elements are invalid/unknown
+                            mass = calc.compute_mass(formula, charge)
+                            return mass if mass > 1 else None # Basic sanity check, H+ is ~1
+                        except Exception:
+                            return None
+                    return None
+
+                # Calculate m/z
+                calculated_mz = targets_df.loc[mask_calc].apply(_calc_mz, axis=1)
+                
+                # Round to 6 decimal places
+                calculated_mz = calculated_mz.astype(float).round(6)
+                
+                targets_df.loc[mask_calc, 'mz_mean'] = calculated_mz
+                # targets_df.loc[mask_calc, 'mz'] = calculated_mz # User requested not to fill this for MS1/Maven data
+                
+                n_calced = mask_calc.sum()
+                logging.info(f"Calculated m/z for {n_calced} targets based on formula")
+            # ------------------------------------------------------------------
+            
+        except Exception as e:
+            logging.warning(f"Failed to auto-populate polarity/adduct/mz: {e}")
+        # ------------------------------------------------------------------
+        
+        # ------------------------------------------------------------------
+        # Post-Processing Cleanup
+        # ------------------------------------------------------------------
+        # Ensure 'mz' column (Precursor m/z) is empty for MS1 targets
+        # User feedback indicates this is redundant and confusing for Maven/MS1 data
+        if 'mz' in targets_df.columns and 'ms_type' in targets_df.columns:
+            # Case-insensitive check for ms1
+            mask_ms1 = targets_df['ms_type'].astype(str).str.lower() == 'ms1'
+            if mask_ms1.any():
+                start_n = targets_df.loc[mask_ms1, 'mz'].notna().sum()
+                if start_n > 0:
+                    targets_df.loc[mask_ms1, 'mz'] = None
+                    logging.info(f"Cleared 'mz' column for {start_n} MS1 targets (redundant for MS1).")
+        # ------------------------------------------------------------------
+
         conn.execute(
             "INSERT OR REPLACE INTO targets(peak_label, mz_mean, mz_width, mz, rt, rt_min, rt_max, rt_unit, "
-            "intensity_threshold, polarity, filterLine, ms_type, category, score, peak_selection, bookmark, source, notes, rt_auto_adjusted) "
+            "intensity_threshold, polarity, filterLine, ms_type, category, score, peak_selection, bookmark, source, notes, rt_auto_adjusted, formula, maven_id, adduct_name) "
             "SELECT peak_label, mz_mean, mz_width, mz, rt, rt_min, rt_max, rt_unit, intensity_threshold, polarity, "
-            "filterLine, ms_type, category, score, peak_selection, bookmark, source, notes, rt_auto_adjusted "
+            "filterLine, ms_type, category, score, peak_selection, bookmark, source, notes, rt_auto_adjusted, formula, maven_id, adduct_name "
             "FROM targets_df ORDER BY mz_mean, peak_label"
         )
         

@@ -175,16 +175,21 @@ _layout = html.Div(
                 ),
                 fac.AntdFlex(
                     [
-                        fac.AntdTooltip(
-                            fac.AntdButton(
-                                'Download template',
-                                id='download-ms-template-btn',
-                                icon=fac.AntdIcon(icon='antd-download'),
-                                iconPosition='end',
-                                style={'textTransform': 'uppercase'},
+                        # Conditionally visible: Download Template button (only when files exist)
+                        html.Div(
+                            fac.AntdTooltip(
+                                fac.AntdButton(
+                                    'Download template',
+                                    id='download-ms-template-btn',
+                                    icon=fac.AntdIcon(icon='antd-download'),
+                                    iconPosition='end',
+                                    style={'textTransform': 'uppercase'},
+                                ),
+                                title="Download the metadata template (pre-filled with current files) for annotation.",
+                                placement="bottom"
                             ),
-                            title="Download a blank CSV template for file metadata.",
-                            placement="bottom"
+                            id='download-ms-template-wrapper',
+                            style={'display': 'none'},
                         ),
                         # Conditionally visible: Download MS-Files and Options (only when files exist)
                         html.Div(
@@ -291,7 +296,7 @@ _layout = html.Div(
                         description=fac.AntdFlex(
                             [
                                 fac.AntdText('No MS files loaded', strong=True, style={'fontSize': '16px'}),
-                                fac.AntdText('Click "Load MS-Files" to import your data', type='secondary'),
+                                fac.AntdText('Click "Load MS-Files" to import mzML/mzXML files', type='secondary'),
                             ],
                             vertical=True,
                             align='center',
@@ -509,14 +514,10 @@ _layout = html.Div(
                 },
                 {
                     'title': 'Load raw files',
-                    'description': 'Click "Load MS-Files" to browse and add raw data files (mzML, mzXML) to this workspace.',
+                    'description': 'Click "Load MS-Files" to browse and add raw data files (*.mzML, *.mzXML) to this workspace.',
                     'targetSelector': "[id='{\"action\":\"file-explorer\",\"type\":\"ms-files\"}']"
                 },
-                {
-                    'title': 'Use the metadata template',
-                    'description': 'Download the metadata template if you need the expected column names for annotating your files.',
-                    'targetSelector': '#download-ms-template-btn'
-                },
+
             ],
             id='ms-files-tour-empty',
             open=False,
@@ -557,7 +558,7 @@ _layout = html.Div(
                 },
                 {
                     'title': 'Use the metadata template',
-                    'description': 'Download the metadata template if you need the expected column names.',
+                    'description': 'Download the metadata template (pre-filled with current files) to edit and re-upload.',
                     'targetSelector': '#download-ms-template-btn'
                 },
             ],
@@ -1094,7 +1095,7 @@ def callbacks(cls, app, fsc, cache, args_namespace):
     app.clientside_callback(
         """(status) => {
             if (!status) {
-                return [{'display': 'none'}, {'display': 'none'}, {'paddingTop': '1rem', 'display': 'none'}, {'display': 'block'}];
+                return [{'display': 'none'}, {'display': 'none'}, {'display': 'none'}, {'paddingTop': '1rem', 'display': 'none'}, {'display': 'block'}];
             }
             const hasFiles = (status.ms_files_count || 0) > 0;
             const showStyle = hasFiles ? 'block' : 'none';
@@ -1102,12 +1103,14 @@ def callbacks(cls, app, fsc, cache, args_namespace):
             const flexStyle = hasFiles ? 'flex' : 'none';
             return [
                 {'display': showStyle},
+                {'display': showStyle},
                 {'display': flexStyle, 'gap': '8px'},
                 {'paddingTop': '1rem', 'display': showStyle},
                 {'display': hideStyle}
             ];
         }""",
         [
+            Output('download-ms-template-wrapper', 'style'),
             Output('ms-files-load-metadata-wrapper', 'style'),
             Output('ms-files-data-actions-wrapper', 'style'),
             Output('ms-files-table-container', 'style'),
@@ -1316,7 +1319,7 @@ def callbacks(cls, app, fsc, cache, args_namespace):
             ctx,
             "download-ms-template-btn",
             "download-ms-files-btn",
-            MS_METADATA_TEMPLATE_CSV,
+            build_df,
             f"{T.today()}-MINT__{ws_name}-ms_files_template.csv",
             build_df,
             f"{T.today()}-MINT__{ws_name}-ms_files.csv",

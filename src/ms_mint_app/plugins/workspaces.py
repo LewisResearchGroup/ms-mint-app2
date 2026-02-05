@@ -532,17 +532,34 @@ def _ws_activate(selectedRowKeys, tmpdir, ws_action):
 
         if already_active:
              # Just update activity time
-            mint_conn.execute("UPDATE workspaces SET last_activity = NOW() WHERE key = ?", (ws_key,))
-            name = mint_conn.execute("SELECT name FROM workspaces WHERE key = ?", (ws_key,)).fetchone()
-            notification = dash.no_update
-            is_new_activation = False
+             try:
+                 mint_conn.execute("UPDATE workspaces SET last_activity = NOW() WHERE key = ?", (ws_key,))
+                 name = mint_conn.execute("SELECT name FROM workspaces WHERE key = ?", (ws_key,)).fetchone()
+             except Exception as e:
+                 logger.warning(f"Failed to update workspace activity: {e}")
+                 name = None
+             
+             notification = dash.no_update
+             is_new_activation = False
         else:
-            # Full activation switch
-            mint_conn.execute("UPDATE workspaces SET active = false WHERE key != ?", (ws_key,))
-            name = mint_conn.execute(
-                "UPDATE workspaces SET active = true, last_activity = NOW() WHERE key = ? RETURNING name",
-                (ws_key,)
-            ).fetchone()
+            # Full activation switch with retries for concurrency
+            import duckdb
+            max_retries = 3
+            for attempt in range(max_retries):
+                try:
+                    mint_conn.execute("UPDATE workspaces SET active = false WHERE key != ?", (ws_key,))
+                    name = mint_conn.execute(
+                        "UPDATE workspaces SET active = true, last_activity = NOW() WHERE key = ? RETURNING name",
+                        (ws_key,)
+                    ).fetchone()
+                    break # Success
+                except (duckdb.TransactionException, duckdb.IOException) as e:
+                    if attempt == max_retries - 1:
+                        logger.error(f"Failed to activate workspace {ws_key} after {max_retries} attempts: {e}")
+                        raise
+                    import time
+                    time.sleep(0.1 + (attempt * 0.1)) # Backoff
+
             is_new_activation = True
             
             if name:

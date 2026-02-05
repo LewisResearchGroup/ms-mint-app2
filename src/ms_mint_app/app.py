@@ -159,7 +159,7 @@ def _build_layout(*, plugins, file_explorer, initial_page_children=None, initial
                                     ),
                                     fac.AntdFlex(
                                         [
-                                            fac.AntdText('Workspace:', strong=True, style={'whiteSpace': 'nowrap'}),
+                                            fac.AntdText('Workspace:', strong=True, style={'whiteSpace': 'nowrap', 'paddingLeft': '8px'}),
                                             fac.AntdCopyText(
                                                 id="ws-wdir-name",
                                                 locale='en-us',

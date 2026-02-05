@@ -39,6 +39,17 @@ You can manage your workspaces using the controls in the Workspaces tab:
 
     > **Warning**: Deleting a workspace will permanently remove the workspace folder and all its contents from your hard drive. This action cannot be undone.
 
+### Importing a Database {: #import-database }
+
+If you have an existing MINT workspace database (`.db` file) from another machine or a backup, you can import it directly:
+
+1.  Click the `Import Database` button (bottom center).
+2.  **Database Path**: Browse for or enter the absolute path to the `.db` file.
+3.  **Workspace Name**: Assign a unique name for the new workspace.
+4.  Click `Import`.
+
+MINT will copy the database into a new workspace folder, and you can immediately begin working with the restored data.
+
 ### Workspace Details {: #workspace-details }
 Click the `+` icon next to a workspace name to expand the row. This shows the absolute path to the workspace and a summary of the data it contains (_e.g._, number of MS-files, targets, and results).
 
