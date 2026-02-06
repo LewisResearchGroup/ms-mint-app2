@@ -17,8 +17,8 @@ def test_toggle_bookmark_logic_false_to_true():
         assert len(calls) >= 2
         update_call = calls[-1]
         args, _ = update_call
-        assert "UPDATE targets SET bookmark = ?" in args[0]
-        assert args[1] == [True, "TestTarget"]
+        assert "UPDATE targets SET bookmark = TRUE, peak_selection = TRUE WHERE peak_label = ?" in args[0]
+        assert args[1] == ["TestTarget"]
         mock_icon.assert_called_with(icon="antd-star", style={"color": "gold"})
 
 
@@ -35,5 +35,6 @@ def test_toggle_bookmark_logic_true_to_false():
         calls = mock_conn.execute.call_args_list
         update_call = calls[-1]
         args, _ = update_call
-        assert args[1] == [False, "TestTarget"]
+        assert "UPDATE targets SET bookmark = FALSE WHERE peak_label = ?" in args[0]
+        assert args[1] == ["TestTarget"]
         mock_icon.assert_called_with(icon="antd-star", style={"color": "gray"})
