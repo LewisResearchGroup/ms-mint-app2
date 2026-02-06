@@ -796,6 +796,7 @@ def _ms_files_table(section_context, processing_output, processed_action, pagina
     
     # Skip refresh if triggered by action store for certain actions (cell already updated visually)
     ctx = dash.callback_context
+    delete_refresh = False
     if ctx.triggered:
         trigger_id = ctx.triggered[0]['prop_id'].split('.')[0]
         if trigger_id == 'ms-table-action-store':
@@ -803,9 +804,14 @@ def _ms_files_table(section_context, processing_output, processed_action, pagina
             # Skip for empty/no_update (color change), or edit actions (cell updates handled locally)
             if not trigger_value or trigger_value == {} or trigger_value.get('action') == 'edit':
                 raise PreventUpdate
+            delete_refresh = (
+                trigger_value.get('action') == 'delete'
+                and trigger_value.get('status') == 'success'
+            )
 
     start_time = time.perf_counter()
     if pagination:
+        filter_reset = dash.no_update
         page_size = pagination['pageSize']
         current = pagination['current']
 
@@ -840,6 +846,34 @@ def _ms_files_table(section_context, processing_output, processed_action, pagina
 
         # total rows:
         number_records = int(dfpl["__total__"][0]) if len(dfpl) else 0
+
+        # If a delete leaves the current filtered view empty, fall back to unfiltered page 1.
+        if delete_refresh and number_records == 0:
+            with duckdb_connection(wdir) as conn:
+                total_count = conn.execute("SELECT COUNT(*) FROM samples").fetchone()[0]
+            if total_count > 0:
+                current = 1
+                filter_reset = {}
+                where_sql = ""
+                params = []
+                sql = f"""
+                WITH filtered AS (
+                  SELECT *
+                  FROM samples
+                ),
+                paged AS (
+                  SELECT *, COUNT(*) OVER() AS __total__
+                  FROM filtered
+                  {(' ' + order_by_sql) if order_by_sql else ''}
+                  LIMIT ? OFFSET ?
+                )
+                SELECT * FROM paged;
+                """
+                params_paged = [page_size, 0]
+                with duckdb_connection(wdir) as conn:
+                    dfpl = conn.execute(sql, params_paged).pl()
+                number_records = int(dfpl["__total__"][0]) if len(dfpl) else 0
+
         max_page = max(math.ceil(number_records / page_size), 1)
         current = min(max(current, 1), max_page)
 
@@ -919,7 +953,8 @@ def _ms_files_table(section_context, processing_output, processed_action, pagina
              'current': current,
              'pageSizeOptions': sorted(set([5, 10, 15, 25, 50, 100] + ([number_records] if number_records else [])))},
             output_filterOptions,
-            "Updating table..."
+            "Updating table...",
+            filter_reset,
         ]
     return dash.no_update
 
@@ -1332,6 +1367,7 @@ def callbacks(cls, app, fsc, cache, args_namespace):
         Output("ms-files-table", "pagination"),
         Output("ms-files-table", "filterOptions"),
         Output("ms-files-table-spin", "text", allow_duplicate=True),
+        Output("ms-files-table", "filter", allow_duplicate=True),
 
         Input('section-context', 'data'),
         Input("ms-table-action-store", "data"),
@@ -1347,7 +1383,7 @@ def callbacks(cls, app, fsc, cache, args_namespace):
     def ms_files_table(section_context, processing_output, processed_action, pagination, filter_, sorter, filterOptions,
                        processing_type, wdir):
         return _ms_files_table(section_context, processing_output, processed_action, pagination, filter_, sorter, filterOptions,
-                       processing_type, wdir)
+                               processing_type, wdir)
 
     @app.callback(
         Output("notifications-container", "children", allow_duplicate=True),

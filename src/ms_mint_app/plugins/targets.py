@@ -756,6 +756,7 @@ def _targets_table(section_context, pagination, filter_, sorter, filterOptions, 
     
     # Skip refresh if triggered by action store for edit actions (cell already updated visually)
     ctx = dash.callback_context
+    delete_refresh = False
     if ctx.triggered:
         trigger_id = ctx.triggered[0]['prop_id'].split('.')[0]
         if trigger_id == 'targets-action-store':
@@ -763,8 +764,14 @@ def _targets_table(section_context, pagination, filter_, sorter, filterOptions, 
             # Skip for edit actions (cell updates are handled locally by AntdTable)
             if trigger_value and trigger_value.get('action') == 'edit':
                 raise PreventUpdate
+            delete_refresh = (
+                bool(trigger_value)
+                and trigger_value.get('action') == 'delete'
+                and trigger_value.get('status') == 'success'
+            )
 
     if pagination:
+        filter_reset = dash.no_update
         page_size = pagination['pageSize']
         current = pagination['current']
 
@@ -858,17 +865,72 @@ def _targets_table(section_context, pagination, filter_, sorter, filterOptions, 
 
         # total rows:
         number_records = int(data["__total__"][0]) if len(data) else 0
-        
-        # If result is empty but there are records, we may be on a page beyond the last
-        if len(data) == 0 and number_records == 0:
-            # Check if there are actually any records matching the filter
+
+        # If a delete leaves current filtered view empty, fall back to unfiltered page 1.
+        if delete_refresh and number_records == 0:
             with duckdb_connection(wdir) as conn:
                 if conn is None:
                     raise PreventUpdate
-                count_sql = f"SELECT COUNT(*) FROM targets {where_sql}"
-                total_count = conn.execute(count_sql, params).fetchone()[0]
-                if total_count > 0:
-                    number_records = total_count
+                total_count = conn.execute("SELECT COUNT(*) FROM targets").fetchone()[0]
+            if total_count > 0:
+                current = 1
+                filter_reset = {}
+                params = []
+                where_sql = ""
+                sql = f"""
+                            WITH filtered AS (
+                              SELECT *
+                              FROM targets
+                            ),
+                            paged AS (
+                              SELECT *, COUNT(*) OVER() AS __total__
+                              FROM filtered
+                              {(' ' + order_by_sql) if order_by_sql else ''}
+                              LIMIT ? OFFSET ?
+                            )
+                            SELECT * FROM paged;
+                            """
+                params_paged = [page_size, 0]
+                with duckdb_connection(wdir) as conn:
+                    if conn is None:
+                        raise PreventUpdate
+                    dfpl = conn.execute(sql, params_paged).pl()
+
+                data = (
+                    dfpl
+                    .with_columns(
+                        pl.when(pl.col('peak_selection').is_null())
+                        .then(pl.col('bookmark').fill_null(False))
+                        .otherwise(pl.col('peak_selection'))
+                        .cast(pl.Boolean)
+                        .alias('peak_selection_resolved'),
+                        pl.col('bookmark').fill_null(False).cast(pl.Boolean).alias('bookmark_resolved'),
+                        pl.when(pl.col('mz').is_null())
+                        .then(pl.lit(None))
+                        .otherwise(
+                            pl.col('mz').map_elements(
+                                lambda x: f"{float(x):.6f}" if x is not None else None,
+                                return_dtype=pl.Utf8,
+                            )
+                        )
+                        .alias('mz'),
+                        pl.when(pl.col('mz_mean').is_null())
+                        .then(pl.lit(None))
+                        .otherwise(
+                            pl.col('mz_mean').map_elements(
+                                lambda x: f"{float(x):.6f}" if x is not None else None,
+                                return_dtype=pl.Utf8,
+                            )
+                        )
+                        .alias('mz_mean'),
+                        pl.col('rt').round(1).alias('rt'),
+                        pl.col('rt_min').round(1).alias('rt_min'),
+                        pl.col('rt_max').round(1).alias('rt_max'),
+                        pl.col('ms_type').cast(pl.String).str.to_uppercase().alias('ms_type'),
+                    )
+                    .drop(['peak_selection', 'bookmark'])
+                )
+                number_records = int(data["__total__"][0]) if len(data) else 0
         
         # Calculate max page and adjust current if beyond it
         max_page = max(math.ceil(number_records / page_size), 1) if number_records else 1
@@ -958,7 +1020,8 @@ def _targets_table(section_context, pagination, filter_, sorter, filterOptions, 
             {**pagination, 'total': number_records, 'current': current, 'pageSizeOptions': sorted([5, 10, 15, 25, 50,
             100, number_records])},
             output_filterOptions,
-            "Loading data..."
+            "Loading data...",
+            filter_reset,
         ]
     return dash.no_update
 
@@ -1337,6 +1400,7 @@ def callbacks(app, fsc=None, cache=None):
         Output("targets-table", "pagination"),
         Output("targets-table", "filterOptions"),
         Output("targets-table-spin", "text", allow_duplicate=True),
+        Output("targets-table", "filter", allow_duplicate=True),
 
         Input('section-context', 'data'),
         Input("targets-action-store", "data"),
