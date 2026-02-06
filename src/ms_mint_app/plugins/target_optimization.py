@@ -1083,7 +1083,11 @@ _layout = fac.AntdLayout(
                                                 fac.AntdFormItem(
                                                     fac.AntdSelect(
                                                         id='chromatogram-preview-filter-ms-type',
-                                                        options=['All', 'ms1', 'ms2'],
+                                                        options=[
+                                                            {'label': 'All', 'value': 'All'},
+                                                            {'label': 'MS1', 'value': 'ms1'},
+                                                            {'label': 'MS2', 'value': 'ms2'},
+                                                        ],
                                                         value='ms1',
                                                         placeholder='Select ms_type',
                                                         style={'width': '100%'},
