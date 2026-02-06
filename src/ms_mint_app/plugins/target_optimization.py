@@ -6041,6 +6041,32 @@ def callbacks(app, fsc, cache, cpu=None):
                 if ms_type_filter and ms_type_filter != 'All':
                     filters.append("ms_type = ?")
                     params.append(ms_type_filter.lower())
+
+                # Keep modal navigation aligned with preview cards:
+                # 1) target must have chromatograms for its MS type
+                # 2) only selected targets are eligible, unless none are selected
+                filters.append(
+                    """
+                    EXISTS (
+                        SELECT 1
+                        FROM chromatograms c
+                        WHERE c.peak_label = targets.peak_label
+                          AND c.ms_type = targets.ms_type
+                    )
+                    """
+                )
+                filters.append(
+                    """
+                    (
+                        targets.peak_selection IS TRUE
+                        OR NOT EXISTS (
+                            SELECT 1
+                            FROM targets t1
+                            WHERE t1.peak_selection IS TRUE
+                        )
+                    )
+                    """
+                )
                 
                 where_clause = "WHERE " + " AND ".join(filters) if filters else ""
                 # Use peak_label as secondary sort key to ensure deterministic order (and match grid view)
