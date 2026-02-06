@@ -3558,6 +3558,8 @@ def callbacks(app, fsc, cache, cpu=None):
         trigger_id = ctx.triggered[0]['prop_id'].split('.')[0]
 
         if trigger_id == 'target-preview-clicked':
+            if not target_clicked:
+                raise PreventUpdate
             return True, dash.no_update, dash.no_update
             # if not has_changes, close it
         elif trigger_id == 'confirm-unsave-modal':
@@ -5836,10 +5838,11 @@ def callbacks(app, fsc, cache, cpu=None):
         Input('delete-targets-modal', 'okCounts'),
         State('delete-target-clicked', 'children'),
         State('target-nav-store', 'data'),
+        State('chromatogram-view-modal', 'visible'),
         State("wdir", "data"),
         prevent_initial_call=True
     )
-    def delete_targets_chromatograms(okCounts, target, nav_store, wdir):
+    def delete_targets_chromatograms(okCounts, target, nav_store, modal_visible, wdir):
         if not okCounts:
             logger.debug("delete_targets_chromatograms: Delete not confirmed, preventing update")
             raise PreventUpdate
@@ -5879,9 +5882,10 @@ def callbacks(app, fsc, cache, cpu=None):
                         False,
                         dash.no_update)
         
-        # Navigate to next target instead of closing modal
+        # Only navigate to next target when user is deleting from inside the open modal.
+        # Card-level deletes should not open the modal.
         next_target = None
-        if nav_store and nav_store.get('targets'):
+        if modal_visible and nav_store and nav_store.get('targets'):
             targets = nav_store['targets']
             current_index = nav_store.get('current_index', 0)
             
@@ -5902,7 +5906,8 @@ def callbacks(app, fsc, cache, cpu=None):
             placement='bottom'
         )
         
-        return (notification, True, False, next_target)
+        target_update = next_target if next_target is not None else dash.no_update
+        return (notification, True, False, target_update)
 
     @app.callback(
         Output('notifications-container', 'children', allow_duplicate=True),
