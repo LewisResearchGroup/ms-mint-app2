@@ -775,7 +775,7 @@ def _targets_table(section_context, pagination, filter_, sorter, filterOptions, 
         page_size = pagination['pageSize']
         current = pagination['current']
 
-        with duckdb_connection(wdir) as conn:
+        with duckdb_connection(wdir, read_only=True) as conn:
             if conn is None:
                 raise PreventUpdate
             schema = conn.execute("DESCRIBE targets").pl()
@@ -802,7 +802,7 @@ def _targets_table(section_context, pagination, filter_, sorter, filterOptions, 
 
         params_paged = params + [page_size, (current - 1) * page_size]
 
-        with duckdb_connection(wdir) as conn:
+        with duckdb_connection(wdir, read_only=True) as conn:
             if conn is None:
                 raise PreventUpdate
             dfpl = conn.execute(sql, params_paged).pl()
@@ -854,10 +854,10 @@ def _targets_table(section_context, pagination, filter_, sorter, filterOptions, 
 
         # total rows:
         number_records = int(data["__total__"][0]) if len(data) else 0
-
         # If a delete leaves current filtered view empty, fall back to unfiltered page 1.
         if delete_refresh and number_records == 0:
-            with duckdb_connection(wdir) as conn:
+            # Read-only optimization
+            with duckdb_connection(wdir, read_only=True) as conn:
                 if conn is None:
                     raise PreventUpdate
                 total_count = conn.execute("SELECT COUNT(*) FROM targets").fetchone()[0]
@@ -880,7 +880,7 @@ def _targets_table(section_context, pagination, filter_, sorter, filterOptions, 
                             SELECT * FROM paged;
                             """
                 params_paged = [page_size, 0]
-                with duckdb_connection(wdir) as conn:
+                with duckdb_connection(wdir, read_only=True) as conn:
                     if conn is None:
                         raise PreventUpdate
                     dfpl = conn.execute(sql, params_paged).pl()
@@ -928,7 +928,8 @@ def _targets_table(section_context, pagination, filter_, sorter, filterOptions, 
         # If we just removed the page we were on, re-query for the new page index
         if params_paged[-1] != (current - 1) * page_size:
             params_paged = params + [page_size, (current - 1) * page_size]
-            with duckdb_connection(wdir) as conn:
+            # Read-only optimization
+            with duckdb_connection(wdir, read_only=True) as conn:
                 if conn is None:
                     raise PreventUpdate
                 dfpl = conn.execute(sql, params_paged).pl()
@@ -974,7 +975,8 @@ def _targets_table(section_context, pagination, filter_, sorter, filterOptions, 
             )
             number_records = int(data["__total__"][0]) if len(data) else 0
 
-        with (duckdb_connection(wdir) as conn):
+        # Read-only optimization
+        with (duckdb_connection(wdir, read_only=True) as conn):
             if conn is None:
                 raise PreventUpdate
             category_filters = conn.execute(
@@ -1547,7 +1549,8 @@ def callbacks(app, fsc=None, cache=None):
             if not wdir:
                 logger.debug("download_results: PreventUpdate because wdir is not set for target list download")
                 raise PreventUpdate
-            with duckdb_connection(wdir) as conn:
+            # Read-only optimization
+            with duckdb_connection(wdir, read_only=True) as conn:
                 if conn is None:
                     logger.debug("download_results: PreventUpdate because database connection is None")
                     raise PreventUpdate
@@ -1656,7 +1659,8 @@ def callbacks(app, fsc=None, cache=None):
             return False, None  # Button enabled by default when no workspace
         
         try:
-            with duckdb_connection(wdir) as conn:
+            # Read-only optimization
+            with duckdb_connection(wdir, read_only=True) as conn:
                 if conn is None:
                     return False, None
                 
@@ -1691,7 +1695,8 @@ def callbacks(app, fsc=None, cache=None):
         # Check if MS1 data exists (Asari only works with MS1)
         if wdir:
             try:
-                with duckdb_connection(wdir) as conn:
+                # Read-only optimization
+                with duckdb_connection(wdir, read_only=True) as conn:
                     if conn:
                         result = conn.execute("SELECT COUNT(*) FROM ms1_data LIMIT 1").fetchone()
                         has_ms1_data = result and result[0] > 0
@@ -1707,7 +1712,8 @@ def callbacks(app, fsc=None, cache=None):
         
         if wdir:
             try:
-                with duckdb_connection(wdir) as conn:
+                # Read-only optimization
+                with duckdb_connection(wdir, read_only=True) as conn:
                     # Check polarity of active samples
                     query = """
                         SELECT DISTINCT polarity 

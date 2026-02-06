@@ -333,7 +333,8 @@ def register_callbacks(app):
 
         # If no sample (or reset triggered), auto-select a random sample with valid signal
         if not ms_file_label and wdir and peak_label:
-            with duckdb_connection(wdir) as conn:
+            # Read-only optimization for faster plotting
+            with duckdb_connection(wdir, read_only=True) as conn:
                 if conn:
                     # Get top 5 samples with highest intensity contrast (max - min)
                     # This ensures we pick a sample with actual peaks, not flat lines
@@ -379,7 +380,8 @@ def register_callbacks(app):
             return fig, {'display': 'block', 'width': 'calc(38% - 6px)', 'height': '410px'}, None
 
         # Fetch data
-        with duckdb_connection(wdir) as conn:
+        # Read-only optimization
+        with duckdb_connection(wdir, read_only=True) as conn:
             if conn is None:
                 return dash.no_update, dash.no_update, dash.no_update
             

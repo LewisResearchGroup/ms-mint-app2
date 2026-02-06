@@ -692,7 +692,7 @@ def _exploration_workspace_description(manifest: dict | None) -> str:
     if not manifest:
         return "Auto-generated exploration workspace (synthetic demo data)."
     source = manifest.get("source_label") or "sampled real data"
-    return f"Auto-generated exploration workspace."
+    return f"Auto-generated exploration workspace ({source})."
 
 
 def _seed_exploration_workspace_from_bundle(
@@ -952,6 +952,14 @@ def _send_progress(set_progress, percent, stage: str = "", detail: str = ""):
 
 
 def _update_workspace_activity(mint_root: Path, workspace_id: str, retries: int = 3, delay_s: float = 0.05):
+    # Throttle updates to avoid hot-loop write contention on mint.db.
+    now = time.time()
+    with _LAST_ACTIVITY_UPDATE_LOCK:
+        last_ts = _LAST_ACTIVITY_UPDATE_TS.get(workspace_id, 0.0)
+        if now - last_ts < 15.0:
+            return
+        _LAST_ACTIVITY_UPDATE_TS[workspace_id] = now
+
     for attempt in range(retries):
         try:
             with duckdb_connection_mint(mint_root) as mint_conn:
@@ -963,7 +971,11 @@ def _update_workspace_activity(mint_root: Path, workspace_id: str, retries: int 
             return
         except Exception as e:
             message = str(e)
-            if "TransactionContext Error: Conflict on update!" in message:
+            if (
+                "TransactionContext Error: Conflict on update!" in message
+                or "used by another process" in message
+                or "different configuration than existing connections" in message
+            ):
                 time.sleep(delay_s * (attempt + 1))
                 continue
             logger.error(f"Error updating workspace activity: {e}")
@@ -987,6 +999,8 @@ _PAGE_LOAD_STATE_FILENAME = ".mint_page_load_state.json"
 # Global registry for errors encountered during background processing
 _PROCESSING_ERRORS: dict[str, list[str]] = {}
 _PROCESSING_ERRORS_LOCK = Lock()
+_LAST_ACTIVITY_UPDATE_TS: dict[str, float] = {}
+_LAST_ACTIVITY_UPDATE_LOCK = Lock()
 
 
 def is_workspace_corrupted(workspace_path: Path | str) -> bool:
@@ -1073,12 +1087,30 @@ def _write_page_state(state_path: Path | None, payload: dict) -> None:
     if not state_path:
         return
     try:
-        state_path.parent.mkdir(parents=True, exist_ok=True)
+        # Never recreate deleted workspace folders just to persist page state.
+        if not state_path.parent.exists():
+            return
         tmp_path = state_path.with_suffix(state_path.suffix + ".tmp")
         tmp_path.write_text(json.dumps(payload))
         os.replace(tmp_path, state_path)
     except Exception as exc:
         logger.debug(f"Failed to write page state file {state_path}: {exc}")
+
+
+def clear_page_load_state(workspace_path: Path | str | None) -> None:
+    """Best-effort cleanup of in-memory and on-disk page-load state for a workspace."""
+    key = _normalize_workspace_key(workspace_path)
+    if not key:
+        return
+    with _workspace_page_loads_lock:
+        _workspace_page_loads.pop(key, None)
+    state_path = _page_state_path(key)
+    if not state_path:
+        return
+    try:
+        state_path.unlink(missing_ok=True)
+    except Exception:
+        pass
 
 
 def mark_page_load_active(workspace_path: Path | str | None, page_load_id: str | None) -> None:
@@ -1398,6 +1430,8 @@ def _cleanup_orphan_db_users(db_file: Path, workspace_path: Path) -> int:
     """
     if psutil is None:
         return 0
+    if not db_file.exists():
+        return 0
     db_abs = db_file.resolve().as_posix()
     current_pid = os.getpid()
     cleaned = 0
@@ -1537,6 +1571,7 @@ def _acquire_db_write_lock(db_file: Path, workspace_path: Path, max_attempts: in
     """
     lock_file = _db_lockfile_path(db_file)
     lock_key = lock_file.as_posix()
+    lock_file.parent.mkdir(parents=True, exist_ok=True)
     if psutil is not None:
         proc_self = psutil.Process()
         create_time = proc_self.create_time()
@@ -1562,8 +1597,10 @@ def _acquire_db_write_lock(db_file: Path, workspace_path: Path, max_attempts: in
         if existing > 0 and not lock_file.exists():
             _DB_LOCK_COUNTS.pop(lock_key, None)
 
-    # First, try to clean up orphaned processes that may still hold the DB.
-    _cleanup_orphan_db_users(db_file, workspace_path)
+    # Only run orphan cleanup when there is evidence of contention.
+    # Full process scans are expensive on Windows.
+    if lock_file.exists():
+        _cleanup_orphan_db_users(db_file, workspace_path)
 
     attempt = 0
     while attempt < max_attempts:
@@ -1645,41 +1682,67 @@ def duckdb_connection(
     n_cpus=None,
     ram=None,
     page_load_id: str | None = None,
+    read_only: bool = False,
 ):
     """
     Provides a DuckDB connection as a context manager.
 
-    The database file will be named 'mint.db' and will be located inside the workspace directory.
+    The database file will be named 'workspace_mint.db' and will be located inside the workspace directory.
 
     :param workspace_path: The path to the MINT workspace directory.
+    :param read_only: If True, opens connection in read-only mode and skips schema creation/locking.
     """
     if not workspace_path:
         yield None
         return
     ensure_page_load_active(workspace_path, page_load_id, where="duckdb_connection:pre-connect")
     workspace_path = Path(workspace_path).resolve()
+    if not workspace_path.exists():
+        logger.debug("Workspace path does not exist for DuckDB connection: %s", workspace_path)
+        yield None
+        return
     db_file = Path(workspace_path, 'workspace_mint.db')
+    if read_only and not db_file.exists():
+        logger.debug("Skipping read-only DuckDB connection because DB file does not exist yet: %s", db_file)
+        yield None
+        return
     # print(f"Connecting to DuckDB at: {db_file}")
     con = None
     lock_file = None
     max_retries = 3
     retry_delay = 0.5
+    requested_read_only = read_only
     for attempt in range(max_retries):
         try:
-            lock_file = _acquire_db_write_lock(db_file, workspace_path)
-            clear_busy_flag(workspace_path)
-            logger.debug(
-                "Acquired DuckDB write lock (pid=%s, db=%s)",
-                os.getpid(),
-                db_file,
-            )
-            con = duckdb.connect(database=str(db_file), read_only=False)
-            logger.debug(
-                "Opened DuckDB write connection (pid=%s, db=%s)",
-                os.getpid(),
-                db_file,
-            )
-            con.execute("PRAGMA enable_checkpoint_on_shutdown")
+            if requested_read_only:
+                # Read-only mode: Skip write lock and schema updates
+                # This is much faster on Windows and allows concurrency
+                con = duckdb.connect(database=str(db_file), read_only=True)
+                logger.debug(
+                    "Opened DuckDB READ-ONLY connection (pid=%s, db=%s)",
+                    os.getpid(),
+                    db_file,
+                )
+            else:
+                # Write mode: Acquire exclusive lock and ensure schema
+                lock_file = _acquire_db_write_lock(db_file, workspace_path)
+                clear_busy_flag(workspace_path)
+                logger.debug(
+                    "Acquired DuckDB write lock (pid=%s, db=%s)",
+                    os.getpid(),
+                    db_file,
+                )
+                con = duckdb.connect(database=str(db_file), read_only=False)
+                logger.debug(
+                    "Opened DuckDB write connection (pid=%s, db=%s)",
+                    os.getpid(),
+                    db_file,
+                )
+            
+            # Common PRAGMAs
+            if not requested_read_only:
+                con.execute("PRAGMA enable_checkpoint_on_shutdown")
+            
             con.execute("SET enable_progress_bar = true")
             con.execute("SET enable_progress_bar_print = false")
             con.execute("SET progress_bar_time = 0")
@@ -1701,7 +1764,11 @@ def duckdb_connection(
                 # Verify the setting was applied
                 actual_limit = con.execute("SELECT current_setting('memory_limit')").fetchone()[0]
                 logger.debug(f"DuckDB memory_limit set to {ram}GB (verified: {actual_limit})")
-            _create_tables(con)
+            
+            # Only create tables if we are in write mode
+            if not requested_read_only:
+                _create_tables(con)
+            
             break # Success
         except DatabaseBusyError as e:
             logger.error(f"Database busy; refusing to open write connection: {e}")
@@ -1728,7 +1795,19 @@ def duckdb_connection(
             return
         except (duckdb.IOException, duckdb.BinderException) as e:
             _release_db_write_lock(lock_file)
-            if "Corrupt database file" in str(e):
+            err_msg = str(e)
+            # Recovery path for previously created empty placeholder DB files.
+            if "not a valid DuckDB database file" in err_msg and db_file.exists():
+                try:
+                    if db_file.stat().st_size == 0:
+                        db_file.unlink(missing_ok=True)
+                        logger.warning("Removed invalid empty DuckDB file and retrying: %s", db_file)
+                        if attempt < max_retries - 1:
+                            time.sleep(0.05)
+                            continue
+                except Exception:
+                    pass
+            if "Corrupt database file" in err_msg:
                 _mark_corrupted(workspace_path)  # Mark for UI notification
                 ws_key = str(workspace_path)
                 if ws_key not in _corrupted_workspaces_logged:
@@ -1751,6 +1830,14 @@ def duckdb_connection(
                 yield None
                 return
         except Exception as e:
+            msg = str(e)
+            if requested_read_only and "different configuration than existing connections" in msg:
+                logger.debug(
+                    "DuckDB read-only mode conflict for %s; retrying with standard connection mode.",
+                    db_file,
+                )
+                requested_read_only = False
+                continue
             logger.error(f"Unexpected error connecting to DuckDB: {e}")
             _release_db_write_lock(lock_file)
             yield None
@@ -1760,19 +1847,13 @@ def duckdb_connection(
         yield con
     finally:
         if con:
-            if register_activity:
-                try:
-                    workspace_id = Path(workspace_path).name
-                    mint_root = workspace_path.parent.parent
-                    _update_workspace_activity(mint_root, workspace_id)
-                except Exception as e:
-                    logger.error(f"Error updating workspace activity: {e}")
-            if n_cpus:
-                con.execute("RESET threads")
             if ram:
                 con.execute("RESET memory_limit")
             con.close()
-        _release_db_write_lock(lock_file)
+        try:
+            _release_db_write_lock(lock_file)
+        except Exception:
+            pass # Ignore errors during lock release (e.g. folder deleted)
         if lock_file:
             logger.debug(
                 "Released DuckDB write lock (pid=%s, lock=%s)",
@@ -1782,15 +1863,15 @@ def duckdb_connection(
 
 
 @contextmanager
-def duckdb_connection_mint(mint_path: Path, workspace=None):
+def duckdb_connection_mint(mint_path: Path, workspace=None, read_only=False):
     if not mint_path:
         yield None
         return
 
     db_file = Path(mint_path, 'mint.db')
     
-    # Auto-optimize: Check size before connecting
-    if db_file.exists():
+    # Auto-optimize: Check size before connecting (SKIP in read-only mode)
+    if not read_only and db_file.exists():
         try:
              size_mb = db_file.stat().st_size / (1024 * 1024)
              if size_mb > 50:
@@ -1810,8 +1891,9 @@ def duckdb_connection_mint(mint_path: Path, workspace=None):
     
     for attempt in range(max_retries):
         try:
-            con = duckdb.connect(database=str(db_file), read_only=False)
-            _create_workspace_tables(con)
+            con = duckdb.connect(database=str(db_file), read_only=read_only)
+            if not read_only:
+                _create_workspace_tables(con)
             break  # Success
         except (duckdb.IOException, duckdb.BinderException) as e:
             last_error = e
@@ -1827,7 +1909,11 @@ def duckdb_connection_mint(mint_path: Path, workspace=None):
                     retry_delay *= 2  # Exponential backoff
                     continue
             # Non-recoverable or exhausted retries
-            logger.error(f"Error connecting to mint.db: {e}")
+            # If read-only fails due to lock, it might be temporarily exclusive locked by a writer
+            if "used by another process" in error_str or "lock" in error_str or "file handle conflict" in error_str:
+                logger.debug(f"mint.db temporarily busy (read_only={read_only}): {e}")
+            else:
+                logger.error(f"Error connecting to mint.db (read_only={read_only}): {e}")
             yield None
             return
         except Exception as e:
@@ -1844,7 +1930,8 @@ def duckdb_connection_mint(mint_path: Path, workspace=None):
         yield con
     finally:
         if con:
-            if workspace:
+            # Only update activity if we have a write connection
+            if workspace and not read_only:
                 try:
                     con.execute("UPDATE workspaces SET last_activity = NOW() WHERE key = ?", [workspace])
                 except Exception:
@@ -2165,17 +2252,24 @@ def _create_tables(conn: duckdb.DuckDBPyConnection):
                  );
                  """)
     # Backfill rt_auto_adjusted for existing DBs
-    conn.execute("ALTER TABLE targets ADD COLUMN IF NOT EXISTS rt_auto_adjusted BOOLEAN DEFAULT FALSE;")
-    conn.execute("ALTER TABLE targets ADD COLUMN IF NOT EXISTS formula VARCHAR;")
-    conn.execute("ALTER TABLE targets ADD COLUMN IF NOT EXISTS maven_id VARCHAR;")
-    conn.execute("ALTER TABLE targets ADD COLUMN IF NOT EXISTS adduct_name VARCHAR;")
-    
-    # RT Alignment columns for storing alignment parameters
-    conn.execute("ALTER TABLE targets ADD COLUMN IF NOT EXISTS rt_align_enabled BOOLEAN DEFAULT FALSE;")
-    conn.execute("ALTER TABLE targets ADD COLUMN IF NOT EXISTS rt_align_reference_rt DOUBLE;")
-    conn.execute("ALTER TABLE targets ADD COLUMN IF NOT EXISTS rt_align_shifts JSON;")
-    conn.execute("ALTER TABLE targets ADD COLUMN IF NOT EXISTS rt_align_rt_min DOUBLE;")
-    conn.execute("ALTER TABLE targets ADD COLUMN IF NOT EXISTS rt_align_rt_max DOUBLE;")
+    # Handle concurrency: If multiple threads try to ALTER simultaneously, ignore conflicts
+    try:
+        conn.execute("ALTER TABLE targets ADD COLUMN IF NOT EXISTS rt_auto_adjusted BOOLEAN DEFAULT FALSE;")
+        conn.execute("ALTER TABLE targets ADD COLUMN IF NOT EXISTS formula VARCHAR;")
+        conn.execute("ALTER TABLE targets ADD COLUMN IF NOT EXISTS maven_id VARCHAR;")
+        conn.execute("ALTER TABLE targets ADD COLUMN IF NOT EXISTS adduct_name VARCHAR;")
+        
+        # RT Alignment columns for storing alignment parameters
+        conn.execute("ALTER TABLE targets ADD COLUMN IF NOT EXISTS rt_align_enabled BOOLEAN DEFAULT FALSE;")
+        conn.execute("ALTER TABLE targets ADD COLUMN IF NOT EXISTS rt_align_reference_rt DOUBLE;")
+        conn.execute("ALTER TABLE targets ADD COLUMN IF NOT EXISTS rt_align_shifts JSON;")
+        conn.execute("ALTER TABLE targets ADD COLUMN IF NOT EXISTS rt_align_rt_min DOUBLE;")
+        conn.execute("ALTER TABLE targets ADD COLUMN IF NOT EXISTS rt_align_rt_max DOUBLE;")
+    except Exception as e:
+        # "Catalog write-write conflict" means another thread is doing this right now.
+        # "Column ... already exists" means it's done. 
+        # In both cases, we are safe to proceed.
+        pass
 
     conn.execute("""
                  CREATE TABLE IF NOT EXISTS chromatograms
@@ -2229,19 +2323,10 @@ def _create_tables(conn: duckdb.DuckDBPyConnection):
     except Exception:
         pass
     
-    # Migration: Add rt_aligned, rt_shift, peak_mz_of_max columns to existing results tables
-    existing_cols = {
-        row[0] for row in conn.execute("DESCRIBE results").fetchall()
-    }
-    if 'rt_aligned' not in existing_cols:
-        conn.execute("ALTER TABLE results ADD COLUMN rt_aligned BOOLEAN")
-        logger.debug("Migration: Added 'rt_aligned' column to results table")
-    if 'rt_shift' not in existing_cols:
-        conn.execute("ALTER TABLE results ADD COLUMN rt_shift DOUBLE")
-        logger.debug("Migration: Added 'rt_shift' column to results table")
-    if 'peak_mz_of_max' not in existing_cols:
-        conn.execute("ALTER TABLE results ADD COLUMN peak_mz_of_max DOUBLE")
-        logger.debug("Migration: Added 'peak_mz_of_max' column to results table")
+    # Migration: Add result columns idempotently; tolerate concurrent migration races.
+    conn.execute("ALTER TABLE results ADD COLUMN IF NOT EXISTS rt_aligned BOOLEAN")
+    conn.execute("ALTER TABLE results ADD COLUMN IF NOT EXISTS rt_shift DOUBLE")
+    conn.execute("ALTER TABLE results ADD COLUMN IF NOT EXISTS peak_mz_of_max DOUBLE")
     
     # Migration: Add EMG peak fitting columns to existing results tables
     fitting_columns = {
@@ -2254,9 +2339,7 @@ def _create_tables(conn: duckdb.DuckDBPyConnection):
         'fit_success': 'BOOLEAN',          # Whether fitting converged
     }
     for col_name, col_type in fitting_columns.items():
-        if col_name not in existing_cols:
-            conn.execute(f"ALTER TABLE results ADD COLUMN {col_name} {col_type}")
-            logger.debug(f"Migration: Added '{col_name}' column to results table")
+        conn.execute(f"ALTER TABLE results ADD COLUMN IF NOT EXISTS {col_name} {col_type}")
 
 
 

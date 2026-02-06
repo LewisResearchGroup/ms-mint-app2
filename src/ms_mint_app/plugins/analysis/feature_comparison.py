@@ -278,7 +278,8 @@ def register_callbacks(app):
         if not wdir or not group_by_col:
             return [], [], None, None, True, True, dash.no_update
 
-        with duckdb_connection(wdir) as conn:
+        # Read-only optimization
+        with duckdb_connection(wdir, read_only=True) as conn:
             if conn is None:
                 return [], [], None, None, True, True, dash.no_update
 
@@ -390,7 +391,8 @@ def register_callbacks(app):
         p_threshold = max(min(p_threshold, 1.0), 0.0)
         fdr_method = fdr_method or 'none'
 
-        with duckdb_connection(wdir) as conn:
+        # Read-only optimization
+        with duckdb_connection(wdir, read_only=True) as conn:
             if conn is None:
                 return _empty_plot("Unable to connect to workspace database.", height=520)
 
@@ -774,7 +776,8 @@ def register_callbacks(app):
         group_label = GROUP_LABELS.get(group_by_col, group_by_col or 'Group')
         missing_group_label = f"{group_label} (unset)"
 
-        with duckdb_connection(wdir) as conn:
+        # Read-only optimization
+        with duckdb_connection(wdir, read_only=True) as conn:
             if conn is None:
                 return _empty_plot("Unable to connect to workspace database."), default_chrom_style, None
 
@@ -1122,7 +1125,8 @@ def register_callbacks(app):
 
         metric = metric or 'peak_max'
         
-        with duckdb_connection(wdir) as conn:
+        # Read-only optimization
+        with duckdb_connection(wdir, read_only=True) as conn:
              if conn is None:
                  return dash.no_update
              

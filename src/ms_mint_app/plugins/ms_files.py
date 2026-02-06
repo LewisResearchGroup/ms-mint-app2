@@ -815,11 +815,17 @@ def _ms_files_table(section_context, processing_output, processed_action, pagina
         page_size = pagination['pageSize']
         current = pagination['current']
 
-        with duckdb_connection(wdir) as conn:
+        # Read-only optimization
+        with duckdb_connection(wdir, read_only=True) as conn:
+            # Database is locked or empty
             if conn is None:
-                # Database is locked (e.g., processing was just cancelled)
                 raise PreventUpdate
             schema = conn.execute("DESCRIBE samples").pl()
+        
+        # Check if table exists (handle newly created empty workspace)
+        if schema is None or schema.is_empty():
+             # Fallback for empty workspace if not yet initialized
+             return [], {}, {"current": 1, "pageSize": page_size, "total": 0}, False
         column_types = {r["column_name"]: r["column_type"] for r in schema.to_dicts()}
         where_sql, params = build_where_and_params(filter_, filterOptions)
         order_by_sql = build_order_by(sorter, column_types, tie=('ms_file_label', 'ASC'))  # '' if there is no valid sorter
@@ -841,7 +847,8 @@ def _ms_files_table(section_context, processing_output, processed_action, pagina
 
         params_paged = params + [page_size, (current - 1) * page_size]
 
-        with duckdb_connection(wdir) as conn:
+        # Read-only optimization
+        with duckdb_connection(wdir, read_only=True) as conn:
             dfpl = conn.execute(sql, params_paged).pl()
 
         # total rows:
@@ -880,11 +887,13 @@ def _ms_files_table(section_context, processing_output, processed_action, pagina
         # If we just removed the page we were on, re-query for the new page index
         if params_paged[-1] != (current - 1) * page_size:
             params_paged = params + [page_size, (current - 1) * page_size]
-            with duckdb_connection(wdir) as conn:
+            # Read-only optimization
+            with duckdb_connection(wdir, read_only=True) as conn:
                 dfpl = conn.execute(sql, params_paged).pl()
             number_records = int(dfpl["__total__"][0]) if len(dfpl) else 0
 
-        with (duckdb_connection(wdir) as conn):
+        # Read-only optimization
+        with (duckdb_connection(wdir, read_only=True) as conn):
             st_custom_items = filterOptions['sample_type'].get('filterCustomItems')
             sample_type_filters = conn.execute("SELECT DISTINCT sample_type "
                                                "FROM samples "

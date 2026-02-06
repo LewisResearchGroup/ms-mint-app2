@@ -942,7 +942,8 @@ def _background_processing(set_progress, okCounts, processing_type, selected_fil
     }
     if wdir:
         from ..duckdb_manager import duckdb_connection
-        with duckdb_connection(wdir) as conn:
+        # Read-only optimization
+        with duckdb_connection(wdir, read_only=True) as conn:
             if conn is not None:
                 counts = conn.execute("""
                     SELECT 

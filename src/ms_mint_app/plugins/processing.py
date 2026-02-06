@@ -1058,7 +1058,7 @@ def _load_peaks_from_results(wdir: str, current_value: list) -> tuple[list, list
         logger.debug("_load_peaks_from_results: PreventUpdate because wdir is not set")
         raise PreventUpdate
         
-    with duckdb_connection(wdir) as conn:
+    with duckdb_connection(wdir, read_only=True) as conn:
         if conn is None:
             logger.debug("_load_peaks_from_results: PreventUpdate because database connection is None")
             raise PreventUpdate
@@ -1138,7 +1138,7 @@ def _download_all_results(wdir: str, ws_name: str, selected_columns: list) -> tu
             showProgress=True,
         )
     
-    with duckdb_connection(wdir) as conn:
+    with duckdb_connection(wdir, read_only=True) as conn:
         if conn is None:
             return dash.no_update, fac.AntdNotification(
                 message="Download Results",
@@ -1238,7 +1238,7 @@ def _download_all_results(wdir: str, ws_name: str, selected_columns: list) -> tu
 
 def _generate_csv_from_db(wdir: str, ws_name: str, safe_cols: list) -> str:
     """Fallback: generate CSV from database when backup doesn't exist. Returns path to temp file."""
-    with duckdb_connection(wdir) as conn:
+    with duckdb_connection(wdir, read_only=True) as conn:
         if conn is None:
             return None
         
@@ -1329,7 +1329,7 @@ def _download_dense_matrix(wdir: str, ws_name: str, rows: list, cols: list, valu
             showProgress=True,
         )
     
-    with duckdb_connection(wdir) as conn:
+    with duckdb_connection(wdir, read_only=True) as conn:
         if conn is None:
             return dash.no_update, fac.AntdNotification(
                 message="Download Results",
@@ -1585,7 +1585,7 @@ def callbacks(app, fsc, cache):
             raise PreventUpdate
 
         # Connect to database using context manager
-        with duckdb_connection(wdir) as conn:
+        with duckdb_connection(wdir, read_only=True) as conn:
             if conn is None:
                 logger.debug("results_table: PreventUpdate because database connection is None")
                 raise PreventUpdate
@@ -1630,7 +1630,7 @@ def callbacks(app, fsc, cache):
                 RESULTS_TABLE_COLUMNS,
             )
 
-        with duckdb_connection(wdir) as conn:
+        with duckdb_connection(wdir, read_only=True) as conn:
             if conn is None:
                 logger.debug("results_table: PreventUpdate because database connection is None")
                 raise PreventUpdate
@@ -1818,7 +1818,7 @@ def callbacks(app, fsc, cache):
             df = conn.execute(sql, params_paged).df()
 
         if number_records and params_paged[-1] != (current - 1) * effective_page_size:
-            with duckdb_connection(wdir) as conn:
+            with duckdb_connection(wdir, read_only=True) as conn:
                 if conn is None:
                     logger.debug("results_table: PreventUpdate because database connection is None (repaginate)")
                     raise PreventUpdate

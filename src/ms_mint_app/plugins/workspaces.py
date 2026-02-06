@@ -21,6 +21,7 @@ from ..duckdb_manager import (
     import_database_as_workspace,
     is_workspace_corrupted,
     ensure_workspace_name_marker,
+    clear_page_load_state,
 )
 from ..logging_setup import activate_workspace_logging, deactivate_workspace_logging
 from ..plugin_interface import PluginInterface
@@ -412,6 +413,7 @@ def _create_workspace(okCounts, tmpdir, ws_name, ws_description):
             ws_path = Path(tmpdir, 'workspaces', str(key[0]))
             ws_path.mkdir(parents=True, exist_ok=True)
             ensure_workspace_name_marker(ws_path, ws_name, workspace_key=str(key[0]))
+
             # Note: "Created workspace" is logged after activation in _load_workspace_directories_and_tables
 
     return 'create', None, None, None
@@ -426,6 +428,14 @@ def _delete_workspace(okCounts, tmpdir, selectedRowKeys):
     ws_key = selectedRowKeys[0]
 
     with duckdb_connection_mint(tmpdir) as mint_conn:
+        if mint_conn is None:
+             return fac.AntdNotification(
+                message="Database Busy",
+                description="Could not acquire lock to delete workspace. Please try again.",
+                type="error",
+                duration=4
+             ), None
+
         try:
             mint_conn.execute("BEGIN")
             ws_row = mint_conn.execute(
@@ -450,6 +460,7 @@ def _delete_workspace(okCounts, tmpdir, selectedRowKeys):
 
             ws_path = Path(tmpdir, 'workspaces', str(ws_key))
             deactivate_workspace_logging()
+            clear_page_load_state(ws_path)
 
             def _onerror(func, p, exc_info):
                 import os
@@ -590,6 +601,15 @@ def _ws_activate(selectedRowKeys, tmpdir, ws_action):
             logger.info(f"Created and activated workspace: {ws_name} at {wdir}")
         else:
             logger.info(f"Switched to workspace: {ws_name} (key: {ws_key})")
+            
+        # Thundering Herd Fix: Initialize the database schema NOW, single-threaded.
+        # This prevents 5 plugins from racing for the write lock when the UI updates.
+        try:
+            with duckdb_connection(wdir, read_only=False) as conn:
+                pass # Just connecting triggers _create_tables() schema check
+            logger.info("Workspace schema verified/upgraded successfully.")
+        except Exception as e:
+            logger.error(f"Error minimizing schema during activation: {e}")
 
     return notification, ws_name, wdir.as_posix(), wdir.as_posix()
 
@@ -710,6 +730,7 @@ def _save_new_data_dir(okCounts, new_path):
 
 def _get_workspace_details(tmpdir, key):
     _path = Path(tmpdir, 'workspaces', str(key))
+    db_path = _path / "workspace_mint.db"
     path_info = html.Div(
         [
             fac.AntdText('Workspace path:', strong=True, locale='en-us', style={'marginRight': '10px'}),
@@ -719,18 +740,27 @@ def _get_workspace_details(tmpdir, key):
     )
     
     try:
-        # Avoid bumping last_activity just for rendering the preview table
-        with duckdb_connection(_path, register_activity=False) as conn:
-            if conn is None:
-                # Database is locked - return placeholder
-                return fac.AntdFlex(
-                    [
-                        path_info,
-                        fac.AntdText("Database busy...", type='secondary')
-                    ],
-                    wrap=True
-                )
-            summary = conn.execute("""
+        if not db_path.exists():
+            summary = pd.DataFrame({
+                'table_name': ['samples', 'ms1_data', 'ms2_data', 'targets', 'chromatograms', 'results'],
+                'rows': ['0', '0', '0', '0', '0', '0'],
+            })
+            db_info = fac.AntdTable(
+                columns=[
+                    {'title': 'Table name', 'dataIndex': 'table_name', 'align': 'left', 'width': '50%'},
+                    {'title': 'Rows', 'dataIndex': 'rows', 'align': 'center', 'width': '50%'},
+                ],
+                data=summary.to_dict('records'),
+                pagination=False,
+                locale='en-us',
+                size='small',
+                style={'minWidth': '200px', 'flexGrow': 1}
+            )
+            return fac.AntdFlex([path_info, db_info], wrap=True)
+
+        def _summary_from_conn(conn):
+            try:
+                return conn.execute("""
                                    SELECT * FROM (
                                        SELECT 'samples' AS table_name, COUNT(*) AS rows FROM samples
                                        UNION ALL
@@ -754,21 +784,41 @@ def _get_workspace_details(tmpdir, key):
                                                 ELSE 7
                                                 END
                                    """).df()
-            if not summary.empty:
-                summary['rows'] = summary['rows'].apply(
-                    lambda x: f"{int(x):,}" if pd.notna(x) else ""
+            except Exception:
+                # Database might be empty/uninitialized (no tables yet)
+                return pd.DataFrame({
+                    'table_name': ['samples', 'ms1_data', 'ms2_data', 'targets', 'chromatograms', 'results'],
+                    'rows': [0, 0, 0, 0, 0, 0]
+                })
+
+        # For expanded-row details, use a standard connection mode to avoid
+        # DuckDB configuration conflicts with existing in-process connections.
+        with duckdb_connection(_path, register_activity=False, read_only=False) as conn:
+            if conn is None:
+                return fac.AntdFlex(
+                    [
+                        path_info,
+                        fac.AntdText("Database busy...", type='secondary')
+                    ],
+                    wrap=True
                 )
-            db_info = fac.AntdTable(
-                columns=[
-                    {'title': 'Table name', 'dataIndex': 'table_name', 'align': 'left', 'width': '50%'},
-                    {'title': 'Rows', 'dataIndex': 'rows', 'align': 'center', 'width': '50%'},
-                ],
-                data=summary.to_dict('records'),
-                pagination=False,
-                locale='en-us',
-                size='small',
-                style={'minWidth': '200px', 'flexGrow': 1}
+            summary = _summary_from_conn(conn)
+
+        if not summary.empty:
+            summary['rows'] = summary['rows'].apply(
+                lambda x: f"{int(x):,}" if pd.notna(x) else ""
             )
+        db_info = fac.AntdTable(
+            columns=[
+                {'title': 'Table name', 'dataIndex': 'table_name', 'align': 'left', 'width': '50%'},
+                {'title': 'Rows', 'dataIndex': 'rows', 'align': 'center', 'width': '50%'},
+            ],
+            data=summary.to_dict('records'),
+            pagination=False,
+            locale='en-us',
+            size='small',
+            style={'minWidth': '200px', 'flexGrow': 1}
+        )
         return fac.AntdFlex(
             [
                 path_info,
@@ -971,7 +1021,9 @@ def callbacks(app, fsc, cache):
         if section_context and  section_context['page'] != 'Workspaces':
             raise PreventUpdate
 
-        with duckdb_connection_mint(tmpdir) as mint_conn:
+        with duckdb_connection_mint(tmpdir, read_only=True) as mint_conn:
+            if mint_conn is None:
+                raise PreventUpdate
             data = mint_conn.execute("SELECT * FROM workspaces ORDER BY last_activity DESC").df()
             logger.debug(f"Loaded workspace table data: {len(data)} rows")
 

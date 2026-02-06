@@ -34,7 +34,12 @@ class SingleInstance:
 
     def _get_pid_file(self, temp_dir):
         """Gets PID file path based on OS"""
-        base = Path(temp_dir) or Path(os.environ.get('TEMP', '.')) if platform.system() == 'Windows' else Path('/tmp')
+        if temp_dir:
+            base = Path(temp_dir)
+        elif platform.system() == 'Windows':
+            base = Path(os.environ.get('TEMP', '.'))
+        else:
+            base = Path('/tmp')
         return base / f"{self.name}.pid"
 
     def _handle_signal(self, signum, frame):
@@ -98,6 +103,8 @@ class SingleInstance:
 
     def _is_running(self):
         """Checks if an instance is already running"""
+        if not self.pid_file.parent.exists():
+            return False, None
         if not self.pid_file.exists():
             return False, None
 
@@ -148,6 +155,9 @@ class SingleInstance:
         if self.debug:
             self.logger.info("Debug mode - skipping instance checking")
             return
+
+        # Ensure PID directory exists (e.g. user deleted MINT data dir before launch).
+        self.pid_file.parent.mkdir(parents=True, exist_ok=True)
             
         running, pid = self._is_running()
 

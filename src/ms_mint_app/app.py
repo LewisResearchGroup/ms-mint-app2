@@ -600,6 +600,7 @@ def create_app(**kwargs):
         # Diskcache for non-production apps when developing locally
         from uuid import uuid4
         import diskcache
+        import psutil
         import shutil
         launch_uid = uuid4()
 
@@ -622,6 +623,27 @@ def create_app(**kwargs):
             expire=60,
             cache_by=[_background_cache_by],
         )
+
+        # Windows process-lifecycle race: background worker can exit between
+        # Dash polling steps, raising NoSuchProcess in DiskcacheManager.
+        # Treat this as "job finished/not running" instead of surfacing 500s.
+        _orig_job_running = background_callback_manager.job_running
+        _orig_terminate_job = background_callback_manager.terminate_job
+
+        def _safe_job_running(job_id):
+            try:
+                return _orig_job_running(job_id)
+            except (psutil.NoSuchProcess, ProcessLookupError):
+                return False
+
+        def _safe_terminate_job(job):
+            try:
+                return _orig_terminate_job(job)
+            except (psutil.NoSuchProcess, ProcessLookupError):
+                return None
+
+        background_callback_manager.job_running = _safe_job_running
+        background_callback_manager.terminate_job = _safe_terminate_job
 
     plugin_manager = PluginManager()
     plugins = plugin_manager.get_plugins()

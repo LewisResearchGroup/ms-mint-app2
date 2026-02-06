@@ -562,7 +562,8 @@ def callbacks(app, fsc=None, cache=None):
             )
         
         # Check if results table is empty
-        with duckdb_connection(wdir) as conn:
+        # Read-only optimization
+        with duckdb_connection(wdir, read_only=True) as conn:
             if conn is None:
                 return []
             try:
@@ -1003,7 +1004,8 @@ def update_content(section_context, tab_key, x_comp, y_comp, violin_comp_checks,
         date_str = T.today()
         base_name = f"{date_str}-MINT__{ws_name}-Analysis"
 
-        with duckdb_connection(wdir, n_cpus=cpus, ram=ram) as conn:
+        # Read-only optimization (create_pivot is read-only)
+        with duckdb_connection(wdir, n_cpus=cpus, ram=ram, read_only=True) as conn:
             if conn is None:
                 return None, invisible_fig, invisible_fig, [], [], [], [], [], [], dash.no_update, dash.no_update, dash.no_update
 

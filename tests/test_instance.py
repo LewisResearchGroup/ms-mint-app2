@@ -43,3 +43,16 @@ def test_ensure_single_creates_pid_file(tmp_path, monkeypatch):
 
     assert inst.pid_file.exists()
     assert inst.pid_file.read_text().strip() == str(os.getpid())
+
+
+def test_ensure_single_recreates_missing_pid_dir(tmp_path, monkeypatch):
+    deleted_dir = tmp_path / "deleted_mint_root"
+    inst = SingleInstance(name="test_app", temp_dir=str(deleted_dir), debug=True)
+    inst.debug = False
+
+    monkeypatch.setattr(inst, "_is_running", lambda: (False, None))
+
+    inst.ensure_single(force=False)
+
+    assert deleted_dir.exists()
+    assert inst.pid_file.exists()

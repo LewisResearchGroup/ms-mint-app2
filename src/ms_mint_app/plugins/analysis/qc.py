@@ -159,7 +159,8 @@ def register_callbacks(app):
         if current_key != 'qc' or not wdir:
             raise PreventUpdate
         
-        with duckdb_connection(wdir) as conn:
+        # Read-only optimization
+        with duckdb_connection(wdir, read_only=True) as conn:
             if conn is None:
                 return [], None
             
@@ -207,7 +208,8 @@ def register_callbacks(app):
         
         from plotly.subplots import make_subplots
         
-        with duckdb_connection(wdir) as conn:
+        # Read-only optimization
+        with duckdb_connection(wdir, read_only=True) as conn:
             if conn is None:
                 empty_fig = go.Figure()
                 empty_fig.update_layout(title="No data available", paper_bgcolor='white', plot_bgcolor='white')
@@ -502,7 +504,8 @@ def register_callbacks(app):
         # 2. Handle Target Change / Initial Load (Default selection logic)
         # Only run this if we didn't get a click (i.e. triggered by dropdown or initial load)
         if wdir and peak_label:
-             with duckdb_connection(wdir) as conn:
+             # Read-only optimization
+             with duckdb_connection(wdir, read_only=True) as conn:
                 if conn:
                     try:
                         # Pick a sample with high contrast (likely to have a peak)
@@ -545,7 +548,8 @@ def register_callbacks(app):
             return empty_fig, {'display': 'flex', 'flexDirection': 'column', 'justifyContent': 'center', 'alignItems': 'center', 'width': 'calc(43% - 6px)', 'height': '100%'}
 
          # Fetch data
-        with duckdb_connection(wdir) as conn:
+        # Read-only optimization
+        with duckdb_connection(wdir, read_only=True) as conn:
             if conn is None:
                  return dash.no_update, dash.no_update
             
