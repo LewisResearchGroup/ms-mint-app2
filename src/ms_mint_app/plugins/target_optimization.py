@@ -5930,7 +5930,7 @@ def callbacks(app, fsc, cache, cpu=None):
     @app.callback(
         Output('bookmark-target-modal-btn', 'icon', allow_duplicate=True),
         Input('bookmark-target-modal-btn', 'nClicks'),
-        State('chromatogram-view-modal', 'title'),
+        State('target-preview-clicked', 'data'),
         State('wdir', 'data'),
         prevent_initial_call=True
     )
@@ -6052,7 +6052,7 @@ def callbacks(app, fsc, cache, cpu=None):
         State('slider-reference-data', 'data'),
         State('slider-data', 'data'),
         State('target-note', 'value'),  # Current note text
-        State('chromatogram-view-modal', 'title'),  # Current target name
+        State('target-preview-clicked', 'data'),  # Current target peak_label
         State('wdir', 'data'),
         State('chromatogram-view-rt-align', 'checked'),  # RT alignment toggle state
         State('rt-alignment-data', 'data'),  # RT alignment calculation data
@@ -6153,7 +6153,7 @@ def callbacks(app, fsc, cache, cpu=None):
         State('pending-nav-direction', 'data'),
         State('target-nav-store', 'data'),
         State('target-note', 'value'),  # Current note text
-        State('chromatogram-view-modal', 'title'),  # Current target name
+        State('target-preview-clicked', 'data'),  # Current target peak_label
         State('wdir', 'data'),
         prevent_initial_call=True
     )
@@ -6226,7 +6226,7 @@ def callbacks(app, fsc, cache, cpu=None):
         State('slider-data', 'data'),
         State('slider-reference-data', 'data'),
         State('target-note', 'value'),
-        State('chromatogram-view-modal', 'title'),  # Current target name
+        State('target-preview-clicked', 'data'),  # Current target peak_label
         State('chromatogram-view-rt-align', 'checked'),
         State('rt-alignment-data', 'data'),
         State('wdir', 'data'),
