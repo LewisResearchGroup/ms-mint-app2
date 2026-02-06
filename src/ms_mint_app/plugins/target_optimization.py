@@ -2086,6 +2086,7 @@ def _update_sample_type_tree(section_context, mark_action, expand_action, collap
         
         df = conn.execute("""
                           SELECT sample_type,
+                                 COALESCE(NULLIF(min(color), ''), '#1677ff') as sample_color,
                                  list({'title': label, 'key': label}) as children,
                                  list(label)                          as checked_keys
                           FROM samples
@@ -2116,8 +2117,9 @@ def _update_sample_type_tree(section_context, mark_action, expand_action, collap
         if prop_id in ['section-context', 'chromatogram-preview-filter-ms-type', 'workspace-status']:
             tree_data = [
                 {
-                    'title': row['sample_type'],
+                    'title': f"{row['sample_type']}",
                     'key': row['sample_type'],
+                    'style': {'color': row.get('sample_color') or '#1677ff'},
                     'children': row['children']
                 }
                 for row in df.to_dicts()
