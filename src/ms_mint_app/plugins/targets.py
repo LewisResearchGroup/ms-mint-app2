@@ -827,6 +827,25 @@ def _targets_table(section_context, pagination, filter_, sorter, filterOptions, 
                 .cast(pl.Boolean)
                 .alias('peak_selection_resolved'),
                 pl.col('bookmark').fill_null(False).cast(pl.Boolean).alias('bookmark_resolved'),
+                # Format m/z fields with fixed 6 decimals (preserve trailing zeros in UI)
+                pl.when(pl.col('mz').is_null())
+                .then(pl.lit(None))
+                .otherwise(
+                    pl.col('mz').map_elements(
+                        lambda x: f"{float(x):.6f}" if x is not None else None,
+                        return_dtype=pl.Utf8,
+                    )
+                )
+                .alias('mz'),
+                pl.when(pl.col('mz_mean').is_null())
+                .then(pl.lit(None))
+                .otherwise(
+                    pl.col('mz_mean').map_elements(
+                        lambda x: f"{float(x):.6f}" if x is not None else None,
+                        return_dtype=pl.Utf8,
+                    )
+                )
+                .alias('mz_mean'),
                 # Round rt, rt_min and rt_max to 1 decimal place for display
                 pl.col('rt').round(1).alias('rt'),
                 pl.col('rt_min').round(1).alias('rt_min'),
@@ -872,6 +891,24 @@ def _targets_table(section_context, pagination, filter_, sorter, filterOptions, 
                     .cast(pl.Boolean)
                     .alias('peak_selection_resolved'),
                     pl.col('bookmark').fill_null(False).cast(pl.Boolean).alias('bookmark_resolved'),
+                    pl.when(pl.col('mz').is_null())
+                    .then(pl.lit(None))
+                    .otherwise(
+                        pl.col('mz').map_elements(
+                            lambda x: f"{float(x):.6f}" if x is not None else None,
+                            return_dtype=pl.Utf8,
+                        )
+                    )
+                    .alias('mz'),
+                    pl.when(pl.col('mz_mean').is_null())
+                    .then(pl.lit(None))
+                    .otherwise(
+                        pl.col('mz_mean').map_elements(
+                            lambda x: f"{float(x):.6f}" if x is not None else None,
+                            return_dtype=pl.Utf8,
+                        )
+                    )
+                    .alias('mz_mean'),
                     pl.col('rt').round(1).alias('rt'),
                     pl.col('rt_min').round(1).alias('rt_min'),
                     pl.col('rt_max').round(1).alias('rt_max'),
