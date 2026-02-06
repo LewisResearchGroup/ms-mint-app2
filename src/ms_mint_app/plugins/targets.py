@@ -778,23 +778,6 @@ def _targets_table(section_context, pagination, filter_, sorter, filterOptions, 
         with duckdb_connection(wdir) as conn:
             if conn is None:
                 raise PreventUpdate
-            # Invariant: a target cannot remain bookmarked when explicitly unselected.
-            conn.execute(
-                """
-                UPDATE targets
-                SET bookmark = FALSE
-                WHERE peak_selection = FALSE
-                  AND bookmark = TRUE
-                """
-            )
-            conn.execute(
-                """
-                UPDATE targets
-                SET peak_selection = TRUE
-                WHERE bookmark = TRUE
-                  AND (peak_selection IS NULL OR peak_selection = FALSE)
-                """
-            )
             schema = conn.execute("DESCRIBE targets").pl()
         column_types = {r["column_name"]: r["column_type"] for r in schema.to_dicts()}
         where_sql, params = build_where_and_params(filter_, filterOptions)
@@ -827,13 +810,19 @@ def _targets_table(section_context, pagination, filter_, sorter, filterOptions, 
         data = (
             dfpl
             .with_columns(
-                # If peak_selection is null, fall back to bookmark; default False.
-                pl.when(pl.col('peak_selection').is_null())
-                .then(pl.col('bookmark').fill_null(False))
-                .otherwise(pl.col('peak_selection'))
-                .cast(pl.Boolean)
-                .alias('peak_selection_resolved'),
-                pl.col('bookmark').fill_null(False).cast(pl.Boolean).alias('bookmark_resolved'),
+                # Render-side invariant:
+                # bookmark=TRUE implies selection=TRUE (no DB writes in read callbacks).
+                (
+                    pl.col('peak_selection').fill_null(False).cast(pl.Boolean)
+                    | pl.col('bookmark').fill_null(False).cast(pl.Boolean)
+                ).alias('peak_selection_resolved'),
+                (
+                    pl.col('bookmark').fill_null(False).cast(pl.Boolean)
+                    & (
+                        pl.col('peak_selection').fill_null(False).cast(pl.Boolean)
+                        | pl.col('bookmark').fill_null(False).cast(pl.Boolean)
+                    )
+                ).alias('bookmark_resolved'),
                 # Format m/z fields with fixed 6 decimals (preserve trailing zeros in UI)
                 pl.when(pl.col('mz').is_null())
                 .then(pl.lit(None))
@@ -947,12 +936,17 @@ def _targets_table(section_context, pagination, filter_, sorter, filterOptions, 
             data = (
                 dfpl
                 .with_columns(
-                    pl.when(pl.col('peak_selection').is_null())
-                    .then(pl.col('bookmark').fill_null(False))
-                    .otherwise(pl.col('peak_selection'))
-                    .cast(pl.Boolean)
-                    .alias('peak_selection_resolved'),
-                    pl.col('bookmark').fill_null(False).cast(pl.Boolean).alias('bookmark_resolved'),
+                    (
+                        pl.col('peak_selection').fill_null(False).cast(pl.Boolean)
+                        | pl.col('bookmark').fill_null(False).cast(pl.Boolean)
+                    ).alias('peak_selection_resolved'),
+                    (
+                        pl.col('bookmark').fill_null(False).cast(pl.Boolean)
+                        & (
+                            pl.col('peak_selection').fill_null(False).cast(pl.Boolean)
+                            | pl.col('bookmark').fill_null(False).cast(pl.Boolean)
+                        )
+                    ).alias('bookmark_resolved'),
                     pl.when(pl.col('mz').is_null())
                     .then(pl.lit(None))
                     .otherwise(
