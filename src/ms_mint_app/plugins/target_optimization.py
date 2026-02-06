@@ -2204,8 +2204,19 @@ def _bookmark_target_logic(bookmarks, targets, trigger_id, wdir):
                 showProgress=True,
                 stack=True
             )
-        conn.execute("UPDATE targets SET bookmark = ? WHERE peak_label = ?", [bool(bookmarks[trigger_id]),
-                                                                                targets[trigger_id]])
+        target_label = targets[trigger_id]
+        new_state = bool(bookmarks[trigger_id])
+        if new_state:
+            # Bookmark implies selected.
+            conn.execute(
+                "UPDATE targets SET bookmark = TRUE, peak_selection = TRUE WHERE peak_label = ?",
+                [target_label],
+            )
+        else:
+            conn.execute(
+                "UPDATE targets SET bookmark = FALSE WHERE peak_label = ?",
+                [target_label],
+            )
     
     status = "bookmarked" if bookmarks[trigger_id] else "unbookmarked"
     logger.info(f"Target '{targets[trigger_id]}' was {status}.")
@@ -2226,7 +2237,14 @@ def _toggle_bookmark_logic(target_label, wdir):
         
         # Toggle
         new_state = not current_state
-        conn.execute("UPDATE targets SET bookmark = ? WHERE peak_label = ?", [new_state, target_label])
+        if new_state:
+            # Bookmark implies selected.
+            conn.execute(
+                "UPDATE targets SET bookmark = TRUE, peak_selection = TRUE WHERE peak_label = ?",
+                [target_label],
+            )
+        else:
+            conn.execute("UPDATE targets SET bookmark = FALSE WHERE peak_label = ?", [target_label])
         
         logger.info(f"Toggled bookmark for {target_label} to {new_state}")
         

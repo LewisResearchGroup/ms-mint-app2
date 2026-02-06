@@ -771,6 +771,23 @@ def _targets_table(section_context, pagination, filter_, sorter, filterOptions, 
         with duckdb_connection(wdir) as conn:
             if conn is None:
                 raise PreventUpdate
+            # Invariant: a target cannot remain bookmarked when explicitly unselected.
+            conn.execute(
+                """
+                UPDATE targets
+                SET bookmark = FALSE
+                WHERE peak_selection = FALSE
+                  AND bookmark = TRUE
+                """
+            )
+            conn.execute(
+                """
+                UPDATE targets
+                SET peak_selection = TRUE
+                WHERE bookmark = TRUE
+                  AND (peak_selection IS NULL OR peak_selection = FALSE)
+                """
+            )
             schema = conn.execute("DESCRIBE targets").pl()
         column_types = {r["column_name"]: r["column_type"] for r in schema.to_dicts()}
         where_sql, params = build_where_and_params(filter_, filterOptions)
@@ -1119,9 +1136,41 @@ def _save_switch_changes(recentlySwitchDataIndex, recentlySwitchStatus, recently
         if conn is None:
             logger.debug("_save_switch_changes: PreventUpdate because database connection is None")
             raise PreventUpdate
-        conn.execute(f"UPDATE targets SET {recentlySwitchDataIndex} = ? WHERE peak_label = ?",
-                     (recentlySwitchStatus, recentlySwitchRow['peak_label']))
-        logger.info(f"Updated {recentlySwitchDataIndex} for {recentlySwitchRow['peak_label']}: {recentlySwitchStatus}")
+        peak_label = recentlySwitchRow['peak_label']
+        status_bool = bool(recentlySwitchStatus)
+
+        if recentlySwitchDataIndex == "peak_selection":
+            if status_bool:
+                conn.execute(
+                    "UPDATE targets SET peak_selection = TRUE WHERE peak_label = ?",
+                    (peak_label,),
+                )
+            else:
+                # Unselecting a target must also remove bookmark.
+                conn.execute(
+                    "UPDATE targets SET peak_selection = FALSE, bookmark = FALSE WHERE peak_label = ?",
+                    (peak_label,),
+                )
+        elif recentlySwitchDataIndex == "bookmark":
+            if status_bool:
+                # Bookmark implies selected.
+                conn.execute(
+                    "UPDATE targets SET bookmark = TRUE, peak_selection = TRUE WHERE peak_label = ?",
+                    (peak_label,),
+                )
+            else:
+                conn.execute(
+                    "UPDATE targets SET bookmark = FALSE WHERE peak_label = ?",
+                    (peak_label,),
+                )
+
+        logger.info(
+            "Updated %s for %s: %s",
+            recentlySwitchDataIndex,
+            peak_label,
+            status_bool,
+        )
+    return {"action": "switch", "status": "success"}
 
 
 def _run_asari_analysis(ok_counts, wdir, multicores, mz_tol, mode, snr, min_height, min_points, gaussian_shape, cselectivity, detection_rate, set_progress=None):
@@ -1360,6 +1409,7 @@ def callbacks(app, fsc=None, cache=None):
         return _save_target_table_on_edit(row_edited, column_edited, wdir)
 
     @app.callback(
+        Output("targets-action-store", "data", allow_duplicate=True),
         Input('targets-table', 'recentlySwitchDataIndex'),
         Input('targets-table', 'recentlySwitchStatus'),
         Input('targets-table', 'recentlySwitchRow'),
