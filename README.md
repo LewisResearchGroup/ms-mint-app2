@@ -21,7 +21,7 @@ A powerful post-processing tool for **LC-MS based metabolomics** that simplifies
 - **RT Optimization** - Fine-tune retention time windows with visual feedback
 - **Optional Quantification (SCALiR)** - Available in the Processing tab for absolute quantification when needed
 - **DuckDB Backend** - Fast, efficient storage for large datasets
-- **Desktop App** - Available as standalone Windows, Linux, and macOS executable
+- **Desktop App** - Available as standalone Windows and Linux executable
 
 <p align="center">
   <img src="docs/quickstart/peak-preview.png" alt="Hierarchical Clustering" width="700">
@@ -29,17 +29,17 @@ A powerful post-processing tool for **LC-MS based metabolomics** that simplifies
 
 ## Quick Start
 
-### Installation (pip)
+### Installation (pip). Requires Python 3.12+
 
 ```bash
+# Create conda environment
+conda create -n ms-mint-app2 python==3.12
+conda activate ms-mint-app2
+
+# Install the package from PyPI
 pip install ms-mint-app2
-```
 
-Requires Python 3.12+.
-
-### Run MINT
-
-```bash
+# Run MINT
 Mint
 ```
 
@@ -74,6 +74,6 @@ Special thanks to [GitHub](https://github.com),[PyPI](https://pypi.org/), and th
 
 ## License
 
-This project is licensed under the Apache License 2.0 - see the [LICENSE](LICENSE) file for details.
+This project is licensed under the Apache License 2.0.
 
 ---

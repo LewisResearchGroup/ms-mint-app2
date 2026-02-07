@@ -1,5 +1,30 @@
    
 # Installation notes
+## Choose an installation mode
+- **PyPI install (recommended for most users):** more flexible dependency updates and easier recovery if a package needs to be changed.
+- **Executable:** single-file distribution with fully frozen dependencies (best for simple deployment, but less flexible for package-level fixes).
+
+## PyPI install (recommended)
+Use Python 3.12+.
+
+### conda/mamba + pip
+The latest stable release can be installed in a Python 3.12+ environment using `pip`.
+
+```bash
+# Create conda environment
+conda create -n ms-mint-app2 python==3.12
+conda activate ms-mint-app2
+
+# Install the package from PyPI
+pip install ms-mint-app2
+```
+
+Start:
+
+```
+Mint
+```
+
 ## Executables
 Builds are provided with all dependencies integrated for Windows and Linux on the [GitHub releases page](https://github.com/LewisResearchGroup/ms-mint-app2/releases/latest).
 
@@ -10,26 +35,8 @@ Builds are provided with all dependencies integrated for Windows and Linux on th
     After running the executable, the app will open in your default web browser. If the browser does not open automatically, navigate to `http://localhost:9999` (or the port printed in the terminal log).
 
 > **Note**: If port 9999 is already in use, MINT automatically selects a free port and prints a warning with the new URL.
-
-## Installation with `pip`
-The latest stable release can be installed in a Python 3.12+ environment using `pip`. We recommend using [conda](https://docs.anaconda.com/free/miniconda/) or [mamba](https://conda-forge.org/miniforge/) to create a virtual environment.
-
-```bash
-# Create conda environment
-conda create -n ms-mint-app2 python==3.12
-conda activate ms-mint-app2
-
-# Install the package from PyPI
-pip install ms-mint-app2
-
-```
-
-This will download and install all necessary dependencies and MINT.  
-Start the app via:
-
-```
-Mint
-```
+>
+> **Important**: Executables are frozen. If you need package-level flexibility (for example testing a different `polars` version), use the PyPI install path instead.
 
 ## Installation from source
 If you want to contribute to MINT or use the latest unreleased features, install from source.

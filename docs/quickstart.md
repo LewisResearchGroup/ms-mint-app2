@@ -2,15 +2,14 @@
 # Quickstart Guide for MINT
 Welcome to the MINT quickstart guide! This guide helps you get up and running with the application so you can start analyzing mass spectrometry data efficiently. Follow the steps below to install the app, create a workspace, and begin processing your data.
 
-## 1. Download and Open `MINT`
+## 1. Install and Open `MINT`
 
-Download an executable compatible with your OS and open MINT (see other installation options [here](install.md)).
-Once the app starts, you should see the `Workspaces` tab.
+Install MINT (see installation options [here](install.md)) or donwload an excecutable compatible with your OS. Once the app starts, you should see the `Workspaces` tab.
 
-[Button Text](https://example.com){ .md-button }
+<!-- [Button Text](https://example.com){ .md-button } -->
 
 ## 2. Create a workspace
-On first launch, MINT creates a **My first Workspace** workspace with sample data so you can tour the interface immediately. You can keep it for reference or create a new workspace for your project. A workspace provides easy access to all data files and results for a given project.
+On first launch, MINT creates a **My first Workspace** workspace with test data so you can tour the interface immediately. You can keep it for reference or create a new workspace for your project. A workspace provides easy access to all data files and results for a given project.
 
 ![](quickstart/first-start.png)
 
@@ -126,7 +125,10 @@ This file contains important information about the targets.
 |`filterLine`             | Filter ID for MS2 scans                                              |
 |`ms_type`                | ms1 or ms2                                                           |
 |`category`               | Category                                                             |
-|`score`                  | Score                                                                |
+|`formula`                | Chemical formula (used to derive m/z when mz_mean is missing)        |
+|`maven_id`               | Maven ID or Group ID (optional identifier)                           |
+|`adduct_name`            | Adduct name (e.g. [M+H]+); optional and can be auto-populated        |
+|`score`                  | Optional legacy score field                                          |
 |`notes`                  | Free-form notes                                                      |
 |`source`                 | Data source or file                                                  |
 
