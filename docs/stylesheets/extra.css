@@ -12,7 +12,7 @@
   flex-direction: column;
   justify-content: center;
   margin: 0 .8rem;
-  padding: 6rem 0;
+  padding: 5rem 0;
   text-align: center;
 }
 
@@ -53,7 +53,7 @@
   .mdx-hero__image {
     margin-left: 4rem;
     order: 2;
-    transform: translateX(2rem);
+    transform: translateX(2rem) translateY(-7.5rem);
     width: 25rem;
   }
 }
@@ -64,6 +64,7 @@
   max-width: 35rem;
   /* Limit width for better readability */
   order: 2;
+  transform: translateY(-2.5rem);
   padding-bottom: 6rem;
   /* Add padding to avoid overlap with wave */
 }

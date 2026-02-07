@@ -30,6 +30,9 @@ extra:
 theme:
   name: material
   custom_dir: docs/overrides
+  features:
+    - navigation.tabs
+    - navigation.tabs.sticky
   palette:
     - media: "(prefers-color-scheme: light)"
       scheme: default
