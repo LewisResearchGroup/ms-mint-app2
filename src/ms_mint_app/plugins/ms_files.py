@@ -1339,9 +1339,12 @@ def callbacks(cls, app, fsc, cache, args_namespace):
         Input("download-ms-template-btn", "nClicks"),
         Input("download-ms-files-btn", "nClicks"),
         State("wdir", "data"),
+        State('ms-files-table', 'filter'),
+        State('ms-files-table', 'sorter'),
+        State('ms-files-table', 'filterOptions'),
         prevent_initial_call=True,
     )
-    def download_ms_files(template_clicks, list_clicks, wdir):
+    def download_ms_files(template_clicks, list_clicks, wdir, filter_, sorter, filterOptions):
         from ..duckdb_manager import get_workspace_name_from_wdir
         from .download_utils import handle_template_or_list_download
 
@@ -1354,10 +1357,19 @@ def callbacks(cls, app, fsc, cache, args_namespace):
         def build_df():
             if not wdir:
                 raise PreventUpdate
-            with duckdb_connection(wdir) as conn:
+            with duckdb_connection(wdir, read_only=True) as conn:
                 if conn is None:
                     raise PreventUpdate
-                return conn.execute("SELECT * FROM samples").df()
+                schema = conn.execute("DESCRIBE samples").pl()
+                if schema is None or schema.is_empty():
+                    return pd.DataFrame()
+                column_types = {r["column_name"]: r["column_type"] for r in schema.to_dicts()}
+                where_sql, params = build_where_and_params(filter_, filterOptions or {})
+                order_by_sql = build_order_by(sorter, column_types, tie=('ms_file_label', 'ASC'))
+                sql = f"SELECT * FROM samples {where_sql} {order_by_sql}".strip()
+                df = conn.execute(sql, params).df()
+                ordered_cols = [c for c in MS_METADATA_TEMPLATE_COLUMNS if c in df.columns]
+                return df[ordered_cols]
 
         return handle_template_or_list_download(
             ctx,

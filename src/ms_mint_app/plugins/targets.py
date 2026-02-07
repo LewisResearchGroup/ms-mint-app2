@@ -69,6 +69,31 @@ TARGET_DESCRIPTION_MAP = dict(zip(TARGET_TEMPLATE_COLUMNS, TARGET_TEMPLATE_DESCR
 
 logger = logging.getLogger(__name__)
 
+# Keep list-download column order aligned with the Targets table UI.
+TARGET_UI_EXPORT_COLUMNS = [
+    'peak_label',
+    'peak_selection',
+    'bookmark',
+    'mz_mean',
+    'mz_width',
+    'mz',
+    'rt',
+    'rt_min',
+    'rt_max',
+    'rt_unit',
+    'intensity_threshold',
+    'formula',
+    'maven_id',
+    'ms_type',
+    'polarity',
+    'filterLine',
+    'adduct_name',
+    'category',
+    'score',
+    'notes',
+    'source',
+]
+
 
 class TargetsPlugin(PluginInterface):
     def __init__(self):
@@ -1524,9 +1549,12 @@ def callbacks(app, fsc=None, cache=None):
         Input("download-target-list-btn", "nClicks"),
 #         Input("download-target-list-maven-btn", "nClicks"),
         State("wdir", "data"),
+        State('targets-table', 'filter'),
+        State('targets-table', 'sorter'),
+        State('targets-table', 'filterOptions'),
         prevent_initial_call=True,
     )
-    def download_results(options_clicks, template_clicks, list_clicks, wdir):
+    def download_results(options_clicks, template_clicks, list_clicks, wdir, filter_, sorter, filterOptions):
 
         from ..duckdb_manager import get_workspace_name_from_wdir
         from .download_utils import handle_template_or_list_download
@@ -1554,8 +1582,15 @@ def callbacks(app, fsc=None, cache=None):
                 if conn is None:
                     logger.debug("download_results: PreventUpdate because database connection is None")
                     raise PreventUpdate
-                df = conn.execute("SELECT * FROM targets ORDER BY mz_mean ASC").df()
-            cols = TARGET_TEMPLATE_COLUMNS
+                schema = conn.execute("DESCRIBE targets").pl()
+                column_types = {r["column_name"]: r["column_type"] for r in schema.to_dicts()}
+                where_sql, params = build_where_and_params(filter_, filterOptions or {})
+                order_by_sql = build_order_by(sorter, column_types, tie=('peak_label', 'ASC'))
+                if not order_by_sql:
+                    order_by_sql = 'ORDER BY "mz_mean" ASC, "peak_label" COLLATE NOCASE ASC'
+                sql = f"SELECT * FROM targets {where_sql} {order_by_sql}".strip()
+                df = conn.execute(sql, params).df()
+            cols = TARGET_UI_EXPORT_COLUMNS
             return df[[c for c in cols if c in df.columns]]
 
         return handle_template_or_list_download(
