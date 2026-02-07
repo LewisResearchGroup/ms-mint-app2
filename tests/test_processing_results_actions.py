@@ -85,7 +85,7 @@ def test_download_dense_matrix_validation(monkeypatch, tmp_path):
 
 
 def test_download_dense_matrix_success(monkeypatch, tmp_path):
-    monkeypatch.setattr(proc, "duckdb_connection", lambda _wdir: _conn_context(object()))
+    monkeypatch.setattr(proc, "duckdb_connection", lambda _wdir, **_kwargs: _conn_context(object()))
     monkeypatch.setattr(proc, "create_pivot", lambda *_a, **_k: pd.DataFrame({"a": [1]}))
     monkeypatch.setattr(proc.dcc, "send_data_frame", lambda func, filename, **kwargs: {"filename": filename})
     monkeypatch.setattr(proc.T, "today", lambda: "2026-01-23")

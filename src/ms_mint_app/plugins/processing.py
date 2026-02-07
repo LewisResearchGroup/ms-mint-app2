@@ -1138,8 +1138,41 @@ def _download_all_results(wdir: str, ws_name: str, selected_columns: list) -> tu
             showProgress=True,
         )
     
-    with duckdb_connection(wdir, read_only=True) as conn:
-        if conn is None:
+    # Check for existing backup file (generated when results table loads)
+    backup_path = Path(wdir) / "results" / "results_backup.csv"
+
+    filename = f"{T.today()}-MINT__{ws_name}-all_results.csv"
+    tmp_path = None
+    import os
+
+    if backup_path.exists():
+        # 1. Use Polars to clean/filter the data first (respecting user column selection)
+        logger.info(f"Download request: {filename} (filtering columns with Polars)")
+        import polars as pl
+        import tempfile
+
+        # Read schema to find available columns
+        lf = pl.scan_csv(backup_path, infer_schema_length=100)
+        available_cols = lf.collect_schema().names()
+
+        # Filter to requested columns (always include keys)
+        cols_to_select = ['peak_label', 'ms_file_label'] + [
+            c for c in safe_cols
+            if c in available_cols and c not in ('peak_label', 'ms_file_label')
+        ]
+
+        # Write filtered data to temp file
+        with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.csv') as tmp:
+            tmp_path = tmp.name
+
+        lf.select(cols_to_select).collect().write_csv(tmp_path)
+
+    else:
+        # Fallback: generate from database if backup doesn't exist
+        logger.info(f"Backup missing for {filename}, generating from DB...")
+        tmp_path = _generate_csv_from_db(wdir, ws_name, safe_cols)
+
+        if tmp_path is None:
             return dash.no_update, fac.AntdNotification(
                 message="Download Results",
                 description="Database unavailable.",
@@ -1148,92 +1181,47 @@ def _download_all_results(wdir: str, ws_name: str, selected_columns: list) -> tu
                 placement="bottom",
                 showProgress=True,
             )
-        
-        # Check for existing backup file (generated when results table loads)
-        backup_path = Path(wdir) / "results" / "results_backup.csv"
-        
-        filename = f"{T.today()}-MINT__{ws_name}-all_results.csv"
-        tmp_path = None
-        import os
-        
-        if backup_path.exists():
-            # 1. Use Polars to clean/filter the data first (respecting user column selection)
-            logger.info(f"Download request: {filename} (filtering columns with Polars)")
-            import polars as pl
-            import tempfile
-            
-            # Read schema to find available columns
-            lf = pl.scan_csv(backup_path, infer_schema_length=100)
-            available_cols = lf.collect_schema().names()
-            
-            # Filter to requested columns (always include keys)
-            cols_to_select = ['peak_label', 'ms_file_label'] + [
-                c for c in safe_cols 
-                if c in available_cols and c not in ('peak_label', 'ms_file_label')
-            ]
-            
-            # Write filtered data to temp file
-            with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.csv') as tmp:
-                tmp_path = tmp.name
-            
-            lf.select(cols_to_select).collect().write_csv(tmp_path)
-            
-        else:
-            # Fallback: generate from database if backup doesn't exist
-            logger.info(f"Backup missing for {filename}, generating from DB...")
-            tmp_path = _generate_csv_from_db(wdir, ws_name, safe_cols)
-            
-            if tmp_path is None:
-                return dash.no_update, fac.AntdNotification(
-                    message="Download Results",
-                    description="Database unavailable.",
-                    type="error",
-                    duration=4,
-                    placement="bottom",
-                    showProgress=True,
-                )
-        
-        # 2. Check size of the filtered file
 
-        file_size_mb = os.path.getsize(tmp_path) / (1024 * 1024)
-        
-        # 3. If file is large (>50MB), serve via Flask Direct Download + Modal
-        # This prevents browser freezing/crashing with base64 data
-        if file_size_mb > 50:
-            logger.info(f"File is large ({file_size_mb:.1f} MB). Using Direct Download via Modal.")
-            import base64
-            
-            # Encode path for Flask route
-            encoded_path = base64.urlsafe_b64encode(tmp_path.encode()).decode()
-            download_url = f"/download-results-direct/{encoded_path}?filename={filename}"
-            
-            return dash.no_update, fac.AntdModal(
-                title="Download Large Results File",
-                visible=True,
-                width=500,
-                children=[
-                    html.P(f"The filtered results file is large ({file_size_mb:.1f} MB)."),
-                    html.P("Click the button below to download it directly."),
-                    html.Div(
-                        fac.AntdButton(
-                            "DOWNLOAD RESULTS",
-                            href=download_url,
-                            target="_blank",
-                            icon=fac.AntdIcon(icon="antd-download"),
-                            style={
-                                "marginTop": "10px",
-                                "textTransform": "uppercase"
-                            }
-                        ),
-                        style={"textAlign": "center", "marginTop": "20px"}
-                    )
-                ],
-                okButtonProps={'style': {'display': 'none'}},
-                cancelButtonProps={'style': {'display': 'none'}}
-            )
-            
-        # 4. If file is small, standard dcc.Download is fine
-        return dcc.send_file(tmp_path, filename=filename), dash.no_update
+    # 2. Check size of the filtered file
+    file_size_mb = os.path.getsize(tmp_path) / (1024 * 1024)
+
+    # 3. If file is large (>50MB), serve via Flask Direct Download + Modal
+    # This prevents browser freezing/crashing with base64 data
+    if file_size_mb > 50:
+        logger.info(f"File is large ({file_size_mb:.1f} MB). Using Direct Download via Modal.")
+        import base64
+
+        # Encode path for Flask route
+        encoded_path = base64.urlsafe_b64encode(tmp_path.encode()).decode()
+        download_url = f"/download-results-direct/{encoded_path}?filename={filename}"
+
+        return dash.no_update, fac.AntdModal(
+            title="Download Large Results File",
+            visible=True,
+            width=500,
+            children=[
+                html.P(f"The filtered results file is large ({file_size_mb:.1f} MB)."),
+                html.P("Click the button below to download it directly."),
+                html.Div(
+                    fac.AntdButton(
+                        "DOWNLOAD RESULTS",
+                        href=download_url,
+                        target="_blank",
+                        icon=fac.AntdIcon(icon="antd-download"),
+                        style={
+                            "marginTop": "10px",
+                            "textTransform": "uppercase"
+                        }
+                    ),
+                    style={"textAlign": "center", "marginTop": "20px"}
+                )
+            ],
+            okButtonProps={'style': {'display': 'none'}},
+            cancelButtonProps={'style': {'display': 'none'}}
+        )
+
+    # 4. If file is small, standard dcc.Download is fine
+    return dcc.send_file(tmp_path, filename=filename), dash.no_update
 
 
 def _generate_csv_from_db(wdir: str, ws_name: str, safe_cols: list) -> str:

@@ -47,7 +47,7 @@ def test_load_peaks_from_results_validation(monkeypatch):
     with pytest.raises(proc.PreventUpdate):
         proc._load_peaks_from_results("", [])
 
-    monkeypatch.setattr(proc, "duckdb_connection", lambda _wdir: _conn_context(None))
+    monkeypatch.setattr(proc, "duckdb_connection", lambda _wdir, **_kwargs: _conn_context(None))
     with pytest.raises(proc.PreventUpdate):
         proc._load_peaks_from_results("/tmp", [])
 
@@ -59,7 +59,7 @@ def test_load_peaks_from_results_options(monkeypatch):
         "INSERT INTO results (peak_label, ms_file_label, peak_area) VALUES ('Peak1', 'S1', 1.0), ('Peak2', 'S2', 2.0)"
     )
 
-    monkeypatch.setattr(proc, "duckdb_connection", lambda _wdir: _conn_context(conn))
+    monkeypatch.setattr(proc, "duckdb_connection", lambda _wdir, **_kwargs: _conn_context(conn))
 
     options, selected = proc._load_peaks_from_results("/tmp", None)
 
@@ -74,7 +74,7 @@ def test_load_peaks_from_results_filters_invalid(monkeypatch):
         "INSERT INTO results (peak_label, ms_file_label, peak_area) VALUES ('Peak1', 'S1', 1.0)"
     )
 
-    monkeypatch.setattr(proc, "duckdb_connection", lambda _wdir: _conn_context(conn))
+    monkeypatch.setattr(proc, "duckdb_connection", lambda _wdir, **_kwargs: _conn_context(conn))
 
     options, selected = proc._load_peaks_from_results("/tmp", ["Missing", "Peak1"])
 
