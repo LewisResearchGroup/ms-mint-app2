@@ -293,10 +293,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#1-download-and-open-mint" class="md-nav__link">
+  <a href="#1-install-and-open-mint" class="md-nav__link">
     <span class="md-ellipsis">
       
-        1. Download and Open MINT
+        1. Install and Open MINT
       
     </span>
   </a>
@@ -741,10 +741,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#1-download-and-open-mint" class="md-nav__link">
+  <a href="#1-install-and-open-mint" class="md-nav__link">
     <span class="md-ellipsis">
       
-        1. Download and Open MINT
+        1. Install and Open MINT
       
     </span>
   </a>
@@ -869,12 +869,12 @@
 
 <h1 id="quickstart-guide-for-mint">Quickstart Guide for MINT</h1>
 <p>Welcome to the MINT quickstart guide! This guide helps you get up and running with the application so you can start analyzing mass spectrometry data efficiently. Follow the steps below to install the app, create a workspace, and begin processing your data.</p>
-<h2 id="1-download-and-open-mint">1. Download and Open <code>MINT</code></h2>
-<p>Download an executable compatible with your OS and open MINT (see other installation options <a href="../install/">here</a>).
-Once the app starts, you should see the <code>Workspaces</code> tab.</p>
-<p><a class="md-button" href="https://example.com">Button Text</a></p>
+<h2 id="1-install-and-open-mint">1. Install and Open <code>MINT</code></h2>
+<p>Install MINT (see installation options <a href="../install/">here</a>) or donwload an excecutable compatible with your OS. Once the app starts, you should see the <code>Workspaces</code> tab.</p>
+<!-- [Button Text](https://example.com){ .md-button } -->
+
 <h2 id="2-create-a-workspace">2. Create a workspace</h2>
-<p>On first launch, MINT creates a <strong>My first Workspace</strong> workspace with sample data so you can tour the interface immediately. You can keep it for reference or create a new workspace for your project. A workspace provides easy access to all data files and results for a given project.</p>
+<p>On first launch, MINT creates a <strong>My first Workspace</strong> workspace with test data so you can tour the interface immediately. You can keep it for reference or create a new workspace for your project. A workspace provides easy access to all data files and results for a given project.</p>
 <p><a class="glightbox" data-type="image" data-width="auto" data-height="auto" href="first-start.png" data-desc-position="bottom"><img alt="" src="first-start.png"></a></p>
 <p>In the <code>Workspaces</code> tab, click the <code>+ Create Workspace</code> button. A dialog opens asking for the name of the workspace and an optional description. Type <code>DEMO</code> into the text field, add a brief description like <code>This is a DEMO</code>, and click <code>Create</code>.
 Expected result: the <code>DEMO</code> workspace appears with a blue toggle indicating it is active.</p>
@@ -1065,8 +1065,20 @@ This file is located in the <code>targets</code> folder within the demo archive.
 <td>Category</td>
 </tr>
 <tr>
+<td><code>formula</code></td>
+<td>Chemical formula (used to derive m/z when mz_mean is missing)</td>
+</tr>
+<tr>
+<td><code>maven_id</code></td>
+<td>Maven ID or Group ID (optional identifier)</td>
+</tr>
+<tr>
+<td><code>adduct_name</code></td>
+<td>Adduct name (e.g. [M+H]+); optional and can be auto-populated</td>
+</tr>
+<tr>
 <td><code>score</code></td>
-<td>Score</td>
+<td>Optional legacy score field</td>
 </tr>
 <tr>
 <td><code>notes</code></td>
