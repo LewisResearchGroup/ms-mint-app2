@@ -56,7 +56,7 @@ Click the `+` icon next to a workspace name to expand the row. This shows the ab
 ### Logging and Troubleshooting {: #logging-and-troubleshooting }
 MINT automatically tracks actions and errors to help with debugging.
 
--   **Log File**: A file named `ws.log` is created inside each workspace folder. It contains a detailed history of operations performed within that workspace.
+-   **Log File**: A file named `workspace_mint.log` is created inside each workspace folder. It contains a detailed history of operations performed within that workspace.
 -   **Terminal Output**: If you run MINT from the command line, logs are also printed to the terminal in real-time.
 
-If you encounter an issue, please check the `ws.log` file in your workspace directory for error messages before reporting a bug.
+If you encounter an issue, please check the `workspace_mint.log` file in your workspace directory for error messages before reporting a bug.

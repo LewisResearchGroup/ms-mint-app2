@@ -12,6 +12,21 @@ To import a target list, click the `Load Targets` button. This opens a file brow
 
 *   **Template**: For best results, use the standard format. Click the `DOWNLOAD TEMPLATE` button to download a pre-formatted CSV file with the required columns (`peak_label`, `mz_mean`, `mz_width`, `rt`, `rt_min`, `rt_max`).
 
+### Importing from External Software {: #importing-from-external-software }
+
+MINT supports importing target lists directly from other software formats, such as **EL-MAVEN (peak lists and group exports)**.
+
+Key features of this import functionality include:
+
+*   **Format Support**: Reads CSV, TSV, Excel, and JSON (EL-MAVEN group exports) files.
+*   **Automatic Column Mapping**: MINT automatically detects and renames columns from common formats to the MINT standard.
+    *   `compound`, `compoundName`, `name` -> `peak_label`
+    *   `meanMz`, `medMz`, `parent`, `row m/z` -> `mz_mean`
+    *   `meanRt`, `medRt`, `expectedRt`, `row retention time` -> `rt`
+    *   `formula`, `parentformula` -> `formula`
+*   **Unit Conversion**: Retention times in EL-MAVEN files (typically in minutes) are automatically converted to seconds.
+*   **Priority Handling**: If a file contains multiple potential columns for the same value (e.g., both `meanMz` and `medMz`), MINT automatically selects the most appropriate one based on a predefined priority list.
+
 ### Auto-Generate Targets (via Asari) {: #auto-generate-targets }
 
 If you don't have a pre-defined target list, MINT can automatically detect features in your processed files using [Asari](https://github.com/shuzhao-li/asari).
@@ -40,11 +55,35 @@ Once loaded, your targets are displayed in an interactive table with the followi
 *   **Retention Time**: `rt_min` and `rt_max` define the expected time window for the peak. The `rt` column typically represents the expected retention time of the peak.
 *   **Filtering**: Each column header includes a filter icon, allowing you to search for specific compounds or filter by values.
 
+The target list can be provided as a CSV file with teh following columns. A MINT-compatible template can be downloaded in the Targets tab.
+
+| Column Name             | Description                                                          |
+|-------------------------|----------------------------------------------------------------------|
+|`peak_label`             | Unique metabolite/feature name                                       |
+|`peak_selection`         | True if selected for analysis                                        |
+|`bookmark`               | True if bookmarked                                                   |
+|`mz_mean`                | Mean m/z (centroid)                                                  |
+|`mz_width`               | m/z window or tolerance                                              |
+|`mz`                     | Precursor m/z (MS2)                                                  |
+|`rt`                     | Retention time (default: in seconds)                                 |
+|`rt_min`                 | Lower RT bound (default: in seconds)                                 |
+|`rt_max`                 | Upper RT bound (default: in seconds)                                 |
+|`rt_unit`                | RT unit (e.g. s or min; default: in seconds)                         |
+|`intensity_threshold`    | Intensity cutoff (anything lower than this value is considered zero) |
+|`polarity`               | Polarity (Positive or Negative)                                      |
+|`filterLine`             | Filter ID for MS2 scans                                              |
+|`ms_type`                | ms1 or ms2                                                           |
+|`category`               | Category                                                             |
+|`formula`                | Chemical formula (used to derive m/z when mz_mean is missing)        |
+|`maven_id`               | Maven ID or Group ID (optional identifier)                           |
+|`adduct_name`            | Adduct name (e.g. [M+H]+); optional and can be auto-populated        |
+|`score`                  | Optional legacy score field                                          |
+|`notes`                  | Free-form notes                                                      |
+|`source`                 | Data source or file                                                  |
+
 ### Options Menu {: #options-menu }
 
 The **Options** dropdown (top right) provides bulk actions for list management:
 
 *   **Delete selected**: Remove currently checked rows from the workspace.
 *   **Clear table**: Remove all targets.
-
-Target lists can be provided as CSV files. For more details on the file format, see the [Quickstart guide](../quickstart.md#6-add-targets-metabolites).
