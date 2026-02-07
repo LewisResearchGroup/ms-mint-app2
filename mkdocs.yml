@@ -3,6 +3,7 @@ site_url: https://lewisresearchgroup.github.io/ms-mint-app2/
 site_author: Mario E. Valdes-Tresanco et al. 
 nav:
   - Home: 'index.md'
+  - Introduction: 'introduction.md'
   - Installation: 'install.md' 
   - Quickstart: 'quickstart.md'
   - GUI: 
@@ -28,6 +29,22 @@ extra:
       make our documentation better.
 theme:
   name: material
+  custom_dir: docs/overrides
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: teal
+      accent: teal
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: teal
+      accent: teal
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
 extra_css:
   - stylesheets/extra.css
 markdown_extensions:

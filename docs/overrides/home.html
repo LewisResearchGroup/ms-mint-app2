@@ -1,0 +1,37 @@
+{% extends "main.html" %}
+
+{% block tabs %}
+  {{ super() }}
+  <style>
+    .md-header { position: initial }
+    .md-main__inner { margin: 0 }
+    .md-content { display: none }
+    @media screen and (min-width: 60em) {
+      .md-sidebar--secondary { display: none }
+    }
+    @media screen and (min-width: 76.25em) {
+      .md-sidebar--primary { display: none }
+    }
+  </style>
+  <section class="mdx-container">
+    <div class="md-grid md-typeset">
+      <div class="mdx-hero">
+        <div class="mdx-hero__image">
+          <img src="image/MINT-logo.png" alt="MINT Logo" width="800" draggable="false">
+        </div>
+        <div class="mdx-hero__content">
+          <h1>MINT - Metabolomics Integrator</h1>
+          <p>A post-processing tool designed for liquid chromatography-mass spectrometry (LCMS) based metabolomics analysis.</p>
+          <a href="{{ 'quickstart/' | url }}" title="Quickstart" class="md-button md-button--primary">
+            Quick Start
+          </a>
+          <a href="{{ 'introduction/' | url }}" title="Introduction" class="md-button">
+            Read Introduction
+          </a>
+        </div>
+      </div>
+    </div>
+  </section>
+{% endblock %}
+{% block content %}{% endblock %}
+{% block footer %}{% endblock %}
