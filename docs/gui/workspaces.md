@@ -1,15 +1,11 @@
-## Workspaces {: #workspaces }
-
 Workspaces allow you to organize and separate different projects. Each workspace is a self-contained environment for your project files.
+
+![Workspaces](../image/workspaces_table.png)
 
 > **Tip**: Click the help icon (small "i" symbol) next to the "Workspaces" title to take a guided tour of this section.
 
-![Workspaces](../image/workspaces_v1.1.1.png)
-
 ### My first Workspace (First Launch) {: #explore-workspace }
 On first launch, MINT auto-creates a **My first Workspace** workspace with lightweight demo data so you can preview the interface without importing files. This workspace is only created if no other workspaces exist, and you can keep it or delete it like any other workspace.
-
-If you want to skip creating it, set the environment variable `MINT_DISABLE_EXPLORATION_WORKSPACE=1` before launching MINT. Advanced users can also point `MINT_EXPLORATION_BUNDLE_PATH` to a custom demo bundle to seed the workspace with different sample data.
 
 ### Storage Location {: #storage-location }
 
@@ -18,16 +14,19 @@ All files for a workspace are stored in a subdirectory within your MINT data fol
 -   **Default Location**: `~/MINT` (Linux/macOS) or `C:/Users/<username>/MINT` (Windows)
 -   **Active Workspace**: The active workspace is displayed in the sidebar under "Workspace:".
 
-#### Changing the Data Directory {: #changing-data-directory }
-You can change the location where MINT stores all workspaces.
+??? info "Changing the Data Directory"
 
-1.  Click the `Change Location` button next to the "Current Data Directory" display.
-2.  Enter the **absolute path** for the new folder.
-3.  Click `Save & Reload`.
+    #### Changing the Data Directory {: #changing-data-directory }
 
-![Data Directory Modal](../image/workspaces_data_dir_v1.1.1.png "Changing Global Data Directory")
+    You can change the location where MINT stores all workspaces.
 
-> **Note**: Changing this path will reload the application. Workspaces from the old directory are not moved; you will start with an empty list in the new location until you create new workspaces or move your valid workspace folders manually.
+    1.  Click the `Change Location` button next to the "Current Data Directory" display.
+    2.  Enter the **absolute path** for the new folder.
+    3.  Click `Save & Reload`.
+
+    ![Data Directory Modal](../image/workspaces_datadir.png "Changing Global Data Directory")
+
+    > **Note**: Changing this path will reload the application. Workspaces from the old directory are not moved; you will start with an empty list in the new location until you create new workspaces or move your valid workspace folders manually.
 
 ### Managing Workspaces {: #managing-workspaces }
 
@@ -49,6 +48,8 @@ If you have an existing MINT workspace database (`.db` file) from another machin
 4.  Click `Import`.
 
 MINT will copy the database into a new workspace folder, and you can immediately begin working with the restored data.
+
+![Workspaces](../image/workspaces_import.png)
 
 ### Workspace Details {: #workspace-details }
 Click the `+` icon next to a workspace name to expand the row. This shows the absolute path to the workspace and a summary of the data it contains (_e.g._, number of MS-files, targets, and results).
