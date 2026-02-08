@@ -28,7 +28,7 @@ Now you have created your first workspace, but it is empty. You will need some i
 
 If you only want to explore the UI quickly, you can use the pre-seeded **My first Workspace** workspace and jump ahead to the analysis section. For a full end-to-end walkthrough with real files, download the demo files below.
 
-Some demo files are available for download on the MINT Google Drive. Download the files from [here](https://downgit.github.io/#/home?url=https://github.com/LewisResearchGroup/ms-mint-app2/tree/main/tests/test_MS1) and extract the archive.
+Some demo files are available for download on the MINT GitHub repository. Download the files from [here](https://downgit.github.io/#/home?url=https://github.com/LewisResearchGroup/ms-mint-app2/tree/main/tests/test_MS1) and extract the archive.
 
 This is the directory tree of the demo files:
 
@@ -36,7 +36,6 @@ This is the directory tree of the demo files:
 .
 ├── metadata
 │   ├── metadata.csv
-│   └── metadata_template.csv
 ├── ms-files
 │   ├── CA_B1.mzXML
 │   ├── CA_B2.mzXML
@@ -54,7 +53,7 @@ This is the directory tree of the demo files:
     ├── targets.csv
     └── targets_template.csv
 
-3 directories, 16 files
+3 directories, 15 files
 ```
 
 - A folder (`ms-files`) with 12 mass spectrometry (MS) files from microbial samples. We have four files for each _Escherichia coli_ (EC), _Candida albicans_ (CA), and _Staphylococcus aureus_ (SA). Each file belongs to one of four batches (B1-B4).

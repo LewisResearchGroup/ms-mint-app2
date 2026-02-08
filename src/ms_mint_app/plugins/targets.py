@@ -233,7 +233,7 @@ _layout = html.Div(
                                 'title': 'Target',
                                 'dataIndex': 'peak_label',
                                 'width': '260px',
-                                'fixed': 'left'
+                                # 'fixed': 'left'
                             },
                             {
                                 'title': 'Selection',

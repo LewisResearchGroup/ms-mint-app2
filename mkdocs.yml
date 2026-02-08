@@ -57,6 +57,9 @@ markdown_extensions:
   - pymdownx.tabbed:
       alternate_style: true
   - attr_list
+  - admonition
+  - pymdownx.details
+  - pymdownx.superfences
 plugins:
   - glightbox
   - search

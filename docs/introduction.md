@@ -1,10 +1,10 @@
 # MINT - Metabolomics Integrator
 
-MINT is a post-processing tool designed for _liquid chromatography-mass spectrometry_ (LCMS) based metabolomics analysis. [Metabolomics](https://en.wikipedia.org/wiki/Metabolomics), the comprehensive study of small molecule metabolites within biological samples, plays a pivotal role in biomedical research. These metabolites serve as crucial biomarkers for disease diagnostics, therapeutic interventions, and pathogen identification.
+MINT is a post-processing tool designed for _liquid chromatography-mass spectrometry_ (LCMS) based metabolomics analysis. The core philosophy behind MINT is to guide the user through a reproducible metabolomics workflow that involves five main steps: _i_) data input, _ii_) target definition, _iii_) RT region-of-interest optimization, _iv_) processing, and _v_) analysis. The entire process is encapsulated within a portable “Workspace” ensuring that experimental data, targets, RT region-of-interest definitions, results, and analyses are kept together for full reproducibility.
 
 
-![Screenshot](quickstart/peak-preview.png)
-_**Figure 1:**_ Screenshot of the MINT browser interface.
+![Screenshot](quickstart/Fig1.png)
+_**Figure 1:**_ MINT processing workflow.
 
 ## Quickstart
 Check out the [Quickstart](quickstart.md) to jump right into it.
