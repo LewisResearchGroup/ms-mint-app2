@@ -19,7 +19,7 @@ from ... import tools as T
 from ...duckdb_manager import duckdb_connection, get_physical_cores, calculate_optimal_params, get_workspace_name_from_wdir
 from ._shared import (
     METRIC_OPTIONS, NORM_OPTIONS, GROUP_SELECT_OPTIONS, TAB_DEFAULT_NORM,
-    GROUPING_FIELDS, GROUP_LABELS, GROUP_COLUMNS,
+    GROUPING_FIELDS, GROUP_LABELS, GROUP_COLUMNS, allowed_metrics,
     _build_color_map, _clean_numeric, prepare_metric_table, normalize_matrices,
     create_invisible_figure, get_download_config
 )
@@ -284,15 +284,6 @@ class AnalysisPlugin(PluginInterface):
 
 def layout():
     return _layout
-
-allowed_metrics = {
-    'peak_area',
-    'peak_area_top3',
-    'peak_max',
-    'peak_mean',
-    'peak_median',
-    'scalir_conc',
-}
 
 def _pca_cache_key(wdir, metric, norm_value):
     return f"{wdir}|{metric}|{norm_value}"
