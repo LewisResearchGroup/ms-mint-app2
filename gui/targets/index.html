@@ -1336,13 +1336,13 @@
 <li><strong>Min Timepoints</strong>: Minimum number of scans required to define a peak shape.</li>
 </ul>
 <h3 id="import-validation-auto-fill">Import Validation And Auto-Fill</h3>
-<p>MINT only strictly requires <code>peak_label</code> plus enough RT information to define a window. For each target row, MINT accepts a valuid RT input patterns and auto-fills missing values. Below, we explain in detail some of the rules MINT uses to fill missing element in the targets table. Click the banner to expand.</p>
+<p>MINT only strictly requires <code>peak_label</code> plus enough RT information to define a window. For each target row, MINT accepts a valid RT input patterns and auto-fills missing values. Below, we explain in detail some of the rules MINT uses to fill missing element in the targets table. Click the banner to expand.</p>
 <details class="info">
 <summary>RT Auto-Derivation and Validation</summary>
 <h4 id="rt-derivation-and-validation">RT Auto-Derivation and Validation</h4>
 <ul>
 <li><code>rt_min</code> + <code>rt_max</code> only: MINT derives <code>rt</code> as the midpoint.</li>
-<li><code>rt</code> only: MINT initializes <code>rt_min</code> and <code>rt_max</code> using a temporary symmetric bootstrap window (<code>rt ± 5.0 s</code>) so targets can be processed immediately. The <code>±5.0 s</code> rule is an initial import fallback, not the final recommended span. After chromatograms are computed, refine RT bounds in the <em>Optimization</em> tab using the observed peak shape and apex</li>
+<li><code>rt</code> only: MINT initializes <code>rt_min</code> and <code>rt_max</code> using a temporary symmetric bootstrap window (<code>rt ± 5.0 s</code>) so targets can be processed immediately. The <code>±5.0 s</code> rule is an initial import fallback, not the final recommended span. After chromatograms are computed, refine RT bounds in the <em>Optimization</em> tab using the observed peak shape and apex.</li>
 <li><code>rt</code> + <code>rt_min</code>: MINT derives <code>rt_max</code> symmetrically around <code>rt</code>.</li>
 <li><code>rt</code> + <code>rt_max</code>: MINT derives <code>rt_min</code> symmetrically around <code>rt</code>.</li>
 <li>All three (<code>rt</code>, <code>rt_min</code>, <code>rt_max</code>): MINT keeps them, then validates consistency.</li>
