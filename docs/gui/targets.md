@@ -116,7 +116,7 @@ MINT only strictly requires `peak_label` plus enough RT information to define a 
 
 ??? info "Defaults And Overrides"
 
-    ### Defaults And Overrides {: #targets-defaults-and-overrides }
+    #### Defaults And Overrides {: #targets-defaults-and-overrides }
 
     During import, MINT applies a few defaults and override rules so target rows are immediately usable:
 
@@ -131,7 +131,7 @@ MINT only strictly requires `peak_label` plus enough RT information to define a 
 
 ??? info "Duplicate Label Handling"
 
-    ### Duplicate Label Handling {: #duplicate-label-handling }
+    #### Duplicate Label Handling {: #duplicate-label-handling }
 
     When imported targets contain repeated `peak_label` values, MINT resolves them automatically:
 
@@ -141,7 +141,7 @@ MINT only strictly requires `peak_label` plus enough RT information to define a 
 
 ??? info "Smart Enrichment After Import"
 
-    ### Smart Enrichment After Import {: #smart-enrichment-after-import }
+    #### Smart Enrichment After Import {: #smart-enrichment-after-import }
 
     After parsing and validation, MINT applies additional enrichment to improve incomplete target tables:
 
@@ -153,7 +153,7 @@ MINT only strictly requires `peak_label` plus enough RT information to define a 
 
 ??? info "Backup Snapshot"
 
-    ### Backup Snapshot {: #targets-backup-snapshot }
+    #### Backup Snapshot {: #targets-backup-snapshot }
 
     Whenever targets are imported (file upload) or generated via Asari, MINT writes a workspace-local backup snapshot:
 
