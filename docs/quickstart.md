@@ -105,6 +105,9 @@ This file is located in the `targets` folder within the demo archive.
 
 This is the data extraction protocol. It determines what data is extracted from the files. The same protocol is applied to all files. No fitting or peak optimization is done.
 
+After a successful target import, MINT automatically writes a backup snapshot at `<workspace>/data/targets_backup.csv`.
+This snapshot is refreshed on later target uploads (or untargeted generation) and can be useful for recovery/export.
+
 This file contains important information about the targets.
 
 | Column Name             | Description                                                          |
