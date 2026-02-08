@@ -97,7 +97,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#optimization" class="md-skip">
+        <a href="#peak-optimization-workflow" class="md-skip">
           Skip to content
         </a>
       
@@ -757,18 +757,6 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#optimization" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Optimization
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Optimization">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
   <a href="#peak-optimization-workflow" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -778,30 +766,52 @@
   </a>
   
 </li>
-        
-          <li class="md-nav__item">
+      
+        <li class="md-nav__item">
+  <a href="#compute-chromatograms" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. Compute Chromatograms
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#chromatogram-preview-cards" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. Preview Cards
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#interactive-manual-optimization" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Interactive Manual Optimization
+        3. Interactive Manual Optimization
       
     </span>
   </a>
   
 </li>
-        
-          <li class="md-nav__item">
-  <a href="#bookmarking-targets" class="md-nav__link">
+      
+        <li class="md-nav__item">
+  <a href="#autosave-and-persistence" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Bookmarking Targets
+        4. Auto-save and persistence
       
     </span>
   </a>
   
 </li>
-        
-          <li class="md-nav__item">
+      
+        <li class="md-nav__item">
   <a href="#card-controls" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -809,11 +819,6 @@
       
     </span>
   </a>
-  
-</li>
-        
-      </ul>
-    </nav>
   
 </li>
       
@@ -968,18 +973,6 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#optimization" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Optimization
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Optimization">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
   <a href="#peak-optimization-workflow" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -989,30 +982,52 @@
   </a>
   
 </li>
-        
-          <li class="md-nav__item">
+      
+        <li class="md-nav__item">
+  <a href="#compute-chromatograms" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. Compute Chromatograms
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#chromatogram-preview-cards" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. Preview Cards
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#interactive-manual-optimization" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Interactive Manual Optimization
+        3. Interactive Manual Optimization
       
     </span>
   </a>
   
 </li>
-        
-          <li class="md-nav__item">
-  <a href="#bookmarking-targets" class="md-nav__link">
+      
+        <li class="md-nav__item">
+  <a href="#autosave-and-persistence" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Bookmarking Targets
+        4. Auto-save and persistence
       
     </span>
   </a>
   
 </li>
-        
-          <li class="md-nav__item">
+      
+        <li class="md-nav__item">
   <a href="#card-controls" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1020,11 +1035,6 @@
       
     </span>
   </a>
-  
-</li>
-        
-      </ul>
-    </nav>
   
 </li>
       
@@ -1050,50 +1060,77 @@
 
   <h1>Optimization</h1>
 
-<h2 id="optimization">Optimization</h2>
-<p>The <strong>Optimization</strong> tab is designed to refine your peak integration windows (Retention Time) for specific targets. By optimizing the Retention Time (RT) ranges, you ensure that MINT extracts the maximum intensity for the correct peak, improving data quality.</p>
-<p><a class="glightbox" data-type="image" data-width="auto" data-height="auto" href="../../image/optimization_v1.1.1.png" data-desc-position="bottom"><img alt="Optimization" src="../../image/optimization_v1.1.1.png" title="Optimization"></a></p>
+<p>In the <strong>Optimization</strong> tab, the EIC are computed first based on the parameters defined in the Targets table. Next, target RT windows (<code>rt_min</code>, <code>rt_max</code>) can be refined so downstream extraction in Processing captures the correct peak region.</p>
+<p><a class="glightbox" data-type="image" data-width="auto" data-height="auto" href="../../image/optimization_compute.png" data-desc-position="bottom"><img alt="Optimization" src="../../image/optimization_compute.png" title="Optimization view"></a></p>
 <blockquote>
 <p><strong>Tip</strong>: Click the help icon (small "i" symbol) next to the "Optimization" title to take a guided tour of this section.</p>
 </blockquote>
 <h3 id="peak-optimization-workflow">Peak Optimization Workflow</h3>
 <ol>
-<li><strong>Define Scope</strong>: Use the sidebar to select the specific <code>Samples</code> (by type, batch, etc.) and <code>Targets</code> you want to optimize.</li>
-<li><strong>Compute Chromatograms</strong>: Click the <code>COMPUTE CHROMATOGRAMS</code> button. MINT will extract and display the Ion Chromatograms (EIC) for the selected targets across your samples.</li>
-<li><strong>Review Optimization Cards</strong>: The results are displayed as "Optimization Cards". Each card represents a target and shows:<ul>
-<li><strong>Chromatogram Plot</strong>: The shape of the peak across samples.</li>
-<li><strong>Current RT Range</strong>: The vertical dashed lines indicate the start and end of the integration window.</li>
-</ul>
-</li>
+<li><strong>Compute Chromatograms</strong>: Click <code>COMPUTE CHROMATOGRAMS</code> to generate EIC traces.</li>
+<li><strong>Preview Cards</strong>: Inspect chromatogram previews per target.</li>
+<li><strong>Open Manual View</strong>: Click a card (or graph icon) to fine-tune RT ranges.</li>
+<li><strong>Persist Changes</strong>: Auto-save events.</li>
 </ol>
-<h3 id="interactive-manual-optimization">Interactive Manual Optimization</h3>
-<p>Click on any <code>Optimization Card</code> or the <code>Graph</code> icon to open the detailed <code>Manual Optimization</code> modal. In this view, you can fine-tune the peak selection:</p>
+<h3 id="compute-chromatograms">1. Compute Chromatograms</h3>
+<p><code>COMPUTE CHROMATOGRAMS</code> opens a modal to configure recomputation and resources.</p>
 <ul>
-<li><strong>Interactive Tuning</strong>: Click and drag on the plot to manually set the new Retention Time (RT) start and end points for the target. The green shaded area represents the integration window.</li>
-<li><strong>Intensity Scale</strong>: Toggle between <code>Linear</code> and <code>Log</code> scales to better visualize low-intensity peaks.</li>
-<li><strong>Legend Behavior</strong>: Switch between <code>Group</code> (aggregate by sample type/metadata) or <code>Single</code> (individual file traces).</li>
-<li><strong>Envelopes / Shadow Plots</strong>: When <code>Group</code> legend mode or <code>Megatrace</code> is active, MINT displays an "Envelope" (Shadow Plot) representing the min, max, and mean intensities for each group. This allows for rapid inspection of large datasets without visual clutter.</li>
-<li><strong>RT Alignment</strong>: Enable automatic Retention Time alignment for the current target. <ul>
-<li><strong>Logic</strong>: MINT calculates shifts based on the median apex position across all selected samples within the defined RT span.</li>
-<li><strong>Authoritative State</strong>: Alignment shifts are stored per-target in the database and persisted across sessions.</li>
-<li><strong>Auto-Notes</strong>: When enabled, alignment details (reference RT, shifts per sample type) are automatically appended to the target notes.</li>
+<li>MINT validates prerequisites first (requires at least one optimization sample and one target).</li>
+<li>If chromatograms already exist, MINT shows a warning and enables recompute toggles (<code>MS1</code>, <code>MS2</code>) automatically.</li>
+<li>Default resources are auto-detected from your system (CPU/RAM), and batch size is auto-calculated from workload and resource settings.</li>
+<li>If no targets are selected, MINT computes chromatograms for all targets.</li>
+<li>After chromatograms are generated, MINT runs adaptive RT-span optimization for targets marked as auto-adjusted during import.</li>
 </ul>
-</li>
-<li><strong>Megatrace</strong>: Toggle an aggregated "Megatrace" view. When RT alignment is active, Megatrace displays the aligned envelope, helping identify global peak shapes after correcting for shifts.</li>
-<li><strong>Edit RT-span</strong>: <ul>
-<li><strong>Edit</strong>: Enable dragging/resizing the RT window.</li>
-<li><strong>Lock</strong>: Prevent accidental changes to the RT range.</li>
+<h3 id="chromatogram-preview-cards">2. Preview Cards</h3>
+<p>After computation, Optimization cards provide a quick glance at the data before manual edits.</p>
+<p><a class="glightbox" data-type="image" data-width="auto" data-height="auto" href="../../image/optimization_cards.png" data-desc-position="bottom"><img alt="Optimization" src="../../image/optimization_cards.png" title="Optimization"></a></p>
+<ul>
+<li><strong>Card Plot</strong>: per-target chromatogram view over the current RT span.</li>
+<li><strong>Bookmark toggle</strong>: star targets for later focused processing.</li>
+<li><strong>Delete target</strong>: remove target plus related chromatogram/results entries.</li>
+<li><strong>Pagination and sizing</strong>: browse with pagination and tune card width/height for your screen.</li>
 </ul>
-</li>
-<li><strong>Notes</strong>: Add custom notes for specific targets. RT alignment data is preserved even if you edit notes manually.</li>
-<li><strong>Save/Reset</strong>: Save your adjusted RT bounds and alignment state to the target list or reset them to the original attributes.</li>
+<details class="info">
+<summary>Preview filters</summary>
+<ul>
+<li>Filter by <code>ms_type</code> (<code>all</code>, <code>ms1</code>, <code>ms2</code>).</li>
+<li>Filter by bookmark state (<code>all</code>, <code>Bookmarked</code>, <code>Unmarked</code>).</li>
+<li>Order cards by peak label or m/z.</li>
+<li>Toggle log-y rendering for quick visual contrast checks.</li>
 </ul>
-<h3 id="bookmarking-targets">Bookmarking Targets</h3>
-<p>Each optimization card features a <strong>Star icon</strong> (Bookmark). 
-*   <strong>Usage</strong>: Click the star to bookmark a target. 
-*   <strong>Purpose</strong>: You can filter the MINT processing step to run <em>only</em> on bookmarked targets (see <a href="../processing/">Processing</a>). This is useful for iteratively refining specific problematic compounds without reprocessing the entire dataset.</p>
+</details>
+<h3 id="interactive-manual-optimization">3. Interactive Manual Optimization</h3>
+<p>Open a target card to launch the detailed modal and adjust RT spans directly on the plot. Move across targets without closing the modal. Changes are saved automatically.</p>
+<p><a class="glightbox" data-type="image" data-width="auto" data-height="auto" href="../../image/optimization_modal.png" data-desc-position="bottom"><img alt="Optimization" src="../../image/optimization_modal.png" title="Optimization"></a></p>
+<ul>
+<li><strong>Edit RT-span</strong>: drag/resize the RT window when unlocked.</li>
+<li><strong>Lock range</strong>: prevent accidental RT-window edits.</li>
+<li><strong>Set RT marker</strong>: click within the span to set/update target RT.</li>
+<li><strong>Scale and grouping</strong>: switch linear/log y-axis and group-click legend behavior.</li>
+<li><strong>Notes</strong>: edit target notes while inspecting traces.</li>
+</ul>
+<details class="info">
+<summary>Advanced modal controls</summary>
+<ul>
+<li><strong>Megatrace</strong>: aggregated rendering mode for large trace sets.</li>
+<li><strong>Full range</strong>: show full chromatogram instead of local window (can be slower).</li>
+<li><strong>RT Alignment</strong>: align traces by apex within current RT span; alignment state is persisted per target.</li>
+</ul>
+</details>
+<h3 id="autosave-and-persistence">4. Auto-save and persistence</h3>
+<p>MINT includes persistence and consistency behaviors so optimization work is resilient:</p>
+<ul>
+<li>On target navigation (<code>Prev</code>/<code>Next</code>), changed RT span and RT-alignment state are auto-saved.</li>
+<li>On modal close, changed RT span / RT alignment are auto-saved.</li>
+<li>Notes are persisted in navigation flows.</li>
+<li>Use <strong>Save</strong> when you want immediate explicit commit feedback while staying on the same target.</li>
+</ul>
 <h3 id="card-controls">Card Controls</h3>
-<p>At the bottom left of the Optimization tab, you can adjust the display size of the chromatogram cards using the <strong>Width</strong> and <strong>Height</strong> inputs. This allows you to fit more targets on the screen or enlarge them for detailed inspection.</p>
+<ul>
+<li>Bookmarking a target also marks it as selected (<code>peak_selection = TRUE</code>).</li>
+<li>This keeps bookmarked subsets compatible with Processing filters such as <code>Bookmarked Targets Only</code>.</li>
+<li>At the bottom-left of the Optimization page, adjust card <strong>Width</strong> and <strong>Height</strong> to trade off overview density vs detail visibility.</li>
+</ul>
 
 
 

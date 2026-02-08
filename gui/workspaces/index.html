@@ -97,7 +97,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#workspaces" class="md-skip">
+        <a href="#explore-workspace" class="md-skip">
           Skip to content
         </a>
       
@@ -673,18 +673,6 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#workspaces" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Workspaces
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Workspaces">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
   <a href="#explore-workspace" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -694,8 +682,8 @@
   </a>
   
 </li>
-        
-          <li class="md-nav__item">
+      
+        <li class="md-nav__item">
   <a href="#storage-location" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -722,8 +710,8 @@
     </nav>
   
 </li>
-        
-          <li class="md-nav__item">
+      
+        <li class="md-nav__item">
   <a href="#managing-workspaces" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -733,8 +721,8 @@
   </a>
   
 </li>
-        
-          <li class="md-nav__item">
+      
+        <li class="md-nav__item">
   <a href="#import-database" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -744,8 +732,8 @@
   </a>
   
 </li>
-        
-          <li class="md-nav__item">
+      
+        <li class="md-nav__item">
   <a href="#workspace-details" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -755,8 +743,8 @@
   </a>
   
 </li>
-        
-          <li class="md-nav__item">
+      
+        <li class="md-nav__item">
   <a href="#logging-and-troubleshooting" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -764,11 +752,6 @@
       
     </span>
   </a>
-  
-</li>
-        
-      </ul>
-    </nav>
   
 </li>
       
@@ -1007,18 +990,6 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#workspaces" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Workspaces
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Workspaces">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
   <a href="#explore-workspace" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1028,8 +999,8 @@
   </a>
   
 </li>
-        
-          <li class="md-nav__item">
+      
+        <li class="md-nav__item">
   <a href="#storage-location" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1056,8 +1027,8 @@
     </nav>
   
 </li>
-        
-          <li class="md-nav__item">
+      
+        <li class="md-nav__item">
   <a href="#managing-workspaces" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1067,8 +1038,8 @@
   </a>
   
 </li>
-        
-          <li class="md-nav__item">
+      
+        <li class="md-nav__item">
   <a href="#import-database" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1078,8 +1049,8 @@
   </a>
   
 </li>
-        
-          <li class="md-nav__item">
+      
+        <li class="md-nav__item">
   <a href="#workspace-details" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1089,8 +1060,8 @@
   </a>
   
 </li>
-        
-          <li class="md-nav__item">
+      
+        <li class="md-nav__item">
   <a href="#logging-and-troubleshooting" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1098,11 +1069,6 @@
       
     </span>
   </a>
-  
-</li>
-        
-      </ul>
-    </nav>
   
 </li>
       
@@ -1128,21 +1094,21 @@
 
   <h1>Workspaces</h1>
 
-<h2 id="workspaces">Workspaces</h2>
 <p>Workspaces allow you to organize and separate different projects. Each workspace is a self-contained environment for your project files.</p>
+<p><a class="glightbox" data-type="image" data-width="auto" data-height="auto" href="../../image/workspaces_table.png" data-desc-position="bottom"><img alt="Workspaces" src="../../image/workspaces_table.png"></a></p>
 <blockquote>
 <p><strong>Tip</strong>: Click the help icon (small "i" symbol) next to the "Workspaces" title to take a guided tour of this section.</p>
 </blockquote>
-<p><a class="glightbox" data-type="image" data-width="auto" data-height="auto" href="../../image/workspaces_v1.1.1.png" data-desc-position="bottom"><img alt="Workspaces" src="../../image/workspaces_v1.1.1.png"></a></p>
 <h3 id="explore-workspace">My first Workspace (First Launch)</h3>
 <p>On first launch, MINT auto-creates a <strong>My first Workspace</strong> workspace with lightweight demo data so you can preview the interface without importing files. This workspace is only created if no other workspaces exist, and you can keep it or delete it like any other workspace.</p>
-<p>If you want to skip creating it, set the environment variable <code>MINT_DISABLE_EXPLORATION_WORKSPACE=1</code> before launching MINT. Advanced users can also point <code>MINT_EXPLORATION_BUNDLE_PATH</code> to a custom demo bundle to seed the workspace with different sample data.</p>
 <h3 id="storage-location">Storage Location</h3>
 <p>All files for a workspace are stored in a subdirectory within your MINT data folder (<code>--data-dir</code>).</p>
 <ul>
 <li><strong>Default Location</strong>: <code>~/MINT</code> (Linux/macOS) or <code>C:/Users/&lt;username&gt;/MINT</code> (Windows)</li>
 <li><strong>Active Workspace</strong>: The active workspace is displayed in the sidebar under "Workspace:".</li>
 </ul>
+<details class="info">
+<summary>Changing the Data Directory</summary>
 <h4 id="changing-data-directory">Changing the Data Directory</h4>
 <p>You can change the location where MINT stores all workspaces.</p>
 <ol>
@@ -1150,10 +1116,11 @@
 <li>Enter the <strong>absolute path</strong> for the new folder.</li>
 <li>Click <code>Save &amp; Reload</code>.</li>
 </ol>
-<p><a class="glightbox" data-type="image" data-width="auto" data-height="auto" href="../../image/workspaces_data_dir_v1.1.1.png" data-desc-position="bottom"><img alt="Data Directory Modal" src="../../image/workspaces_data_dir_v1.1.1.png" title="Changing Global Data Directory"></a></p>
+<p><a class="glightbox" data-type="image" data-width="auto" data-height="auto" href="../../image/workspaces_datadir.png" data-desc-position="bottom"><img alt="Data Directory Modal" src="../../image/workspaces_datadir.png" title="Changing Global Data Directory"></a></p>
 <blockquote>
 <p><strong>Note</strong>: Changing this path will reload the application. Workspaces from the old directory are not moved; you will start with an empty list in the new location until you create new workspaces or move your valid workspace folders manually.</p>
 </blockquote>
+</details>
 <h3 id="managing-workspaces">Managing Workspaces</h3>
 <p>You can manage your workspaces using the controls in the Workspaces tab:</p>
 <ul>
@@ -1175,6 +1142,7 @@
 <li>Click <code>Import</code>.</li>
 </ol>
 <p>MINT will copy the database into a new workspace folder, and you can immediately begin working with the restored data.</p>
+<p><a class="glightbox" data-type="image" data-width="auto" data-height="auto" href="../../image/workspaces_import.png" data-desc-position="bottom"><img alt="Workspaces" src="../../image/workspaces_import.png"></a></p>
 <h3 id="workspace-details">Workspace Details</h3>
 <p>Click the <code>+</code> icon next to a workspace name to expand the row. This shows the absolute path to the workspace and a summary of the data it contains (<em>e.g.</em>, number of MS-files, targets, and results).</p>
 <h3 id="logging-and-troubleshooting">Logging and Troubleshooting</h3>

@@ -1164,12 +1164,11 @@ Expected result: the <code>DEMO</code> workspace appears with a blue toggle indi
 <p>Now you have created your first workspace, but it is empty. You will need some input files to populate it.</p>
 <h2 id="3-download-the-demo-files">3. Download the demo files</h2>
 <p>If you only want to explore the UI quickly, you can use the pre-seeded <strong>My first Workspace</strong> workspace and jump ahead to the analysis section. For a full end-to-end walkthrough with real files, download the demo files below.</p>
-<p>Some demo files are available for download on the MINT Google Drive. Download the files from <a href="https://downgit.github.io/#/home?url=https://github.com/LewisResearchGroup/ms-mint-app2/tree/main/tests/test_MS1">here</a> and extract the archive.</p>
+<p>Some demo files are available for download on the MINT GitHub repository. Download the files from <a href="https://downgit.github.io/#/home?url=https://github.com/LewisResearchGroup/ms-mint-app2/tree/main/tests/test_MS1">here</a> and extract the archive.</p>
 <p>This is the directory tree of the demo files:</p>
-<pre><code>.
+<div class="highlight"><pre><span></span><code>.
 ├── metadata
 │&nbsp;&nbsp; ├── metadata.csv
-│&nbsp;&nbsp; └── metadata_template.csv
 ├── ms-files
 │&nbsp;&nbsp; ├── CA_B1.mzXML
 │&nbsp;&nbsp; ├── CA_B2.mzXML
@@ -1187,8 +1186,8 @@ Expected result: the <code>DEMO</code> workspace appears with a blue toggle indi
     ├── targets.csv
     └── targets_template.csv
 
-3 directories, 16 files
-</code></pre>
+3 directories, 15 files
+</code></pre></div>
 <ul>
 <li>A folder (<code>ms-files</code>) with 12 mass spectrometry (MS) files from microbial samples. We have four files for each <em>Escherichia coli</em> (EC), <em>Candida albicans</em> (CA), and <em>Staphylococcus aureus</em> (SA). Each file belongs to one of four batches (B1-B4).</li>
 <li>A folder (<code>metadata</code>) with a <code>metadata.csv</code> file containing this information in tabular format. Submitting metadata is optional, but highly recommended to make downstream analysis smoother.</li>
@@ -1275,6 +1274,8 @@ Expected result: the 12 files appear in the MS-Files table.</p>
 This file is located in the <code>targets</code> folder within the demo archive.</p>
 <p><a class="glightbox" data-type="image" data-width="auto" data-height="auto" href="targets-table.png" data-desc-position="bottom"><img alt="" src="targets-table.png"></a></p>
 <p>This is the data extraction protocol. It determines what data is extracted from the files. The same protocol is applied to all files. No fitting or peak optimization is done.</p>
+<p>After a successful target import, MINT automatically writes a backup snapshot at <code>&lt;workspace&gt;/data/targets_backup.csv</code>.
+This snapshot is refreshed on later target uploads (or untargeted generation) and can be useful for recovery/export.</p>
 <p>This file contains important information about the targets.</p>
 <table>
 <thead>

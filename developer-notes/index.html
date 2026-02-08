@@ -1020,22 +1020,22 @@
 <li>Navigate to the root directory of the project.</li>
 <li>Run the following command to create the source distribution (<code>sdist</code>) and wheel (<code>wheel</code>):</li>
 </ol>
-<pre><code class="language-bash">python -m build
-</code></pre>
+<div class="highlight"><pre><span></span><code>python<span class="w"> </span>-m<span class="w"> </span>build
+</code></pre></div>
 <p>This will generate distribution archives in the <code>dist</code> directory.</p>
 <ol>
 <li>To upload the built package, use <code>twine</code>. Ensure you have <code>twine</code> installed (<code>pip install twine</code> if not). Then, run:</li>
 </ol>
-<pre><code class="language-bash">python -m twine upload dist/*
-</code></pre>
+<div class="highlight"><pre><span></span><code>python<span class="w"> </span>-m<span class="w"> </span>twine<span class="w"> </span>upload<span class="w"> </span>dist/*
+</code></pre></div>
 <p>If you use a custom repository, configure it in <code>~/.pypirc</code> and pass <code>--repository &lt;name&gt;</code>.</p>
 <h2 id="executables">Executables</h2>
 <p>To create executables for the <code>ms-mint-app2</code> application, use <code>pyinstaller</code>. Follow the full guide in <code>pyinstaller/BUILD_GUIDE.md</code>. The short version is:</p>
-<pre><code class="language-bash">cd pyinstaller
-python create_asari_env.py
-python prebuild_matplotlib_cache.py
-pyinstaller Mint.spec
-</code></pre>
+<div class="highlight"><pre><span></span><code><span class="nb">cd</span><span class="w"> </span>pyinstaller
+python<span class="w"> </span>create_asari_env.py
+python<span class="w"> </span>prebuild_matplotlib_cache.py
+pyinstaller<span class="w"> </span>Mint.spec
+</code></pre></div>
 <p>This will generate a standalone executable based on <code>pyinstaller/Mint.spec</code>.</p>
 <h2 id="documentation-deployment">Documentation Deployment</h2>
 <p>To build and deploy the documentation using <code>mkdocs</code>, follow these steps:</p>
@@ -1043,8 +1043,8 @@ pyinstaller Mint.spec
 <li>Ensure you have <code>mkdocs</code> and the Material theme installed (<code>pip install mkdocs mkdocs-material</code> if not), or use <code>pip install -r requirements-dev.txt</code>.</li>
 <li>Run the following commands to build the documentation and deploy it to GitHub Pages:</li>
 </ol>
-<pre><code class="language-bash">mkdocs build &amp;&amp; mkdocs gh-deploy
-</code></pre>
+<div class="highlight"><pre><span></span><code>mkdocs<span class="w"> </span>build<span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span>mkdocs<span class="w"> </span>gh-deploy
+</code></pre></div>
 <p>The <code>mkdocs build</code> command generates the static site in the <code>site</code> directory, and <code>mkdocs gh-deploy</code> pushes it to the <code>gh-pages</code> branch of your GitHub repository.</p>
 <!-- ## Example NGINX Configuration
 

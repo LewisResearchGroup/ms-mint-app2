@@ -97,7 +97,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#processing" class="md-skip">
+        <a href="#processing-workflow" class="md-skip">
           Skip to content
         </a>
       
@@ -785,40 +785,50 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#processing" class="md-nav__link">
+  <a href="#processing-workflow" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Processing
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Processing">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#running-the-analysis" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Running the Analysis
+        Processing Workflow
       
     </span>
   </a>
   
 </li>
-        
-          <li class="md-nav__item">
+      
+        <li class="md-nav__item">
+  <a href="#run-mint-modal" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. Set Scope And Resources
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#results-table" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. Results Table
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#exporting-data" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Exporting Data
+        3. Exporting Data
       
     </span>
   </a>
   
 </li>
-        
-          <li class="md-nav__item">
+      
+        <li class="md-nav__item">
   <a href="#managing-results" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -828,8 +838,19 @@
   </a>
   
 </li>
-        
-          <li class="md-nav__item">
+      
+        <li class="md-nav__item">
+  <a href="#results-backup-snapshot" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Results Backup Snapshot
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#scalir-processing" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -837,11 +858,6 @@
       
     </span>
   </a>
-  
-</li>
-        
-      </ul>
-    </nav>
   
 </li>
       
@@ -968,40 +984,50 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#processing" class="md-nav__link">
+  <a href="#processing-workflow" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Processing
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Processing">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#running-the-analysis" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Running the Analysis
+        Processing Workflow
       
     </span>
   </a>
   
 </li>
-        
-          <li class="md-nav__item">
+      
+        <li class="md-nav__item">
+  <a href="#run-mint-modal" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. Set Scope And Resources
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#results-table" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. Results Table
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#exporting-data" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Exporting Data
+        3. Exporting Data
       
     </span>
   </a>
   
 </li>
-        
-          <li class="md-nav__item">
+      
+        <li class="md-nav__item">
   <a href="#managing-results" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1011,8 +1037,19 @@
   </a>
   
 </li>
-        
-          <li class="md-nav__item">
+      
+        <li class="md-nav__item">
+  <a href="#results-backup-snapshot" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Results Backup Snapshot
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#scalir-processing" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1020,11 +1057,6 @@
       
     </span>
   </a>
-  
-</li>
-        
-      </ul>
-    </nav>
   
 </li>
       
@@ -1050,44 +1082,114 @@
 
   <h1>Processing</h1>
 
-<h2 id="processing">Processing</h2>
-<p>The <code>Processing</code> tab is where the core data extraction takes place. MINT extracts the peak areas and other features for all defined targets across your loaded MS-files.</p>
-<p><a class="glightbox" data-type="image" data-width="auto" data-height="auto" href="../../image/processing_v1.1.1.png" data-desc-position="bottom"><img alt="Processing" src="../../image/processing_v1.1.1.png" title="Processing"></a></p>
+<p>The <code>Processing</code> tab is where MINT performs production extraction for your workspace, generating the final <code>results</code> table used by downstream analysis and exports.</p>
+<p><a class="glightbox" data-type="image" data-width="auto" data-height="auto" href="../../image/processing_run.png" data-desc-position="bottom"><img alt="Processing" src="../../image/processing_run.png" title="Processing"></a></p>
 <blockquote>
 <p><strong>Tip</strong>: Click the help icon (small "i" symbol) next to the "Processing" title to take a guided tour of this section.</p>
 </blockquote>
-<h3 id="running-the-analysis">Running the Analysis</h3>
+<h3 id="processing-workflow">Processing Workflow</h3>
 <ol>
-<li><strong>Run MINT</strong>: Click the <code>RUN MINT</code> button. This opens a configuration modal:<ul>
-<li><strong>Bookmarked Targets Only</strong>: Check this to process <em>only</em> the targets you bookmarked in the Optimization tab.</li>
-<li><strong>Recompute results</strong>: Force MINT to re-process files even if results already exist.</li>
-<li><strong>Resources</strong>: Adjust <strong>CPU</strong> cores, <strong>RAM</strong> limit, and <strong>Batch Size</strong>. For most users, the defaults are sufficient.</li>
-<li>Click <strong>Run</strong> to start.</li>
-</ul>
-</li>
-<li><strong>Select Targets</strong>: Use the <code>Targets</code> dropdown menu to filter which metabolites are displayed in the results table.</li>
-<li><strong>Review Results</strong>: The main table displays the extraction results (peak area, height, RT, etc.). You can sort and filter columns directly in the table.</li>
+<li><strong>Set Scope And Resources</strong>: Click <code>RUN MINT</code>. Choose bookmarked-only mode, recompute/fitting, and compute resources.</li>
+<li><strong>Run Extraction</strong>: MINT computes chromatograms, then results, then optional EMG fitting.</li>
+<li><strong>Export Or Clean Up</strong>: Download results or remove selected/all result rows.</li>
 </ol>
-<h3 id="exporting-data">Exporting Data</h3>
-<p>Click the <code>DOWNLOAD RESULTS</code> button to open the export options:</p>
+<h3 id="run-mint-modal">1. Set Scope And Resources</h3>
+<p><code>RUN MINT</code> opens the execution modal for Processing.</p>
+<p><a class="glightbox" data-type="image" data-width="auto" data-height="auto" href="../../image/processing_modal.png" data-desc-position="bottom"><img alt="Processing" src="../../image/processing_modal.png" title="Processing modal"></a></p>
 <ul>
-<li><strong>All Results</strong>: Download the complete, raw results table in "tidy" (long) format. Ideal for downstream analysis in Python/R.</li>
-<li><strong>Dense Matrix</strong>: Create a pivoted table (wide format). This is best for heatmaps or spreadsheet analysis.<ul>
-<li><strong>Rows</strong>: Select the field for rows (usually <code>ms_file_label</code> or <code>sample_type</code>).</li>
-<li><strong>Columns</strong>: Select the field for columns (usually <code>peak_label</code>).</li>
-<li><strong>Values</strong>: Select the metric to fill the cells (e.g., <code>peak_area_top3</code>, <code>peak_max</code> or <code>peak_area</code>).</li>
-<li>Click <strong>Download</strong> to generate the CSV.</li>
+<li><strong>Bookmarked Targets Only</strong>: Restrict execution to bookmarked targets.</li>
+<li><strong>Recompute results</strong>: Recalculate already existing result rows.</li>
+<li><strong>Enable fitting (EMG)</strong>: Run optional peak fitting after result extraction.</li>
+<li><strong>Resources</strong>: Configure CPU, RAM, and batch size.</li>
 </ul>
-</li>
+<details class="info">
+<summary>Run-time behavior and defaults</summary>
+<ul>
+<li>CPU/RAM defaults are auto-detected from your machine.</li>
+<li>Batch size is auto-calculated from resource settings.</li>
+<li>Processing runs in staged phases with progress updates (<code>Chromatograms</code> -&gt; <code>Results</code> -&gt; optional <code>Peak Fitting</code>).</li>
 </ul>
+</details>
+<details class="info">
+<summary>What 'Recompute results' affects</summary>
+<ul>
+<li>Recompute targets the results stage (and fitting stage, when enabled).</li>
+<li>During Processing runs, chromatogram generation uses the Processing pathway and is not the explicit MS1/MS2 recompute toggle used in Optimization.</li>
+</ul>
+</details>
+<h3 id="results-table">2. Results Table</h3>
+<p>After completion, <code>results</code> becomes the primary working dataset for review and downstream steps.</p>
+<p><a class="glightbox" data-type="image" data-width="auto" data-height="auto" href="../../image/processing_table.png" data-desc-position="bottom"><img alt="Processing" src="../../image/processing_table.png" title="Processing table"></a></p>
+<ul>
+<li><strong>Target filter dropdown</strong>: Quickly narrow visible targets.</li>
+<li><strong>Server-side filtering/sorting</strong>: Efficient browsing for larger result sets.</li>
+<li><strong>Optional fitted metrics</strong>: Available when EMG fitting is enabled.</li>
+</ul>
+<details class="info">
+<summary>Core result columns</summary>
+<ul>
+<li>Core extraction metrics such as <code>peak_area</code>, <code>peak_max</code>, <code>peak_mean</code>, <code>peak_rt_of_max</code>.</li>
+<li>RT-alignment fields such as <code>rt_aligned</code>, <code>rt_shift</code>.</li>
+<li>Optional EMG fit fields such as <code>peak_area_fitted</code>, <code>peak_rt_fitted</code>, <code>fit_r_squared</code>, <code>fit_success</code>.</li>
+</ul>
+</details>
+<details class="info">
+<summary>Processing filter semantics</summary>
+<ul>
+<li>Results shown in this page are constrained to samples marked <code>use_for_processing = TRUE</code>.</li>
+<li>The target dropdown controls which compounds are rendered in the table.</li>
+</ul>
+</details>
+<h3 id="exporting-data">3. Exporting Data</h3>
+<p>Use <code>DOWNLOAD RESULTS</code> to export either full (tidy/long) outputs or dense matrices.</p>
+<ul>
+<li><strong>All Results (tidy/long)</strong>: Column-selectable export of raw results rows.</li>
+<li><strong>Dense Matrix (wide/pivot)</strong>: Pivot by selected row/column/value fields.</li>
+</ul>
+<details class="info">
+<summary>All Results export behavior</summary>
+<ul>
+<li>MINT validates selected columns against supported export fields.</li>
+<li>Export prefers a workspace backup file when available for faster delivery.</li>
+<li>For large files, MINT switches to direct Flask file download to avoid browser/base64 bottlenecks.</li>
+</ul>
+</details>
+<details class="info">
+<summary>Dense matrix validation</summary>
+<ul>
+<li>Requires valid row/column/value selections.</li>
+<li>Prevents invalid combinations (for example identical row and column keys).</li>
+</ul>
+</details>
 <h3 id="managing-results">Managing Results</h3>
-<p>Use the <code>Options</code> menu (top right) to:</p>
+<p>Use the <code>Options</code> menu to clean up result subsets or reset the table.</p>
 <ul>
-<li><strong>Delete selected results</strong>: Remove specific rows from the current view.</li>
-<li><strong>Clear results</strong>: Delete all processed results to start over (useful if you need to rerun with different parameters).</li>
+<li><strong>Delete selected results</strong>: Removes selected <code>(peak_label, ms_file_label)</code> pairs.</li>
+<li><strong>Clear table</strong>: Removes all rows from <code>results</code>.</li>
+</ul>
+<details class="info">
+<summary>Deletion semantics</summary>
+<ul>
+<li><code>Delete selected</code> removes only selected target/sample pairs.</li>
+<li><code>Clear table</code> removes the complete <code>results</code> table content.</li>
+<li>Deletions invalidate the results backup snapshot so exports reflect current DB state.</li>
+</ul>
+</details>
+<h3 id="results-backup-snapshot">Results Backup Snapshot</h3>
+<p>After a successful Processing run, MINT writes a workspace-local CSV backup snapshot:</p>
+<ul>
+<li><strong>Path</strong>: <code>&lt;workspace&gt;/results/results_backup.csv</code></li>
+<li><strong>Purpose</strong>: Faster exports and resilience/recovery.</li>
+<li><strong>Update behavior</strong>: Regenerated after runs; invalidated when results are deleted so the next export rebuilds cleanly.</li>
 </ul>
 <h3 id="scalir-processing">SCALiR (Optional)</h3>
-<p>SCALiR is an optional workflow for absolute quantification using internal standards. If enabled, you can provide a standards table and generate concentration estimates from the processed results.</p>
+<p>SCALiR is an optional absolute-quantification workflow layered on top of Processing results.</p>
+<p><a class="glightbox" data-type="image" data-width="auto" data-height="auto" href="../../image/processing_scalir.png" data-desc-position="bottom"><img alt="Processing" src="../../image/processing_scalir.png" title="Processing SCALiR"></a></p>
+<ul>
+<li>Provide a standards file.</li>
+<li>Fit calibration curves.</li>
+<li>Export concentrations and (optionally) calibration plots.</li>
+</ul>
 
 
 
