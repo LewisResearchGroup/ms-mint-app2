@@ -23,7 +23,7 @@ The top toolbar controls the data feeding all Analysis views.
     *   If results are missing, Analysis prompts you to run Processing first.
     *   Missing group labels are treated as an explicit `"(... unset)"` group and shown with neutral color.
 
-### Analysis views {: #analysis-views }
+### Analysis Views {: #analysis-views }
 
 The left sidebar in the Analysis tab allows the user to switch between different views:
 

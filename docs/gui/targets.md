@@ -89,14 +89,14 @@ If you don't have a pre-defined target list, MINT can automatically detect featu
 
 ### Import Validation And Auto-Fill {: #import-validation-auto-fill }
 
-MINT only strictly requires `peak_label` plus enough RT information to define a window. For each target row, MINT accepts a valuid RT input patterns and auto-fills missing values. Below, we explain in detail some of the rules MINT uses to fill missing element in the targets table. Click the banner to expand.
+MINT only strictly requires `peak_label` plus enough RT information to define a window. For each target row, MINT accepts a valid RT input patterns and auto-fills missing values. Below, we explain in detail some of the rules MINT uses to fill missing element in the targets table. Click the banner to expand.
 
 ??? info "RT Auto-Derivation and Validation"
 
     #### RT Auto-Derivation and Validation {: #rt-derivation-and-validation }
 
     *   `rt_min` + `rt_max` only: MINT derives `rt` as the midpoint.
-    *   `rt` only: MINT initializes `rt_min` and `rt_max` using a temporary symmetric bootstrap window (`rt ± 5.0 s`) so targets can be processed immediately. The `±5.0 s` rule is an initial import fallback, not the final recommended span. After chromatograms are computed, refine RT bounds in the _Optimization_ tab using the observed peak shape and apex
+    *   `rt` only: MINT initializes `rt_min` and `rt_max` using a temporary symmetric bootstrap window (`rt ± 5.0 s`) so targets can be processed immediately. The `±5.0 s` rule is an initial import fallback, not the final recommended span. After chromatograms are computed, refine RT bounds in the _Optimization_ tab using the observed peak shape and apex.
     *   `rt` + `rt_min`: MINT derives `rt_max` symmetrically around `rt`.
     *   `rt` + `rt_max`: MINT derives `rt_min` symmetrically around `rt`.
     *   All three (`rt`, `rt_min`, `rt_max`): MINT keeps them, then validates consistency.

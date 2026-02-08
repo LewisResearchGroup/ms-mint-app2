@@ -7,7 +7,7 @@
 [![DOI](https://zenodo.org/badge/491654035.svg)](https://zenodo.org/doi/10.5281/zenodo.13121148) -->
 
 <p align="center">
-  <img src="docs/image/MINT-logo.jpg" alt="MINT Logo" width="400">
+  <img src="docs/image/MINT-logo.png" alt="MINT Logo" width="400">
 </p>
 
 # MINT (Metabolomics Integrator)
