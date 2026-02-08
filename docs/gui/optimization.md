@@ -1,5 +1,3 @@
-## Optimization {: #optimization }
-
 In the **Optimization** tab, the EIC are computed first based on the parameters defined in the Targets table. Next, target RT windows (`rt_min`, `rt_max`) can be refined so downstream extraction in Processing captures the correct peak region.
 
 ![Optimization](../image/optimization_compute.png "Optimization view")
