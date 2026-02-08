@@ -1,41 +1,75 @@
 ## Optimization {: #optimization }
 
-The **Optimization** tab is designed to refine your peak integration windows (Retention Time) for specific targets. By optimizing the Retention Time (RT) ranges, you ensure that MINT extracts the maximum intensity for the correct peak, improving data quality.
+In the **Optimization** tab, the EIC are computed first based on the parameters defined in the Targets table. Next, target RT windows (`rt_min`, `rt_max`) can be refined so downstream extraction in Processing captures the correct peak region.
 
-![Optimization](../image/optimization_v1.1.1.png "Optimization")
+![Optimization](../image/optimization_compute.png "Optimization view")
 
 > **Tip**: Click the help icon (small "i" symbol) next to the "Optimization" title to take a guided tour of this section.
 
 ### Peak Optimization Workflow {: #peak-optimization-workflow }
 
-1.  **Define Scope**: Use the sidebar to select the specific `Samples` (by type, batch, etc.) and `Targets` you want to optimize.
-2.  **Compute Chromatograms**: Click the `COMPUTE CHROMATOGRAMS` button. MINT will extract and display the Ion Chromatograms (EIC) for the selected targets across your samples.
-3.  **Review Optimization Cards**: The results are displayed as "Optimization Cards". Each card represents a target and shows:
-    *   **Chromatogram Plot**: The shape of the peak across samples.
-    *   **Current RT Range**: The vertical dashed lines indicate the start and end of the integration window.
+1.  **Compute Chromatograms**: Click `COMPUTE CHROMATOGRAMS` to generate EIC traces.
+2.  **Preview Cards**: Inspect chromatogram previews per target.
+3.  **Open Manual View**: Click a card (or graph icon) to fine-tune RT ranges.
+4.  **Persist Changes**: Auto-save events.
 
-### Interactive Manual Optimization {: #interactive-manual-optimization }
-Click on any `Optimization Card` or the `Graph` icon to open the detailed `Manual Optimization` modal. In this view, you can fine-tune the peak selection:
+### 1. Compute Chromatograms {: #compute-chromatograms }
 
-*   **Interactive Tuning**: Click and drag on the plot to manually set the new Retention Time (RT) start and end points for the target. The green shaded area represents the integration window.
-*   **Intensity Scale**: Toggle between `Linear` and `Log` scales to better visualize low-intensity peaks.
-*   **Legend Behavior**: Switch between `Group` (aggregate by sample type/metadata) or `Single` (individual file traces).
-*   **Envelopes / Shadow Plots**: When `Group` legend mode or `Megatrace` is active, MINT displays an "Envelope" (Shadow Plot) representing the min, max, and mean intensities for each group. This allows for rapid inspection of large datasets without visual clutter.
-*   **RT Alignment**: Enable automatic Retention Time alignment for the current target. 
-    *   **Logic**: MINT calculates shifts based on the median apex position across all selected samples within the defined RT span.
-    *   **Authoritative State**: Alignment shifts are stored per-target in the database and persisted across sessions.
-    *   **Auto-Notes**: When enabled, alignment details (reference RT, shifts per sample type) are automatically appended to the target notes.
-*   **Megatrace**: Toggle an aggregated "Megatrace" view. When RT alignment is active, Megatrace displays the aligned envelope, helping identify global peak shapes after correcting for shifts.
-*   **Edit RT-span**: 
-    *   **Edit**: Enable dragging/resizing the RT window.
-    *   **Lock**: Prevent accidental changes to the RT range.
-*   **Notes**: Add custom notes for specific targets. RT alignment data is preserved even if you edit notes manually.
-*   **Save/Reset**: Save your adjusted RT bounds and alignment state to the target list or reset them to the original attributes.
+`COMPUTE CHROMATOGRAMS` opens a modal to configure recomputation and resources.
 
-### Bookmarking Targets {: #bookmarking-targets }
-Each optimization card features a **Star icon** (Bookmark). 
-*   **Usage**: Click the star to bookmark a target. 
-*   **Purpose**: You can filter the MINT processing step to run *only* on bookmarked targets (see [Processing](processing.md)). This is useful for iteratively refining specific problematic compounds without reprocessing the entire dataset.
+*   MINT validates prerequisites first (requires at least one optimization sample and one target).
+*   If chromatograms already exist, MINT shows a warning and enables recompute toggles (`MS1`, `MS2`) automatically.
+*   Default resources are auto-detected from your system (CPU/RAM), and batch size is auto-calculated from workload and resource settings.
+*   If no targets are selected, MINT computes chromatograms for all targets.
+*   After chromatograms are generated, MINT runs adaptive RT-span optimization for targets marked as auto-adjusted during import.
+
+### 2. Preview Cards {: #chromatogram-preview-cards }
+
+After computation, Optimization cards provide a quick glance at the data before manual edits.
+
+![Optimization](../image/optimization_cards.png "Optimization")
+
+*   **Card Plot**: per-target chromatogram view over the current RT span.
+*   **Bookmark toggle**: star targets for later focused processing.
+*   **Delete target**: remove target plus related chromatogram/results entries.
+*   **Pagination and sizing**: browse with pagination and tune card width/height for your screen.
+
+??? info "Preview filters"
+
+    *   Filter by `ms_type` (`all`, `ms1`, `ms2`).
+    *   Filter by bookmark state (`all`, `Bookmarked`, `Unmarked`).
+    *   Order cards by peak label or m/z.
+    *   Toggle log-y rendering for quick visual contrast checks.
+
+### 3. Interactive Manual Optimization {: #interactive-manual-optimization }
+
+Open a target card to launch the detailed modal and adjust RT spans directly on the plot. Move across targets without closing the modal. Changes are saved automatically.
+
+![Optimization](../image/optimization_modal.png "Optimization")
+
+*   **Edit RT-span**: drag/resize the RT window when unlocked.
+*   **Lock range**: prevent accidental RT-window edits.
+*   **Set RT marker**: click within the span to set/update target RT.
+*   **Scale and grouping**: switch linear/log y-axis and group-click legend behavior.
+*   **Notes**: edit target notes while inspecting traces.
+
+??? info "Advanced modal controls"
+
+    *   **Megatrace**: aggregated rendering mode for large trace sets.
+    *   **Full range**: show full chromatogram instead of local window (can be slower).
+    *   **RT Alignment**: align traces by apex within current RT span; alignment state is persisted per target.
+
+### 4. Auto-save and persistence {: #autosave-and-persistence }
+
+MINT includes persistence and consistency behaviors so optimization work is resilient:
+
+*   On target navigation (`Prev`/`Next`), changed RT span and RT-alignment state are auto-saved.
+*   On modal close, changed RT span / RT alignment are auto-saved.
+*   Notes are persisted in navigation flows.
+*   Use **Save** when you want immediate explicit commit feedback while staying on the same target.
 
 ### Card Controls {: #card-controls }
-At the bottom left of the Optimization tab, you can adjust the display size of the chromatogram cards using the **Width** and **Height** inputs. This allows you to fit more targets on the screen or enlarge them for detailed inspection.
+
+*   Bookmarking a target also marks it as selected (`peak_selection = TRUE`).
+*   This keeps bookmarked subsets compatible with Processing filters such as `Bookmarked Targets Only`.
+*   At the bottom-left of the Optimization page, adjust card **Width** and **Height** to trade off overview density vs detail visibility.
