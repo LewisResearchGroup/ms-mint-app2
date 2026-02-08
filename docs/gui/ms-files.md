@@ -1,49 +1,89 @@
-## MS-Files {: #ms-files }
+The `MS-Files` tab is the entry point for your analysis. Here you organize the raw mass spectrometry data that constitutes your workspace. MINT currently supports `.mzXML` and `.mzML` file formats for MS data. To import MS files, click the `LOAD MS-FILES` button. This opens a file browser where you can navigate your filesystem and select the MS files.
 
-The `MS-Files` tab is the entry point for your analysis. Here you organize the raw mass spectrometry data that constitutes your workspace. MINT currently supports `.mzXML` and `.mzML` file formats.
-
-![MS-files](../image/ms_files_v1.1.1.png "MS-files")
+![MS-files](../image/msfiles_load.png "MS-files")
 
 > **Tip**: Click the help icon (small "i" symbol) next to the "MS-Files" title to take a guided tour of this section.
 
-### Loading Files and Metadata {: #loading-files }
-To add data to your workspace, click the `Load MS-Files` button. This opens a dedicated file browser modal where you can:
+### The MS-FILES Table {: #the-msfiles-table }
 
-1.  **Browse Server Files**: Use the left pane to navigate the directory structure of the computer running MINT.
-2.  **Select Files**: Check the boxes next to the files you wish to import. You can filter by file extension (e.g., `.mzXML`, `.mzML`) using the tags below the file list.
-3.  **Review Selection**: The right pane shows your currently selected files. You can remove specific files or clear the entire selection before processing.
-4.  **Process**: Click `Process Files` to import them into your workspace. MINT will automatically extract the information to a DuckDB database.
-    *   **CPUs**: You can specify the number of CPU cores to use for parallel processing to speed up the import of large datasets.
+Once loaded, your MS files are displayed in an interactive table. For sample metadata, use `LOAD METADATA` and import a tabular file (CSV, TSV, TXT, XLS, XLSX). You can also download the template via `DOWNLOAD TEMPLATE` on the top right corner.
 
-Same can be done for metadata files using the `Load Metadata` button. You can use the `DOWNLOAD TEMPLATE` button to download a template file that you can fill out and import using the `Load Metadata` button. This file contains important information about your samples. Only `ms_file_label` and `sample_type`are essential; the remaining columns are optional but useful for grouping and plotting. If any of the columns `use_for_optimization`, `use_for_processing`, `use_for_analysis` are left blank they will be assumed to be `TRUE`.
+??? info "Metadata columns and descriptions"
 
-| Column Name             | Description                                                       |
-|-------------------------|-------------------------------------------------------------------|
-|`ms_file_label`          | Unique file name; must match the MS file on disk                  |
-|`label`                  | Friendly label to display in plots and reports                    |
-|`color`                  | Hex color for visualizations (auto-generated if blank)            |
-|`use_for_optimization`   | True to include in optimization steps (COMPUTE CHROMATOGRAMS)     |
-|`use_for_processing`     | True to include in processing (RUN MINT)                          |
-|`use_for_analysis`       | True to include in analysis outputs                               |
-|`sample_type`            | Sample category (e.g.; Sample; QC; Blank; Standard)               |
-|`group_1`                | User-defined grouping field 1 for analysis/grouping (free text)   |
-|`group_2`                | User-defined grouping field 2 for analysis/grouping (free text)   |
-|`group_3`                | User-defined grouping field 3 for analysis/grouping (free text)   |
-|`group_4`                | User-defined grouping field 4 for analysis/grouping (free text)   |
-|`group_5`                | User-defined grouping field 5 for analysis/grouping (free text)   |
-|`polarity`               | Polarity (Positive or Negative)                                   |
-|`ms_type`                | Acquisition type (ms1 or ms2)                                     |
+    | Column Name             | Description                                                       |
+    |-------------------------|-------------------------------------------------------------------|
+    |`ms_file_label`          | Unique file name; must match the MS file label on disk            |
+    |`label`                  | Friendly label to display in plots and reports                    |
+    |`color`                  | Hex color for visualizations                                      |
+    |`use_for_optimization`   | True to include in optimization steps (COMPUTE CHROMATOGRAMS)     |
+    |`use_for_processing`     | True to include in processing (RUN MINT)                          |
+    |`use_for_analysis`       | True to include in analysis outputs                               |
+    |`sample_type`            | Sample category (e.g.; Sample; QC; Blank; Standard)               |
+    |`group_1`                | User-defined grouping field 1 for analysis/grouping (free text)   |
+    |`group_2`                | User-defined grouping field 2 for analysis/grouping (free text)   |
+    |`group_3`                | User-defined grouping field 3 for analysis/grouping (free text)   |
+    |`group_4`                | User-defined grouping field 4 for analysis/grouping (free text)   |
+    |`group_5`                | User-defined grouping field 5 for analysis/grouping (free text)   |
+    |`polarity`               | Polarity (Positive or Negative)                                   |
+    |`ms_type`                | Acquisition type (ms1 or ms2)                                     |
 
-### The Main Table {: #the-main-table }
-The main table displays an overview of all imported files with several interactive columns:
+![MS-files](../image/msfiles_table.png "MS-files")
 
-*   **Checkbox**: Select multiple files for batch actions (like deletion).
-*   **Color**: This color will be used in plots to identify these samples. You can change the color by clicking the color rectangle, by using the `Generate Color` function under the `Options` menu, or importing a metadata file.
-*   **For Optimization / Processing / Analysis**: Toggle switches to include or exclude specific files from different stages of the workflow. This is useful if you want to exclude certain files from optimization or analysis. For example, if you have a large dataset and you want to exclude certain files from optimization, you can use this feature to exclude them. Likewise, if you want to exclude certain files from analysis like blanks or standards, you can use this feature to exclude them. This process can be done individually or by importing a metadata file.
-*   **Metadata Columns**: Columns like `Label`, `Sample Type`, and `Groups` allow you to organize your data. These are typically populated by importing a metadata file using the `Load Metadata` button.
+*   **Checkbox**: Select multiple files for batch actions (delete/export).
+*   **Color**: Used in plots and previews. You can edit manually or regenerate via `Options`.
+*   **For Optimization / Processing / Analysis**: Toggle inclusion per workflow stage.
+*   **Metadata Columns**: `Label`, `Sample Type`, and `Group` columns help organize downstream analysis.
+*   **Acquisition Metadata**: MINT stores metadata such as polarity, MS level/type, file format, and acquisition datetime (when available from file headers) and user-defined metadata (e.g., Group 1, 2, etc.).
+
+### Import Validation And Auto-Fill {: #import-validation-auto-fill }
+
+MINT applies several automatic behaviors during MS file and metadata import.
+
+??? info "Filename-based sample typing and color defaults"
+
+    #### Automatic Sample-Type And Color Inference {: #automatic-sample-type-and-color-inference }
+
+    When metadata is not provided yet, MINT initializes `sample_type` and `color` from MS-file labels:
+
+    *   Blank-like names (for example `blank`, `blk`, `solvent`) -> `Blank`
+    *   Standard-like names (for example `std`, `standard`, `cal`) -> `Standard`
+    *   QC-like names (for example `qc`, `control`, `pool`) -> `QC`
+    *   If no pattern matches -> `sample_type = Sample`
+    *   Default fallback color for unmatched samples -> `#BBBBBB`
+
+??? info "Metadata merge behavior"
+
+    #### Metadata Merge Defaults {: #metadata-merge-defaults }
+
+    During metadata import, MINT merges values into existing rows instead of blindly replacing everything.
+
+    *   Required column: `ms_file_label`
+    *   On ingestion, blank `use_for_optimization` and `use_for_processing` are treated as `TRUE`
+    *   On DB update, non-null metadata values overwrite current values; null/blank values keep existing values
+    *   Colors can be regenerated after merge to keep palettes consistent across sample groups
+
+??? info "Workflow flag dependencies"
+
+    #### Workflow Dependency Rules {: #workflow-dependency-rules }
+
+    To keep stage flags consistent, MINT enforces:
+
+    *   If `use_for_analysis` is set to `TRUE`, `use_for_processing` is auto-set to `TRUE`
+    *   If `use_for_processing` is set to `FALSE`, `use_for_analysis` is auto-set to `FALSE`
+
+??? info "Duplicate import behavior"
+
+    #### Duplicate File Handling {: #duplicate-file-handling }
+
+    When importing MS files, MINT uses `ms_file_label` (filename stem) as the identity key.
+
+    *   Already imported labels are skipped (not duplicated)
+    *   Import summary/notifications report skipped duplicates
 
 ### Options Menu {: #options-menu }
-The `Options` dropdown (top right) provides quick actions such as:
 
-*   **Delete selected files**: Removes currently checked files from the workspace.
-*   **Clear table**: Removes all MS-files from the workspace.
+The `Options` dropdown (top right) provides quick actions:
+
+*   **Generate colors**: Recompute colors for table entries.
+*   **Delete selected files**: Remove checked rows from the workspace.
+*   **Clear table**: Remove all MS files from the workspace.

@@ -1,8 +1,8 @@
-Target lists are collections of peak definitions used to extract MS intensities for specific metabolites. The `Targets` tab allows you to manage, review, and refine these definitions before processing. To import a target list, click the `Load Targets` button. This opens a file browser where you can navigate your filesystem and select a CSV file containing your peak definitions.
-
-> **Tip**: Click the help icon (small "i" symbol) next to the "Targets" title to take a guided tour of this section.
+Target lists are collections of peak definitions used to extract MS intensities for specific metabolites. The `Targets` tab allows you to manage, review, and refine these definitions before processing. To import a target list, click the `LOAD TARGETS` button. This opens a file browser where you can navigate your filesystem and select a CSV file containing your peak definitions.
 
 ![Targets](../image/targets_load.png)
+
+> **Tip**: Click the help icon (small "i" symbol) next to the "Targets" title to take a guided tour of this section.
 
 ### The Targets Table {: #the-targets-table }
 
