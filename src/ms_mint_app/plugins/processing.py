@@ -1697,10 +1697,14 @@ def callbacks(app, fsc, cache):
             conc_file = Path(wdir) / "results" / "scalir" / "concentrations.csv"
             if conc_file.exists():
                 try:
-                    conn.execute(f"CREATE OR REPLACE VIEW scalir_concentrations AS SELECT * FROM read_csv_auto('{conc_file}')")
-                    
+                    # Keep SCALiR join compatible with read-only DB connections:
+                    # query the CSV directly instead of creating a view.
+                    conc_file_sql = str(conc_file).replace("'", "''")
+
                     # Get available columns in the SCALiR results
-                    sc_desc = conn.execute("DESCRIBE scalir_concentrations").fetchall()
+                    sc_desc = conn.execute(
+                        f"DESCRIBE SELECT * FROM read_csv_auto('{conc_file_sql}')"
+                    ).fetchall()
                     sc_cols = [row[0] for row in sc_desc]
                     
                     # Build join condition
@@ -1712,7 +1716,10 @@ def callbacks(app, fsc, cache):
                         join_conds.append("CAST(sc.peak_label AS VARCHAR) = CAST(r.peak_label AS VARCHAR)")
 
                     if join_conds:
-                        scalir_join = f"LEFT JOIN scalir_concentrations sc ON ({' AND '.join(join_conds)})"
+                        scalir_join = (
+                            f"LEFT JOIN read_csv_auto('{conc_file_sql}') sc "
+                            f"ON ({' AND '.join(join_conds)})"
+                        )
                         
                         fields_map = [
                             ('pred_conc', 'Concentration', None, '175px', 'scalir_conc'),
