@@ -10,9 +10,17 @@ from ms_mint_app.plugins.processing import (
 )
 from ms_mint_app.plugins.analysis.plugin import (
     _analysis_tour_steps,
+    _pca_cache_key,
+    _tsne_cache_key,
+    _violin_cache_key,
 )
+import ms_mint_app.plugins.analysis.tsne as tsne_module
+import ms_mint_app.plugins.analysis._shared as shared_module
 from ms_mint_app.plugins.analysis._shared import (
     _build_color_map,
+    _COLOR_MAP_CACHE,
+    _COLOR_MAP_CACHE_MAX_GROUPS,
+    _COLOR_MAP_MAX_VALUES_PER_GROUP,
     _clean_numeric,
     _calc_y_range_numpy,
     _create_pivot_custom,
@@ -67,6 +75,19 @@ def test_analysis_tour_steps_variants():
     assert len(steps_cluster) > len(steps_other)
 
 
+def test_cache_keys_include_group_dimension():
+    pca_a = _pca_cache_key("/tmp/wdir", "peak_area", "zscore", "sample_type")
+    pca_b = _pca_cache_key("/tmp/wdir", "peak_area", "zscore", "group_1")
+    tsne_a = _tsne_cache_key("/tmp/wdir", "peak_area", "zscore", "sample_type", 30)
+    tsne_b = _tsne_cache_key("/tmp/wdir", "peak_area", "zscore", "group_1", 30)
+    violin_a = _violin_cache_key("/tmp/wdir", "peak_area", "zscore", "sample_type")
+    violin_b = _violin_cache_key("/tmp/wdir", "peak_area", "zscore", "group_1")
+
+    assert pca_a != pca_b
+    assert tsne_a != tsne_b
+    assert violin_a != violin_b
+
+
 def test_build_color_map_respects_existing_and_fills_missing():
     df = pd.DataFrame(
         {
@@ -85,6 +106,64 @@ def test_build_color_map_respects_existing_and_fills_missing():
 def test_build_color_map_missing_group():
     df = pd.DataFrame({"other": ["A"], "color": ["#ff0000"]})
     assert _build_color_map(df, "sample_type") == {}
+
+
+def test_build_color_map_cache_evicts_oldest_group():
+    _COLOR_MAP_CACHE.clear()
+    for idx in range(_COLOR_MAP_CACHE_MAX_GROUPS + 1):
+        group_name = f"group_{idx}"
+        frame = pd.DataFrame({group_name: ["A", "B"], "color": [None, None]})
+        _build_color_map(frame, group_name)
+
+    assert len(_COLOR_MAP_CACHE) == _COLOR_MAP_CACHE_MAX_GROUPS
+    assert "group_0" not in _COLOR_MAP_CACHE
+
+
+def test_build_color_map_caps_values(monkeypatch):
+    _COLOR_MAP_CACHE.clear()
+    monkeypatch.setattr(shared_module, "_COLOR_MAP_MAX_VALUES_PER_GROUP", 3)
+    frame = pd.DataFrame(
+        {
+            "sample_type": ["A", "B", "C", "D", "E"],
+            "color": [None, None, None, None, None],
+        }
+    )
+    _build_color_map(frame, "sample_type")
+
+    assert "sample_type" in _COLOR_MAP_CACHE
+    assert len(_COLOR_MAP_CACHE["sample_type"]) <= 3
+
+
+def test_run_tsne_samples_in_cols_small_input_returns_none():
+    ndf = pd.DataFrame({"PeakA": [1.0]})
+    assert tsne_module.run_tsne_samples_in_cols(ndf, perplexity=30) is None
+
+
+def test_run_tsne_samples_in_cols_clamps_perplexity(monkeypatch):
+    captured = {}
+
+    class DummyTSNE:
+        def __init__(self, n_components, perplexity, n_jobs, random_state, init):
+            captured["perplexity"] = perplexity
+            self.n_components = n_components
+
+        def fit_transform(self, data):
+            return np.zeros((data.shape[0], self.n_components))
+
+    monkeypatch.setattr(tsne_module, "TSNE", DummyTSNE)
+    ndf = pd.DataFrame(
+        {
+            "PeakA": [1.0, 2.0, 3.0, 4.0],
+            "PeakB": [2.0, 3.0, 4.0, 5.0],
+        },
+        index=["S1", "S2", "S3", "S4"],
+    )
+
+    scores = tsne_module.run_tsne_samples_in_cols(ndf, perplexity=999)
+
+    assert captured["perplexity"] == 3
+    assert scores.shape == (4, 3)
+    assert list(scores.columns) == ["t-SNE-1", "t-SNE-2", "t-SNE-3"]
 
 
 def test_clean_numeric_drops_inf_and_fills():

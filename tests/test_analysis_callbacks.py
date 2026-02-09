@@ -3,8 +3,12 @@ from types import SimpleNamespace
 import duckdb
 import pytest
 
+pytest.importorskip("dash.dependencies")
+pytest.importorskip("feffery_antd_components")
+
 import dash
 import ms_mint_app.plugins.analysis.plugin as analysis_plugin
+import ms_mint_app.plugins.analysis.feature_comparison as feature_comparison
 import ms_mint_app.plugins.analysis.tsne as tsne_module
 from ms_mint_app.plugins.analysis._shared import TAB_DEFAULT_NORM
 
@@ -185,8 +189,8 @@ def test_update_content_tsne_basic(monkeypatch, tmp_path):
             import numpy as np
             return np.zeros((data.shape[0], self.n_components))
 
-    # Patch TSNE in the plugin module
-    monkeypatch.setattr(analysis_plugin, "TSNE", DummyTSNE)
+    # Patch TSNE in the tsne module
+    monkeypatch.setattr(tsne_module, "TSNE", DummyTSNE)
 
     with duckdb_connection(wdir, register_activity=False) as conn:
         _create_tables(conn)
@@ -393,3 +397,155 @@ def test_update_content_bar_user_selection(monkeypatch, tmp_path):
 
 def test_default_tsne_metric_is_zscore():
     assert TAB_DEFAULT_NORM['tsne'] == 'zscore'
+
+
+def test_update_content_accepts_peak_area_fitted(monkeypatch):
+    _patch_callback_context(monkeypatch, triggered=[])
+    captured = {}
+
+    def _fake_prepare_matrix_data(wdir, metric, selected_group, grouping_fields, norm_value, invisible_fig, conn_factory=None):
+        captured["metric"] = metric
+        return None, analysis_plugin._no_update_outputs()
+
+    monkeypatch.setattr(analysis_plugin, "_prepare_matrix_data", _fake_prepare_matrix_data)
+
+    result = update_content(
+        {"page": "Analysis"},
+        "bar",
+        None,
+        None,
+        [],
+        [],
+        "peak_area_fitted",
+        "none",
+        "sample_type",
+        0,
+        0,
+        True,
+        True,
+        10,
+        10,
+        "/tmp/wdir",
+        None,
+        None,
+        30,
+        None,
+        None,
+        None,
+    )
+
+    assert captured["metric"] == "peak_area_fitted"
+    assert result == analysis_plugin._no_update_outputs()
+
+
+def test_comparison_sample_options_no_notification_outside_comparison_tab():
+    registered_callbacks = []
+
+    class _DummyApp:
+        def callback(self, *args, **kwargs):
+            def _decorator(func):
+                registered_callbacks.append(func)
+                return func
+
+            return _decorator
+
+        def clientside_callback(self, *args, **kwargs):
+            return None
+
+    feature_comparison.register_callbacks(_DummyApp())
+    update_sample_options = next(
+        cb for cb in registered_callbacks if cb.__name__ == "update_sample_options"
+    )
+    result = update_sample_options("pca", "group_1", "/tmp/wdir", None, None)
+
+    assert len(result) == 7
+    assert all(value is dash.no_update for value in result)
+
+
+def test_comparison_sample_options_handles_duckdb_error(monkeypatch):
+    registered_callbacks = []
+
+    class _DummyApp:
+        def callback(self, *args, **kwargs):
+            def _decorator(func):
+                registered_callbacks.append(func)
+                return func
+
+            return _decorator
+
+        def clientside_callback(self, *args, **kwargs):
+            return None
+
+    class _ConnCtx:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def execute(self, *_args, **_kwargs):
+            raise duckdb.IOException("simulated query failure")
+
+    monkeypatch.setattr(feature_comparison, "duckdb_connection", lambda *_a, **_k: _ConnCtx())
+    feature_comparison.register_callbacks(_DummyApp())
+    update_sample_options = next(
+        cb for cb in registered_callbacks if cb.__name__ == "update_sample_options"
+    )
+
+    result = update_sample_options("comparison", "sample_type", "/tmp/wdir", None, None)
+
+    assert result == ([], [], None, None, True, True, dash.no_update)
+
+
+def test_download_selection_list_falls_back_to_targets_on_duckdb_error(monkeypatch):
+    registered_callbacks = []
+    captured = {}
+
+    class _DummyApp:
+        def callback(self, *args, **kwargs):
+            def _decorator(func):
+                registered_callbacks.append(func)
+                return func
+
+            return _decorator
+
+        def clientside_callback(self, *args, **kwargs):
+            return None
+
+    class _Result:
+        def __init__(self, df):
+            self._df = df
+
+        def df(self):
+            return self._df
+
+    class _ConnCtx:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def execute(self, query, *_args, **_kwargs):
+            if "PIVOT (" in query:
+                raise duckdb.IOException("simulated pivot failure")
+            return _Result(feature_comparison.pd.DataFrame({"peak_label": ["Peak1"], "meta": [1]}))
+
+    def _fake_send_data_frame(to_csv_func, filename, index=False):
+        captured["filename"] = filename
+        captured["df"] = to_csv_func.__self__.copy()
+        captured["index"] = index
+        return {"filename": filename, "rows": len(captured["df"])}
+
+    monkeypatch.setattr(feature_comparison, "duckdb_connection", lambda *_a, **_k: _ConnCtx())
+    monkeypatch.setattr(feature_comparison.dcc, "send_data_frame", _fake_send_data_frame)
+    feature_comparison.register_callbacks(_DummyApp())
+    download_selection_list = next(
+        cb for cb in registered_callbacks if cb.__name__ == "download_selection_list"
+    )
+
+    result = download_selection_list(1, ["Peak1"], "/tmp/wdir", "peak_area")
+
+    assert result["rows"] == 1
+    assert captured["index"] is False
+    assert list(captured["df"].columns) == ["peak_label", "meta"]

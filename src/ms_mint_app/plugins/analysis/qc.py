@@ -7,8 +7,31 @@ from ._shared import (
     duckdb_connection, PLOTLY_HIGH_RES_CONFIG,
     Input, Output, State, PreventUpdate, dash,
     GROUP_COLUMNS, GROUP_LABELS, METRIC_OPTIONS, allowed_metrics,
-    rocke_durbin, _calc_y_range_numpy, _build_color_map
+    rocke_durbin, _calc_y_range_numpy, _build_color_map, ensure_valid_group_field
 )
+
+QC_CHROM_CONTAINER_STYLE = {
+    'display': 'flex',
+    'flexDirection': 'column',
+    'justifyContent': 'center',
+    'alignItems': 'stretch',
+    'flex': '0 0 42%',
+    'width': '42%',
+    'maxWidth': '42%',
+    'minWidth': '520px',
+    'overflowX': 'hidden',
+    'height': '100%',
+}
+
+QC_LEFT_PANEL_STYLE = {
+    'flex': '0 0 52%',
+    'width': '52%',
+    'maxWidth': '52%',
+    'minWidth': 0,
+    'height': '100%',
+    'overflowY': 'auto',
+    'overflowX': 'hidden',
+}
 
 
 def create_layout():
@@ -86,7 +109,7 @@ def create_layout():
                             ),
                             style={'minHeight': '100%', 'display': 'flex', 'flexDirection': 'column', 'justifyContent': 'center'},
                         ),
-                        style={'width': 'calc(55% - 6px)', 'height': '100%', 'overflowY': 'auto'},
+                        style=QC_LEFT_PANEL_STYLE,
                     ),
                     
                     # Right side: Chromatogram
@@ -96,9 +119,10 @@ def create_layout():
                                 dcc.Graph(
                                     id='qc-chromatogram',
                                     config={'displayModeBar': True, 'responsive': True},
-                                    style={'height': '100%', 'width': '100%'},
+                                    style={'height': '100%', 'width': '100%', 'minWidth': 0},
                                 ),
                                 text='Loading Chromatogram...',
+                                style={'width': '100%', 'height': '100%', 'display': 'block'},
                             ),
                             fac.AntdFlex(
                                 [
@@ -117,21 +141,14 @@ def create_layout():
                             )
                         ],
                         id='qc-chromatogram-container',
-                        style={
-                            'display': 'flex',
-                            'flexDirection': 'column',
-                            'justifyContent': 'center',
-                            'alignItems': 'center',
-                            'width': 'calc(43% - 6px)',
-                            'height': '100%'
-                        }
+                        style=QC_CHROM_CONTAINER_STYLE
                     ),
                 ],
-                gap='large',
+                gap='small',
                 wrap=False,
                 justify='center',
                 align='center',
-                style={'width': '100%', 'height': 'calc(100vh - 160px)'},
+                style={'width': '100%', 'maxWidth': '100%', 'height': 'calc(100vh - 160px)', 'overflowX': 'hidden'},
             ),
             
             # QC Controls (Hidden by default, shown in header via portal/callback or standard layout)
@@ -140,11 +157,40 @@ def create_layout():
             dcc.Store(id='qc-selected-sample', data=None),
         ],
         id='analysis-qc-content',
+        style={'width': '100%', 'maxWidth': '100%', 'overflowX': 'hidden'},
     )
 
 
 def register_callbacks(app):
     """Register all QC-specific callbacks."""
+
+    # Trigger Plotly resize when QC tab becomes visible to avoid hidden-container sizing glitches.
+    app.clientside_callback(
+        """
+        function(currentKey, spinnerActive, rtFigure, mzFigure, chromatogramFigure) {
+            if (currentKey !== 'qc') {
+                return window.dash_clientside.no_update;
+            }
+            // Two-phase resize to handle async render/layout timing.
+            setTimeout(function() {
+                window.dispatchEvent(new Event('resize'));
+            }, 80);
+            // After spinner settles and traces are painted, force a final layout pass.
+            if (spinnerActive === false) {
+                setTimeout(function() {
+                    window.dispatchEvent(new Event('resize'));
+                }, 260);
+            }
+            return window.dash_clientside.no_update;
+        }
+        """,
+        Output('analysis-qc-content', 'data-resize-trigger'),
+        Input('analysis-sidebar-menu', 'currentKey'),
+        Input('qc-spinner', 'spinning'),
+        Input('qc-rt-graph', 'figure'),
+        Input('qc-mz-graph', 'figure'),
+        Input('qc-chromatogram', 'figure'),
+    )
     
     @app.callback(
         Output('qc-target-select', 'options'),
@@ -194,6 +240,7 @@ def register_callbacks(app):
         Output('qc-rt-graph', 'figure'),
         Output('qc-mz-graph', 'figure'),
         Output('qc-spinner', 'spinning'),
+        Input('analysis-sidebar-menu', 'currentKey'),
         Input('qc-target-select', 'value'),
         Input('analysis-grouping-select', 'value'),
         Input('analysis-metric-select', 'value'),
@@ -201,8 +248,10 @@ def register_callbacks(app):
         Input('wdir', 'data'),
         prevent_initial_call=False,
     )
-    def generate_qc_plots(peak_label, group_by, metric_value, norm_value, wdir):
+    def generate_qc_plots(active_tab, peak_label, group_by, metric_value, norm_value, wdir):
         """Generate QC plots: RT and m/z in separate figures."""
+        if active_tab != 'qc':
+            raise PreventUpdate
         if not peak_label or not wdir:
             raise PreventUpdate
         
@@ -215,7 +264,7 @@ def register_callbacks(app):
                 empty_fig.update_layout(title="No data available", paper_bgcolor='white', plot_bgcolor='white')
                 return empty_fig, empty_fig, False
             
-            group_col = group_by if group_by else 'sample_type'
+            group_col = ensure_valid_group_field(group_by, allow_none=True, default='sample_type')
 
             metric = 'peak_area'
             if metric_value == 'scalir_conc' or metric_value in allowed_metrics:
@@ -420,15 +469,18 @@ def register_callbacks(app):
 
     @app.callback(
         Output('qc-chromatogram', 'figure', allow_duplicate=True),
+        Input('analysis-sidebar-menu', 'currentKey'),
         Input('qc-chromatogram', 'relayoutData'),
         State('qc-chromatogram', 'figure'),
         prevent_initial_call=True
     )
-    def update_qc_chromatogram_zoom(relayout, figure_state):
+    def update_qc_chromatogram_zoom(active_tab, relayout, figure_state):
         """
         When user zooms on X-axis, auto-fit Y-axis to visible data range.
         This matches the behavior in the optimization modal chromatogram.
         """
+        if active_tab != 'qc':
+            raise PreventUpdate
         if not relayout or not figure_state:
             raise PreventUpdate
 
@@ -449,15 +501,24 @@ def register_callbacks(app):
                   raise PreventUpdate
              raise PreventUpdate
         
+        # Ignore malformed/stale relayout payloads that can collapse the plot.
+        try:
+            x0 = float(x_range[0])
+            x1 = float(x_range[1])
+        except (TypeError, ValueError):
+            raise PreventUpdate
+        if not np.isfinite(x0) or not np.isfinite(x1) or abs(x1 - x0) < 0.05:
+            raise PreventUpdate
+
         # Auto-fit Y-axis to visible data in the X range
         from dash import Patch
         fig_patch = Patch()
-        
+
         traces = figure_state.get('data', [])
-        y_calc = _calc_y_range_numpy(traces, x_range[0], x_range[1], is_log=False)
-        
+        y_calc = _calc_y_range_numpy(traces, x0, x1, is_log=False)
+
         if y_calc:
-            fig_patch['layout']['xaxis']['range'] = [x_range[0], x_range[1]]
+            fig_patch['layout']['xaxis']['range'] = [x0, x1]
             fig_patch['layout']['xaxis']['autorange'] = False
             fig_patch['layout']['yaxis']['range'] = y_calc
             fig_patch['layout']['yaxis']['autorange'] = False
@@ -468,17 +529,20 @@ def register_callbacks(app):
 
     @app.callback(
         Output('qc-selected-sample', 'data'),
+        Input('analysis-sidebar-menu', 'currentKey'),
         Input('qc-rt-graph', 'clickData'),
         Input('qc-mz-graph', 'clickData'),
         Input('qc-target-select', 'value'),
         State('wdir', 'data'),
         prevent_initial_call=False,
     )
-    def update_qc_selected_sample_store(rt_click, mz_click, peak_label, wdir):
+    def update_qc_selected_sample_store(active_tab, rt_click, mz_click, peak_label, wdir):
         """
         Coordinator callback: Updates the selected sample store.
         Triggered by graph clicks or target change.
         """
+        if active_tab != 'qc':
+            raise PreventUpdate
         from dash import callback_context, no_update
         ctx = callback_context
         triggered_id = ctx.triggered[0]["prop_id"].split(".")[0] if ctx.triggered else ""
@@ -526,6 +590,7 @@ def register_callbacks(app):
     @app.callback(
         Output('qc-chromatogram', 'figure'),
         Output('qc-chromatogram-container', 'style'),
+        Input('analysis-sidebar-menu', 'currentKey'),
         Input('qc-selected-sample', 'data'),
         Input('qc-log-scale-switch', 'checked'),
         State('qc-target-select', 'value'),
@@ -534,8 +599,10 @@ def register_callbacks(app):
         State('qc-rt-graph', 'figure'),
         prevent_initial_call=False,
     )
-    def update_qc_chromatogram(ms_file_label, log_scale, peak_label, group_by_col, wdir, rt_fig):
+    def update_qc_chromatogram(active_tab, ms_file_label, log_scale, peak_label, group_by_col, wdir, rt_fig):
         """Update the chromatogram plot based on the selected sample store."""
+        if active_tab != 'qc':
+            raise PreventUpdate
         
         if not ms_file_label or not wdir or not peak_label:
             empty_fig = go.Figure()
@@ -545,10 +612,12 @@ def register_callbacks(app):
                 paper_bgcolor='white', 
                 plot_bgcolor='white'
             )
-            return empty_fig, {'display': 'flex', 'flexDirection': 'column', 'justifyContent': 'center', 'alignItems': 'center', 'width': 'calc(43% - 6px)', 'height': '100%'}
+            return empty_fig, dict(QC_CHROM_CONTAINER_STYLE)
 
          # Fetch data
         # Read-only optimization
+        group_by_col = ensure_valid_group_field(group_by_col, allow_none=True, default=None)
+
         with duckdb_connection(wdir, read_only=True) as conn:
             if conn is None:
                  return dash.no_update, dash.no_update
@@ -622,7 +691,7 @@ def register_callbacks(app):
             if not chrom_data:
                 fig = go.Figure()
                 fig.add_annotation(text="No chromatogram data found", showarrow=False)
-                return fig, {'display': 'flex', 'flexDirection': 'column', 'justifyContent': 'center', 'alignItems': 'center', 'width': 'calc(43% - 6px)', 'height': '100%'}
+                return fig, dict(QC_CHROM_CONTAINER_STYLE)
 
             data_map = {row[0]: row for row in chrom_data}
             
@@ -723,18 +792,21 @@ def register_callbacks(app):
                 xaxis=dict(range=[x_range_min, x_range_max] if x_range_min else None, autorange=x_range_min is None),
                 yaxis=dict(range=y_range if y_range else None, autorange=y_range is None),
             )
-            return fig, {'display': 'flex', 'flexDirection': 'column', 'justifyContent': 'center', 'alignItems': 'center', 'width': 'calc(43% - 6px)', 'height': '100%'}
+            return fig, dict(QC_CHROM_CONTAINER_STYLE)
 
     @app.callback(
         Output('qc-rt-graph', 'figure', allow_duplicate=True),
         Output('qc-mz-graph', 'figure', allow_duplicate=True),
+        Input('analysis-sidebar-menu', 'currentKey'),
         Input('qc-selected-sample', 'data'),
         State('qc-rt-graph', 'figure'),
         State('qc-mz-graph', 'figure'),
         prevent_initial_call=True
     )
-    def highlight_qc_sample(ms_file_label, fig_rt_dict, fig_mz_dict):
+    def highlight_qc_sample(active_tab, ms_file_label, fig_rt_dict, fig_mz_dict):
         """Draw a red circle around the selected sample point in both graphs."""
+        if active_tab != 'qc':
+            raise PreventUpdate
         from dash import callback_context, no_update
         
         if not ms_file_label:

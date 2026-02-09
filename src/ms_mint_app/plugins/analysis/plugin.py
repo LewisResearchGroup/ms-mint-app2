@@ -3,6 +3,7 @@
 import base64
 from io import BytesIO, StringIO
 import logging
+from dataclasses import dataclass
 import dash
 from dash import html, dcc
 from dash.dependencies import Input, Output, State, ALL, MATCH
@@ -12,20 +13,54 @@ import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
 import plotly.express as px
-from sklearn.manifold import TSNE
 
 from ...plugin_interface import PluginInterface
 from ... import tools as T
-from ...duckdb_manager import duckdb_connection, get_physical_cores, calculate_optimal_params, get_workspace_name_from_wdir
+from ...duckdb_manager import duckdb_connection, get_workspace_name_from_wdir
 from ._shared import (
     METRIC_OPTIONS, NORM_OPTIONS, GROUP_SELECT_OPTIONS, TAB_DEFAULT_NORM,
-    GROUPING_FIELDS, GROUP_LABELS, GROUP_COLUMNS,
-    _build_color_map, _clean_numeric, prepare_metric_table, normalize_matrices,
+    GROUPING_FIELDS, GROUP_LABELS, allowed_metrics,
+    _build_color_map,
     create_invisible_figure, get_download_config
+)
+from .data_pipeline import (
+    _no_update_outputs,
+    _prepare_matrix_data,
+    _return_bar,
+    _return_clustermap,
+    _return_pca,
+    _return_tsne,
+    _return_violin,
 )
 from . import qc, pca, tsne, violin, bar, clustermap, feature_comparison
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class AnalysisUpdateContext:
+    section_context: dict | None
+    tab_key: str | None
+    x_comp: str | None
+    y_comp: str | None
+    violin_comp_checks: list | None
+    bar_comp_checks: list | None
+    metric_value: str | None
+    norm_value: str | None
+    group_by: str | None
+    regen_clicks: int | None
+    tsne_regen_clicks: int | None
+    cluster_rows: bool | None
+    cluster_cols: bool | None
+    fontsize_x: int | None
+    fontsize_y: int | None
+    wdir: str | None
+    tsne_x_comp: str | None
+    tsne_y_comp: str | None
+    tsne_perplexity: int | None
+    pca_cache: dict | None
+    tsne_cache: dict | None
+    violin_cache: dict | None
 
 # Analysis menu items for sidebar
 ANALYSIS_MENU_ITEMS = [
@@ -204,13 +239,13 @@ _layout = fac.AntdLayout(
                         html.Div(
                             qc.create_layout(),
                             id='analysis-qc-container',
-                            style={'display': 'block', 'padding': '16px'}
+                            style={'display': 'none', 'padding': '16px'}
                         ),
                         # PCA content
                         html.Div(
                             pca.create_layout(),
                             id='analysis-pca-container',
-                            style={'display': 'none', 'padding': '16px'}
+                            style={'display': 'block', 'padding': '16px'}
                         ),
                         # t-SNE content
                         html.Div(
@@ -285,23 +320,14 @@ class AnalysisPlugin(PluginInterface):
 def layout():
     return _layout
 
-allowed_metrics = {
-    'peak_area',
-    'peak_area_top3',
-    'peak_max',
-    'peak_mean',
-    'peak_median',
-    'scalir_conc',
-}
+def _pca_cache_key(wdir, metric, norm_value, selected_group):
+    return f"{wdir}|{metric}|{norm_value}|{selected_group}"
 
-def _pca_cache_key(wdir, metric, norm_value):
-    return f"{wdir}|{metric}|{norm_value}"
+def _tsne_cache_key(wdir, metric, norm_value, selected_group, perplexity):
+    return f"{wdir}|{metric}|{norm_value}|{selected_group}|{perplexity}"
 
-def _tsne_cache_key(wdir, metric, norm_value, perplexity):
-    return f"{wdir}|{metric}|{norm_value}|{perplexity}"
-
-def _violin_cache_key(wdir, metric, norm_value):
-    return f"{wdir}|{metric}|{norm_value}"
+def _violin_cache_key(wdir, metric, norm_value, selected_group):
+    return f"{wdir}|{metric}|{norm_value}|{selected_group}"
 
 
 def _serialize_pca_results(results):
@@ -357,6 +383,191 @@ def _deserialize_violin_series(payload):
     series = payload.get('series') or {}
     series_df = pd.DataFrame(series.get('data', []), columns=series.get('columns', []), index=series.get('index', []))
     return series_df
+
+
+def _build_group_context_from_cache(samples_meta_records, selected_group, target_index):
+    """Build grouping series/color map from cached sample metadata."""
+    samples_meta = pd.DataFrame(samples_meta_records or [])
+    if not samples_meta.empty and 'ms_file_label' in samples_meta.columns:
+        samples_meta = samples_meta.set_index('ms_file_label')
+
+    group_field = selected_group if selected_group in samples_meta.columns else (
+        'sample_type' if 'sample_type' in samples_meta.columns else None
+    )
+    group_label = GROUP_LABELS.get(group_field, 'Group')
+    missing_group_label = f"{group_label} (unset)"
+
+    if group_field and group_field in samples_meta.columns:
+        group_series = samples_meta[group_field].reindex(target_index)
+    else:
+        group_series = pd.Series(target_index, index=target_index, name='group')
+
+    if isinstance(group_series, pd.Series):
+        group_series = group_series.replace("", pd.NA)
+    group_series.name = group_field or 'group'
+    group_series = group_series.fillna(missing_group_label)
+
+    if samples_meta.empty:
+        color_map = {}
+    else:
+        color_source = samples_meta.reset_index()
+        color_map = _build_color_map(
+            color_source, group_field, use_sample_colors=(group_field == 'sample_type')
+        )
+    if missing_group_label in group_series.values:
+        color_map.setdefault(missing_group_label, '#bbbbbb')
+
+    return group_series, color_map, group_label
+
+
+def _handle_pca_cached_group_change(
+    tab_key, triggered_only_group, pca_cache, cache_key, selected_group, x_comp, y_comp
+):
+    if not (tab_key == 'pca' and triggered_only_group and pca_cache and pca_cache.get('key') == cache_key):
+        return None
+    try:
+        results = _deserialize_pca_results(pca_cache.get('results', {}))
+        group_series, color_map, group_label = _build_group_context_from_cache(
+            pca_cache.get('samples_meta', []),
+            selected_group,
+            results['scores'].index,
+        )
+        fig = pca.generate_pca_figure(
+            None, group_series, color_map, group_label, x_comp, y_comp, pca_results=results
+        )
+        return _return_pca(fig)
+    except Exception as exc:
+        logger.warning("PCA cache fast-path failed (group=%s): %s", selected_group, exc)
+        return None
+
+
+def _handle_tsne_cached_group_change(
+    tab_key, triggered_only_group, tsne_cache, tsne_cache_key, selected_group,
+    tsne_x_comp, tsne_y_comp, tsne_perplexity
+):
+    if not (tab_key == 'tsne' and triggered_only_group and tsne_cache and tsne_cache.get('key') == tsne_cache_key):
+        return None
+    try:
+        scores_df = _deserialize_tsne_results(tsne_cache.get('results', {}))
+        if scores_df.empty:
+            raise ValueError("Empty t-SNE cache")
+        group_series, color_map, group_label = _build_group_context_from_cache(
+            tsne_cache.get('samples_meta', []),
+            selected_group,
+            scores_df.index,
+        )
+        fig = tsne.generate_tsne_figure(
+            None, group_series, color_map, group_label, tsne_x_comp, tsne_y_comp, tsne_perplexity,
+            tsne_scores=scores_df
+        )
+        return _return_tsne(fig)
+    except Exception as exc:
+        logger.warning("t-SNE cache fast-path failed (group=%s): %s", selected_group, exc)
+        return None
+
+
+def _handle_violin_cached_group_change(
+    tab_key, triggered_only_group, violin_cache, violin_cache_key, selected_group,
+    metric, norm_value, wdir
+):
+    if not (tab_key == 'raincloud' and triggered_only_group and violin_cache and violin_cache.get('key') == violin_cache_key):
+        return None
+    try:
+        series_df = _deserialize_violin_series(violin_cache.get('results', {}))
+        if series_df.empty:
+            raise ValueError("Empty violin cache")
+        group_series, color_map, group_label = _build_group_context_from_cache(
+            violin_cache.get('samples_meta', []),
+            selected_group,
+            series_df.index,
+        )
+        selected_compound = violin_cache.get('selected_compound')
+        violin_options = violin_cache.get('options', [])
+        graphs = violin._build_violin_graphs(
+            series_df, group_series, color_map, group_label, metric, norm_value, selected_compound,
+            filename=f"{T.today()}-MINT__{get_workspace_name_from_wdir(wdir)}-Analysis-Violin"
+        )
+        return _return_violin(graphs, violin_options, selected_compound)
+    except Exception as exc:
+        logger.warning("Violin cache fast-path failed (group=%s): %s", selected_group, exc)
+        return None
+
+
+def _handle_clustermap_tab(
+    triggered_props, zdf, color_labels, color_map, group_label, norm_value,
+    cluster_rows, cluster_cols, fontsize_x, fontsize_y, wdir, metric
+):
+    triggered_prop = triggered_props[0].split('.')[0] if triggered_props else None
+    src = clustermap.generate_clustermap(
+        zdf, color_labels, color_map, group_label, norm_value, cluster_rows, cluster_cols,
+        fontsize_x, fontsize_y, wdir, metric, triggered_prop, norm_value
+    )
+    return _return_clustermap(src)
+
+
+def _handle_pca_tab(ndf, color_labels, color_map, group_label, x_comp, y_comp, cache_key, colors_df, compound_options):
+    pca_results = pca.run_pca_samples_in_cols(ndf, n_components=min(ndf.shape[0], ndf.shape[1], 5))
+    fig = pca.generate_pca_figure(
+        ndf, color_labels, color_map, group_label, x_comp, y_comp, pca_results=pca_results
+    )
+    pca_cache_data = {
+        'key': cache_key,
+        'results': _serialize_pca_results(pca_results),
+        'samples_meta': colors_df.to_dict(orient='records') if not colors_df.empty else [],
+    }
+    return _return_pca(fig, compound_options=compound_options, pca_cache_data=pca_cache_data)
+
+
+def _handle_tsne_tab(
+    ndf, color_labels, color_map, group_label, tsne_x_comp, tsne_y_comp, tsne_perplexity,
+    tsne_cache_key, colors_df
+):
+    tsne_scores = tsne.run_tsne_samples_in_cols(ndf, tsne_perplexity)
+    fig = tsne.generate_tsne_figure(
+        ndf, color_labels, color_map, group_label, tsne_x_comp, tsne_y_comp, tsne_perplexity,
+        tsne_scores=tsne_scores
+    )
+    tsne_cache_data = {
+        'key': tsne_cache_key,
+        'results': _serialize_tsne_results(tsne_scores) if tsne_scores is not None else {},
+        'samples_meta': colors_df.to_dict(orient='records') if not colors_df.empty else [],
+    } if tsne_scores is not None else None
+    return _return_tsne(fig, tsne_cache_data=tsne_cache_data)
+
+
+def _handle_raincloud_tab(
+    violin_matrix, group_series, color_map, group_label, metric, norm_value,
+    violin_comp_checks, compound_options, base_name, violin_cache_key, colors_df
+):
+    file_name = f"{base_name}-Violin"
+    graphs, options, val = violin.generate_violin_plots(
+        violin_matrix, group_series, color_map, group_label, metric, norm_value,
+        violin_comp_checks, compound_options, filename=file_name
+    )
+    violin_cache_data = None
+    if val and val in violin_matrix.columns:
+        series_df = violin_matrix[[val]].copy()
+        violin_cache_data = {
+            'key': violin_cache_key,
+            'results': _serialize_violin_series(series_df),
+            'selected_compound': val,
+            'options': options,
+            'samples_meta': colors_df.to_dict(orient='records') if not colors_df.empty else [],
+        }
+    return _return_violin(graphs, options, val, violin_cache_data=violin_cache_data)
+
+
+def _handle_bar_tab(
+    violin_matrix, group_series, color_map, group_label, metric, norm_value,
+    bar_comp_checks, compound_options, base_name
+):
+    file_name = f"{base_name}-Bar"
+    graphs, options, val = bar.generate_bar_plots(
+        violin_matrix, group_series, color_map, group_label, metric, norm_value,
+        bar_comp_checks, compound_options, filename=file_name
+    )
+    return _return_bar(graphs, options, val)
+
 
 def _analysis_tour_steps(active_tab: str):
     # Common steps for all views
@@ -578,8 +789,8 @@ def callbacks(app, fsc=None, cache=None):
                         showProgress=True,
                         stack=True,
                     )
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.warning("Failed to query results count for analysis notification (wdir=%s): %s", wdir, exc)
         
         return []
 
@@ -632,16 +843,6 @@ def callbacks(app, fsc=None, cache=None):
         tabs_data = {'activeKey': active_key}
         
         return qc_style, pca_style, tsne_style, violin_style, bar_style, comparison_style, clustermap_style, tabs_data
-
-    @app.callback(
-        Output('analysis-metric-wrapper', 'style'),
-        Output('analysis-normalization-wrapper', 'style'),
-        Input('analysis-sidebar-menu', 'currentKey'),
-        prevent_initial_call=False,
-    )
-    def toggle_metric_visibility(active_tab):
-        visible_style = {'display': 'flex'}
-        return visible_style, visible_style
 
     @app.callback(
         Output('analysis-normalization-select', 'value', allow_duplicate=True),
@@ -788,385 +989,142 @@ def callbacks(app, fsc=None, cache=None):
 def update_content(section_context, tab_key, x_comp, y_comp, violin_comp_checks, bar_comp_checks, metric_value, norm_value,
                     group_by, regen_clicks, tsne_regen_clicks, cluster_rows, cluster_cols, fontsize_x, fontsize_y, wdir,
                     tsne_x_comp, tsne_y_comp, tsne_perplexity, pca_cache, tsne_cache, violin_cache):
-    
-        
-        if not section_context or section_context.get('page') != 'Analysis':
+
+        ctx = AnalysisUpdateContext(
+            section_context=section_context,
+            tab_key=tab_key,
+            x_comp=x_comp,
+            y_comp=y_comp,
+            violin_comp_checks=violin_comp_checks,
+            bar_comp_checks=bar_comp_checks,
+            metric_value=metric_value,
+            norm_value=norm_value,
+            group_by=group_by,
+            regen_clicks=regen_clicks,
+            tsne_regen_clicks=tsne_regen_clicks,
+            cluster_rows=cluster_rows,
+            cluster_cols=cluster_cols,
+            fontsize_x=fontsize_x,
+            fontsize_y=fontsize_y,
+            wdir=wdir,
+            tsne_x_comp=tsne_x_comp,
+            tsne_y_comp=tsne_y_comp,
+            tsne_perplexity=tsne_perplexity,
+            pca_cache=pca_cache,
+            tsne_cache=tsne_cache,
+            violin_cache=violin_cache,
+        )
+        return _update_content_from_context(ctx)
+
+
+def _update_content_from_context(ctx: AnalysisUpdateContext):
+        if not ctx.section_context or ctx.section_context.get('page') != 'Analysis':
             raise PreventUpdate
         
         # Prevent double-firing when switching tabs forces a normalization update.
         from dash import callback_context
         triggered_props = [t['prop_id'] for t in callback_context.triggered] if callback_context.triggered else []
         if 'analysis-sidebar-menu.currentKey' in triggered_props:
-            default_norm = TAB_DEFAULT_NORM.get(tab_key)
-            if default_norm and norm_value != default_norm:
+            default_norm = TAB_DEFAULT_NORM.get(ctx.tab_key)
+            if default_norm and ctx.norm_value != default_norm:
                 raise PreventUpdate
         
-        if not wdir:
+        if not ctx.wdir:
             raise PreventUpdate
         
         invisible_fig = create_invisible_figure()
         
-        from dash import callback_context
-        ctx = callback_context
-
         grouping_fields = GROUPING_FIELDS
-        selected_group = group_by if group_by in grouping_fields else GROUPING_FIELDS[0]
+        selected_group = ctx.group_by if ctx.group_by in grouping_fields else GROUPING_FIELDS[0]
+
+        # QC and comparison have dedicated callbacks; skip matrix prep for these tabs.
+        if ctx.tab_key in {'qc', 'comparison'}:
+            return _no_update_outputs()
 
         # Robust metric selection (needed early for cache keys)
         metric = 'peak_area'
-        if metric_value == 'scalir_conc' or metric_value in allowed_metrics:
-            metric = metric_value
+        if ctx.metric_value == 'scalir_conc' or ctx.metric_value in allowed_metrics:
+            metric = ctx.metric_value
 
-        norm_value = norm_value or TAB_DEFAULT_NORM.get(tab_key, 'zscore')
-        cache_key = _pca_cache_key(wdir, metric, norm_value)
-        tsne_perplexity_value = tsne_perplexity if tsne_perplexity else 30
-        tsne_cache_key = _tsne_cache_key(wdir, metric, norm_value, tsne_perplexity_value)
-        violin_cache_key = _violin_cache_key(wdir, metric, norm_value)
+        norm_value = ctx.norm_value or TAB_DEFAULT_NORM.get(ctx.tab_key, 'zscore')
+        cache_key = _pca_cache_key(ctx.wdir, metric, norm_value, selected_group)
+        tsne_perplexity_value = ctx.tsne_perplexity if ctx.tsne_perplexity else 30
+        tsne_cache_key = _tsne_cache_key(ctx.wdir, metric, norm_value, selected_group, tsne_perplexity_value)
+        violin_cache_key = _violin_cache_key(ctx.wdir, metric, norm_value, selected_group)
         triggered_only_group = (
             bool(triggered_props)
             and all(prop.startswith('analysis-grouping-select') for prop in triggered_props)
         )
 
-        if tab_key == 'pca' and triggered_only_group and pca_cache and pca_cache.get('key') == cache_key:
-            try:
-                results = _deserialize_pca_results(pca_cache.get('results', {}))
-                samples_meta = pd.DataFrame(pca_cache.get('samples_meta', []))
-                if not samples_meta.empty and 'ms_file_label' in samples_meta.columns:
-                    samples_meta = samples_meta.set_index('ms_file_label')
+        cached_result = _handle_pca_cached_group_change(
+            ctx.tab_key, triggered_only_group, ctx.pca_cache, cache_key, selected_group, ctx.x_comp, ctx.y_comp
+        )
+        if cached_result is not None:
+            return cached_result
 
-                group_field = selected_group if selected_group in samples_meta.columns else (
-                    'sample_type' if 'sample_type' in samples_meta.columns else None
-                )
-                group_label = GROUP_LABELS.get(group_field, 'Group')
-                missing_group_label = f"{group_label} (unset)"
+        cached_result = _handle_tsne_cached_group_change(
+            ctx.tab_key, triggered_only_group, ctx.tsne_cache, tsne_cache_key, selected_group,
+            ctx.tsne_x_comp, ctx.tsne_y_comp, ctx.tsne_perplexity
+        )
+        if cached_result is not None:
+            return cached_result
 
-                if group_field and group_field in samples_meta.columns:
-                    group_series = samples_meta[group_field]
-                    group_series = group_series.reindex(results['scores'].index)
-                else:
-                    group_series = pd.Series(results['scores'].index, index=results['scores'].index, name='group')
-
-                if isinstance(group_series, pd.Series):
-                    group_series = group_series.replace("", pd.NA)
-                group_series.name = group_field or 'group'
-                group_series = group_series.fillna(missing_group_label)
-
-                if samples_meta.empty:
-                    color_map = {}
-                else:
-                    color_source = samples_meta.reset_index()
-                    color_map = _build_color_map(
-                        color_source, group_field, use_sample_colors=(group_field == 'sample_type')
-                    )
-                if missing_group_label in group_series.values:
-                    color_map.setdefault(missing_group_label, '#bbbbbb')
-
-                fig = pca.generate_pca_figure(
-                    None, group_series, color_map, group_label, x_comp, y_comp, pca_results=results
-                )
-                return (
-                    dash.no_update,
-                    fig,
-                    dash.no_update,
-                    dash.no_update,
-                    dash.no_update,
-                    dash.no_update,
-                    dash.no_update,
-                    dash.no_update,
-                    dash.no_update,
-                    dash.no_update,
-                    dash.no_update,
-                    dash.no_update,
-                )
-            except Exception:
-                pass
-
-        if tab_key == 'tsne' and triggered_only_group and tsne_cache and tsne_cache.get('key') == tsne_cache_key:
-            try:
-                scores_df = _deserialize_tsne_results(tsne_cache.get('results', {}))
-                if scores_df.empty:
-                    raise ValueError("Empty t-SNE cache")
-                samples_meta = pd.DataFrame(tsne_cache.get('samples_meta', []))
-                if not samples_meta.empty and 'ms_file_label' in samples_meta.columns:
-                    samples_meta = samples_meta.set_index('ms_file_label')
-
-                group_field = selected_group if selected_group in samples_meta.columns else (
-                    'sample_type' if 'sample_type' in samples_meta.columns else None
-                )
-                group_label = GROUP_LABELS.get(group_field, 'Group')
-                missing_group_label = f"{group_label} (unset)"
-
-                if group_field and group_field in samples_meta.columns:
-                    group_series = samples_meta[group_field]
-                    group_series = group_series.reindex(scores_df.index)
-                else:
-                    group_series = pd.Series(scores_df.index, index=scores_df.index, name='group')
-
-                if isinstance(group_series, pd.Series):
-                    group_series = group_series.replace("", pd.NA)
-                group_series.name = group_field or 'group'
-                group_series = group_series.fillna(missing_group_label)
-
-                if samples_meta.empty:
-                    color_map = {}
-                else:
-                    color_source = samples_meta.reset_index()
-                    color_map = _build_color_map(
-                        color_source, group_field, use_sample_colors=(group_field == 'sample_type')
-                    )
-                if missing_group_label in group_series.values:
-                    color_map.setdefault(missing_group_label, '#bbbbbb')
-
-                fig = tsne.generate_tsne_figure(
-                    None, group_series, color_map, group_label, tsne_x_comp, tsne_y_comp, tsne_perplexity,
-                    tsne_scores=scores_df
-                )
-                return (
-                    dash.no_update,
-                    dash.no_update,
-                    fig,
-                    dash.no_update,
-                    dash.no_update,
-                    dash.no_update,
-                    dash.no_update,
-                    dash.no_update,
-                    dash.no_update,
-                    dash.no_update,
-                    dash.no_update,
-                    dash.no_update,
-                )
-            except Exception:
-                pass
-
-        if tab_key == 'raincloud' and triggered_only_group and violin_cache and violin_cache.get('key') == violin_cache_key:
-            try:
-                series_df = _deserialize_violin_series(violin_cache.get('results', {}))
-                if series_df.empty:
-                    raise ValueError("Empty violin cache")
-                samples_meta = pd.DataFrame(violin_cache.get('samples_meta', []))
-                if not samples_meta.empty and 'ms_file_label' in samples_meta.columns:
-                    samples_meta = samples_meta.set_index('ms_file_label')
-
-                group_field = selected_group if selected_group in samples_meta.columns else (
-                    'sample_type' if 'sample_type' in samples_meta.columns else None
-                )
-                group_label = GROUP_LABELS.get(group_field, 'Group')
-                missing_group_label = f"{group_label} (unset)"
-
-                if group_field and group_field in samples_meta.columns:
-                    group_series = samples_meta[group_field]
-                    group_series = group_series.reindex(series_df.index)
-                else:
-                    group_series = pd.Series(series_df.index, index=series_df.index, name='group')
-
-                if isinstance(group_series, pd.Series):
-                    group_series = group_series.replace("", pd.NA)
-                group_series.name = group_field or 'group'
-                group_series = group_series.fillna(missing_group_label)
-
-                if samples_meta.empty:
-                    color_map = {}
-                else:
-                    color_source = samples_meta.reset_index()
-                    color_map = _build_color_map(
-                        color_source, group_field, use_sample_colors=(group_field == 'sample_type')
-                    )
-                if missing_group_label in group_series.values:
-                    color_map.setdefault(missing_group_label, '#bbbbbb')
-
-                selected_compound = violin_cache.get('selected_compound')
-                violin_options = violin_cache.get('options', [])
-                graphs = violin._build_violin_graphs(
-                    series_df, group_series, color_map, group_label, metric, norm_value, selected_compound,
-                    filename=f"{T.today()}-MINT__{get_workspace_name_from_wdir(wdir)}-Analysis-Violin"
-                )
-                return (
-                    dash.no_update,
-                    dash.no_update,
-                    dash.no_update,
-                    graphs,
-                    violin_options,
-                    selected_compound,
-                    dash.no_update,
-                    dash.no_update,
-                    dash.no_update,
-                    dash.no_update,
-                    dash.no_update,
-                    dash.no_update,
-                )
-            except Exception:
-                pass
+        cached_result = _handle_violin_cached_group_change(
+            ctx.tab_key, triggered_only_group, ctx.violin_cache, violin_cache_key, selected_group,
+            metric, norm_value, ctx.wdir
+        )
+        if cached_result is not None:
+            return cached_result
         
-        # Calculate optimal resources
-        cpus, ram, _ = calculate_optimal_params()
-        
-        ws_name = get_workspace_name_from_wdir(wdir) if wdir else "workspace"
+        ws_name = get_workspace_name_from_wdir(ctx.wdir) if ctx.wdir else "workspace"
         date_str = T.today()
         base_name = f"{date_str}-MINT__{ws_name}-Analysis"
 
-        # Read-only optimization (create_pivot is read-only)
-        with duckdb_connection(wdir, n_cpus=cpus, ram=ram, read_only=True) as conn:
-            if conn is None:
-                return None, invisible_fig, invisible_fig, [], [], [], [], [], [], dash.no_update, dash.no_update, dash.no_update
+        matrix_data, early_return = _prepare_matrix_data(
+            wdir=ctx.wdir,
+            metric=metric,
+            selected_group=selected_group,
+            grouping_fields=grouping_fields,
+            norm_value=norm_value,
+            invisible_fig=invisible_fig,
+            conn_factory=duckdb_connection,
+        )
+        if early_return is not None:
+            return early_return
 
-            try:
-                results_count = conn.execute("SELECT COUNT(*) FROM results").fetchone()[0]
-                if results_count == 0:
-                    return None, invisible_fig, invisible_fig, [], [], [], [], [], [], dash.no_update, dash.no_update, dash.no_update
-            except Exception:
-                return None, invisible_fig, invisible_fig, [], [], [], [], [], [], dash.no_update, dash.no_update, dash.no_update
-            
-            df = prepare_metric_table(conn, wdir, metric)
-            if df is None or df.empty:
-                return None, invisible_fig, invisible_fig, [], [], [], [], [], [], dash.no_update, dash.no_update, dash.no_update
-            df.set_index('ms_file_label', inplace=True)
-            
-            group_field = selected_group if selected_group in df.columns else (
-                'sample_type' if 'sample_type' in df.columns else None
-            )
-            group_label = GROUP_LABELS.get(group_field, 'Group')
-            missing_group_label = f"{group_label} (unset)"
-            metadata_cols = [col for col in ['ms_type'] + grouping_fields if col in df.columns]
-            
-            order_df_raw = conn.execute(
-                "SELECT ms_file_label FROM samples ORDER BY ms_file_label"
-            ).df()
-            if order_df_raw.empty:
-                return None, invisible_fig, invisible_fig, [], [], [], [], [], [], dash.no_update, dash.no_update, dash.no_update
-            
-            order_df = order_df_raw["ms_file_label"].tolist()
-            ordered_labels = [lbl for lbl in order_df if lbl in df.index]
-            leftover_labels = [lbl for lbl in df.index if lbl not in ordered_labels]
-            df = df.loc[ordered_labels + leftover_labels]
-            
-            # Sort samples by group, then alphabetically within each group for clustermap display
-            if group_field and group_field in df.columns:
-                df = df.sort_values(by=[group_field, df.index.name or 'ms_file_label'], 
-                                    key=lambda x: x.str.lower() if x.dtype == 'object' else x)
-                # Re-sort preserving group order but sorting index alphabetically within groups
-                df['_sort_group'] = df[group_field].fillna('')
-                df['_sort_index'] = df.index.str.lower()
-                df = df.sort_values(by=['_sort_group', '_sort_index'])
-                df = df.drop(columns=['_sort_group', '_sort_index'])
-            
-            group_series = df[group_field] if group_field else pd.Series(df.index, index=df.index, name='group')
-            if isinstance(group_series, pd.Series):
-                group_series = group_series.replace("", pd.NA)
-            group_series.name = group_field or 'group'
-            group_series = group_series.fillna(missing_group_label)
-            
-            colors_df = conn.execute(
-                f"SELECT ms_file_label, color, sample_type, {', '.join(GROUP_COLUMNS)} FROM samples"
-            ).df()
-            color_map = _build_color_map(colors_df, group_field, use_sample_colors=(group_field == 'sample_type'))
-            if missing_group_label in group_series.values:
-                if color_map is None:
-                    color_map = {}
-                color_map.setdefault(missing_group_label, '#bbbbbb')
-            
-            raw_df = df.copy()
-            df = df.drop(columns=[c for c in metadata_cols if c in df.columns], axis=1)
-            
-            compound_options = sorted(
-                [
-                    {'label': c, 'value': c}
-                    for c in raw_df.columns
-                    if c not in metadata_cols
-                ],
-                key=lambda o: o['label'].lower(),
-            )
-            
-            # Guard against NaN/inf and empty matrices (numeric only) before downstream plots
-            df = _clean_numeric(df)
-            raw_numeric_cols = [c for c in raw_df.columns if c not in metadata_cols]
-            raw_numeric = _clean_numeric(raw_df[raw_numeric_cols])
-            raw_df[raw_numeric_cols] = raw_numeric
-            color_labels = group_series.reindex(df.index).fillna(missing_group_label)
-            
-            if df.empty or raw_numeric.empty:
-                return None, invisible_fig, invisible_fig, [], [], [], [], [], [], dash.no_update, dash.no_update, dash.no_update
-            
-            ndf, zdf = normalize_matrices(df, norm_value)
-            
-            if ndf.empty or zdf.empty:
-                raise PreventUpdate
-            
-            # Choose matrix for violin/bar based on normalization selection
-            if norm_value == 'zscore':
-                violin_matrix = zdf
-            elif norm_value in ('durbin', 'zscore_durbin'):
-                violin_matrix = ndf
-            else:
-                violin_matrix = df
-            
-            if violin_matrix.empty:
-                return dash.no_update, invisible_fig, invisible_fig, [], [], [], [], [], [], dash.no_update, dash.no_update, dash.no_update
+        ndf = matrix_data['ndf']
+        zdf = matrix_data['zdf']
+        violin_matrix = matrix_data['violin_matrix']
+        group_series = matrix_data['group_series']
+        group_label = matrix_data['group_label']
+        color_labels = matrix_data['color_labels']
+        color_map = matrix_data['color_map']
+        colors_df = matrix_data['colors_df']
+        compound_options = matrix_data['compound_options']
 
-        # Route logic to submodules
-        if tab_key == 'clustermap':
-             triggered_prop = triggered_props[0].split('.')[0] if triggered_props else None
-             src = clustermap.generate_clustermap(zdf, color_labels, color_map, group_label, norm_value, cluster_rows, cluster_cols, fontsize_x, fontsize_y, wdir, metric, triggered_prop, norm_value)
-             return src, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update
-
-        elif tab_key == 'pca':
-             pca_results = pca.run_pca_samples_in_cols(ndf, n_components=min(ndf.shape[0], ndf.shape[1], 5))
-             fig = pca.generate_pca_figure(
-                 ndf, color_labels, color_map, group_label, x_comp, y_comp, pca_results=pca_results
-             )
-             pca_cache_data = {
-                 'key': cache_key,
-                 'results': _serialize_pca_results(pca_results),
-                 'samples_meta': colors_df.to_dict(orient='records') if not colors_df.empty else [],
-             }
-             return dash.no_update, fig, dash.no_update, dash.no_update, compound_options, dash.no_update, dash.no_update, dash.no_update, dash.no_update, pca_cache_data, dash.no_update, dash.no_update
-        
-        elif tab_key == 'tsne':
-             tsne_scores = None
-             if not ndf.empty and ndf.shape[0] >= 2:
-                 n_jobs = 1
-                 n_components = 3
-                 perplexity_value = tsne_perplexity if tsne_perplexity else 30
-                 if ndf.shape[0] > 0:
-                     perplexity_value = min(perplexity_value, max(1, ndf.shape[0] - 1))
-                 tsne_model = TSNE(
-                     n_components=n_components,
-                     perplexity=perplexity_value,
-                     n_jobs=n_jobs,
-                     random_state=42,
-                     init='pca',
-                 )
-                 embedded = tsne_model.fit_transform(ndf.to_numpy())
-                 tsne_cols = [f"t-SNE-{i+1}" for i in range(n_components)]
-                 tsne_scores = pd.DataFrame(embedded, index=ndf.index, columns=tsne_cols)
-             fig = tsne.generate_tsne_figure(
-                 ndf, color_labels, color_map, group_label, tsne_x_comp, tsne_y_comp, tsne_perplexity,
-                 tsne_scores=tsne_scores
-             )
-             tsne_cache_data = {
-                 'key': tsne_cache_key,
-                 'results': _serialize_tsne_results(tsne_scores) if tsne_scores is not None else {},
-                 'samples_meta': colors_df.to_dict(orient='records') if not colors_df.empty else [],
-             } if tsne_scores is not None else None
-             return dash.no_update, dash.no_update, fig, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, tsne_cache_data, dash.no_update
-        
-        elif tab_key == 'raincloud':
-             file_name = f"{base_name}-Violin"
-             graphs, options, val = violin.generate_violin_plots(violin_matrix, group_series, color_map, group_label, metric, norm_value, violin_comp_checks, compound_options, filename=file_name)
-             violin_cache_data = None
-             if val and val in violin_matrix.columns:
-                 series_df = violin_matrix[[val]].copy()
-                 violin_cache_data = {
-                     'key': violin_cache_key,
-                     'results': _serialize_violin_series(series_df),
-                     'selected_compound': val,
-                     'options': options,
-                     'samples_meta': colors_df.to_dict(orient='records') if not colors_df.empty else [],
-                 }
-             return dash.no_update, dash.no_update, dash.no_update, graphs, options, val, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, violin_cache_data
-
-        elif tab_key == 'bar':
-             file_name = f"{base_name}-Bar"
-             graphs, options, val = bar.generate_bar_plots(violin_matrix, group_series, color_map, group_label, metric, norm_value, bar_comp_checks, compound_options, filename=file_name)
-             return dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, graphs, options, val, dash.no_update, dash.no_update, dash.no_update
-
-        return dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update
+        tab_handlers = {
+            'clustermap': lambda: _handle_clustermap_tab(
+                triggered_props, zdf, color_labels, color_map, group_label, norm_value,
+                ctx.cluster_rows, ctx.cluster_cols, ctx.fontsize_x, ctx.fontsize_y, ctx.wdir, metric
+            ),
+            'pca': lambda: _handle_pca_tab(
+                ndf, color_labels, color_map, group_label, ctx.x_comp, ctx.y_comp,
+                cache_key, colors_df, compound_options
+            ),
+            'tsne': lambda: _handle_tsne_tab(
+                ndf, color_labels, color_map, group_label, ctx.tsne_x_comp, ctx.tsne_y_comp,
+                ctx.tsne_perplexity, tsne_cache_key, colors_df
+            ),
+            'raincloud': lambda: _handle_raincloud_tab(
+                violin_matrix, group_series, color_map, group_label, metric, norm_value,
+                ctx.violin_comp_checks, compound_options, base_name, violin_cache_key, colors_df
+            ),
+            'bar': lambda: _handle_bar_tab(
+                violin_matrix, group_series, color_map, group_label, metric, norm_value,
+                ctx.bar_comp_checks, compound_options, base_name
+            ),
+        }
+        handler = tab_handlers.get(ctx.tab_key)
+        if handler is None:
+            return _no_update_outputs()
+        return handler()

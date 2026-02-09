@@ -41,6 +41,20 @@ jobs:
         run: |
           pytest tests/ -v --tb=short --cov=ms_mint_app --cov-report=term-missing --cov-report=xml
 
+      - name: Run analysis UI regression tests (no skips allowed)
+        run: |
+          set -euo pipefail
+          pytest -q -ra \
+            tests/test_analysis_callbacks.py::test_update_content_accepts_peak_area_fitted \
+            tests/test_analysis_callbacks.py::test_comparison_sample_options_no_notification_outside_comparison_tab \
+            tests/test_analysis_layout.py::test_analysis_layout_defaults_to_pca_visibility \
+            tests/test_analysis_lazy_import.py::test_analysis_shared_import_does_not_eager_import_plugin \
+            | tee /tmp/analysis_ui_regressions.log
+          if grep -Eq "\\bSKIPPED\\b|\\bskipped\\b" /tmp/analysis_ui_regressions.log; then
+            echo "Analysis UI regression tests were skipped. CI must execute these tests." >&2
+            exit 1
+          fi
+
       - name: Upload coverage to Codecov
         if: matrix.os == 'ubuntu-22.04'
         uses: codecov/codecov-action@v4

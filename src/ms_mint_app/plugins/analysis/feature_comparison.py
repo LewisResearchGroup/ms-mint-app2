@@ -3,6 +3,7 @@
 from scipy.stats import ttest_ind
 from pathlib import Path
 from datetime import date
+import duckdb
 from ...duckdb_manager import get_workspace_name_from_wdir
 
 from ._shared import (
@@ -10,7 +11,7 @@ from ._shared import (
     Input, Output, State, PreventUpdate,
     duckdb_connection, GROUP_LABELS, GROUP_COLUMNS,
     prepare_metric_table, normalize_matrix, PLOTLY_HIGH_RES_CONFIG,
-    _calc_y_range_numpy, _build_color_map, dash,
+    _calc_y_range_numpy, _build_color_map, dash, ensure_valid_group_field,
 )
 
 
@@ -268,15 +269,28 @@ def register_callbacks(app):
         Output('comparison-sample1-select', 'disabled'),
         Output('comparison-sample2-select', 'disabled'),
         Output('analysis-notifications-container', 'children', allow_duplicate=True),
+        Input('analysis-sidebar-menu', 'currentKey'),
         Input('analysis-grouping-select', 'value'),
         Input('wdir', 'data'),
         State('comparison-sample1-select', 'value'),
         State('comparison-sample2-select', 'value'),
         prevent_initial_call='initial_duplicate',
     )
-    def update_sample_options(group_by_col, wdir, current_1, current_2):
+    def update_sample_options(active_tab, group_by_col, wdir, current_1, current_2):
+        if active_tab != 'comparison':
+            return (
+                dash.no_update,
+                dash.no_update,
+                dash.no_update,
+                dash.no_update,
+                dash.no_update,
+                dash.no_update,
+                dash.no_update,
+            )
+
         if not wdir or not group_by_col:
             return [], [], None, None, True, True, dash.no_update
+        group_by_col = ensure_valid_group_field(group_by_col, allow_none=False)
 
         # Read-only optimization
         with duckdb_connection(wdir, read_only=True) as conn:
@@ -292,7 +306,13 @@ def register_callbacks(app):
                     ORDER BY "{group_by_col}"
                     """
                 ).fetchall()
-            except Exception:
+            except duckdb.Error as exc:
+                logger.warning(
+                    "Failed to load comparison group options for workspace %s using '%s': %s",
+                    wdir,
+                    group_by_col,
+                    exc,
+                )
                 return [], [], None, None, True, True, dash.no_update
 
         group_label = GROUP_LABELS.get(group_by_col, group_by_col)
@@ -738,13 +758,13 @@ def register_callbacks(app):
                 fig.update_xaxes(range=[min_val, max_val], scaleratio=1)
                 fig.update_yaxes(range=[min_val, max_val])
 
-        fig.update_layout(legend=dict(orientation='h', yanchor='bottom', y=1.02, xanchor='right', x=1))
         fig.update_traces(hoverlabel=dict(namelength=-1))
-        fig.update_layout(uirevision=f"{sample1}-{sample2}-{metric}-{norm_value}-{fdr_method}")
-        fig.update_layout(autosize=True)
-        fig.update_layout(dragmode='zoom')
-        fig.update_layout(showlegend=True)
         fig.update_layout(
+            legend=dict(orientation='h', yanchor='bottom', y=1.02, xanchor='right', x=1),
+            uirevision=f"{sample1}-{sample2}-{metric}-{norm_value}-{fdr_method}",
+            autosize=True,
+            dragmode='zoom',
+            showlegend=True,
             xaxis=dict(showgrid=False, zeroline=True, showline=True, linecolor='#444'),
             yaxis=dict(showgrid=False, zeroline=True, showline=True, linecolor='#444'),
         )
@@ -773,6 +793,7 @@ def register_callbacks(app):
         except (KeyError, IndexError, TypeError):
             return _empty_plot("Click a feature to view chromatograms."), default_chrom_style, None
 
+        group_by_col = ensure_valid_group_field(group_by_col, allow_none=True, default=None)
         group_label = GROUP_LABELS.get(group_by_col, group_by_col or 'Group')
         missing_group_label = f"{group_label} (unset)"
 
@@ -1155,8 +1176,13 @@ def register_callbacks(app):
                  # 3. Merge
                  final_df = pd.merge(df_targets, df_pivot, on='peak_label', how='left')
                  
-             except Exception:
-                 # Fallback: just targets
+             except duckdb.Error as exc:
+                 logger.warning(
+                     "Failed to build comparison selection pivot for workspace %s; falling back to targets-only export: %s",
+                     wdir,
+                     exc,
+                 )
+                 # Fallback: just targets when pivot/query fails.
                  final_df = conn.execute(f"SELECT * FROM targets WHERE peak_label IN ({placeholders})", selection).df()
         
         ws_name = get_workspace_name_from_wdir(wdir) or "workspace"
