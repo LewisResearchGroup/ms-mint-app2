@@ -1,6 +1,7 @@
 """Shared constants, imports, and utilities for Analysis tabs."""
 
 import logging
+from collections import OrderedDict
 import dash
 import base64
 from io import BytesIO
@@ -157,7 +158,30 @@ def _calc_y_range_numpy(data, x_left, x_right, is_log=False):
     return [y_min, y_max * 1.05]
 
 
-_COLOR_MAP_CACHE = {}
+_COLOR_MAP_CACHE_MAX_GROUPS = 16
+_COLOR_MAP_MAX_VALUES_PER_GROUP = 512
+_COLOR_MAP_CACHE: OrderedDict[str, dict] = OrderedDict()
+
+
+def _cap_color_map_values(color_map: dict, active_values) -> dict:
+    """Cap persisted color assignments while prioritizing currently active groups."""
+    if len(color_map) <= _COLOR_MAP_MAX_VALUES_PER_GROUP:
+        return color_map
+
+    bounded = {}
+    for val in active_values:
+        if val in color_map and val not in bounded:
+            bounded[val] = color_map[val]
+            if len(bounded) >= _COLOR_MAP_MAX_VALUES_PER_GROUP:
+                return bounded
+
+    for val, color in color_map.items():
+        if val in bounded:
+            continue
+        bounded[val] = color
+        if len(bounded) >= _COLOR_MAP_MAX_VALUES_PER_GROUP:
+            break
+    return bounded
 
 
 def _build_color_map(color_df: pd.DataFrame, group_col: str, *, use_sample_colors: bool = True) -> dict:
@@ -181,10 +205,11 @@ def _build_color_map(color_df: pd.DataFrame, group_col: str, *, use_sample_color
         .to_dict()
     )
 
-    cached_map = _COLOR_MAP_CACHE.get(group_col, {}).copy()
+    cached_map = _COLOR_MAP_CACHE.pop(group_col, {}).copy()
     color_map = {**cached_map, **explicit_map}
 
-    missing = [val for val in working[group_col].dropna().unique() if val not in color_map]
+    active_values = [val for val in working[group_col].dropna().unique()]
+    missing = [val for val in active_values if val not in color_map]
     # Optionally force the largest group to a neutral gray for readability
     if missing and not use_sample_colors:
         top_group = working[group_col].value_counts().idxmax()
@@ -205,7 +230,10 @@ def _build_color_map(color_df: pd.DataFrame, group_col: str, *, use_sample_color
             color_map[val] = color
             used_colors.add(color)
 
+    color_map = _cap_color_map_values(color_map, active_values)
     _COLOR_MAP_CACHE[group_col] = color_map.copy()
+    if len(_COLOR_MAP_CACHE) > _COLOR_MAP_CACHE_MAX_GROUPS:
+        _COLOR_MAP_CACHE.popitem(last=False)
     return color_map
 
 
@@ -324,3 +352,14 @@ def create_invisible_figure():
         height=10,
     )
     return fig
+
+
+def ensure_valid_group_field(group_field, *, allow_none=True, default=None):
+    """Validate group field used in SQL identifier interpolation."""
+    if group_field in (None, ''):
+        if allow_none:
+            return default
+        raise PreventUpdate
+    if group_field not in GROUPING_FIELDS:
+        raise PreventUpdate
+    return group_field
