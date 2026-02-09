@@ -1315,14 +1315,26 @@ _layout = fac.AntdLayout(
                         fac.AntdFlex(
                             [
                                 fac.AntdEmpty(
-                                    description=fac.AntdFlex(
+                                    description=html.Div(
                                         [
-                                            fac.AntdText('No Chromatograms to preview', strong=True, style={'fontSize': '16px'}),
-                                            fac.AntdText('Click "Compute Chromatograms" to generate the chromatograms', type='secondary'),
-                                        ],
-                                        vertical=True,
-                                        align='center',
-                                        gap='small',
+                                            html.Div(
+                                                'No Chromatograms to preview',
+                                                style={
+                                                    'fontSize': '16px',
+                                                    'fontWeight': 600,
+                                                    'textAlign': 'center',
+                                                    'marginBottom': '6px',
+                                                }
+                                            ),
+                                            html.Div(
+                                                'Click "Compute Chromatograms" to generate the chromatograms',
+                                                style={
+                                                    'color': '#8c8c8c',
+                                                    'textAlign': 'center',
+                                                    'fontSize': '14px',
+                                                }
+                                            ),
+                                        ]
                                     ),
                                     locale='en-us',
                                 ),
@@ -2484,11 +2496,11 @@ def callbacks(app, fsc, cache, cpu=None):
         
         Input('compute-chromatograms-btn', 'nClicks'),
         Input('compute-chromatograms-empty-btn', 'nClicks'),
-        State('wdir', 'data'),
         State('chromatogram-preview-filter-ms-type', 'value'),
+        State('workspace-status', 'data'),
         prevent_initial_call=True,
     )
-    def open_compute_chromatograms_modal(nClicks, nClicks_empty, wdir, ms_type):
+    def open_compute_chromatograms_modal(nClicks, nClicks_empty, ms_type, workspace_status):
         """Open modal and populate all values in one atomic operation."""
         if not nClicks and not nClicks_empty:
             raise PreventUpdate
@@ -2499,59 +2511,25 @@ def callbacks(app, fsc, cache, cpu=None):
         ram_avail = psutil.virtual_memory().available / (1024 ** 3)
         default_ram = round(min(float(default_cpus) * 1.5, ram_avail), 1)
         
-        # Default values if DB unavailable
-        chromatograms_count = 0
-        chroms_ms1_count = 0
-        chroms_ms2_count = 0
-        selected_targets_count = 0
-        total_targets_count = 0
-        optimization_samples_count = 0
-        computed_targets_count = 0
-        computed_samples_count = 0
-        batch_size = 1000
-        
-        # Query DB for current counts
-        if wdir:
-            try:
-                with duckdb_connection(wdir) as conn:
-                    if conn is not None:
-                        counts = conn.execute("""
-                            SELECT 
-                                (SELECT COUNT(*) FROM chromatograms) as chroms,
-                                (SELECT COUNT(*) FROM chromatograms WHERE ms_type = 'ms1') as chroms_ms1,
-                                (SELECT COUNT(*) FROM chromatograms WHERE ms_type = 'ms2') as chroms_ms2,
-                                (SELECT COUNT(*) FROM targets) as total_targets,
-                                (SELECT COUNT(*) FROM targets WHERE peak_selection = TRUE) as selected_targets,
-                                (SELECT COUNT(*) FROM samples WHERE use_for_optimization = TRUE) as opt_samples,
-                                (SELECT COUNT(DISTINCT peak_label) FROM chromatograms) as computed_targets,
-                                (SELECT COUNT(DISTINCT ms_file_label) FROM chromatograms) as computed_samples
-                        """).fetchone()
-                        if counts:
-                            chromatograms_count = counts[0] or 0
-                            chroms_ms1_count = counts[1] or 0
-                            chroms_ms2_count = counts[2] or 0
-                            total_targets_count = counts[3] or 0
-                            selected_targets_count = counts[4] or 0
-                            optimization_samples_count = counts[5] or 0
-                            computed_targets_count = counts[6] or 0
-                            computed_samples_count = counts[7] or 0
-                            
-                            inferred_ms_type = _infer_samples_ms_type(conn)
-                            ms_type_for_batch = inferred_ms_type or _normalize_ms_type(ms_type)
-
-                            # Calculate optimal batch size
-                            batch_size = calculate_optimal_batch_size(
-                                default_ram,
-                                max(selected_targets_count * optimization_samples_count, 100000),
-                                default_cpus,
-                                ms_type=ms_type_for_batch
-                            )
-            except Exception as e:
-                logger.warning(f"Could not query DB for modal defaults: {e}")
+        status = workspace_status or {}
+        chromatograms_count = status.get('chromatograms_count', 0) or 0
+        chroms_ms1_count = status.get('chroms_ms1_count', 0) or 0
+        chroms_ms2_count = status.get('chroms_ms2_count', 0) or 0
+        selected_targets_count = status.get('selected_targets_count', 0) or 0
+        total_targets_count = status.get('targets_count', 0) or 0
+        optimization_samples_count = status.get('optimization_samples_count', 0) or 0
+        ms_type_for_batch = _normalize_ms_type(ms_type)
+        total_pairs = max(selected_targets_count * optimization_samples_count, 100000)
+        batch_size = calculate_optimal_batch_size(
+            default_ram,
+            total_pairs,
+            default_cpus,
+            ms_type=ms_type_for_batch
+        )
         
         # Calculate display values
         warning_style = {'display': 'flex'} if chromatograms_count > 0 else {'display': 'none'}
-        warning_message = f"There are already computed {chromatograms_count} chromatograms for {computed_targets_count} targets and {computed_samples_count} samples" if chromatograms_count > 0 else ""
+        warning_message = f"There are already computed {chromatograms_count} chromatograms." if chromatograms_count > 0 else ""
         targets_for_compute = selected_targets_count if selected_targets_count > 0 else total_targets_count
         selection_note = "" if selected_targets_count > 0 else " (no targets selected; using all)"
         info_message = (
@@ -2588,27 +2566,25 @@ def callbacks(app, fsc, cache, cpu=None):
         Input('chromatogram-compute-ram', 'value'),
         Input('chromatogram-compute-cpu', 'value'),
         Input('chromatogram-preview-filter-ms-type', 'value'),
-        State('wdir', 'data'),
+        State('workspace-status', 'data'),
         prevent_initial_call=True
     )
-    def update_batch_size_opt(ram_gb, n_cpus, ms_type, wdir):
+    def update_batch_size_opt(ram_gb, n_cpus, ms_type, workspace_status):
         """Update batch size when RAM or CPUs change or MS-Type changes."""
         if not ram_gb or not n_cpus:
             return dash.no_update
 
-        inferred_ms_type = None
-        if wdir:
-            try:
-                with duckdb_connection(wdir) as conn:
-                    inferred_ms_type = _infer_samples_ms_type(conn)
-            except Exception as e:
-                logger.warning(f"Could not infer MS type for batch size: {e}")
-
-        ms_type_for_batch = inferred_ms_type or _normalize_ms_type(ms_type)
+        status = workspace_status or {}
+        selected_targets_count = status.get('selected_targets_count', 0) or 0
+        total_targets_count = status.get('targets_count', 0) or 0
+        optimization_samples_count = status.get('optimization_samples_count', 0) or 0
+        target_count = selected_targets_count if selected_targets_count > 0 else total_targets_count
+        total_pairs = max(target_count * optimization_samples_count, 100000)
+        ms_type_for_batch = _normalize_ms_type(ms_type)
         return calculate_optimal_batch_size(
             ram_gb=ram_gb,
             n_cpus=n_cpus,
-            total_pairs=1000000,
+            total_pairs=total_pairs,
             ms_type=ms_type_for_batch
         )
 
@@ -5629,9 +5605,10 @@ def callbacks(app, fsc, cache, cpu=None):
         Output("notifications-container", "children", allow_duplicate=True),
         Input("compute-chromatograms-btn", "nClicks"),
         State('wdir', 'data'),
+        State('workspace-status', 'data'),
         prevent_initial_call=True
     )
-    def check_requirements_server(nClicks, wdir):
+    def check_requirements_server(nClicks, wdir, workspace_status):
         if not nClicks:
             raise PreventUpdate
         
@@ -5645,33 +5622,17 @@ def callbacks(app, fsc, cache, cpu=None):
                 showProgress=True,
             )
 
-        with duckdb_connection(wdir) as conn:
-            if conn is None:
-                 return fac.AntdNotification(
-                    message="Database Error",
-                    description="Could not connect to workspace database.",
-                    type="error",
-                    duration=4,
-                )
-            
-            counts = conn.execute("""
-                SELECT 
-                    (SELECT COUNT(*) FROM samples WHERE use_for_optimization = TRUE) as opt_samples,
-                    (SELECT COUNT(*) FROM targets) as targets
-            """).fetchone()
-            
-            opt_samples_count = counts[0] or 0
-            targets_count = counts[1] or 0
-
-            if opt_samples_count == 0 or targets_count == 0:
-                return fac.AntdNotification(
-                    message="Requirements not met",
-                    description="At least one MS-file and one target are required.",
-                    type="warning",
-                    duration=4,
-                    placement="bottom",
-                    showProgress=True,
-                )
+        opt_samples_count = (workspace_status or {}).get('optimization_samples_count', 0) or 0
+        targets_count = (workspace_status or {}).get('targets_count', 0) or 0
+        if opt_samples_count == 0 or targets_count == 0:
+            return fac.AntdNotification(
+                message="Requirements not met",
+                description="At least one MS-file and one target are required.",
+                type="warning",
+                duration=4,
+                placement="bottom",
+                showProgress=True,
+            )
 
         return dash.no_update
 
@@ -5778,7 +5739,6 @@ def callbacks(app, fsc, cache, cpu=None):
     @app.callback(
         Output("chromatogram-compute-cpu-item", "help"),
         Output("chromatogram-compute-ram-item", "help"),
-        Output("chromatogram-compute-batch-size", "value", allow_duplicate=True),
         Input("chromatogram-compute-cpu", "value"),
         Input("chromatogram-compute-ram", "value"),
         prevent_initial_call=True
@@ -5786,13 +5746,7 @@ def callbacks(app, fsc, cache, cpu=None):
     def update_resource_usage_help(cpu, ram):
         help_cpu = _get_cpu_help_text(cpu)
         help_ram = _get_ram_help_text(ram)
-        # Auto-calculate optimal batch size based on current CPU and RAM
-        optimal_batch = calculate_optimal_batch_size(
-            float(ram) if ram else 8.0,
-            100000,  # Estimate for total pairs
-            int(cpu) if cpu else 4
-        )
-        return help_cpu, help_ram, optimal_batch
+        return help_cpu, help_ram
 
     @app.callback(
         # only save the current values stored in slider-reference-data since this will shut all the actions
