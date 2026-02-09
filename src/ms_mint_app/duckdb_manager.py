@@ -3633,6 +3633,7 @@ def populate_full_range_downsampled_chromatograms_for_target(wdir: str | None,
         FROM agg;
         """
 
+    started_at = time.perf_counter()
     connection_ctx = None
     if conn is None:
         if wdir is None:
@@ -3683,10 +3684,15 @@ def populate_full_range_downsampled_chromatograms_for_target(wdir: str | None,
                 exists = 0
 
             if not exists:
+                lookup_start = time.perf_counter()
                 for attempt in range(3):
                     try:
                         conn.execute(query_create_scan_lookup)
                         created_lookup = True
+                        logger.info(
+                            "Created ms_file_scans lookup table in %.2fs",
+                            time.perf_counter() - lookup_start,
+                        )
                         break
                     except duckdb.TransactionException as exc:
                         # Another connection is creating the table; wait and retry.
@@ -3699,16 +3705,31 @@ def populate_full_range_downsampled_chromatograms_for_target(wdir: str | None,
             conn.execute("SELECT COUNT(*) FROM ms_file_scans").fetchone()
 
         logger.info("On-demand downsampling for target %s (%d chromatograms)", peak_label, missing)
+        query_start = time.perf_counter()
         rows = conn.execute(query_full_range, [target[0], target[1], peak_label]).fetchall()
+        logger.info(
+            "Fetched %d full-range chromatogram rows for target %s in %.2fs",
+            len(rows),
+            peak_label,
+            time.perf_counter() - query_start,
+        )
         updates = []
+        downsample_start = time.perf_counter()
         for ms_file_label, scan_time, intensity in rows:
             if scan_time is None or intensity is None:
                 continue
             smoothed = _apply_savgol_smoothing(intensity)
             down_x, down_y = _apply_lttb_downsampling(scan_time, smoothed, n_out=n_out)
             updates.append((list(down_x), list(down_y), peak_label, ms_file_label))
+        logger.info(
+            "Downsampled %d chromatograms for target %s in %.2fs",
+            len(updates),
+            peak_label,
+            time.perf_counter() - downsample_start,
+        )
 
         if updates:
+            update_start = time.perf_counter()
             conn.executemany(
                 """
                 UPDATE chromatograms
@@ -3717,13 +3738,26 @@ def populate_full_range_downsampled_chromatograms_for_target(wdir: str | None,
                 """,
                 updates,
             )
+            logger.info(
+                "Persisted %d full-range chromatograms for target %s in %.2fs",
+                len(updates),
+                peak_label,
+                time.perf_counter() - update_start,
+            )
 
+        # Keep ms_file_scans persisted for future targets/toggles. Rebuilding this
+        # lookup repeatedly is costly and is a major source of first-toggle latency.
         if created_lookup:
-            conn.execute("DROP TABLE IF EXISTS ms_file_scans")
+            logger.info("Keeping ms_file_scans lookup table cached for reuse.")
     finally:
         if connection_ctx is not None:
             connection_ctx.__exit__(None, None, None)
 
+    logger.info(
+        "On-demand full-range downsampling finished for target %s in %.2fs",
+        peak_label,
+        time.perf_counter() - started_at,
+    )
     return True
 
 

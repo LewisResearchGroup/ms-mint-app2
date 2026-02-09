@@ -679,6 +679,48 @@ def get_chromatogram_dataframe(
 
             if has_full_ds:
                 use_window = window_min is not None and window_max is not None
+                if not use_window:
+                    # Fast path for full-range rendering: avoid list zip/filter transforms
+                    # when no additional time window is requested.
+                    query = """
+                        WITH picked_samples AS (
+                            SELECT ms_file_label, color, label, sample_type
+                            FROM samples
+                            WHERE use_for_optimization = TRUE
+                        )
+                        SELECT
+                            c.ms_file_label,
+                            s.color,
+                            s.label,
+                            s.sample_type,
+                            c.scan_time_full_ds AS scan_time_sliced,
+                            c.intensity_full_ds AS intensity_sliced,
+                            CASE
+                                WHEN len(c.intensity_full_ds) = 0 THEN NULL
+                                ELSE list_max(c.intensity_full_ds) * 1.10
+                            END AS intensity_max_in_range,
+                            CASE
+                                WHEN len(c.intensity_full_ds) = 0 THEN NULL
+                                ELSE list_min(c.intensity_full_ds)
+                            END AS intensity_min_in_range,
+                            CASE
+                                WHEN len(c.scan_time_full_ds) = 0 THEN NULL
+                                ELSE list_max(c.scan_time_full_ds)
+                            END AS scan_time_max_in_range,
+                            CASE
+                                WHEN len(c.scan_time_full_ds) = 0 THEN NULL
+                                ELSE list_min(c.scan_time_full_ds)
+                            END AS scan_time_min_in_range
+                        FROM chromatograms c
+                        JOIN picked_samples s USING (ms_file_label)
+                        WHERE c.peak_label = ?
+                          AND c.ms_type = 'ms1'
+                          AND c.scan_time_full_ds IS NOT NULL
+                          AND c.intensity_full_ds IS NOT NULL
+                        ORDER BY c.ms_file_label
+                    """
+                    return conn.execute(query, [target_label]).pl()
+
                 query = """
                     WITH picked_samples AS (
                         SELECT ms_file_label, color, label, sample_type
@@ -721,10 +763,7 @@ def get_chromatogram_dataframe(
                             color,
                             label,
                             sample_type,
-                            CASE
-                                WHEN ? THEN list_filter(pairs, p -> p.t >= ? AND p.t <= ?)
-                                ELSE pairs
-                            END AS pairs_in
+                            list_filter(pairs, p -> p.t >= ? AND p.t <= ?) AS pairs_in
                         FROM zipped
                     ),
                     final AS (
@@ -759,7 +798,7 @@ def get_chromatogram_dataframe(
                 """
                 return conn.execute(
                     query,
-                    [target_label, use_window, window_min, window_max],
+                    [target_label, window_min, window_max],
                 ).pl()
 
         # Calculate m/z window
@@ -1513,18 +1552,28 @@ _layout = fac.AntdLayout(
                     [
                         html.Div(
                             [
-                                dcc.Graph(
-                                    id='chromatogram-view-plot',
-                                    figure=go.Figure(
-                                        layout=dict(
-                                            xaxis_title="Retention Time [s]",
-                                            yaxis_title="Intensity",
-                                            showlegend=True,
-                                            margin=dict(l=40, r=10, t=50, b=80),
-                                        )
+                                dcc.Loading(
+                                    id='chromatogram-view-plot-loading',
+                                    type='default',
+                                    delay_show=250,
+                                    delay_hide=250,
+                                    overlay_style={
+                                        'visibility': 'visible',
+                                        'backgroundColor': 'rgba(255, 255, 255, 0.35)',
+                                    },
+                                    children=dcc.Graph(
+                                        id='chromatogram-view-plot',
+                                        figure=go.Figure(
+                                            layout=dict(
+                                                xaxis_title="Retention Time [s]",
+                                                yaxis_title="Intensity",
+                                                showlegend=True,
+                                                margin=dict(l=40, r=10, t=50, b=80),
+                                            )
+                                        ),
+                                        config=_get_download_config("mint_plot"),
+                                        style={'width': '100%', 'height': '600px'}
                                     ),
-                                    config=_get_download_config("mint_plot"),
-                                    style={'width': '100%', 'height': '600px'}
                                 ),
                                 # Invisible placeholder for spinner callbacks (keeps callbacks valid)
                                 html.Div(id='chromatogram-view-spin', style={'display': 'none'}),
@@ -3663,6 +3712,8 @@ def callbacks(app, fsc, cache, cpu=None):
             logger.debug("update_megatrace_mode: No workspace directory or target clicked, preventing update")
             raise PreventUpdate
 
+        started_at = time.perf_counter()
+
         # Savgol smoothing is intentionally disabled for now (kept for future reactivation).
         use_savgol = False
 
@@ -3695,14 +3746,13 @@ def callbacks(app, fsc, cache, cpu=None):
             ):
                 raise PreventUpdate
 
-        # If envelope has already been shown and the background megatrace lines
-        # were loaded for this target/full-range state, avoid re-showing the
-        # envelope on secondary triggers (e.g., savgol/full-range toggles).
+        # If envelope has already been shown and detailed lines were loaded for
+        # this target, avoid re-showing the envelope on secondary triggers
+        # (notably full-range toggles), which causes visible two-phase flicker.
         envelope_already_completed = (
             bool(use_megatrace)
             and bool(current_envelope_phase_complete)
             and current_target == target_clicked
-            and current_full_range == bool(full_range)
             and trigger_id != 'chromatogram-view-megatrace'
         )
         if envelope_already_completed:
@@ -4004,6 +4054,16 @@ def callbacks(app, fsc, cache, cpu=None):
 
         if session_rev is not None and _get_session_render_revision(session_id) != session_rev:
             raise PreventUpdate
+
+        logger.info(
+            "update_megatrace_mode completed: trigger=%s target=%s full_range=%s envelope=%s rows=%d elapsed=%.2fs",
+            trigger_id,
+            target_clicked,
+            bool(full_range),
+            bool(use_envelope),
+            len(chrom_df) if chrom_df is not None else 0,
+            time.perf_counter() - started_at,
+        )
 
         return (
             fig,
@@ -5013,6 +5073,8 @@ def callbacks(app, fsc, cache, cpu=None):
         if not trigger_data or not wdir:
             raise PreventUpdate
 
+        started_at = time.perf_counter()
+
         # Savgol smoothing is intentionally disabled for now (kept for future reactivation).
         use_savgol = False
 
@@ -5228,7 +5290,15 @@ def callbacks(app, fsc, cache, cpu=None):
         fig_patch['layout']['hovermode'] = False
         
         # Don't update layout to preserve zoom/pan
-        
+
+        logger.info(
+            "load_detailed_traces completed: target=%s full_range=%s rows=%d elapsed=%.2fs",
+            target_clicked,
+            bool(full_range),
+            len(chrom_df) if chrom_df is not None else 0,
+            time.perf_counter() - started_at,
+        )
+
         return fig_patch
 
     @app.callback(
