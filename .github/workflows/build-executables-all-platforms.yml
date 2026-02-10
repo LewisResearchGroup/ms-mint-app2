@@ -219,44 +219,39 @@ jobs:
       - name: List downloaded files
         run: |
           echo "Downloaded artifacts:"
-          ls -lhR artifacts/ | head -n 200
+          ls -lhR artifacts/
 
       - name: Create release archives
         run: |
-          set -euo pipefail
-          cd artifacts
-          echo "Contents of artifacts directory:"
-          ls -la
-
-          WINDOWS_DIR=$(find . -maxdepth 1 -type d -name "Mint-Windows-x64-*" | head -n 1)
-          if [ -d "$WINDOWS_DIR" ]; then
-            echo "Creating Windows zip from: $WINDOWS_DIR"
-            echo "Contents of Windows artifact:"
-            ls -laR "$WINDOWS_DIR"
-            # Zip all contents directly (no extra Mint/ folder)
-            cd "$WINDOWS_DIR"
-            zip -9 -r ../../Mint-Windows-x64.zip ./*
-            cd ../..
-          else
+          set -euxo pipefail
+          
+          # Find Windows artifact directory
+          WINDOWS_DIR=$(find artifacts -maxdepth 1 -type d -name "Mint-Windows-x64-*" -print -quit)
+          if [ -z "$WINDOWS_DIR" ]; then
             echo "ERROR: Windows artifact directory not found"
             exit 1
           fi
-
-          cd artifacts
-          LINUX_DIR=$(find . -maxdepth 1 -type d -name "Mint-Linux-x64-*" | head -n 1)
-          if [ -d "$LINUX_DIR" ]; then
-            echo "Creating Linux tar.gz from: $LINUX_DIR"
-            echo "Contents of Linux artifact:"
-            ls -laR "$LINUX_DIR"
-            # Tar all contents directly (no extra Mint/ folder)
-            tar -czf ../Mint-Linux-x64.tar.gz -C "$LINUX_DIR" .
-          else
+          
+          # Find Linux artifact directory
+          LINUX_DIR=$(find artifacts -maxdepth 1 -type d -name "Mint-Linux-x64-*" -print -quit)
+          if [ -z "$LINUX_DIR" ]; then
             echo "ERROR: Linux artifact directory not found"
             exit 1
           fi
-
-          cd ..
-          echo "Final archives created:"
+          
+          echo "Creating Windows zip from: $WINDOWS_DIR"
+          ls -la "$WINDOWS_DIR"
+          
+          echo "Creating Linux tar.gz from: $LINUX_DIR"
+          ls -la "$LINUX_DIR"
+          
+          # Create Windows zip (cd into dir, zip all contents, output to root)
+          bash -c "cd '$WINDOWS_DIR' && zip -9 -r '../../Mint-Windows-x64.zip' ."
+          
+          # Create Linux tar.gz
+          tar -czf Mint-Linux-x64.tar.gz -C "$LINUX_DIR" .
+          
+          echo "=== Final archives ==="
           ls -lh Mint-Windows-x64.zip Mint-Linux-x64.tar.gz
 
       - name: Get version info
