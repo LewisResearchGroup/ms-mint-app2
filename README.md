@@ -43,6 +43,8 @@ pip install ms-mint-app2
 Mint
 ```
 
+Builds are provided with all dependencies integrated for [Windows](https://github.com/LewisResearchGroup/ms-mint-app2/releases/download/v2.0.0-rc.1/Mint-Windows-x64.zip) and [Linux](https://github.com/LewisResearchGroup/ms-mint-app2/releases/download/v2.0.0-rc.1/Mint-Linux-x64.tar.gz).
+
 For detailed installation instructions, see the [Installation Guide](https://lewisresearchgroup.github.io/ms-mint-app2/install/).
 
 ## Documentation
