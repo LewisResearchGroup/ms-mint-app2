@@ -3,9 +3,10 @@ name: Build Executables (Optimized)
 on:
   push:
     tags:
-      - "v*"   # Build on version tags
+      - "v*" # Only build on version tags
   workflow_dispatch:
 
+# Default is read-only; the release job overrides to contents:write.
 permissions:
   contents: read
 
@@ -75,12 +76,10 @@ jobs:
         env:
           PYTHONOPTIMIZE: 1
 
-      - name: Verify build and check size
+      - name: Verify build
         run: |
           if (Test-Path "pyinstaller\dist\Mint\Mint.exe") {
             Write-Host "[OK] Executable built successfully!"
-            $size = (Get-ChildItem -Path "pyinstaller\dist\Mint" -Recurse | Measure-Object -Property Length -Sum).Sum
-            Write-Host "Build size: $([math]::Round($size/1GB, 2)) GB"
           } else {
             Write-Host "[ERROR] Build failed"
             exit 1
@@ -98,12 +97,12 @@ jobs:
           echo "version=$version" >> $GITHUB_OUTPUT
         shell: bash
 
-      # FIX: upload parent folder so the artifact contains Mint/...
+      # NOTE: keep your existing upload path; the release job archives accordingly.
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: Mint-Windows-x64-${{ steps.get_version.outputs.version }}
-          path: pyinstaller/dist/
+          path: pyinstaller/dist/Mint/
           retention-days: 90
           compression-level: 9
 
@@ -173,13 +172,11 @@ jobs:
         env:
           PYTHONOPTIMIZE: 1
 
-      - name: Verify build and check size
+      - name: Verify build
         run: |
           if [ -f "pyinstaller/dist/Mint/Mint" ]; then
             echo "[OK] Executable built successfully!"
             chmod +x pyinstaller/dist/Mint/Mint
-            size=$(du -sh pyinstaller/dist/Mint | cut -f1)
-            echo "Build size: $size"
           else
             echo "[ERROR] Build failed - executable not found"
             ls -la pyinstaller/dist/ || echo "dist directory does not exist"
@@ -195,14 +192,13 @@ jobs:
             version="dev-$(git rev-parse --short HEAD)"
           fi
           echo "version=$version" >> $GITHUB_OUTPUT
-        shell: bash
 
-      # FIX: upload parent folder so the artifact contains Mint/...
+      # NOTE: keep your existing upload path; the release job archives accordingly.
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: Mint-Linux-x64-${{ steps.get_version.outputs.version }}
-          path: pyinstaller/dist/
+          path: pyinstaller/dist/Mint/
           retention-days: 90
           compression-level: 6
 
@@ -212,7 +208,7 @@ jobs:
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/')
 
-    # FIX: required to create the release / upload assets
+    # REQUIRED to create/upload release assets
     permissions:
       contents: write
 
@@ -225,36 +221,40 @@ jobs:
       - name: List downloaded files
         run: |
           echo "Downloaded artifacts:"
-          ls -lhR artifacts/
+          ls -lhR artifacts/ | head -n 200
 
+      # FIX: archive the CONTENTS of the artifact directories (Mint.exe + _internal/),
+      # since there is no Mint/ folder inside them.
       - name: Create release archives
         run: |
+          set -euo pipefail
           cd artifacts
           echo "Contents of artifacts directory:"
           ls -la
 
-          # Windows - create zip including Mint/ folder
-          WINDOWS_DIR=$(find . -type d -name "Mint-Windows-x64-*" | head -n 1)
+          WINDOWS_DIR=$(find . -maxdepth 1 -type d -name "Mint-Windows-x64-*" | head -n 1)
           if [ -d "$WINDOWS_DIR" ]; then
             echo "Creating Windows zip from: $WINDOWS_DIR"
-            (cd "$WINDOWS_DIR" && ls -la && zip -9 -r ../../Mint-Windows-x64.zip Mint/)
+            ls -la "$WINDOWS_DIR"
+            (cd "$WINDOWS_DIR" && zip -9 -r ../../Mint-Windows-x64.zip .)
           else
             echo "ERROR: Windows artifact directory not found"
             exit 1
           fi
 
-          # Linux - create tar.gz including Mint/ folder
-          LINUX_DIR=$(find . -type d -name "Mint-Linux-x64-*" | head -n 1)
+          LINUX_DIR=$(find . -maxdepth 1 -type d -name "Mint-Linux-x64-*" | head -n 1)
           if [ -d "$LINUX_DIR" ]; then
             echo "Creating Linux tar.gz from: $LINUX_DIR"
-            tar -czf Mint-Linux-x64.tar.gz -C "$LINUX_DIR" Mint/
+            ls -la "$LINUX_DIR"
+            tar -czf ../Mint-Linux-x64.tar.gz -C "$LINUX_DIR" .
           else
             echo "ERROR: Linux artifact directory not found"
             exit 1
           fi
 
+          cd ..
           echo "Final archives created:"
-          ls -lh *.zip *.tar.gz
+          ls -lh Mint-Windows-x64.zip Mint-Linux-x64.tar.gz
 
       - name: Get version info
         id: version_info
@@ -282,24 +282,10 @@ jobs:
             ## ⚠️ Pre-release / Beta Version
 
             ### Downloads
-            - **Windows**: `Mint-Windows-x64.zip` - Extract and run `Mint/Mint.exe`
-            - **Linux**: `Mint-Linux-x64.tar.gz` - Extract and run `Mint/Mint` (Ubuntu 22.04+)
+            - **Windows**: `Mint-Windows-x64.zip` — Extract, then run `Mint.exe`
+            - **Linux**: `Mint-Linux-x64.tar.gz` — Extract, then run `./Mint`
 
-            ### Windows
-            ```powershell
-            # Extract Mint-Windows-x64.zip
-            cd Mint
-            .\Mint.exe
-            ```
-
-            ### Linux
-            ```bash
-            tar -xzf Mint-Linux-x64.tar.gz
-            cd Mint
-            ./Mint
-            ```
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+            **Important:** Keep the `_internal/` folder next to the executable.
 
       - name: Create Stable Release
         if: steps.version_info.outputs.is_prerelease == 'false'
@@ -315,21 +301,7 @@ jobs:
             ## 🎉 Stable Release
 
             ### Downloads
-            - **Windows**: `Mint-Windows-x64.zip` - Extract and run `Mint/Mint.exe`
-            - **Linux**: `Mint-Linux-x64.tar.gz` - Extract and run `Mint/Mint` (Ubuntu 22.04+)
+            - **Windows**: `Mint-Windows-x64.zip` — Extract, then run `Mint.exe`
+            - **Linux**: `Mint-Linux-x64.tar.gz` — Extract, then run `./Mint`
 
-            ### Windows
-            ```powershell
-            # Extract Mint-Windows-x64.zip
-            cd Mint
-            .\Mint.exe
-            ```
-
-            ### Linux
-            ```bash
-            tar -xzf Mint-Linux-x64.tar.gz
-            cd Mint
-            ./Mint
-            ```
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+            **Important:** Keep the `_internal/` folder next to the executable.
