@@ -12,8 +12,9 @@
   flex-direction: column;
   justify-content: center;
   margin: 0 .8rem;
-  padding: 5rem 0;
+  padding: 3rem 0 5rem;
   text-align: center;
+  gap: 1rem;
 }
 
 /* Container for the hero section with gradient and wave */
@@ -44,9 +45,15 @@
 .mdx-hero__image {
   flex-shrink: 0;
   order: 1;
-  width: 15rem;
+  width: min(72vw, 18rem);
   /* Adjust as needed */
   margin: 0 auto;
+}
+
+.mdx-hero__image img {
+  display: block;
+  width: 100%;
+  height: auto;
 }
 
 @media screen and (min-width: 60em) {
@@ -64,7 +71,7 @@
   max-width: 35rem;
   /* Limit width for better readability */
   order: 2;
-  transform: translateY(-2.5rem);
+  transform: none;
   padding-bottom: 6rem;
   /* Add padding to avoid overlap with wave */
 }
