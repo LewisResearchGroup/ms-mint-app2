@@ -97,7 +97,6 @@ jobs:
           echo "version=$version" >> $GITHUB_OUTPUT
         shell: bash
 
-      # NOTE: keep your existing upload path; the release job archives accordingly.
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
@@ -193,7 +192,6 @@ jobs:
           fi
           echo "version=$version" >> $GITHUB_OUTPUT
 
-      # NOTE: keep your existing upload path; the release job archives accordingly.
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
@@ -223,8 +221,6 @@ jobs:
           echo "Downloaded artifacts:"
           ls -lhR artifacts/ | head -n 200
 
-      # FIX: archive the CONTENTS of the artifact directories (Mint.exe + _internal/),
-      # since there is no Mint/ folder inside them.
       - name: Create release archives
         run: |
           set -euo pipefail
@@ -235,17 +231,24 @@ jobs:
           WINDOWS_DIR=$(find . -maxdepth 1 -type d -name "Mint-Windows-x64-*" | head -n 1)
           if [ -d "$WINDOWS_DIR" ]; then
             echo "Creating Windows zip from: $WINDOWS_DIR"
-            ls -la "$WINDOWS_DIR"
-            (cd "$WINDOWS_DIR" && zip -9 -r ../../Mint-Windows-x64.zip .)
+            echo "Contents of Windows artifact:"
+            ls -laR "$WINDOWS_DIR"
+            # Zip all contents directly (no extra Mint/ folder)
+            cd "$WINDOWS_DIR"
+            zip -9 -r ../../Mint-Windows-x64.zip ./*
+            cd ../..
           else
             echo "ERROR: Windows artifact directory not found"
             exit 1
           fi
 
+          cd artifacts
           LINUX_DIR=$(find . -maxdepth 1 -type d -name "Mint-Linux-x64-*" | head -n 1)
           if [ -d "$LINUX_DIR" ]; then
             echo "Creating Linux tar.gz from: $LINUX_DIR"
-            ls -la "$LINUX_DIR"
+            echo "Contents of Linux artifact:"
+            ls -laR "$LINUX_DIR"
+            # Tar all contents directly (no extra Mint/ folder)
             tar -czf ../Mint-Linux-x64.tar.gz -C "$LINUX_DIR" .
           else
             echo "ERROR: Linux artifact directory not found"
