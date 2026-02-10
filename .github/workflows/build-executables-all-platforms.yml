@@ -356,7 +356,7 @@ jobs:
           if [ -d "$WINDOWS_DIR" ]; then
             echo "Creating Windows zip from: $WINDOWS_DIR"
             cd "$WINDOWS_DIR"
-            zip -9 -r ../../Mint-Windows-x64.zip Mint/
+            zip -9 -r ../../Mint-Windows-x64.zip .
             cd ../..
           else
             echo "ERROR: Windows artifact directory not found"
@@ -367,7 +367,7 @@ jobs:
           LINUX_DIR=$(find . -type d -name "Mint-Linux-x64-*" | head -n 1)
           if [ -d "$LINUX_DIR" ]; then
             echo "Creating Linux tar.gz from: $LINUX_DIR"
-            tar -czf Mint-Linux-x64.tar.gz -C "$LINUX_DIR" Mint/
+            tar -czf Mint-Linux-x64.tar.gz -C "$LINUX_DIR" .
           else
             echo "ERROR: Linux artifact directory not found"
             exit 1
