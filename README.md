@@ -29,10 +29,10 @@ A powerful post-processing tool for **LC-MS based metabolomics** that simplifies
 
 ## Quick Start
 
-### Installation (pip). Requires Python 3.12+
+### Installation with pip (Recommended)
 
 ```bash
-# Create conda environment
+# Create conda environment. Requires Python 3.12+
 conda create -n ms-mint-app2 python==3.12
 conda activate ms-mint-app2
 

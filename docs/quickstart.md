@@ -4,7 +4,7 @@ Welcome to the MINT quickstart guide! This guide helps you get up and running wi
 
 ## 1. Install and Open `MINT`
 
-Install MINT (see installation options [here](install.md)) or donwload an excecutable compatible with your OS. Once the app starts, you should see the `Workspaces` tab.
+Install MINT (see installation options [here](install.md)) or download an executable compatible with your OS. Once the app starts, you should see the `Workspaces` tab.
 
 <!-- [Button Text](https://example.com){ .md-button } -->
 

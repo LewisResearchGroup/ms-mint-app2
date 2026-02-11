@@ -35,13 +35,13 @@ Once loaded, your MS files are displayed in an interactive table. For sample met
 *   **Metadata Columns**: `Label`, `Sample Type`, and `Group` columns help organize downstream analysis.
 *   **Acquisition Metadata**: MINT stores metadata such as polarity, MS level/type, file format, and acquisition datetime (when available from file headers) and user-defined metadata (e.g., Group 1, 2, etc.).
 
-### Import Validation And Auto-Fill {: #import-validation-auto-fill }
+### Import Validation and Auto-Fill {: #import-validation-auto-fill }
 
 MINT applies several automatic behaviors during MS file and metadata import.
 
 ??? info "Filename-based sample typing and color defaults"
 
-    #### Automatic Sample-Type And Color Inference {: #automatic-sample-type-and-color-inference }
+    #### Automatic Sample-Type and Color Inference {: #automatic-sample-type-and-color-inference }
 
     When metadata is not provided yet, MINT initializes `sample_type` and `color` from MS-file labels:
 

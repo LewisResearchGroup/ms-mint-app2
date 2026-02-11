@@ -44,7 +44,7 @@ Once loaded, your targets are displayed in an interactive table with the followi
 *   **Retention Time**: `rt_min` and `rt_max` define the expected time window for the peak. The `rt` column typically represents the expected retention time of the peak.
 *   **Filtering**: Each column header includes a filter icon, allowing you to search for specific compounds or filter by values.
 
-### Selection And Bookmark Semantics {: #selection-and-bookmark-semantics }
+### Selection and Bookmark Semantics {: #selection-and-bookmark-semantics }
 
 MINT uses `peak_selection` and `bookmark` with a few workflow rules that affect Optimization and Processing:
 
@@ -87,9 +87,9 @@ If you don't have a pre-defined target list, MINT can automatically detect featu
 - **Min Peak Height**: Minimum intensity required for a peak to be considered.
 - **Min Timepoints**: Minimum number of scans required to define a peak shape.
 
-### Import Validation And Auto-Fill {: #import-validation-auto-fill }
+### Import Validation and Auto-Fill {: #import-validation-auto-fill }
 
-MINT only strictly requires `peak_label` plus enough RT information to define a window. For each target row, MINT accepts a valid RT input patterns and auto-fills missing values. Below, we explain in detail some of the rules MINT uses to fill missing element in the targets table. Click the banner to expand.
+MINT only strictly requires `peak_label` plus enough RT information to define a window. For each target row, MINT accepts valid RT input patterns and auto-fills missing values. Below, we explain in detail some of the rules MINT uses to fill missing elements in the targets table. Click the banner to expand.
 
 ??? info "RT Auto-Derivation and Validation"
 
@@ -114,9 +114,9 @@ MINT only strictly requires `peak_label` plus enough RT information to define a 
     *   If `rt` is outside `[rt_min, rt_max]`, MINT resets `rt` to the span midpoint
     *   `rt_unit` values in minutes are converted to seconds, and stored as seconds
 
-??? info "Defaults And Overrides"
+??? info "Defaults and Overrides"
 
-    #### Defaults And Overrides {: #targets-defaults-and-overrides }
+    #### Defaults and Overrides {: #targets-defaults-and-overrides }
 
     During import, MINT applies a few defaults and override rules so target rows are immediately usable:
 

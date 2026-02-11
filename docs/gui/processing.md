@@ -6,11 +6,11 @@ The `Processing` tab is where MINT performs production extraction for your works
 
 ### Processing Workflow {: #processing-workflow }
 
-1.  **Set Scope And Resources**: Click `RUN MINT`. Choose bookmarked-only mode, recompute/fitting, and compute resources.
+1.  **Set Scope and Resources**: Click `RUN MINT`. Choose bookmarked-only mode, recompute/fitting, and compute resources.
 2.  **Run Extraction**: MINT computes chromatograms, then results, then optional EMG fitting.
 3.  **Export Or Clean Up**: Download results or remove selected/all result rows.
 
-### 1. Set Scope And Resources {: #run-mint-modal }
+### 1. Set Scope and Resources {: #run-mint-modal }
 
 `RUN MINT` opens the execution modal for Processing.
 
