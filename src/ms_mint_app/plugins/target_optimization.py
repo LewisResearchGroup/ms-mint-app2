@@ -1556,6 +1556,7 @@ _layout = fac.AntdLayout(
                                 dcc.Loading(
                                     id='chromatogram-view-plot-loading',
                                     type='default',
+                                    color='#3b8fa3',
                                     delay_show=250,
                                     delay_hide=250,
                                     overlay_style={
