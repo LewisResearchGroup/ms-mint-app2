@@ -541,7 +541,7 @@ _layout = html.Div(
             title="Delete target",
             id="delete-table-targets-modal",
             renderFooter=True,
-            okButtonProps={"danger": True},
+            okButtonProps={},
             locale='en-us',
         ),
         fac.AntdModal(

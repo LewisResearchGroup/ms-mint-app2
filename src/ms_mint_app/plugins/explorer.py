@@ -198,8 +198,7 @@ class FileExplorer:
                                                                     fac.AntdButton(
                                                                         id='remove-marked-btn',
                                                                         size='small',
-                                                                        danger=True,
-                                                                        type='text',
+                                                                        type='default',
                                                                         icon=fac.AntdIcon(
                                                                             icon='md-remove-circle-outline'),
                                                                         **{'aria-label': 'Remove selected files from list'},
@@ -210,8 +209,7 @@ class FileExplorer:
                                                                     fac.AntdButton(
                                                                         id='clear-selection-btn',
                                                                         size='small',
-                                                                        danger=True,
-                                                                        type='primary',
+                                                                        type='default',
                                                                         icon=fac.AntdIcon(icon='antd-delete'),
                                                                         **{'aria-label': 'Clear all selected files'},
                                                                     ),
@@ -290,7 +288,7 @@ class FileExplorer:
                                 fac.AntdButton(
                                     'Cancel',
                                     id='cancel-ms-processing',
-                                    danger=True,
+                                    type='default',
                                     style={
                                         'alignText': 'center',
                                     },

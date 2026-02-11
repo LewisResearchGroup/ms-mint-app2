@@ -532,6 +532,7 @@ _layout = html.Div(
                         fac.AntdButton(
                             'Cancel',
                             id='cancel-processing',
+                            type='default',
                             style={
                                 'alignText': 'center',
                                 'marginTop': '0.25rem',
@@ -561,7 +562,7 @@ _layout = html.Div(
             "Are you sure you want to delete the selected results?",
             title="Delete confirmation",
             id="processing-delete-confirmation-modal",
-            okButtonProps={"danger": True},
+            okButtonProps={},
             renderFooter=True,
             locale='en-us',
         ),

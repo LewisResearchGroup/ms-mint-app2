@@ -125,7 +125,7 @@ def create_layout():
                                                 'Clear Selection',
                                                 id='comparison-clear-btn',
                                                 icon=fac.AntdIcon(icon='antd-clear'),
-                                                danger=True,
+                                                type='default',
                                                 title='Clear selection list',
                                                 style={'marginTop': '30px'}
                                             ),

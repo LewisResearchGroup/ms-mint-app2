@@ -119,7 +119,7 @@ _layout = html.Div(
                             ),
                         ]),
                         fac.AntdTooltip(
-                            fac.AntdButton('Delete Workspace', id='ws-delete', danger=True, icon=fac.AntdIcon(icon='antd-minus')),
+                            fac.AntdButton('Delete Workspace', id='ws-delete', type='default', icon=fac.AntdIcon(icon='antd-minus')),
                             title="Permanently delete the selected workspace and all its data.",
                             placement="top"
                         )],

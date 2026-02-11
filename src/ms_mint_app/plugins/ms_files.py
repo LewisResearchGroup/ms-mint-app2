@@ -240,7 +240,7 @@ _layout = html.Div(
             "Are you sure you want to delete the selected files?",
             title="Delete confirmation",
             id="delete-confirmation-modal",
-            okButtonProps={"danger": True},
+            okButtonProps={},
             renderFooter=True,
             locale='en-us',
         ),

@@ -1314,7 +1314,7 @@ _layout = fac.AntdLayout(
                                                                         className='peak-action-button',
                                                                     ),
                                                                     title='Delete target',
-                                                                    color='red',
+                                                                    color='default',
                                                                     placement='bottom',
                                                                 ),
                                                             ],
@@ -1514,6 +1514,7 @@ _layout = fac.AntdLayout(
                         fac.AntdButton(
                             'Cancel',
                             id='cancel-chromatogram-processing',
+                            type='default',
                             style={
                                 'alignText': 'center',
                                 'marginTop': '0.25rem',
@@ -1971,7 +1972,6 @@ _layout = fac.AntdLayout(
                                     "Delete",
                                     icon=fac.AntdIcon(icon='antd-delete'),
                                     id="delete-target-from-modal",
-                                    danger=True,
                                     type="default",
                                 ),
                             ],
@@ -1994,7 +1994,7 @@ _layout = fac.AntdLayout(
             width=400,
             renderFooter=True,
             okText="Delete",
-            okButtonProps={"danger": True},
+            okButtonProps={},
             cancelText="Cancel",
             locale='en-us',
         ),
@@ -2003,7 +2003,7 @@ _layout = fac.AntdLayout(
             id="confirm-unsave-modal",
             title="Confirm close without saving",
             width=400,
-            okButtonProps={'danger': True},
+            okButtonProps={},
             renderFooter=True,
             locale='en-us'
         ),
@@ -2027,7 +2027,7 @@ _layout = fac.AntdLayout(
             id="confirm-nav-modal",
             title="Unsaved changes",
             width=400,
-            okButtonProps={'danger': True},
+            okButtonProps={},
             okText="Discard & Navigate",
             renderFooter=True,
             locale='en-us'
