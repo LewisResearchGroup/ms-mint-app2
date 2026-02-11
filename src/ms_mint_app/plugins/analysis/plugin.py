@@ -21,7 +21,7 @@ from ._shared import (
     METRIC_OPTIONS, NORM_OPTIONS, GROUP_SELECT_OPTIONS, TAB_DEFAULT_NORM,
     GROUPING_FIELDS, GROUP_LABELS, allowed_metrics,
     _build_color_map,
-    create_invisible_figure, get_download_config
+    analysis_read_connection, create_invisible_figure, get_download_config
 )
 from .data_pipeline import (
     _no_update_outputs,
@@ -61,6 +61,7 @@ class AnalysisUpdateContext:
     pca_cache: dict | None
     tsne_cache: dict | None
     violin_cache: dict | None
+    bar_cache: dict | None = None
 
 # Analysis menu items for sidebar
 ANALYSIS_MENU_ITEMS = [
@@ -293,6 +294,7 @@ _layout = fac.AntdLayout(
         dcc.Store(id='analysis-pca-cache', data=None),
         dcc.Store(id='analysis-tsne-cache', data=None),
         dcc.Store(id='analysis-violin-cache', data=None),
+        dcc.Store(id='analysis-bar-cache', data=None),
         fac.AntdTour(
             locale='en-us',
             steps=[],
@@ -320,13 +322,18 @@ class AnalysisPlugin(PluginInterface):
 def layout():
     return _layout
 
-def _pca_cache_key(wdir, metric, norm_value, selected_group):
-    return f"{wdir}|{metric}|{norm_value}|{selected_group}"
+def _pca_cache_key(wdir, metric, norm_value):
+    # Grouping only affects coloring/labels, not PCA decomposition itself.
+    # Keep grouping out of the PCA cache key so group switches can reuse cached scores/loadings.
+    return f"{wdir}|{metric}|{norm_value}"
 
 def _tsne_cache_key(wdir, metric, norm_value, selected_group, perplexity):
     return f"{wdir}|{metric}|{norm_value}|{selected_group}|{perplexity}"
 
 def _violin_cache_key(wdir, metric, norm_value, selected_group):
+    return f"{wdir}|{metric}|{norm_value}|{selected_group}"
+
+def _bar_cache_key(wdir, metric, norm_value, selected_group):
     return f"{wdir}|{metric}|{norm_value}|{selected_group}"
 
 
@@ -376,12 +383,28 @@ def _deserialize_tsne_results(payload):
 def _serialize_violin_series(series_df):
     return {
         'series': series_df.to_dict(orient='split'),
+        'index_name': series_df.index.name or 'ms_file_label',
     }
 
 
 def _deserialize_violin_series(payload):
     series = payload.get('series') or {}
     series_df = pd.DataFrame(series.get('data', []), columns=series.get('columns', []), index=series.get('index', []))
+    series_df.index.name = payload.get('index_name') or 'ms_file_label'
+    return series_df
+
+
+def _serialize_bar_series(series_df):
+    return {
+        'series': series_df.to_dict(orient='split'),
+        'index_name': series_df.index.name or 'ms_file_label',
+    }
+
+
+def _deserialize_bar_series(payload):
+    series = payload.get('series') or {}
+    series_df = pd.DataFrame(series.get('data', []), columns=series.get('columns', []), index=series.get('index', []))
+    series_df.index.name = payload.get('index_name') or 'ms_file_label'
     return series_df
 
 
@@ -441,6 +464,55 @@ def _handle_pca_cached_group_change(
         return None
 
 
+def _handle_pca_cached_render(
+    tab_key, triggered_props, pca_cache, cache_key, selected_group, x_comp, y_comp
+):
+    """
+    Re-render PCA directly from cached PCA results when data matrix inputs are unchanged.
+
+    This covers common UI paths like:
+    - switching away from PCA and coming back
+    - changing PCA axis selectors (x/y)
+    """
+    if not (tab_key == 'pca' and pca_cache and pca_cache.get('key') == cache_key):
+        return None
+
+    cache_safe_triggers = {
+        'analysis-sidebar-menu.currentKey',
+        'pca-x-comp.value',
+        'pca-y-comp.value',
+        'section-context.data',
+        'analysis-metric-select.value',
+        'analysis-normalization-select.value',
+        'analysis-grouping-select.value',
+        'wdir.data',
+    }
+    if triggered_props and not all(prop in cache_safe_triggers for prop in triggered_props):
+        return None
+
+    try:
+        results = _deserialize_pca_results(pca_cache.get('results', {}))
+        if results['scores'].empty:
+            return None
+        group_series, color_map, group_label = _build_group_context_from_cache(
+            pca_cache.get('samples_meta', []),
+            selected_group,
+            results['scores'].index,
+        )
+        fig = pca.generate_pca_figure(
+            None, group_series, color_map, group_label, x_comp, y_comp, pca_results=results
+        )
+        logger.debug(
+            "PCA cache hit for key=%s (triggers=%s)",
+            cache_key,
+            ",".join(triggered_props) if triggered_props else "none",
+        )
+        return _return_pca(fig)
+    except Exception as exc:
+        logger.warning("PCA cache render fast-path failed: %s", exc)
+        return None
+
+
 def _handle_tsne_cached_group_change(
     tab_key, triggered_only_group, tsne_cache, tsne_cache_key, selected_group,
     tsne_x_comp, tsne_y_comp, tsne_perplexity
@@ -490,6 +562,109 @@ def _handle_violin_cached_group_change(
         return _return_violin(graphs, violin_options, selected_compound)
     except Exception as exc:
         logger.warning("Violin cache fast-path failed (group=%s): %s", selected_group, exc)
+        return None
+
+
+def _handle_violin_cached_render(
+    tab_key, triggered_props, violin_cache, violin_cache_key, selected_group, metric, norm_value, wdir
+):
+    if not (tab_key == 'raincloud' and violin_cache and violin_cache.get('key') == violin_cache_key):
+        return None
+    cache_safe_triggers = {
+        'analysis-sidebar-menu.currentKey',
+        'violin-comp-checks.value',
+        'analysis-grouping-select.value',
+        'analysis-metric-select.value',
+        'analysis-normalization-select.value',
+        'section-context.data',
+        'wdir.data',
+    }
+    if triggered_props and not all(prop in cache_safe_triggers for prop in triggered_props):
+        return None
+    try:
+        series_df = _deserialize_violin_series(violin_cache.get('results', {}))
+        if series_df.empty:
+            return None
+        group_series, color_map, group_label = _build_group_context_from_cache(
+            violin_cache.get('samples_meta', []),
+            selected_group,
+            series_df.index,
+        )
+        selected_compound = violin_cache.get('selected_compound')
+        violin_options = violin_cache.get('options', [])
+        graphs = violin._build_violin_graphs(
+            series_df, group_series, color_map, group_label, metric, norm_value, selected_compound,
+            filename=f"{T.today()}-MINT__{get_workspace_name_from_wdir(wdir)}-Analysis-Violin"
+        )
+        return _return_violin(graphs, violin_options, selected_compound)
+    except Exception as exc:
+        logger.warning("Violin cache render fast-path failed: %s", exc)
+        return None
+
+
+def _handle_bar_cached_group_change(
+    tab_key, triggered_only_group, bar_cache, bar_cache_key, selected_group,
+    metric, norm_value, wdir
+):
+    if not (tab_key == 'bar' and triggered_only_group and bar_cache and bar_cache.get('key') == bar_cache_key):
+        return None
+    try:
+        series_df = _deserialize_bar_series(bar_cache.get('results', {}))
+        if series_df.empty:
+            raise ValueError("Empty bar cache")
+        group_series, color_map, group_label = _build_group_context_from_cache(
+            bar_cache.get('samples_meta', []),
+            selected_group,
+            series_df.index,
+        )
+        selected_compound = bar_cache.get('selected_compound')
+        bar_options = bar_cache.get('options', [])
+        graphs, options, value = bar.generate_bar_plots(
+            series_df, group_series, color_map, group_label, metric, norm_value,
+            selected_compound, bar_options,
+            filename=f"{T.today()}-MINT__{get_workspace_name_from_wdir(wdir)}-Analysis-Bar"
+        )
+        return _return_bar(graphs, options, value)
+    except Exception as exc:
+        logger.warning("Bar cache fast-path failed (group=%s): %s", selected_group, exc)
+        return None
+
+
+def _handle_bar_cached_render(
+    tab_key, triggered_props, bar_cache, bar_cache_key, selected_group, metric, norm_value, wdir
+):
+    if not (tab_key == 'bar' and bar_cache and bar_cache.get('key') == bar_cache_key):
+        return None
+    cache_safe_triggers = {
+        'analysis-sidebar-menu.currentKey',
+        'bar-comp-checks.value',
+        'analysis-grouping-select.value',
+        'analysis-metric-select.value',
+        'analysis-normalization-select.value',
+        'section-context.data',
+        'wdir.data',
+    }
+    if triggered_props and not all(prop in cache_safe_triggers for prop in triggered_props):
+        return None
+    try:
+        series_df = _deserialize_bar_series(bar_cache.get('results', {}))
+        if series_df.empty:
+            return None
+        group_series, color_map, group_label = _build_group_context_from_cache(
+            bar_cache.get('samples_meta', []),
+            selected_group,
+            series_df.index,
+        )
+        selected_compound = bar_cache.get('selected_compound')
+        bar_options = bar_cache.get('options', [])
+        graphs, options, value = bar.generate_bar_plots(
+            series_df, group_series, color_map, group_label, metric, norm_value,
+            selected_compound, bar_options,
+            filename=f"{T.today()}-MINT__{get_workspace_name_from_wdir(wdir)}-Analysis-Bar"
+        )
+        return _return_bar(graphs, options, value)
+    except Exception as exc:
+        logger.warning("Bar cache render fast-path failed: %s", exc)
         return None
 
 
@@ -559,14 +734,24 @@ def _handle_raincloud_tab(
 
 def _handle_bar_tab(
     violin_matrix, group_series, color_map, group_label, metric, norm_value,
-    bar_comp_checks, compound_options, base_name
+    bar_comp_checks, compound_options, base_name, bar_cache_key, colors_df
 ):
     file_name = f"{base_name}-Bar"
     graphs, options, val = bar.generate_bar_plots(
         violin_matrix, group_series, color_map, group_label, metric, norm_value,
         bar_comp_checks, compound_options, filename=file_name
     )
-    return _return_bar(graphs, options, val)
+    bar_cache_data = None
+    if val and val in violin_matrix.columns:
+        series_df = violin_matrix[[val]].copy()
+        bar_cache_data = {
+            'key': bar_cache_key,
+            'results': _serialize_bar_series(series_df),
+            'selected_compound': val,
+            'options': options,
+            'samples_meta': colors_df.to_dict(orient='records') if not colors_df.empty else [],
+        }
+    return _return_bar(graphs, options, val, bar_cache_data=bar_cache_data)
 
 
 def _analysis_tour_steps(active_tab: str):
@@ -774,7 +959,7 @@ def callbacks(app, fsc=None, cache=None):
         
         # Check if results table is empty
         # Read-only optimization
-        with duckdb_connection(wdir, read_only=True) as conn:
+        with analysis_read_connection(wdir) as conn:
             if conn is None:
                 return []
             try:
@@ -951,6 +1136,7 @@ def callbacks(app, fsc=None, cache=None):
         Output('analysis-pca-cache', 'data'),
         Output('analysis-tsne-cache', 'data'),
         Output('analysis-violin-cache', 'data'),
+        Output('analysis-bar-cache', 'data'),
 
         Input('section-context', 'data'),
         Input('analysis-sidebar-menu', 'currentKey'),
@@ -974,21 +1160,22 @@ def callbacks(app, fsc=None, cache=None):
         State('analysis-pca-cache', 'data'),
         State('analysis-tsne-cache', 'data'),
         State('analysis-violin-cache', 'data'),
+        State('analysis-bar-cache', 'data'),
         prevent_initial_call=False,
     )
     def update_content_wrapper(section_context, tab_key, x_comp, y_comp, violin_comp_checks, bar_comp_checks, metric_value, norm_value,
                         group_by, regen_clicks, tsne_regen_clicks, cluster_rows, cluster_cols, fontsize_x, fontsize_y, wdir,
-                        tsne_x_comp, tsne_y_comp, tsne_perplexity, pca_cache, tsne_cache, violin_cache):
+                        tsne_x_comp, tsne_y_comp, tsne_perplexity, pca_cache, tsne_cache, violin_cache, bar_cache=None):
         return update_content(
             section_context, tab_key, x_comp, y_comp, violin_comp_checks, bar_comp_checks, metric_value, norm_value,
             group_by, regen_clicks, tsne_regen_clicks, cluster_rows, cluster_cols, fontsize_x, fontsize_y, wdir,
-            tsne_x_comp, tsne_y_comp, tsne_perplexity, pca_cache, tsne_cache, violin_cache
+            tsne_x_comp, tsne_y_comp, tsne_perplexity, pca_cache, tsne_cache, violin_cache, bar_cache
         )
 
 
 def update_content(section_context, tab_key, x_comp, y_comp, violin_comp_checks, bar_comp_checks, metric_value, norm_value,
                     group_by, regen_clicks, tsne_regen_clicks, cluster_rows, cluster_cols, fontsize_x, fontsize_y, wdir,
-                    tsne_x_comp, tsne_y_comp, tsne_perplexity, pca_cache, tsne_cache, violin_cache):
+                    tsne_x_comp, tsne_y_comp, tsne_perplexity, pca_cache, tsne_cache, violin_cache, bar_cache=None):
 
         ctx = AnalysisUpdateContext(
             section_context=section_context,
@@ -1013,6 +1200,7 @@ def update_content(section_context, tab_key, x_comp, y_comp, violin_comp_checks,
             pca_cache=pca_cache,
             tsne_cache=tsne_cache,
             violin_cache=violin_cache,
+            bar_cache=bar_cache,
         )
         return _update_content_from_context(ctx)
 
@@ -1047,10 +1235,11 @@ def _update_content_from_context(ctx: AnalysisUpdateContext):
             metric = ctx.metric_value
 
         norm_value = ctx.norm_value or TAB_DEFAULT_NORM.get(ctx.tab_key, 'zscore')
-        cache_key = _pca_cache_key(ctx.wdir, metric, norm_value, selected_group)
+        cache_key = _pca_cache_key(ctx.wdir, metric, norm_value)
         tsne_perplexity_value = ctx.tsne_perplexity if ctx.tsne_perplexity else 30
         tsne_cache_key = _tsne_cache_key(ctx.wdir, metric, norm_value, selected_group, tsne_perplexity_value)
         violin_cache_key = _violin_cache_key(ctx.wdir, metric, norm_value, selected_group)
+        bar_cache_key = _bar_cache_key(ctx.wdir, metric, norm_value, selected_group)
         triggered_only_group = (
             bool(triggered_props)
             and all(prop.startswith('analysis-grouping-select') for prop in triggered_props)
@@ -1058,6 +1247,12 @@ def _update_content_from_context(ctx: AnalysisUpdateContext):
 
         cached_result = _handle_pca_cached_group_change(
             ctx.tab_key, triggered_only_group, ctx.pca_cache, cache_key, selected_group, ctx.x_comp, ctx.y_comp
+        )
+        if cached_result is not None:
+            return cached_result
+
+        cached_result = _handle_pca_cached_render(
+            ctx.tab_key, triggered_props, ctx.pca_cache, cache_key, selected_group, ctx.x_comp, ctx.y_comp
         )
         if cached_result is not None:
             return cached_result
@@ -1071,6 +1266,27 @@ def _update_content_from_context(ctx: AnalysisUpdateContext):
 
         cached_result = _handle_violin_cached_group_change(
             ctx.tab_key, triggered_only_group, ctx.violin_cache, violin_cache_key, selected_group,
+            metric, norm_value, ctx.wdir
+        )
+        if cached_result is not None:
+            return cached_result
+
+        cached_result = _handle_violin_cached_render(
+            ctx.tab_key, triggered_props, ctx.violin_cache, violin_cache_key, selected_group,
+            metric, norm_value, ctx.wdir
+        )
+        if cached_result is not None:
+            return cached_result
+
+        cached_result = _handle_bar_cached_group_change(
+            ctx.tab_key, triggered_only_group, ctx.bar_cache, bar_cache_key, selected_group,
+            metric, norm_value, ctx.wdir
+        )
+        if cached_result is not None:
+            return cached_result
+
+        cached_result = _handle_bar_cached_render(
+            ctx.tab_key, triggered_props, ctx.bar_cache, bar_cache_key, selected_group,
             metric, norm_value, ctx.wdir
         )
         if cached_result is not None:
@@ -1121,7 +1337,7 @@ def _update_content_from_context(ctx: AnalysisUpdateContext):
             ),
             'bar': lambda: _handle_bar_tab(
                 violin_matrix, group_series, color_map, group_label, metric, norm_value,
-                ctx.bar_comp_checks, compound_options, base_name
+                ctx.bar_comp_checks, compound_options, base_name, bar_cache_key, colors_df
             ),
         }
         handler = tab_handlers.get(ctx.tab_key)

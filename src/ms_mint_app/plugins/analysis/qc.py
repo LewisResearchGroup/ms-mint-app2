@@ -4,7 +4,7 @@ from pathlib import Path
 
 from ._shared import (
     fac, html, dcc, go, px, pd, np, logger,
-    duckdb_connection, PLOTLY_HIGH_RES_CONFIG,
+    analysis_read_connection, PLOTLY_HIGH_RES_CONFIG,
     Input, Output, State, PreventUpdate, dash,
     GROUP_COLUMNS, GROUP_LABELS, METRIC_OPTIONS, allowed_metrics,
     rocke_durbin, _calc_y_range_numpy, _build_color_map, ensure_valid_group_field
@@ -21,6 +21,10 @@ QC_CHROM_CONTAINER_STYLE = {
     'minWidth': '520px',
     'overflowX': 'hidden',
     'height': '100%',
+}
+
+QC_CHROM_CONTAINER_HIDDEN_STYLE = {
+    'display': 'none',
 }
 
 QC_LEFT_PANEL_STYLE = {
@@ -206,7 +210,7 @@ def register_callbacks(app):
             raise PreventUpdate
         
         # Read-only optimization
-        with duckdb_connection(wdir, read_only=True) as conn:
+        with analysis_read_connection(wdir) as conn:
             if conn is None:
                 return [], None
             
@@ -258,7 +262,7 @@ def register_callbacks(app):
         from plotly.subplots import make_subplots
         
         # Read-only optimization
-        with duckdb_connection(wdir, read_only=True) as conn:
+        with analysis_read_connection(wdir) as conn:
             if conn is None:
                 empty_fig = go.Figure()
                 empty_fig.update_layout(title="No data available", paper_bgcolor='white', plot_bgcolor='white')
@@ -569,7 +573,7 @@ def register_callbacks(app):
         # Only run this if we didn't get a click (i.e. triggered by dropdown or initial load)
         if wdir and peak_label:
              # Read-only optimization
-             with duckdb_connection(wdir, read_only=True) as conn:
+             with analysis_read_connection(wdir) as conn:
                 if conn:
                     try:
                         # Pick a sample with high contrast (likely to have a peak)
@@ -612,13 +616,13 @@ def register_callbacks(app):
                 paper_bgcolor='white', 
                 plot_bgcolor='white'
             )
-            return empty_fig, dict(QC_CHROM_CONTAINER_STYLE)
+            return empty_fig, dict(QC_CHROM_CONTAINER_HIDDEN_STYLE)
 
          # Fetch data
         # Read-only optimization
         group_by_col = ensure_valid_group_field(group_by_col, allow_none=True, default=None)
 
-        with duckdb_connection(wdir, read_only=True) as conn:
+        with analysis_read_connection(wdir) as conn:
             if conn is None:
                  return dash.no_update, dash.no_update
             
@@ -691,7 +695,7 @@ def register_callbacks(app):
             if not chrom_data:
                 fig = go.Figure()
                 fig.add_annotation(text="No chromatogram data found", showarrow=False)
-                return fig, dict(QC_CHROM_CONTAINER_STYLE)
+                return fig, dict(QC_CHROM_CONTAINER_HIDDEN_STYLE)
 
             data_map = {row[0]: row for row in chrom_data}
             

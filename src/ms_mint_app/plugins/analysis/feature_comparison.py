@@ -9,9 +9,10 @@ from ...duckdb_manager import get_workspace_name_from_wdir
 from ._shared import (
     fac, html, dcc, go, pd, np, logger,
     Input, Output, State, PreventUpdate,
-    duckdb_connection, GROUP_LABELS, GROUP_COLUMNS,
+    GROUP_LABELS, GROUP_COLUMNS,
     prepare_metric_table, normalize_matrix, PLOTLY_HIGH_RES_CONFIG,
     _calc_y_range_numpy, _build_color_map, dash, ensure_valid_group_field,
+    analysis_read_connection,
 )
 
 
@@ -293,7 +294,7 @@ def register_callbacks(app):
         group_by_col = ensure_valid_group_field(group_by_col, allow_none=False)
 
         # Read-only optimization
-        with duckdb_connection(wdir, read_only=True) as conn:
+        with analysis_read_connection(wdir) as conn:
             if conn is None:
                 return [], [], None, None, True, True, dash.no_update
 
@@ -412,7 +413,7 @@ def register_callbacks(app):
         fdr_method = fdr_method or 'none'
 
         # Read-only optimization
-        with duckdb_connection(wdir, read_only=True) as conn:
+        with analysis_read_connection(wdir) as conn:
             if conn is None:
                 return _empty_plot("Unable to connect to workspace database.", height=520)
 
@@ -798,7 +799,7 @@ def register_callbacks(app):
         missing_group_label = f"{group_label} (unset)"
 
         # Read-only optimization
-        with duckdb_connection(wdir, read_only=True) as conn:
+        with analysis_read_connection(wdir) as conn:
             if conn is None:
                 return _empty_plot("Unable to connect to workspace database."), default_chrom_style, None
 
@@ -1147,7 +1148,7 @@ def register_callbacks(app):
         metric = metric or 'peak_max'
         
         # Read-only optimization
-        with duckdb_connection(wdir, read_only=True) as conn:
+        with analysis_read_connection(wdir) as conn:
              if conn is None:
                  return dash.no_update
              

@@ -247,9 +247,13 @@ def register_callbacks(app):
             return False
 
         trigger = callback_context.triggered[0]["prop_id"].split(".")[0] if callback_context.triggered else ""
-        # When user switches to raincloud or changes parameters, force spinner on
-        if trigger in ('analysis-sidebar-menu', 'analysis-metric-select', 'analysis-normalization-select', 'analysis-grouping-select'):
-            return True
+        # On tab switch, only spin if no cached/previous violin content exists.
+        if trigger == 'analysis-sidebar-menu':
+            return not bool(violin_children)
+
+        # For parameter changes, spinner should only show while content is absent.
+        if trigger in ('analysis-metric-select', 'analysis-normalization-select', 'analysis-grouping-select'):
+            return not bool(violin_children)
 
         # Otherwise, stop spinning once content is loaded
         return not violin_children

@@ -7,12 +7,13 @@ import duckdb
 import pandas as pd
 from dash.exceptions import PreventUpdate
 
-from ...duckdb_manager import duckdb_connection, calculate_optimal_params
+from ...duckdb_manager import duckdb_connection
 from ._shared import (
     GROUP_COLUMNS,
     GROUP_LABELS,
     _build_color_map,
     _clean_numeric,
+    get_analysis_read_limits,
     normalize_matrices,
     prepare_metric_table,
 )
@@ -33,6 +34,7 @@ _CONTENT_OUTPUT_FIELDS = (
     'pca_cache',
     'tsne_cache',
     'violin_cache',
+    'bar_cache',
 )
 
 
@@ -89,11 +91,12 @@ def _return_violin(graphs, options, value, violin_cache_data=dash.no_update):
     )
 
 
-def _return_bar(graphs, options, value):
+def _return_bar(graphs, options, value, bar_cache_data=dash.no_update):
     return _build_content_outputs(
         bar_children=graphs,
         bar_options=options,
         bar_value=value,
+        bar_cache=bar_cache_data,
     )
 
 
@@ -107,7 +110,7 @@ def _prepare_matrix_data(
     conn_factory=duckdb_connection,
 ):
     """Load and normalize analysis matrices shared by PCA/t-SNE/violin/bar/clustermap."""
-    cpus, ram, _ = calculate_optimal_params()
+    cpus, ram = get_analysis_read_limits()
 
     with conn_factory(wdir, n_cpus=cpus, ram=ram, read_only=True) as conn:
         if conn is None:

@@ -7,8 +7,8 @@ from ._shared import (
     PreventUpdate,
     _build_color_map,
     _calc_y_range_numpy,
+    analysis_read_connection,
     dash,
-    duckdb_connection,
     ensure_valid_group_field,
     go,
     logger,
@@ -108,7 +108,7 @@ def update_chromatogram_from_click(
         ms_file_label = current_selection
 
     if not ms_file_label and wdir and peak_label:
-        with duckdb_connection(wdir, read_only=True) as conn:
+        with analysis_read_connection(wdir) as conn:
             if conn:
                 top_samples = conn.execute(
                     """
@@ -148,7 +148,7 @@ def update_chromatogram_from_click(
 
     group_by_col = ensure_valid_group_field(group_by_col, allow_none=True, default=None)
 
-    with duckdb_connection(wdir, read_only=True) as conn:
+    with analysis_read_connection(wdir) as conn:
         if conn is None:
             return dash.no_update, dash.no_update, dash.no_update
 

@@ -2,6 +2,7 @@
 
 import logging
 from collections import OrderedDict
+from contextlib import contextmanager
 import dash
 import base64
 from io import BytesIO
@@ -21,7 +22,12 @@ from plotly import colors as plotly_colors
 import os
 from sklearn.preprocessing import StandardScaler
 
-from ...duckdb_manager import duckdb_connection, create_pivot, get_physical_cores
+from ...duckdb_manager import (
+    duckdb_connection,
+    create_pivot,
+    get_physical_cores,
+    calculate_optimal_params,
+)
 from ...sample_metadata import GROUP_COLUMNS, GROUP_LABELS
 
 logger = logging.getLogger(__name__)
@@ -161,6 +167,7 @@ def _calc_y_range_numpy(data, x_left, x_right, is_log=False):
 _COLOR_MAP_CACHE_MAX_GROUPS = 16
 _COLOR_MAP_MAX_VALUES_PER_GROUP = 512
 _COLOR_MAP_CACHE: OrderedDict[str, dict] = OrderedDict()
+_ANALYSIS_DB_LIMITS_LOGGED = False
 
 
 def _cap_color_map_values(color_map: dict, active_values) -> dict:
@@ -363,3 +370,43 @@ def ensure_valid_group_field(group_field, *, allow_none=True, default=None):
     if group_field not in GROUPING_FIELDS:
         raise PreventUpdate
     return group_field
+
+
+def get_analysis_read_limits() -> tuple[int, int]:
+    """
+    Return conservative DuckDB thread/memory limits for interactive Analysis reads.
+
+    Mirrors the strategy used in optimization flows: reduce resources for UI-triggered
+    queries to avoid CPU spikes from frequent callback-driven connections.
+    """
+    cpus, ram, _ = calculate_optimal_params()
+    # Aggressive cap for interactive UI callbacks:
+    # keep DB reads lightweight; rendering/math can still dominate CPU.
+    cpus = max(1, cpus // 4)
+    cpus = min(cpus, 2)
+    ram = max(2, int(ram // 2))
+    ram = min(ram, 6)
+    return cpus, ram
+
+
+@contextmanager
+def analysis_read_connection(wdir, *, conn_factory=duckdb_connection):
+    """Open a read-only DuckDB connection with Analysis-safe resource limits."""
+    global _ANALYSIS_DB_LIMITS_LOGGED
+    cpus, ram = get_analysis_read_limits()
+    with conn_factory(wdir, n_cpus=cpus, ram=ram, read_only=True) as conn:
+        if conn is not None and not _ANALYSIS_DB_LIMITS_LOGGED:
+            try:
+                actual_threads = conn.execute("SELECT current_setting('threads')").fetchone()[0]
+                actual_mem = conn.execute("SELECT current_setting('memory_limit')").fetchone()[0]
+                logger.info(
+                    "Analysis DB read limits active: requested threads=%s, ram=%sGB; effective threads=%s, memory_limit=%s",
+                    cpus,
+                    ram,
+                    actual_threads,
+                    actual_mem,
+                )
+                _ANALYSIS_DB_LIMITS_LOGGED = True
+            except Exception:
+                pass
+        yield conn
