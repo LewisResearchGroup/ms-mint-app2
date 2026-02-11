@@ -885,12 +885,15 @@ def _get_workspace_details(tmpdir, key):
 def callbacks(app, fsc, cache):
     @app.callback(
         Output("ws-table", "expandedRowKeyToContent", allow_duplicate=True),
+        Output("notifications-container", "children", allow_duplicate=True),
+        Output("ws-table", "data", allow_duplicate=True),
         Input("ws-table", "expandedRowKeys"),
         State("ws-table", "expandedRowKeyToContent"),
         State("tmpdir", "data"),
+        State("ws-table", "data"),
         prevent_initial_call=True
     )
-    def lazy_load_workspace_details(expanded_keys, current_content, tmpdir):
+    def lazy_load_workspace_details(expanded_keys, current_content, tmpdir, table_data):
         if not expanded_keys or not current_content or not tmpdir:
             raise PreventUpdate
         
@@ -899,6 +902,8 @@ def callbacks(app, fsc, cache):
         # and update it if it doesn't have the table (approx check)
         
         updated = False
+        notification = dash.no_update
+        updated_table_data = dash.no_update
         new_content_list = []
         
         for item in current_content:
@@ -918,6 +923,33 @@ def callbacks(app, fsc, cache):
             if key in expanded_keys:
                 # Check complexity. If it's a simple dict with type='Div' and children is small...
                 try:
+                    ws_path = Path(tmpdir, 'workspaces', str(key))
+                    is_corrupt = is_workspace_corrupted(ws_path)
+
+                    if is_corrupt:
+                        notification = fac.AntdNotification(
+                            message="[!] Database Corrupted",
+                            description=(
+                                "This workspace's database is corrupted. "
+                                "Please delete this workspace and restore from backup or recreate it."
+                            ),
+                            type="error",
+                            duration=8,
+                            placement='bottom',
+                            showProgress=True,
+                            key=f"ws-corrupt-expand-{key}",
+                        )
+
+                        if isinstance(table_data, list):
+                            patched_rows = [dict(r) for r in table_data]
+                            for row in patched_rows:
+                                if str(row.get("key")) == str(key):
+                                    desc = row.get("description") or ""
+                                    note = "[CORRUPTED]"
+                                    if note not in desc:
+                                        row["description"] = f"{desc} {note}".strip()
+                            updated_table_data = patched_rows
+
                     # If we haven't loaded it, let's load it.
                     # Warning: this might reload on every collapse/expand if we don't persist it.
                     # But 'expandedRowKeyToContent' IS the persistence.
@@ -929,7 +961,7 @@ def callbacks(app, fsc, cache):
                     
                     # Optim: only if it looks "simple" (no 'AntdTable')
                     content_str = str(content)
-                    if 'AntdTable' not in content_str:
+                    if 'AntdTable' not in content_str or is_corrupt:
                          logger.info(f"Lazy loading stats for workspace {key}")
                          new_details = _get_workspace_details(tmpdir, key)
                          item['content'] = new_details
@@ -939,8 +971,12 @@ def callbacks(app, fsc, cache):
             
             new_content_list.append(item)
             
-        if updated:
-            return new_content_list
+        if updated or notification is not dash.no_update or updated_table_data is not dash.no_update:
+            return (
+                new_content_list if updated else dash.no_update,
+                notification,
+                updated_table_data,
+            )
         raise PreventUpdate
     @app.callback(
         Output('workspace-tour', 'current'),
