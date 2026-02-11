@@ -2117,8 +2117,8 @@ _layout = fac.AntdLayout(
             className='targets-tour-hint',
             style={
                 'background': '#ffffff',
-                'border': '0.5px solid #1677ff',
-                'boxShadow': '0 6px 16px rgba(0,0,0,0.15), 0 0 0 1px rgba(22,119,255,0.2)',
+                'border': '0.5px solid #3b8fa3',
+                'boxShadow': '0 6px 16px rgba(0,0,0,0.15), 0 0 0 1px rgba(59,143,163,0.2)',
                 'opacity': 1,
             },
         ),
@@ -2151,7 +2151,7 @@ def _update_sample_type_tree(section_context, mark_action, expand_action, collap
         
         df = conn.execute("""
                           SELECT sample_type,
-                                 COALESCE(NULLIF(min(color), ''), '#1677ff') as sample_color,
+                                 COALESCE(NULLIF(min(color), ''), '#3b8fa3') as sample_color,
                                  list({'title': label, 'key': label}) as children,
                                  list(label)                          as checked_keys
                           FROM samples
@@ -2184,7 +2184,7 @@ def _update_sample_type_tree(section_context, mark_action, expand_action, collap
                 {
                     'title': f"{row['sample_type']}",
                     'key': row['sample_type'],
-                    'style': {'color': row.get('sample_color') or '#1677ff'},
+                    'style': {'color': row.get('sample_color') or '#3b8fa3'},
                     'children': row['children']
                 }
                 for row in df.to_dicts()

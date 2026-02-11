@@ -1089,7 +1089,7 @@ def register_callbacks(app):
             if not items:
                 return None
             return fac.AntdFlex(
-                [fac.AntdTag(content=item, color='blue') for item in items],
+                [fac.AntdTag(content=item, color='#3b8fa3') for item in items],
                 wrap='wrap',
                 gap='small'
             )

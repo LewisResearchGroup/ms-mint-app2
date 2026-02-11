@@ -33,6 +33,13 @@ pattern = re.compile(r"^[A-Za-z0-9_]+$")
 
 logger = logging.getLogger(__name__)
 
+WORKSPACE_BUTTON_COLOR = "#3B8FA3"  # lighter teal variant of #156C83
+WORKSPACE_BUTTON_STYLE = {
+    "backgroundColor": "#ffffff",
+    "borderColor": WORKSPACE_BUTTON_COLOR,
+    "color": WORKSPACE_BUTTON_COLOR,
+}
+
 class WorkspacesPlugin(PluginInterface):
     def __init__(self):
         self._label = _label
@@ -78,7 +85,12 @@ _layout = html.Div(
                 ),
                 fac.AntdText("Loading...", id="ws-current-data-dir-text", style={"marginRight": "10px", "fontWeight": "bold"}),
                 fac.AntdTooltip(
-                    fac.AntdButton("Change directory", id="ws-change-data-dir-btn", size="small"),
+                    fac.AntdButton(
+                        "Change directory",
+                        id="ws-change-data-dir-btn",
+                        size="small",
+                        style=WORKSPACE_BUTTON_STYLE,
+                    ),
                     title="Select a different folder on your computer to store your MINT workspaces and data.",
                     placement="bottom"
                 )
@@ -108,18 +120,34 @@ _layout = html.Div(
                     fac.AntdFlex([
                         fac.AntdSpace([
                             fac.AntdTooltip(
-                                fac.AntdButton('Create Workspace', id='ws-create', icon=fac.AntdIcon(icon='antd-plus')),
+                                fac.AntdButton(
+                                    'Create Workspace',
+                                    id='ws-create',
+                                    icon=fac.AntdIcon(icon='antd-plus'),
+                                    style=WORKSPACE_BUTTON_STYLE,
+                                ),
                                 title="Create a new, empty workspace.",
                                 placement="top"
                             ),
                             fac.AntdTooltip(
-                                fac.AntdButton('Import Database', id='ws-import-db', icon=fac.AntdIcon(icon='antd-import')),
+                                fac.AntdButton(
+                                    'Import Database',
+                                    id='ws-import-db',
+                                    icon=fac.AntdIcon(icon='antd-import'),
+                                    style=WORKSPACE_BUTTON_STYLE,
+                                ),
                                 title="Import an existing MINT database file as a new workspace.",
                                 placement="top"
                             ),
                         ]),
                         fac.AntdTooltip(
-                            fac.AntdButton('Delete Workspace', id='ws-delete', type='default', icon=fac.AntdIcon(icon='antd-minus')),
+                            fac.AntdButton(
+                                'Delete Workspace',
+                                id='ws-delete',
+                                type='default',
+                                icon=fac.AntdIcon(icon='antd-minus'),
+                                style=WORKSPACE_BUTTON_STYLE,
+                            ),
                             title="Permanently delete the selected workspace and all its data.",
                             placement="top"
                         )],
@@ -346,13 +374,14 @@ _layout = html.Div(
             className='targets-tour-hint',
             style={
                 'background': '#ffffff',
-                'border': '0.5px solid #1677ff',
-                'boxShadow': '0 6px 16px rgba(0,0,0,0.15), 0 0 0 1px rgba(22,119,255,0.2)',
+                'border': '0.5px solid #3b8fa3',
+                'boxShadow': '0 6px 16px rgba(0,0,0,0.15), 0 0 0 1px rgba(59,143,163,0.2)',
                 'opacity': 1,
             },
         ),
         dcc.Store(id='workspace-tour-hint-store', data={'open': True}, storage_type='session'),
-    ]
+    ],
+    className='ws-theme',
 )
 
 _outputs = html.Div(
@@ -1367,7 +1396,7 @@ def callbacks(app, fsc, cache):
             return fac.AntdAlert(message=error_msg, type='error', showIcon=True), dash.no_update
         
         # Stats display
-        stats_items = [fac.AntdTag(content=f"{t}: {c:,}", color='blue') for t, c in stats.items()]
+        stats_items = [fac.AntdTag(content=f"{t}: {c:,}", color='#3b8fa3') for t, c in stats.items()]
         stats_display = fac.AntdSpace([
             fac.AntdTag(content="✓ Valid", color='green'),
             *stats_items

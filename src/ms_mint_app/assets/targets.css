@@ -21,7 +21,7 @@
     border-radius: 8px !important;
 
     /* Use 1px instead of 0.5px for a sharp, clean line */
-    border: 1px solid #1677ff !important;
+    border: 1px solid #3b8fa3 !important;
 
     /* Remove the secondary shadow ring to stop the "double border" blur */
     box-shadow: 0 6px 16px rgba(0, 0, 0, 0.15) !important;
@@ -46,15 +46,15 @@
 
 .targets-tour-hint .ant-tour-arrow,
 .ant-tour .ant-tour-arrow {
-    /* Matches the 1px blue border */
-    filter: drop-shadow(0 0 0 1px #1677ff) drop-shadow(0 0 6px rgba(22, 119, 255, 0.35));
+    /* Matches the 1px teal border */
+    filter: drop-shadow(0 0 0 1px #3b8fa3) drop-shadow(0 0 6px rgba(59, 143, 163, 0.35));
 }
 
 .targets-tour-hint .ant-tour-arrow-content,
 .ant-tour .ant-tour-arrow-content {
     background: #ffffff !important;
     /* Cleaned up shadow to match the main box */
-    box-shadow: 0 0 0 1px #1677ff, 0 0 6px rgba(22, 119, 255, 0.35) !important;
+    box-shadow: 0 0 0 1px #3b8fa3, 0 0 6px rgba(59, 143, 163, 0.35) !important;
     opacity: 1 !important;
 }
 

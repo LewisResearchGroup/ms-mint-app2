@@ -62,6 +62,7 @@ NOTIFICATION_COMPACT_STYLE = {"maxWidth": 420, "width": "420px"}
 home_path = Path.home()
 
 logger = logging.getLogger(__name__)
+EXCLUDED_PASTEL_COLORS = {"#66c5cc"}
 
 # Patterns for detecting sample types from filenames
 # Each entry: (patterns_list, color, sample_type_label)
@@ -583,8 +584,8 @@ _layout = html.Div(
             className='targets-tour-hint',
             style={
                 'background': '#ffffff',
-                'border': '0.5px solid #1677ff',
-                'boxShadow': '0 6px 16px rgba(0,0,0,0.15), 0 0 0 1px rgba(22,119,255,0.2)',
+                'border': '0.5px solid #3b8fa3',
+                'boxShadow': '0 6px 16px rgba(0,0,0,0.15), 0 0 0 1px rgba(59,143,163,0.2)',
                 'opacity': 1,
             },
         ),
@@ -635,11 +636,25 @@ def generate_colors(wdir, regenerate=False):
             )
 
         sample_keys = ms_colors["sample_key"].drop_duplicates().to_list()
+        sample_counts = ms_colors["sample_key"].value_counts(dropna=False)
+        dominant_sample_key = sample_counts.index[0] if not sample_counts.empty else None
+        dominant_needs_reset = False
+        if dominant_sample_key is not None:
+            dominant_rows = ms_colors[ms_colors["sample_key"] == dominant_sample_key]
+            current_dominant_colors = (
+                dominant_rows["color"].fillna("").astype(str).str.strip().str.upper().unique().tolist()
+            )
+            dominant_needs_reset = any(c != "#BBBBBB" for c in current_dominant_colors if c)
 
-        if len(assigned_colors) != len(sample_keys):
+        # Keep the dominant sample group neutral for readability across plots.
+        forced_colors = {dominant_sample_key: "#BBBBBB"} if dominant_sample_key is not None else {}
+        assigned_colors.update(forced_colors)
+
+        if len(assigned_colors) != len(sample_keys) or dominant_needs_reset:
             pastel_palette = colors.qualitative.Pastel
-            pastel_palette_hex = [_rgb_to_hex(c) for c in pastel_palette]
-            if len(sample_keys) <= len(pastel_palette):
+            pastel_palette_hex = [_rgb_to_hex(c).lower() for c in pastel_palette]
+            pastel_palette_hex = [c for c in pastel_palette_hex if c not in EXCLUDED_PASTEL_COLORS]
+            if len(sample_keys) <= len(pastel_palette_hex):
                 colors_map = assigned_colors.copy()
                 palette_idx = 0
                 for key in sample_keys:
