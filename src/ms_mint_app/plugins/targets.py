@@ -68,6 +68,7 @@ TARGET_TEMPLATE_CSV = ",".join(TARGET_TEMPLATE_COLUMNS) + "\n" + ",".join(TARGET
 TARGET_DESCRIPTION_MAP = dict(zip(TARGET_TEMPLATE_COLUMNS, TARGET_TEMPLATE_DESCRIPTIONS))
 
 logger = logging.getLogger(__name__)
+_TARGET_SELECTION_NORMALIZED_WORKSPACES = set()
 
 # Keep list-download column order aligned with the Targets table UI.
 TARGET_UI_EXPORT_COLUMNS = [
@@ -496,6 +497,15 @@ _layout = html.Div(
             id='targets-table-container',
             style={'paddingTop': '1rem', 'display': 'none'},
         ),
+        fac.AntdAlert(
+            id='targets-selection-fallback-alert',
+            message='No targets are explicitly selected.',
+            description='Current behavior: when all Selection switches are NO, analysis/processing uses all targets. '
+                        'Set at least one Selection to YES to limit to a subset.',
+            type='info',
+            showIcon=True,
+            style={'display': 'none', 'marginTop': '0.75rem'},
+        ),
         # Empty state placeholder - shown when no targets
         html.Div(
             fac.AntdFlex(
@@ -778,6 +788,8 @@ def _targets_table(section_context, pagination, filter_, sorter, filterOptions, 
     if not wdir:
         logger.debug("_targets_table: PreventUpdate because wdir is not set")
         raise PreventUpdate
+
+    _normalize_all_false_target_selection_once(wdir)
     
     # Skip refresh if triggered by action store for edit actions (cell already updated visually)
     ctx = dash.callback_context
@@ -1045,6 +1057,46 @@ def _targets_table(section_context, pagination, filter_, sorter, filterOptions, 
             filter_reset,
         ]
     return dash.no_update
+
+
+def _normalize_all_false_target_selection_once(wdir):
+    """
+    One-time normalization per workspace:
+    if all targets have peak_selection = FALSE, set all to TRUE.
+
+    This keeps UI state aligned with backend fallback behavior
+    (no explicit selections means "use all targets"), without
+    repeatedly mutating data during normal interaction.
+    """
+    if not wdir:
+        return
+    ws_key = str(wdir)
+    if ws_key in _TARGET_SELECTION_NORMALIZED_WORKSPACES:
+        return
+
+    with duckdb_connection(wdir) as conn:
+        if conn is None:
+            return
+        counts = conn.execute(
+            """
+            SELECT
+                COUNT(*) AS total_targets,
+                COUNT(*) FILTER (WHERE peak_selection IS TRUE) AS selected_targets
+            FROM targets
+            """
+        ).fetchone()
+        total_targets = int(counts[0] or 0) if counts else 0
+        selected_targets = int(counts[1] or 0) if counts else 0
+
+        if total_targets > 0 and selected_targets == 0:
+            conn.execute("UPDATE targets SET peak_selection = TRUE")
+            logger.info(
+                "Normalized target selection defaults for workspace %s: set %s targets to selected.",
+                wdir,
+                total_targets,
+            )
+
+    _TARGET_SELECTION_NORMALIZED_WORKSPACES.add(ws_key)
 
 
 def _target_delete(okCounts, selectedRows, clickedKey, wdir, workspace_status):
@@ -1654,6 +1706,43 @@ def callbacks(app, fsc=None, cache=None):
             return {'open': False}
 
         return store_data or {'open': True}
+
+    @app.callback(
+        Output('targets-selection-fallback-alert', 'style'),
+        Input('section-context', 'data'),
+        Input('wdir', 'data'),
+        Input('workspace-status', 'data'),
+        Input('targets-action-store', 'data'),
+        prevent_initial_call=False,
+    )
+    def toggle_targets_selection_fallback_alert(section_context, wdir, workspace_status, _targets_action):
+        if not section_context or section_context.get('page') != 'Targets' or not wdir:
+            return {'display': 'none', 'marginTop': '0.75rem'}
+
+        targets_count_hint = 0
+        if isinstance(workspace_status, dict):
+            targets_count_hint = int(workspace_status.get('targets_count', 0) or 0)
+        if targets_count_hint <= 0:
+            return {'display': 'none', 'marginTop': '0.75rem'}
+
+        with duckdb_connection(wdir, read_only=True) as conn:
+            if conn is None:
+                return {'display': 'none', 'marginTop': '0.75rem'}
+            counts = conn.execute(
+                """
+                SELECT
+                    COUNT(*) AS total_targets,
+                    COUNT(*) FILTER (WHERE peak_selection IS TRUE) AS selected_targets
+                FROM targets
+                """
+            ).fetchone()
+
+        total_targets = int(counts[0] or 0) if counts else 0
+        selected_targets = int(counts[1] or 0) if counts else 0
+
+        if total_targets > 0 and selected_targets == 0:
+            return {'display': 'block', 'marginTop': '0.75rem'}
+        return {'display': 'none', 'marginTop': '0.75rem'}
 
 #     @app.callback(
 #         Output('download-target-list-maven-btn', 'disabled'),
