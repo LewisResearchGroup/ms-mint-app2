@@ -814,7 +814,9 @@ def register_callbacks(app):
         
         figs = []
         for fig_data in [fig_rt_dict, fig_mz_dict]:
-             if not fig_data:
+             # Ignore placeholder/empty figures so this callback never clears
+             # traces produced by generate_qc_plots in callback race scenarios.
+             if not fig_data or not fig_data.get('data'):
                   figs.append(no_update)
                   continue
 
