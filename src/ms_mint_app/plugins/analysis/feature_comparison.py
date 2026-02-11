@@ -4,7 +4,7 @@ from scipy.stats import ttest_ind
 from pathlib import Path
 from datetime import date
 import duckdb
-from ...duckdb_manager import get_workspace_name_from_wdir
+from ...duckdb_manager import duckdb_connection, get_workspace_name_from_wdir
 
 from ._shared import (
     fac, html, dcc, go, pd, np, logger,
@@ -294,7 +294,7 @@ def register_callbacks(app):
         group_by_col = ensure_valid_group_field(group_by_col, allow_none=False)
 
         # Read-only optimization
-        with analysis_read_connection(wdir) as conn:
+        with analysis_read_connection(wdir, conn_factory=duckdb_connection) as conn:
             if conn is None:
                 return [], [], None, None, True, True, dash.no_update
 
@@ -413,7 +413,7 @@ def register_callbacks(app):
         fdr_method = fdr_method or 'none'
 
         # Read-only optimization
-        with analysis_read_connection(wdir) as conn:
+        with analysis_read_connection(wdir, conn_factory=duckdb_connection) as conn:
             if conn is None:
                 return _empty_plot("Unable to connect to workspace database.", height=520)
 
@@ -799,7 +799,7 @@ def register_callbacks(app):
         missing_group_label = f"{group_label} (unset)"
 
         # Read-only optimization
-        with analysis_read_connection(wdir) as conn:
+        with analysis_read_connection(wdir, conn_factory=duckdb_connection) as conn:
             if conn is None:
                 return _empty_plot("Unable to connect to workspace database."), default_chrom_style, None
 
@@ -1148,7 +1148,7 @@ def register_callbacks(app):
         metric = metric or 'peak_max'
         
         # Read-only optimization
-        with analysis_read_connection(wdir) as conn:
+        with analysis_read_connection(wdir, conn_factory=duckdb_connection) as conn:
              if conn is None:
                  return dash.no_update
              

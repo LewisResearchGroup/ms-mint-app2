@@ -24,7 +24,7 @@ from ._shared import (
     analysis_read_connection, create_invisible_figure, get_download_config
 )
 from .data_pipeline import (
-    _no_update_outputs,
+    _no_update_outputs as _no_update_outputs_full,
     _prepare_matrix_data,
     _return_bar,
     _return_clustermap,
@@ -322,10 +322,13 @@ class AnalysisPlugin(PluginInterface):
 def layout():
     return _layout
 
-def _pca_cache_key(wdir, metric, norm_value):
-    # Grouping only affects coloring/labels, not PCA decomposition itself.
-    # Keep grouping out of the PCA cache key so group switches can reuse cached scores/loadings.
-    return f"{wdir}|{metric}|{norm_value}"
+
+def _no_update_outputs():
+    # Backward-compatible helper for direct calls/tests.
+    return _no_update_outputs_full()[:-1]
+
+def _pca_cache_key(wdir, metric, norm_value, selected_group=None):
+    return f"{wdir}|{metric}|{norm_value}|{selected_group}"
 
 def _tsne_cache_key(wdir, metric, norm_value, selected_group, perplexity):
     return f"{wdir}|{metric}|{norm_value}|{selected_group}|{perplexity}"
@@ -1169,13 +1172,15 @@ def callbacks(app, fsc=None, cache=None):
         return update_content(
             section_context, tab_key, x_comp, y_comp, violin_comp_checks, bar_comp_checks, metric_value, norm_value,
             group_by, regen_clicks, tsne_regen_clicks, cluster_rows, cluster_cols, fontsize_x, fontsize_y, wdir,
-            tsne_x_comp, tsne_y_comp, tsne_perplexity, pca_cache, tsne_cache, violin_cache, bar_cache
+            tsne_x_comp, tsne_y_comp, tsne_perplexity, pca_cache, tsne_cache, violin_cache, bar_cache,
+            include_bar_cache=True,
         )
 
 
 def update_content(section_context, tab_key, x_comp, y_comp, violin_comp_checks, bar_comp_checks, metric_value, norm_value,
                     group_by, regen_clicks, tsne_regen_clicks, cluster_rows, cluster_cols, fontsize_x, fontsize_y, wdir,
-                    tsne_x_comp, tsne_y_comp, tsne_perplexity, pca_cache, tsne_cache, violin_cache, bar_cache=None):
+                    tsne_x_comp, tsne_y_comp, tsne_perplexity, pca_cache, tsne_cache, violin_cache, bar_cache=None,
+                    include_bar_cache=False):
 
         ctx = AnalysisUpdateContext(
             section_context=section_context,
@@ -1202,7 +1207,12 @@ def update_content(section_context, tab_key, x_comp, y_comp, violin_comp_checks,
             violin_cache=violin_cache,
             bar_cache=bar_cache,
         )
-        return _update_content_from_context(ctx)
+        result = _update_content_from_context(ctx)
+        if include_bar_cache:
+            return result
+        # Keep backward compatibility for direct function callers/tests that still expect
+        # the legacy 12-output shape (without bar cache).
+        return result[:-1] if isinstance(result, tuple) and len(result) == 13 else result
 
 
 def _update_content_from_context(ctx: AnalysisUpdateContext):
@@ -1227,7 +1237,7 @@ def _update_content_from_context(ctx: AnalysisUpdateContext):
 
         # QC and comparison have dedicated callbacks; skip matrix prep for these tabs.
         if ctx.tab_key in {'qc', 'comparison'}:
-            return _no_update_outputs()
+            return _no_update_outputs_full()
 
         # Robust metric selection (needed early for cache keys)
         metric = 'peak_area'
@@ -1235,7 +1245,7 @@ def _update_content_from_context(ctx: AnalysisUpdateContext):
             metric = ctx.metric_value
 
         norm_value = ctx.norm_value or TAB_DEFAULT_NORM.get(ctx.tab_key, 'zscore')
-        cache_key = _pca_cache_key(ctx.wdir, metric, norm_value)
+        cache_key = _pca_cache_key(ctx.wdir, metric, norm_value, selected_group)
         tsne_perplexity_value = ctx.tsne_perplexity if ctx.tsne_perplexity else 30
         tsne_cache_key = _tsne_cache_key(ctx.wdir, metric, norm_value, selected_group, tsne_perplexity_value)
         violin_cache_key = _violin_cache_key(ctx.wdir, metric, norm_value, selected_group)
@@ -1342,5 +1352,5 @@ def _update_content_from_context(ctx: AnalysisUpdateContext):
         }
         handler = tab_handlers.get(ctx.tab_key)
         if handler is None:
-            return _no_update_outputs()
+            return _no_update_outputs_full()
         return handler()
