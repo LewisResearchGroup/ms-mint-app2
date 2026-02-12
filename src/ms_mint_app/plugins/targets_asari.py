@@ -36,33 +36,36 @@ def get_asari_command():
         meipass = getattr(sys, '_MEIPASS', os.path.dirname(sys.executable))
         asari_env_path = os.path.join(meipass, 'asari_env')
         
-        # Use Python interpreter + module instead of asari.exe directly
-        # This avoids hardcoded paths in pip-installed scripts from build machine
+        # Run with bundled Python to avoid hardcoded shebang paths in pip scripts.
+        # Use explicit entrypoint import because asari has no __main__ module.
         if sys.platform == 'win32':
             python_path = os.path.join(asari_env_path, 'Scripts', 'python.exe')
             scripts_dir = os.path.join(asari_env_path, 'Scripts')
-            lib_dir = os.path.join(asari_env_path, 'Lib')
-            site_packages = os.path.join(lib_dir, 'site-packages')
+            library_bin = os.path.join(asari_env_path, 'Library', 'bin')
         else:
             python_path = os.path.join(asari_env_path, 'bin', 'python')
             scripts_dir = os.path.join(asari_env_path, 'bin')
-            # Find Python version directory (e.g., lib/python3.12)
-            lib_base = os.path.join(asari_env_path, 'lib')
-            py_dirs = [d for d in os.listdir(lib_base) if d.startswith('python')] if os.path.exists(lib_base) else []
-            if py_dirs:
-                lib_dir = os.path.join(lib_base, py_dirs[0])
-                site_packages = os.path.join(lib_dir, 'site-packages')
-            else:
-                lib_dir = lib_base
-                site_packages = os.path.join(lib_base, 'python3.12', 'site-packages')
-        
-        # Create environment variables to override hardcoded paths in the venv Python
-        # This is necessary because venv bakes the original Python location into the interpreter
+
+        # Build environment for the bundled interpreter.
         bundled_env = os.environ.copy()
-        bundled_env['PYTHONHOME'] = asari_env_path
-        bundled_env['PYTHONPATH'] = site_packages
-        # Clear any user site that might interfere
         bundled_env['PYTHONNOUSERSITE'] = '1'
+        bundled_env['PATH'] = os.pathsep.join([
+            meipass,
+            scripts_dir,
+            bundled_env.get('PATH', '')
+        ]).strip(os.pathsep)
+        if sys.platform == 'win32':
+            bundled_env['PATH'] = os.pathsep.join([
+                library_bin,
+                bundled_env.get('PATH', '')
+            ]).strip(os.pathsep)
+        else:
+            # Ensure extension modules resolve bundled OpenSSL/other shared libs.
+            meipass_lib = meipass
+            existing_ld = bundled_env.get('LD_LIBRARY_PATH', '')
+            bundled_env['LD_LIBRARY_PATH'] = os.pathsep.join(
+                [meipass_lib] + ([existing_ld] if existing_ld else [])
+            )
         
         # Patch pyvenv.cfg with correct paths for this machine
         pyvenv_cfg = os.path.join(asari_env_path, 'pyvenv.cfg')
@@ -79,9 +82,8 @@ version = 3.12.0
         
         if os.path.exists(python_path):
             logger.info(f"Using bundled Python for Asari at: {python_path}")
-            logger.info(f"PYTHONHOME set to: {asari_env_path}")
-            # Call asari as a module: python -m asari
-            return ([python_path, "-m", "asari"], True, bundled_env)
+            # Call Asari entrypoint directly (asari package does not provide __main__).
+            return ([python_path, "-c", "from asari.command_line import main; main()"], True, bundled_env)
         else:
             logger.warning(f"Bundled Python not found at: {python_path}")
             # Fall back to system asari
