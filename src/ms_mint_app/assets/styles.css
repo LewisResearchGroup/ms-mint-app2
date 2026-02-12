@@ -268,3 +268,25 @@ body {
 .ant-notification-notice-info {
     border-left: 3px solid var(--mint-accent) !important;
 }
+
+/* Success banners/notifications: replace default bright green with theme teal */
+.ant-alert-success {
+    background-color: #eaf4f7 !important;
+    border-color: #8bbdca !important;
+}
+
+.ant-alert-success .ant-alert-message,
+.ant-alert-success .ant-alert-description,
+.ant-alert-success .ant-alert-icon {
+    color: var(--mint-accent) !important;
+}
+
+.ant-notification-notice-success {
+    border-left: 3px solid var(--mint-accent) !important;
+}
+
+.ant-notification-notice-success .ant-notification-notice-icon,
+.ant-notification-notice-success .ant-notification-notice-message,
+.ant-notification-notice-success .ant-notification-notice-description {
+    color: var(--mint-accent) !important;
+}
