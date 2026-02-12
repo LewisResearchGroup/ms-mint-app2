@@ -2362,6 +2362,26 @@ def process_targets(wdir, set_progress, selected_files):
             "filterLine, ms_type, category, score, peak_selection, bookmark, source, notes, rt_auto_adjusted, formula, maven_id, adduct_name "
             "FROM targets_df ORDER BY mz_mean, peak_label"
         )
+
+        # Normalize legacy/all-false selections at write time (safe point).
+        # If all imported targets are unselected, treat that as "select all".
+        counts = conn.execute(
+            """
+            SELECT
+                COUNT(*) AS total_targets,
+                COUNT(*) FILTER (WHERE peak_selection IS TRUE) AS selected_targets
+            FROM targets
+            """
+        ).fetchone()
+        total_targets = int(counts[0] or 0) if counts else 0
+        selected_targets = int(counts[1] or 0) if counts else 0
+        if total_targets > 0 and selected_targets == 0:
+            conn.execute("UPDATE targets SET peak_selection = TRUE")
+            logging.info(
+                "Normalized target selection defaults after import for workspace %s: set %s targets to selected.",
+                wdir,
+                total_targets,
+            )
         
         # Create initial backup CSV for recovery
         try:

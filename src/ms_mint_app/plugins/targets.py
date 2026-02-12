@@ -68,7 +68,6 @@ TARGET_TEMPLATE_CSV = ",".join(TARGET_TEMPLATE_COLUMNS) + "\n" + ",".join(TARGET
 TARGET_DESCRIPTION_MAP = dict(zip(TARGET_TEMPLATE_COLUMNS, TARGET_TEMPLATE_DESCRIPTIONS))
 
 logger = logging.getLogger(__name__)
-_TARGET_SELECTION_NORMALIZED_WORKSPACES = set()
 
 # Keep list-download column order aligned with the Targets table UI.
 TARGET_UI_EXPORT_COLUMNS = [
@@ -789,7 +788,8 @@ def _targets_table(section_context, pagination, filter_, sorter, filterOptions, 
         logger.debug("_targets_table: PreventUpdate because wdir is not set")
         raise PreventUpdate
 
-    _normalize_all_false_target_selection_once(wdir)
+    # Keep this callback read-only. Performing write-side normalization here can
+    # race with active read-only connections and trigger DuckDB config conflicts.
     
     # Skip refresh if triggered by action store for edit actions (cell already updated visually)
     ctx = dash.callback_context
@@ -1059,46 +1059,6 @@ def _targets_table(section_context, pagination, filter_, sorter, filterOptions, 
     return dash.no_update
 
 
-def _normalize_all_false_target_selection_once(wdir):
-    """
-    One-time normalization per workspace:
-    if all targets have peak_selection = FALSE, set all to TRUE.
-
-    This keeps UI state aligned with backend fallback behavior
-    (no explicit selections means "use all targets"), without
-    repeatedly mutating data during normal interaction.
-    """
-    if not wdir:
-        return
-    ws_key = str(wdir)
-    if ws_key in _TARGET_SELECTION_NORMALIZED_WORKSPACES:
-        return
-
-    with duckdb_connection(wdir) as conn:
-        if conn is None:
-            return
-        counts = conn.execute(
-            """
-            SELECT
-                COUNT(*) AS total_targets,
-                COUNT(*) FILTER (WHERE peak_selection IS TRUE) AS selected_targets
-            FROM targets
-            """
-        ).fetchone()
-        total_targets = int(counts[0] or 0) if counts else 0
-        selected_targets = int(counts[1] or 0) if counts else 0
-
-        if total_targets > 0 and selected_targets == 0:
-            conn.execute("UPDATE targets SET peak_selection = TRUE")
-            logger.info(
-                "Normalized target selection defaults for workspace %s: set %s targets to selected.",
-                wdir,
-                total_targets,
-            )
-
-    _TARGET_SELECTION_NORMALIZED_WORKSPACES.add(ws_key)
-
-
 def _target_delete(okCounts, selectedRows, clickedKey, wdir, workspace_status):
     if okCounts is None or clickedKey not in ['delete-selected', 'delete-all']:
         logger.debug(f"_target_delete: PreventUpdate because okCounts={okCounts}, clickedKey={clickedKey}")
@@ -1346,7 +1306,7 @@ def _save_switch_changes(recentlySwitchDataIndex, recentlySwitchStatus, recently
     return {"action": "switch", "status": "success"}
 
 
-def _run_asari_analysis(ok_counts, wdir, multicores, mz_tol, mode, snr, min_height, min_points, gaussian_shape, cselectivity, detection_rate, set_progress=None):
+def _run_asari_analysis(ok_counts, wdir, multicores, mz_tol, mode, snr, min_height, min_points, gaussian_shape, cselectivity, detection_rate, workspace_status=None, set_progress=None):
     if not ok_counts:
          logger.debug("_run_asari_analysis: PreventUpdate because ok_counts is None")
          raise PreventUpdate
@@ -1409,8 +1369,11 @@ def _run_asari_analysis(ok_counts, wdir, multicores, mz_tol, mode, snr, min_heig
              pass
          
          # Return 5 values: notification, modal visible, status alert, targets-action-store, workspace-status
-         workspace_status = {'targets_count': targets_count, 'timestamp': time.time()}
-         return fac.AntdNotification(message="Asari Analysis", description=result['message'], type="success", placement="bottom"), False, status_alert, {'timestamp': time.time()}, workspace_status
+         # Preserve existing keys (e.g., ms_files_count) used by other tabs.
+         new_status = dict(workspace_status or {})
+         new_status['targets_count'] = targets_count
+         new_status['timestamp'] = time.time()
+         return fac.AntdNotification(message="Asari Analysis", description=result['message'], type="success", placement="bottom"), False, status_alert, {'timestamp': time.time()}, new_status
     else:
          # Check if this is the "no features" case - use warning style and skip notification
          if result.get('no_features'):
@@ -1880,6 +1843,7 @@ def callbacks(app, fsc=None, cache=None):
         
         Input("asari-modal", "okCounts"),
         State("wdir", "data"),
+        State("workspace-status", "data"),
         State("asari-multicores", "value"),
         State("asari-mz-tolerance", "value"),
         State("asari-mode", "value"),
@@ -1920,11 +1884,11 @@ def callbacks(app, fsc=None, cache=None):
         ],
         prevent_initial_call=True
     )
-    def run_asari_analysis(set_progress, ok_counts, wdir, multicores, mz_tol, mode, snr, min_height, min_points, gaussian_shape, cselectivity, detection_rate):
+    def run_asari_analysis(set_progress, ok_counts, wdir, workspace_status, multicores, mz_tol, mode, snr, min_height, min_points, gaussian_shape, cselectivity, detection_rate):
         def progress_adapter(data):
             if set_progress:
                 set_progress(data)
-        return _run_asari_analysis(ok_counts, wdir, multicores, mz_tol, mode, snr, min_height, min_points, gaussian_shape, cselectivity, detection_rate, set_progress=progress_adapter)
+        return _run_asari_analysis(ok_counts, wdir, multicores, mz_tol, mode, snr, min_height, min_points, gaussian_shape, cselectivity, detection_rate, workspace_status=workspace_status, set_progress=progress_adapter)
 
     @app.callback(
         Output('asari-multicores-item', 'help'),
