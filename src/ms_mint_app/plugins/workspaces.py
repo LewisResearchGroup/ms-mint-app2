@@ -509,11 +509,43 @@ def _delete_workspace(okCounts, tmpdir, selectedRowKeys):
 
             try:
                 import inspect
-                rmtree_params = inspect.signature(shutil.rmtree).parameters
-                if "onexc" in rmtree_params:
-                    shutil.rmtree(ws_path, onexc=_onexc)
-                else:
-                    shutil.rmtree(ws_path, onerror=_onerror)
+                import time
+
+                def _rmtree_once(path: Path):
+                    rmtree_params = inspect.signature(shutil.rmtree).parameters
+                    if "onexc" in rmtree_params:
+                        shutil.rmtree(path, onexc=_onexc)
+                    else:
+                        shutil.rmtree(path, onerror=_onerror)
+
+                last_fs_err = None
+                for attempt in range(4):
+                    if not ws_path.exists():
+                        break
+                    try:
+                        _rmtree_once(ws_path)
+                    except FileNotFoundError:
+                        break
+                    except Exception as fs_err:
+                        last_fs_err = fs_err
+
+                    if not ws_path.exists():
+                        break
+
+                    # Last-mile cleanup if only the top directory remains.
+                    try:
+                        ws_path.rmdir()
+                        break
+                    except Exception as fs_err:
+                        last_fs_err = fs_err
+
+                    if attempt < 3:
+                        time.sleep(0.12 * (attempt + 1))
+
+                if ws_path.exists():
+                    if last_fs_err:
+                        raise last_fs_err
+                    raise OSError(f"Workspace directory still exists after retries: {ws_path}")
             except Exception as fs_err:
                 mint_conn.execute("ROLLBACK")
                 return fac.AntdNotification(
