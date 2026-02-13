@@ -895,7 +895,16 @@ def get_chromatogram_dataframe(
                                sample_type,
                                pairs,
                                CASE
-                                   WHEN ? THEN list_filter(pairs, p -> p.i >= COALESCE(intensity_threshold, 0))
+                                   WHEN ? THEN list_transform(
+                                       pairs,
+                                       p -> struct_pack(
+                                           t := p.t,
+                                           i := CASE
+                                               WHEN p.i >= COALESCE(intensity_threshold, 0) THEN p.i
+                                               ELSE 1
+                                           END
+                                       )
+                                   )
                                    ELSE pairs
                                END AS pairs_in
                         FROM zipped),

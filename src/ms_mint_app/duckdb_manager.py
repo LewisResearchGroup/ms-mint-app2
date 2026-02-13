@@ -4808,10 +4808,12 @@ def get_chromatogram_envelope(conn, target_label, ms_type='ms1', bins=500, full_
             z.sample_type,
             z.color,
             u.pair.rt AS rt,
-            u.pair.intens AS intens
+            CASE
+                WHEN u.pair.intens >= z.intensity_threshold THEN u.pair.intens
+                ELSE 1
+            END AS intens
         FROM zipped z
         CROSS JOIN UNNEST(z.pairs) AS u(pair)
-        WHERE u.pair.intens >= z.intensity_threshold
     ),
     sample_counts AS (
         SELECT
