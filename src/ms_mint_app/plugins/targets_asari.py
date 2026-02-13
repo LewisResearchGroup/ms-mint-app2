@@ -59,6 +59,8 @@ def get_asari_command():
                 library_bin,
                 bundled_env.get('PATH', '')
             ]).strip(os.pathsep)
+            stdlib_dir = os.path.join(asari_env_path, 'Lib')
+            site_packages_dir = os.path.join(stdlib_dir, 'site-packages')
         else:
             # Ensure extension modules resolve bundled OpenSSL/other shared libs.
             meipass_lib = meipass
@@ -66,19 +68,19 @@ def get_asari_command():
             bundled_env['LD_LIBRARY_PATH'] = os.pathsep.join(
                 [meipass_lib] + ([existing_ld] if existing_ld else [])
             )
-        
-        # Patch pyvenv.cfg with correct paths for this machine
-        pyvenv_cfg = os.path.join(asari_env_path, 'pyvenv.cfg')
-        try:
-            cfg_content = f"""home = {scripts_dir}
-include-system-site-packages = false
-version = 3.12.0
-"""
-            with open(pyvenv_cfg, 'w') as f:
-                f.write(cfg_content)
-            logger.info(f"Patched pyvenv.cfg for portability: {pyvenv_cfg}")
-        except Exception as e:
-            logger.warning(f"Could not patch pyvenv.cfg: {e}")
+            stdlib_dir = os.path.join(asari_env_path, 'lib', f'python{sys.version_info.major}.{sys.version_info.minor}')
+            site_packages_dir = os.path.join(stdlib_dir, 'site-packages')
+
+        # Avoid relying on venv metadata from CI runner paths; force runtime paths.
+        bundled_env['PYTHONHOME'] = asari_env_path
+        base_library_zip = os.path.join(meipass, 'base_library.zip')
+        python_paths = [stdlib_dir, site_packages_dir]
+        if os.path.isfile(base_library_zip):
+            python_paths.insert(0, base_library_zip)
+        existing_pythonpath = bundled_env.get('PYTHONPATH', '')
+        if existing_pythonpath:
+            python_paths.append(existing_pythonpath)
+        bundled_env['PYTHONPATH'] = os.pathsep.join(python_paths)
         
         if os.path.exists(python_path):
             logger.info(f"Using bundled Python for Asari at: {python_path}")
@@ -164,8 +166,13 @@ def run_asari_workflow(wdir, params, set_progress=None):
             return {"success": False, "message": "Bundled Asari environment not found. Please reinstall the application."}
         else:
             return {"success": False, "message": "Asari executable not found. Please install it using 'pip install asari'."}
+    except subprocess.CalledProcessError as e:
+        stderr_text = (e.stderr.decode('utf-8', errors='replace') if isinstance(e.stderr, bytes) else (e.stderr or "")).strip()
+        if stderr_text:
+            return {"success": False, "message": f"Error checking asari: {stderr_text}"}
+        return {"success": False, "message": f"Error checking asari: {e}"}
     except Exception as e:
-         return {"success": False, "message": f"Error checking asari: {e}"}
+        return {"success": False, "message": f"Error checking asari: {e}"}
 
     # 2. Export Files from DB to Temp Dir
     report_progress(5, "Preparing Data", "Connecting to database...")

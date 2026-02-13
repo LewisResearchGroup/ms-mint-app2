@@ -128,16 +128,29 @@ a = Analysis(
 
 # Prefer a known-good libstdc++ from the active conda env to satisfy newer CXXABI symbols.
 a.binaries = [b for b in a.binaries if os.path.basename(b[0]) != "libstdc++.so.6"]
+#
+# Also force OpenSSL libraries from the same Python/conda prefix as _ssl to avoid
+# ABI mismatches like _ssl requiring OPENSSL_3.3.0 while a system libcrypto 3.0 is bundled.
+a.binaries = [
+    b for b in a.binaries
+    if os.path.basename(b[0]) not in {"libssl.so.3", "libcrypto.so.3"}
+]
 conda_prefix = os.environ.get("CONDA_PREFIX")
 if not conda_prefix:
     conda_prefix = os.path.dirname(os.path.dirname(sys.executable))
 conda_lib = os.path.join(conda_prefix, "lib")
 conda_libstdcpp = os.path.join(conda_lib, "libstdc++.so.6")
 conda_libgcc = os.path.join(conda_lib, "libgcc_s.so.1")
+conda_libssl = os.path.join(conda_lib, "libssl.so.3")
+conda_libcrypto = os.path.join(conda_lib, "libcrypto.so.3")
 if os.path.isfile(conda_libstdcpp):
     a.binaries.append((os.path.basename(conda_libstdcpp), conda_libstdcpp, "BINARY"))
 if os.path.isfile(conda_libgcc):
     a.binaries.append((os.path.basename(conda_libgcc), conda_libgcc, "BINARY"))
+if os.path.isfile(conda_libssl):
+    a.binaries.append((os.path.basename(conda_libssl), conda_libssl, "BINARY"))
+if os.path.isfile(conda_libcrypto):
+    a.binaries.append((os.path.basename(conda_libcrypto), conda_libcrypto, "BINARY"))
 
 pyz = PYZ(a.pure)
 
