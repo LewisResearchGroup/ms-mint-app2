@@ -1961,8 +1961,9 @@ def compact_mint_database(mint_path: Path | str) -> tuple[bool, str]:
         new_con.execute("PRAGMA enable_checkpoint_on_shutdown")
         _create_workspace_tables(new_con)
         
-        # Attach old DB
-        new_con.execute(f"ATTACH '{db_file}' AS old_db (READ_ONLY)")
+        # Attach old DB using a normalized SQL-safe path (Windows-compatible).
+        old_db_path_sql = db_file.resolve().as_posix().replace("'", "''")
+        new_con.execute(f"ATTACH '{old_db_path_sql}' AS old_db (READ_ONLY)")
         
         # Copy workspaces
         count = new_con.execute("SELECT COUNT(*) FROM old_db.workspaces").fetchone()[0]
@@ -2076,7 +2077,8 @@ def compact_database(workspace_path: Path | str, max_retries: int = 5, initial_d
             
             for attempt in range(max_retries):
                 try:
-                    new_con.execute(f"ATTACH '{db_file}' AS old_db (READ_ONLY)")
+                    old_db_path_sql = db_file.resolve().as_posix().replace("'", "''")
+                    new_con.execute(f"ATTACH '{old_db_path_sql}' AS old_db (READ_ONLY)")
                     attached = True
                     break
                 except duckdb.IOException as e:
