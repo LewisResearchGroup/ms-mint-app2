@@ -19,9 +19,9 @@ from ... import tools as T
 from ...duckdb_manager import duckdb_connection, get_workspace_name_from_wdir
 from ._shared import (
     METRIC_OPTIONS, NORM_OPTIONS, GROUP_SELECT_OPTIONS, TAB_DEFAULT_NORM,
-    GROUPING_FIELDS, GROUP_LABELS, allowed_metrics,
+    GROUPING_FIELDS, GROUP_LABELS, OPTIONAL_METRICS, allowed_metrics,
     _build_color_map,
-    analysis_read_connection, create_invisible_figure, get_download_config
+    analysis_read_connection, check_optional_metric_availability, create_invisible_figure, get_download_config
 )
 from .data_pipeline import (
     _no_update_outputs as _no_update_outputs_full,
@@ -338,6 +338,31 @@ def _violin_cache_key(wdir, metric, norm_value, selected_group):
 
 def _bar_cache_key(wdir, metric, norm_value, selected_group):
     return f"{wdir}|{metric}|{norm_value}|{selected_group}"
+
+
+def _resolve_metric_options_for_workspace(wdir):
+    """Return metric select options with unavailable metrics disabled for this workspace."""
+    options = [dict(opt) for opt in METRIC_OPTIONS]
+    unavailable = set()
+
+    if not wdir:
+        unavailable.update(OPTIONAL_METRICS)
+    else:
+        with analysis_read_connection(wdir) as conn:
+            if conn is None:
+                unavailable.update(OPTIONAL_METRICS)
+            else:
+                for opt_metric in OPTIONAL_METRICS:
+                    is_available, _ = check_optional_metric_availability(conn, wdir, opt_metric)
+                    if not is_available:
+                        unavailable.add(opt_metric)
+
+    for opt in options:
+        if opt.get("value") in unavailable:
+            opt["disabled"] = True
+
+    available_metrics = [opt.get("value") for opt in options if not opt.get("disabled")]
+    return options, available_metrics
 
 
 def _serialize_pca_results(results):
@@ -944,9 +969,10 @@ def callbacks(app, fsc=None, cache=None):
         Output("analysis-notifications-container", "children"),
         Input('section-context', 'data'),
         Input("wdir", "data"),
+        Input('analysis-metric-select', 'value'),
         prevent_initial_call=True,
     )
-    def warn_missing_workspace(section_context, wdir):
+    def warn_missing_workspace(section_context, wdir, metric_value):
         if not section_context or section_context.get('page') != 'Analysis':
             return dash.no_update
         if not wdir:
@@ -977,6 +1003,69 @@ def callbacks(app, fsc=None, cache=None):
                         showProgress=True,
                         stack=True,
                     )
+
+                # Metric-specific guidance: optional metrics may not be computed/generated yet.
+                if metric_value in OPTIONAL_METRICS:
+                    is_available, reason = check_optional_metric_availability(conn, wdir, metric_value)
+                    if not is_available and metric_value == 'peak_area_fitted':
+                        if reason == 'no_values':
+                            return fac.AntdNotification(
+                                message="No EMG values found",
+                                description=(
+                                    "Peak Area (EMG Fitted) was selected, but no fitted EMG values exist yet. "
+                                    "Run Processing with EMG enabled, then return to Analysis."
+                                ),
+                                type="info",
+                                duration=6,
+                                placement='bottom',
+                                showProgress=True,
+                                stack=True,
+                            )
+                        return fac.AntdNotification(
+                            message="EMG metric unavailable",
+                            description=(
+                                "Peak Area (EMG Fitted) is not available in this workspace yet. "
+                                "Run Processing with EMG enabled, then refresh Analysis."
+                            ),
+                            type="info",
+                            duration=6,
+                            placement='bottom',
+                            showProgress=True,
+                            stack=True,
+                        )
+                    if not is_available and metric_value == 'scalir_conc':
+                        if reason == 'missing_column':
+                            return fac.AntdNotification(
+                                message="Concentration file invalid",
+                                description="SCALiR output is missing 'pred_conc'. Re-run SCALiR.",
+                                type="warning",
+                                duration=6,
+                                placement='bottom',
+                                showProgress=True,
+                                stack=True,
+                            )
+                        if reason == 'no_values':
+                            return fac.AntdNotification(
+                                message="No concentration values found",
+                                description="Concentration is selected, but SCALiR has no pred_conc values yet.",
+                                type="info",
+                                duration=6,
+                                placement='bottom',
+                                showProgress=True,
+                                stack=True,
+                            )
+                        return fac.AntdNotification(
+                            message="Concentration metric unavailable",
+                            description=(
+                                "Concentration values are not available yet. "
+                                "Run SCALiR first to generate concentrations."
+                            ),
+                            type="info",
+                            duration=6,
+                            placement='bottom',
+                            showProgress=True,
+                            stack=True,
+                        )
             except Exception as exc:
                 logger.warning("Failed to query results count for analysis notification (wdir=%s): %s", wdir, exc)
         
@@ -1060,20 +1149,33 @@ def callbacks(app, fsc=None, cache=None):
     @app.callback(
         Output('analysis-metric-select', 'value'),
         Output('analysis-grouping-select', 'value'),
+        Output('analysis-metric-select', 'options'),
         Input('analysis-sidebar-menu', 'currentKey'),
+        Input('section-context', 'data'),
+        Input('wdir', 'data'),
         State('analysis-shared-settings', 'data'),
         State('analysis-metric-select', 'value'),
         State('analysis-grouping-select', 'value'),
         prevent_initial_call=False,
     )
-    def sync_shared_controls_on_tab_switch(active_tab, stored, current_metric, current_group):
+    def sync_shared_controls_on_tab_switch(active_tab, section_context, wdir, stored, current_metric, current_group):
+        if not section_context or section_context.get('page') != 'Analysis':
+            return dash.no_update, dash.no_update, dash.no_update
+        metric_options, available_metrics = _resolve_metric_options_for_workspace(wdir)
         if not isinstance(stored, dict):
-            return dash.no_update, dash.no_update
+            stored = {}
         metric_value = stored.get('metric') or current_metric
         group_by_value = stored.get('group_by') or current_group
-        if metric_value == current_metric and group_by_value == current_group:
-            return dash.no_update, dash.no_update
-        return metric_value, group_by_value
+        if metric_value not in available_metrics:
+            if 'peak_area' in available_metrics:
+                metric_value = 'peak_area'
+            elif available_metrics:
+                metric_value = available_metrics[0]
+            else:
+                metric_value = current_metric or 'peak_area'
+        metric_out = dash.no_update if metric_value == current_metric else metric_value
+        group_out = dash.no_update if group_by_value == current_group else group_by_value
+        return metric_out, group_out, metric_options
 
     @app.callback(
         Output('analysis-tour', 'current'),
@@ -1316,6 +1418,13 @@ def _update_content_from_context(ctx: AnalysisUpdateContext):
             conn_factory=duckdb_connection,
         )
         if early_return is not None:
+            if metric in OPTIONAL_METRICS:
+                logger.debug(
+                    "Metric %s unavailable/empty for tab %s; preserving prior analysis view state.",
+                    metric,
+                    ctx.tab_key,
+                )
+                return _no_update_outputs_full()
             return early_return
 
         ndf = matrix_data['ndf']

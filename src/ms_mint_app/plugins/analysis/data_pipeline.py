@@ -184,8 +184,12 @@ def _prepare_matrix_data(
         # Guard against NaN/inf and empty matrices (numeric only) before downstream plots
         df = _clean_numeric(df)
         raw_numeric_cols = [c for c in raw_df.columns if c not in metadata_cols]
-        raw_numeric = _clean_numeric(raw_df[raw_numeric_cols])
-        raw_df[raw_numeric_cols] = raw_numeric
+        raw_numeric = _clean_numeric(raw_df[raw_numeric_cols]) if raw_numeric_cols else pd.DataFrame(index=raw_df.index)
+        # _clean_numeric may drop all-NaN columns/rows (e.g., EMG metric not computed yet),
+        # so only write back overlapping rows/columns to avoid shape mismatch.
+        overlap_cols = [c for c in raw_numeric_cols if c in raw_numeric.columns]
+        if overlap_cols and not raw_numeric.empty:
+            raw_df.loc[raw_numeric.index, overlap_cols] = raw_numeric[overlap_cols]
         color_labels = group_series.reindex(df.index).fillna(missing_group_label)
 
         if df.empty or raw_numeric.empty:

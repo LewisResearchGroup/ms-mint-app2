@@ -6,8 +6,9 @@ from ._shared import (
     fac, html, dcc, go, px, pd, np, logger,
     analysis_read_connection, PLOTLY_HIGH_RES_CONFIG,
     Input, Output, State, PreventUpdate, dash,
-    GROUP_COLUMNS, GROUP_LABELS, METRIC_OPTIONS, allowed_metrics,
-    rocke_durbin, _calc_y_range_numpy, _build_color_map, ensure_valid_group_field
+    GROUP_COLUMNS, GROUP_LABELS, METRIC_OPTIONS, OPTIONAL_METRICS, allowed_metrics,
+    rocke_durbin, _calc_y_range_numpy, _build_color_map, check_optional_metric_availability,
+    ensure_valid_group_field
 )
 
 QC_CHROM_CONTAINER_STYLE = {
@@ -36,7 +37,6 @@ QC_LEFT_PANEL_STYLE = {
     'overflowY': 'auto',
     'overflowX': 'hidden',
 }
-
 
 def create_layout():
     """Return the QC tab layout layout component."""
@@ -276,13 +276,13 @@ def register_callbacks(app):
             norm_value = norm_value or 'none'
 
             target_table = 'results'
+            if metric in OPTIONAL_METRICS:
+                is_available, _ = check_optional_metric_availability(conn, wdir, metric)
+                if not is_available:
+                    return dash.no_update, dash.no_update, False
             if metric == 'scalir_conc':
-                scalir_path = Path(wdir) / "results" / "scalir" / "concentrations.csv"
-                if not scalir_path.exists():
-                    empty_fig = go.Figure()
-                    empty_fig.update_layout(title="SCALiR concentrations not found", paper_bgcolor='white', plot_bgcolor='white')
-                    return empty_fig, empty_fig, False
                 try:
+                    scalir_path = (Path(wdir) / "results" / "scalir" / "concentrations.csv").as_posix()
                     conn.execute(f"CREATE OR REPLACE TEMP VIEW scalir_temp_conc AS SELECT * FROM read_csv_auto('{scalir_path}')")
                     conn.execute("""
                         CREATE OR REPLACE TEMP VIEW scalir_results_view AS 
@@ -300,9 +300,7 @@ def register_callbacks(app):
                     target_table = 'scalir_results_view'
                 except Exception as e:
                     logger.error(f"Error preparing SCALiR data: {e}")
-                    empty_fig = go.Figure()
-                    empty_fig.update_layout(title="Failed to prepare SCALiR data", paper_bgcolor='white', plot_bgcolor='white')
-                    return empty_fig, empty_fig, False
+                    return dash.no_update, dash.no_update, False
             
             # Check if peak_mz_of_max exists
             has_peak_mz = False
@@ -340,11 +338,15 @@ def register_callbacks(app):
                 df = conn.execute(query, [peak_label]).df()
             except Exception as e:
                 logger.error(f"QC query error: {e}")
+                if metric in OPTIONAL_METRICS:
+                    return dash.no_update, dash.no_update, False
                 err_fig = go.Figure()
                 err_fig.update_layout(title=f"Error: {e}", paper_bgcolor='white', plot_bgcolor='white')
                 return err_fig, err_fig, False
             
             if df.empty:
+                if metric in OPTIONAL_METRICS:
+                    return dash.no_update, dash.no_update, False
                 empty_fig = go.Figure()
                 empty_fig.update_layout(title="No results for selected target", paper_bgcolor='white', plot_bgcolor='white')
                 return empty_fig, empty_fig, False

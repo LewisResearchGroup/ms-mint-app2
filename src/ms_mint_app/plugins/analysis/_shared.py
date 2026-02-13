@@ -105,6 +105,8 @@ allowed_metrics = {
     'scalir_conc',
 }
 
+OPTIONAL_METRICS = {'peak_area_fitted', 'scalir_conc'}
+
 # === UTILITY FUNCTIONS ===
 
 def rocke_durbin(df: pd.DataFrame, c: float) -> pd.DataFrame:
@@ -279,6 +281,67 @@ def prepare_metric_table(conn, wdir, metric):
             logger.error(f"Error preparing SCALiR data: {exc}")
             return None
     return _create_pivot_custom(conn, value=metric, table=target_table)
+
+
+def check_optional_metric_availability(conn, wdir, metric):
+    """
+    Validate whether an optional metric is currently available in this workspace.
+
+    Returns:
+        (available: bool, reason: str | None)
+
+    Reasons:
+        peak_area_fitted -> missing_column | no_values | db_error
+        scalir_conc -> missing_file | missing_column | no_values | db_error
+    """
+    if metric not in OPTIONAL_METRICS:
+        return True, None
+    if conn is None or not wdir:
+        return False, "db_error"
+
+    if metric == 'peak_area_fitted':
+        try:
+            has_emg_col = conn.execute(
+                """
+                SELECT COUNT(*)
+                FROM information_schema.columns
+                WHERE table_name = 'results' AND column_name = 'peak_area_fitted'
+                """
+            ).fetchone()[0] > 0
+            if not has_emg_col:
+                return False, "missing_column"
+            emg_count = conn.execute(
+                "SELECT COUNT(*) FROM results WHERE peak_area_fitted IS NOT NULL"
+            ).fetchone()[0]
+            return (emg_count > 0), ("no_values" if emg_count == 0 else None)
+        except Exception:
+            return False, "db_error"
+
+    if metric == 'scalir_conc':
+        scalir_path = Path(wdir) / "results" / "scalir" / "concentrations.csv"
+        if not scalir_path.exists():
+            return False, "missing_file"
+        try:
+            conn.execute(
+                f"CREATE OR REPLACE TEMP VIEW scalir_temp_conc AS SELECT * FROM read_csv_auto('{scalir_path}')"
+            )
+            has_pred_conc_col = conn.execute(
+                """
+                SELECT COUNT(*)
+                FROM information_schema.columns
+                WHERE table_name = 'scalir_temp_conc' AND column_name = 'pred_conc'
+                """
+            ).fetchone()[0] > 0
+            if not has_pred_conc_col:
+                return False, "missing_column"
+            conc_count = conn.execute(
+                "SELECT COUNT(*) FROM scalir_temp_conc WHERE pred_conc IS NOT NULL"
+            ).fetchone()[0]
+            return (conc_count > 0), ("no_values" if conc_count == 0 else None)
+        except Exception:
+            return False, "db_error"
+
+    return True, None
 
 
 def normalize_matrices(df: pd.DataFrame, norm_value: str):

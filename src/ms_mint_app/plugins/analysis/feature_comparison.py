@@ -11,7 +11,7 @@ from ._shared import (
     Input, Output, State, PreventUpdate,
     GROUP_LABELS, GROUP_COLUMNS,
     prepare_metric_table, normalize_matrix, PLOTLY_HIGH_RES_CONFIG,
-    _calc_y_range_numpy, _build_color_map, dash, ensure_valid_group_field,
+    _calc_y_range_numpy, _build_color_map, check_optional_metric_availability, dash, ensure_valid_group_field,
     analysis_read_connection,
 )
 
@@ -416,6 +416,10 @@ def register_callbacks(app):
         with analysis_read_connection(wdir, conn_factory=duckdb_connection) as conn:
             if conn is None:
                 return _empty_plot("Unable to connect to workspace database.", height=520)
+
+            is_available, _ = check_optional_metric_availability(conn, wdir, metric)
+            if not is_available:
+                return dash.no_update
 
             data = prepare_metric_table(conn, wdir, metric)
             if data is None or data.empty:

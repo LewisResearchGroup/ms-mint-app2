@@ -134,7 +134,99 @@ def test_update_content_scalir_missing(monkeypatch, tmp_path):
         None,
     )
 
-    assert result[0] is None
+    assert all(value is dash.no_update for value in result)
+
+
+def test_update_content_pca_recovers_after_unavailable_metric_switch(monkeypatch, tmp_path):
+    wdir = _make_workspace(tmp_path)
+    with duckdb_connection(wdir, register_activity=False) as conn:
+        _create_tables(conn)
+        _seed_analysis_data(conn)
+
+    # Initial valid PCA render populates figure + cache.
+    _patch_callback_context(monkeypatch, triggered=[{"prop_id": "analysis-metric-select.value"}])
+    first = update_content(
+        {"page": "Analysis"},
+        "pca",
+        "PC1",
+        "PC2",
+        [],
+        [],
+        "peak_area",
+        "durbin",
+        "sample_type",
+        0,
+        0,
+        True,
+        True,
+        10,
+        10,
+        str(wdir),
+        None,
+        None,
+        30,
+        None,
+        None,
+        None,
+    )
+    assert len(getattr(first[1], "data", [])) > 0
+    pca_cache = first[9]
+
+    # Switch to an unavailable metric: should preserve existing PCA instead of clearing.
+    _patch_callback_context(monkeypatch, triggered=[{"prop_id": "analysis-metric-select.value"}])
+    unavailable = update_content(
+        {"page": "Analysis"},
+        "pca",
+        "PC1",
+        "PC2",
+        [],
+        [],
+        "scalir_conc",
+        "durbin",
+        "sample_type",
+        0,
+        0,
+        True,
+        True,
+        10,
+        10,
+        str(wdir),
+        None,
+        None,
+        30,
+        pca_cache,
+        None,
+        None,
+    )
+    assert all(value is dash.no_update for value in unavailable)
+
+    # Return to peak_area: callback should render from cache and not stay blank.
+    _patch_callback_context(monkeypatch, triggered=[{"prop_id": "analysis-metric-select.value"}])
+    back_to_peak = update_content(
+        {"page": "Analysis"},
+        "pca",
+        "PC1",
+        "PC2",
+        [],
+        [],
+        "peak_area",
+        "durbin",
+        "sample_type",
+        0,
+        0,
+        True,
+        True,
+        10,
+        10,
+        str(wdir),
+        None,
+        None,
+        30,
+        pca_cache,
+        None,
+        None,
+    )
+    assert len(getattr(back_to_peak[1], "data", [])) > 0
 
 
 def test_update_content_pca_basic(monkeypatch, tmp_path):
