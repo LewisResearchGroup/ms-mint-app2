@@ -65,6 +65,61 @@ def copy_stdlib_into_venv():
         shutil.copytree(src_dynload, dst_dynload, dirs_exist_ok=True)
 
 
+def make_windows_interpreter_portable():
+    """
+    Replace venv redirector executables with real interpreter binaries.
+
+    The default venv launcher on Windows points to the build machine's base
+    interpreter (e.g. hostedtoolcache). After distribution this path is gone,
+    causing "No Python at ..." errors.
+    """
+    if sys.platform != "win32":
+        return
+
+    scripts_dir = ENV_DIR / "Scripts"
+    base_prefix = Path(sys.base_prefix)
+    base_exec_prefix = Path(sys.exec_prefix)
+
+    # Copy actual interpreter launchers over venv redirectors.
+    for exe_name in ("python.exe", "pythonw.exe"):
+        src = base_prefix / exe_name
+        dst = scripts_dir / exe_name
+        if src.exists():
+            print(f"Copying {src} -> {dst}")
+            shutil.copy2(src, dst)
+
+    # Copy runtime DLLs required by python.exe into Scripts for local loading.
+    dll_candidates = (
+        "python3.dll",
+        f"python{sys.version_info.major}{sys.version_info.minor}.dll",
+        "vcruntime140.dll",
+        "vcruntime140_1.dll",
+        "ucrtbase.dll",
+    )
+    for dll_name in dll_candidates:
+        for prefix in (base_prefix, base_exec_prefix):
+            src = prefix / dll_name
+            if src.exists():
+                dst = scripts_dir / dll_name
+                print(f"Copying {src} -> {dst}")
+                shutil.copy2(src, dst)
+                break
+
+    # Make pyvenv.cfg portable (no hostedtoolcache absolute paths).
+    pyvenv_cfg = ENV_DIR / "pyvenv.cfg"
+    pyvenv_cfg.write_text(
+        "\n".join(
+            [
+                f"home = {ENV_DIR}",
+                "include-system-site-packages = false",
+                f"version = {sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+
 def main():
     print(f"Creating Asari environment at: {ENV_DIR}")
     
@@ -91,6 +146,7 @@ def main():
 
     # Ensure stdlib is physically present in the venv for portability.
     copy_stdlib_into_venv()
+    make_windows_interpreter_portable()
     
     # Install packages
     print(f"Installing packages: {PACKAGES}")
