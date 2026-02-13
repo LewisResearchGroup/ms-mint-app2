@@ -42,7 +42,7 @@ def copy_stdlib_into_venv():
 
     if sys.platform == "win32":
         dst_stdlib = ENV_DIR / "Lib"
-        src_dynload = src_stdlib / "DLLs"
+        src_dynload = Path(sys.base_prefix) / "DLLs"
         dst_dynload = ENV_DIR / "DLLs"
     else:
         dst_stdlib = ENV_DIR / "lib" / f"python{PY_MAJOR_MINOR}"

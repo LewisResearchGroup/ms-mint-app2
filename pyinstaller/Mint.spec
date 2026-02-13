@@ -1,6 +1,6 @@
 # -*- mode: python ; coding: utf-8 -*-
 import os
-from PyInstaller.utils.hooks import collect_submodules
+from PyInstaller.utils.hooks import collect_submodules, copy_metadata
 
 src_dir = os.path.abspath(os.path.join(SPECPATH, os.pardir))
 hooks_dir = os.path.join(src_dir, 'pyinstaller', 'hooks')
@@ -48,6 +48,14 @@ binaries_list = []
 datas_list = [
     (os.path.join(package_root, 'ms_mint_app', 'assets'), os.path.join('ms_mint_app', 'assets')),
 ]
+
+# Bundle package metadata so importlib.metadata.version(...) works in frozen builds.
+for pkg in ("ms-mint-app2", "ms_mint_app2"):
+    try:
+        datas_list += copy_metadata(pkg)
+        break
+    except Exception:
+        pass
 
 static_dir = os.path.join(package_root, 'ms_mint_app', 'static')
 if os.path.isdir(static_dir):

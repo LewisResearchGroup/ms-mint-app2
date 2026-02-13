@@ -81,6 +81,7 @@ jobs:
           $asariPython = "pyinstaller\dist\Mint\_internal\asari_env\Scripts\python.exe"
           $internalDir = "pyinstaller\dist\Mint\_internal"
           $asariEnvDir = "$internalDir\asari_env"
+          $asariDlls = "$asariEnvDir\DLLs"
 
           if (!(Test-Path $asariPython)) {
             Write-Host "[ERROR] Bundled Asari python not found at $asariPython"
@@ -90,7 +91,7 @@ jobs:
           $env:PYTHONNOUSERSITE = "1"
           $env:PYTHONHOME = $asariEnvDir
           $env:PYTHONPATH = "$asariEnvDir\Lib;$asariEnvDir\Lib\site-packages"
-          $env:PATH = "$internalDir;$asariEnvDir\Scripts;$env:PATH"
+          $env:PATH = "$internalDir;$asariEnvDir\Scripts;$asariDlls;$env:PATH"
 
           & $asariPython -c "from asari.command_line import main; main()" --help
           if ($LASTEXITCODE -ne 0) {

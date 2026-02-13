@@ -42,6 +42,7 @@ def get_asari_command():
             python_path = os.path.join(asari_env_path, 'Scripts', 'python.exe')
             scripts_dir = os.path.join(asari_env_path, 'Scripts')
             library_bin = os.path.join(asari_env_path, 'Library', 'bin')
+            dlls_dir = os.path.join(asari_env_path, 'DLLs')
         else:
             python_path = os.path.join(asari_env_path, 'bin', 'python')
             scripts_dir = os.path.join(asari_env_path, 'bin')
@@ -56,6 +57,7 @@ def get_asari_command():
         ]).strip(os.pathsep)
         if sys.platform == 'win32':
             bundled_env['PATH'] = os.pathsep.join([
+                dlls_dir,
                 library_bin,
                 bundled_env.get('PATH', '')
             ]).strip(os.pathsep)
