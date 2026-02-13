@@ -149,6 +149,21 @@ def _prepare_matrix_data(
 
         # Sort samples by group, then alphabetically within each group for clustermap display
         if group_field and group_field in df.columns:
+            # If grouping field is partially populated, analyze only the samples that
+            # have an explicit group value (instead of creating an "(unset)" bucket).
+            group_values = df[group_field].replace("", pd.NA)
+            has_set_values = group_values.notna().any()
+            if has_set_values:
+                valid_mask = group_values.notna()
+                dropped = int((~valid_mask).sum())
+                if dropped > 0:
+                    df = df.loc[valid_mask].copy()
+                    logger.info(
+                        "Analysis grouping by '%s': excluded %d sample(s) with unset values.",
+                        group_field,
+                        dropped,
+                    )
+
             df['_sort_group'] = df[group_field].fillna('')
             df['_sort_index'] = df.index.str.lower()
             df = df.sort_values(by=['_sort_group', '_sort_index'])
