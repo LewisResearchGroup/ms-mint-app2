@@ -844,6 +844,14 @@ def _ms_files_table(section_context, processing_output, processed_action, pagina
         column_types = {r["column_name"]: r["column_type"] for r in schema.to_dicts()}
         where_sql, params = build_where_and_params(filter_, filterOptions)
         order_by_sql = build_order_by(sorter, column_types, tie=('ms_file_label', 'ASC'))  # '' if there is no valid sorter
+        if not order_by_sql:
+            # Default grouping-friendly order when user has not selected a sorter.
+            order_by_sql = (
+                "ORDER BY "
+                "COALESCE(sample_type, '') ASC, "
+                "COALESCE(label, '') ASC, "
+                "ms_file_label ASC"
+            )
 
         sql = f"""
         WITH filtered AS (
