@@ -33,6 +33,16 @@ MS_METADATA_TEMPLATE_COLUMNS = [
     'use_for_analysis',
     'sample_type',
     *GROUP_COLUMNS,
+]
+MS_FILES_LIST_EXPORT_COLUMNS = [
+    'ms_file_label',
+    'label',
+    'color',
+    'use_for_optimization',
+    'use_for_processing',
+    'use_for_analysis',
+    'sample_type',
+    *GROUP_COLUMNS,
     'polarity',
     'ms_type',
     'file_type',
@@ -46,9 +56,6 @@ MS_METADATA_TEMPLATE_DESCRIPTIONS = [
     'True to include in analysis outputs',
     'Sample category (e.g.; Sample; QC; Blank; Standard)',
     *[GROUP_DESCRIPTIONS[col] for col in GROUP_COLUMNS],
-    'Polarity (Positive or Negative)',
-    'Acquisition type (ms1 or ms2)',
-    'File format (e.g., mzML, mzXML)',
 ]
 MS_METADATA_TEMPLATE_CSV = (
     ",".join(MS_METADATA_TEMPLATE_COLUMNS)
@@ -57,6 +64,11 @@ MS_METADATA_TEMPLATE_CSV = (
     + "\n"
 )
 MS_METADATA_DESCRIPTION_MAP = dict(zip(MS_METADATA_TEMPLATE_COLUMNS, MS_METADATA_TEMPLATE_DESCRIPTIONS))
+MS_METADATA_DESCRIPTION_MAP.update({
+    'polarity': 'Derived automatically from MS files (not imported from metadata CSV).',
+    'ms_type': 'Derived automatically from MS files (not imported from metadata CSV).',
+    'file_type': 'Derived automatically from file extension (not imported from metadata CSV).',
+})
 NOTIFICATION_COMPACT_STYLE = {"maxWidth": 420, "width": "420px"}
 
 home_path = Path.home()
@@ -636,21 +648,9 @@ def generate_colors(wdir, regenerate=False):
             )
 
         sample_keys = ms_colors["sample_key"].drop_duplicates().to_list()
-        sample_counts = ms_colors["sample_key"].value_counts(dropna=False)
-        dominant_sample_key = sample_counts.index[0] if not sample_counts.empty else None
-        dominant_needs_reset = False
-        if dominant_sample_key is not None:
-            dominant_rows = ms_colors[ms_colors["sample_key"] == dominant_sample_key]
-            current_dominant_colors = (
-                dominant_rows["color"].fillna("").astype(str).str.strip().str.upper().unique().tolist()
-            )
-            dominant_needs_reset = any(c != "#BBBBBB" for c in current_dominant_colors if c)
 
-        # Keep the dominant sample group neutral for readability across plots.
-        forced_colors = {dominant_sample_key: "#BBBBBB"} if dominant_sample_key is not None else {}
-        assigned_colors.update(forced_colors)
-
-        if len(assigned_colors) != len(sample_keys) or dominant_needs_reset:
+        # Preserve colors explicitly provided by users/metadata; only fill missing ones.
+        if len(assigned_colors) != len(sample_keys):
             pastel_palette = colors.qualitative.Pastel
             pastel_palette_hex = [_rgb_to_hex(c).lower() for c in pastel_palette]
             pastel_palette_hex = [c for c in pastel_palette_hex if c not in EXCLUDED_PASTEL_COLORS]
@@ -1369,7 +1369,7 @@ def callbacks(cls, app, fsc, cache, args_namespace):
         if wdir:
             ws_name = get_workspace_name_from_wdir(wdir) or ws_name
 
-        def build_df():
+        def _query_samples_df():
             if not wdir:
                 raise PreventUpdate
             with duckdb_connection(wdir, read_only=True) as conn:
@@ -1382,17 +1382,25 @@ def callbacks(cls, app, fsc, cache, args_namespace):
                 where_sql, params = build_where_and_params(filter_, filterOptions or {})
                 order_by_sql = build_order_by(sorter, column_types, tie=('ms_file_label', 'ASC'))
                 sql = f"SELECT * FROM samples {where_sql} {order_by_sql}".strip()
-                df = conn.execute(sql, params).df()
-                ordered_cols = [c for c in MS_METADATA_TEMPLATE_COLUMNS if c in df.columns]
-                return df[ordered_cols]
+                return conn.execute(sql, params).df()
+
+        def build_template_df():
+            df = _query_samples_df()
+            ordered_cols = [c for c in MS_METADATA_TEMPLATE_COLUMNS if c in df.columns]
+            return df[ordered_cols]
+
+        def build_list_df():
+            df = _query_samples_df()
+            ordered_cols = [c for c in MS_FILES_LIST_EXPORT_COLUMNS if c in df.columns]
+            return df[ordered_cols]
 
         return handle_template_or_list_download(
             ctx,
             "download-ms-template-btn",
             "download-ms-files-btn",
-            build_df,
+            build_template_df,
             f"{T.today()}-MINT__{ws_name}-ms_files_template.csv",
-            build_df,
+            build_list_df,
             f"{T.today()}-MINT__{ws_name}-ms_files.csv",
         )
 
