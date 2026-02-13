@@ -1362,13 +1362,43 @@ def convert_ms_file_to_parquet_fast_batches(
 
 
 def get_metadata(files_path):
+    def _coerce_bool_like(value):
+        if pd.isna(value):
+            return pd.NA
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, (int, np.integer)):
+            if value == 1:
+                return True
+            if value == 0:
+                return False
+            return pd.NA
+        if isinstance(value, (float, np.floating)):
+            if np.isnan(value):
+                return pd.NA
+            if value == 1.0:
+                return True
+            if value == 0.0:
+                return False
+            return pd.NA
+
+        text = str(value).strip().lower()
+        if text in {"", "na", "n/a", "null", "none", "nan"}:
+            return pd.NA
+        if text in {"true", "t", "yes", "y", "1", "on", "enable", "enabled"}:
+            return True
+        if text in {"false", "f", "no", "n", "0", "off", "disable", "disabled"}:
+            return False
+        return pd.NA
+
     ref_cols = {
         "ms_file_label": 'string',
         "label": 'string',
         "color": 'string',
-        "use_for_optimization": 'boolean',
-        "use_for_processing": 'boolean',
-        "use_for_analysis": 'boolean',
+        # Read as strings first, then coerce tolerant boolean values (yes/no, 1/0, on/off, etc.).
+        "use_for_optimization": 'string',
+        "use_for_processing": 'string',
+        "use_for_analysis": 'string',
         "sample_type": 'string',
     }
     ref_cols.update({col: 'string' for col in GROUP_COLUMNS})
@@ -1381,6 +1411,11 @@ def get_metadata(files_path):
             preview = read_tabular_file(file_path, nrows=0)
             dtype_map = {col: ref_cols[col] for col in preview.columns if col in ref_cols}
             df = read_tabular_file(file_path, dtype=dtype_map)
+
+            for bool_col in ("use_for_optimization", "use_for_processing", "use_for_analysis"):
+                if bool_col in df.columns:
+                    df[bool_col] = df[bool_col].map(_coerce_bool_like).astype("boolean")
+
             if 'use_for_optimization' in df.columns:
                 df['use_for_optimization'] = df['use_for_optimization'].fillna(True)
             if 'use_for_processing' in df.columns:
