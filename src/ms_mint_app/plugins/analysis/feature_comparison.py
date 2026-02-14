@@ -517,18 +517,6 @@ def register_callbacks(app):
         if sample2 == missing_group_label:
             group2_color = '#bbbbbb'
 
-        def _hex_to_rgb(value):
-            if not isinstance(value, str):
-                return (120, 120, 120)
-            value = value.strip().lstrip('#')
-            if len(value) != 6:
-                return (120, 120, 120)
-            return tuple(int(value[i:i + 2], 16) for i in (0, 2, 4))
-
-        def _rgba(hex_color, alpha):
-            r, g, b = _hex_to_rgb(hex_color)
-            return f"rgba({r}, {g}, {b}, {alpha:.3f})"
-
         # Intensity based on adjusted p-values (lower p => more intense)
         p_adj_vals = plot_df['p_adj'].to_numpy(dtype=float)
         p_adj_clip = np.clip(p_adj_vals, 1e-300, 1.0)
@@ -563,21 +551,23 @@ def register_callbacks(app):
 
         fig = go.Figure()
         if plot_toggle:
-            x_vals = plot_df['log2fc'].to_numpy() if no_sig else plot_df.loc[sig_mask, 'log2fc'].to_numpy()
-            y_vals = plot_df['neg_log10_p'].to_numpy() if no_sig else plot_df.loc[sig_mask, 'neg_log10_p'].to_numpy()
-            if no_sig:
+            x_vals = plot_df['log2fc'].to_numpy()
+            y_vals = plot_df['neg_log10_p'].to_numpy()
+            non_sig_mask = ~sig_mask
+            if np.any(non_sig_mask):
                 fig.add_trace(go.Scatter(
-                    x=plot_df['log2fc'],
-                    y=plot_df['neg_log10_p'],
+                    x=plot_df.loc[non_sig_mask, 'log2fc'],
+                    y=plot_df.loc[non_sig_mask, 'neg_log10_p'],
                     mode='markers',
                     name='Not significant',
                     marker=dict(
-                        color=[_rgba('#9aa0a6', a) for a in alpha_vals],
-                        size=size_vals,
+                        color='#9aa0a6',
+                        opacity=alpha_vals[non_sig_mask],
+                        size=size_vals[non_sig_mask],
                         line=dict(width=0.6, color='#444'),
                     ),
                     customdata=build_customdata(
-                        plot_df,
+                        plot_df.loc[non_sig_mask],
                         ['feature', 'mean_a', 'mean_b', 'p_value', 'p_adj'],
                     ),
                     hovertemplate=(
@@ -589,7 +579,7 @@ def register_callbacks(app):
                         "FDR: %{customdata[4]:.3e}<extra></extra>"
                     ),
                 ))
-            else:
+            if not no_sig:
                 higher_in_1 = sig_mask & (plot_df['mean_a'] >= plot_df['mean_b'])
                 higher_in_2 = sig_mask & (plot_df['mean_b'] > plot_df['mean_a'])
                 fig.add_trace(go.Scatter(
@@ -598,7 +588,8 @@ def register_callbacks(app):
                     mode='markers',
                     name=str(sample1),
                     marker=dict(
-                        color=[_rgba(group1_color, a) for a in alpha_vals[higher_in_1]],
+                        color=group1_color,
+                        opacity=alpha_vals[higher_in_1],
                         size=size_vals[higher_in_1],
                         line=dict(width=0.6, color='#444'),
                     ),
@@ -621,7 +612,8 @@ def register_callbacks(app):
                     mode='markers',
                     name=str(sample2),
                     marker=dict(
-                        color=[_rgba(group2_color, a) for a in alpha_vals[higher_in_2]],
+                        color=group2_color,
+                        opacity=alpha_vals[higher_in_2],
                         size=size_vals[higher_in_2],
                         line=dict(width=0.6, color='#444'),
                     ),
@@ -657,21 +649,23 @@ def register_callbacks(app):
                 fig.update_xaxes(range=[-x_max - (x_max * 0.05), x_max + (x_max * 0.05)], scaleratio=1)
                 fig.update_yaxes(range=[y_min, y_max])
         else:
-            x_vals = plot_df['mean_a'].to_numpy() if no_sig else plot_df.loc[sig_mask, 'mean_a'].to_numpy()
-            y_vals = plot_df['mean_b'].to_numpy() if no_sig else plot_df.loc[sig_mask, 'mean_b'].to_numpy()
-            if no_sig:
+            x_vals = plot_df['mean_a'].to_numpy()
+            y_vals = plot_df['mean_b'].to_numpy()
+            non_sig_mask = ~sig_mask
+            if np.any(non_sig_mask):
                 fig.add_trace(go.Scatter(
-                    x=plot_df['mean_a'],
-                    y=plot_df['mean_b'],
+                    x=plot_df.loc[non_sig_mask, 'mean_a'],
+                    y=plot_df.loc[non_sig_mask, 'mean_b'],
                     mode='markers',
                     name='Not significant',
                     marker=dict(
-                        color=[_rgba('#9aa0a6', a) for a in alpha_vals],
-                        size=size_vals,
+                        color='#9aa0a6',
+                        opacity=alpha_vals[non_sig_mask],
+                        size=size_vals[non_sig_mask],
                         line=dict(width=0.6, color='#444'),
                     ),
                     customdata=build_customdata(
-                        plot_df,
+                        plot_df.loc[non_sig_mask],
                         ['feature', 'log2fc', 'p_value', 'p_adj'],
                     ),
                     hovertemplate=(
@@ -683,7 +677,7 @@ def register_callbacks(app):
                         "FDR: %{customdata[3]:.3e}<extra></extra>"
                     ),
                 ))
-            else:
+            if not no_sig:
                 higher_in_1 = sig_mask & (plot_df['mean_a'] >= plot_df['mean_b'])
                 higher_in_2 = sig_mask & (plot_df['mean_b'] > plot_df['mean_a'])
                 fig.add_trace(go.Scatter(
@@ -692,7 +686,8 @@ def register_callbacks(app):
                     mode='markers',
                     name=str(sample1),
                     marker=dict(
-                        color=[_rgba(group1_color, a) for a in alpha_vals[higher_in_1]],
+                        color=group1_color,
+                        opacity=alpha_vals[higher_in_1],
                         size=size_vals[higher_in_1],
                         line=dict(width=0.6, color='#444'),
                     ),
@@ -715,7 +710,8 @@ def register_callbacks(app):
                     mode='markers',
                     name=str(sample2),
                     marker=dict(
-                        color=[_rgba(group2_color, a) for a in alpha_vals[higher_in_2]],
+                        color=group2_color,
+                        opacity=alpha_vals[higher_in_2],
                         size=size_vals[higher_in_2],
                         line=dict(width=0.6, color='#444'),
                     ),

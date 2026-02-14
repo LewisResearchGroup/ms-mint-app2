@@ -170,6 +170,7 @@ _COLOR_MAP_CACHE_MAX_GROUPS = 16
 _COLOR_MAP_MAX_VALUES_PER_GROUP = 512
 _COLOR_MAP_CACHE: OrderedDict[str, dict] = OrderedDict()
 _ANALYSIS_DB_LIMITS_LOGGED = False
+_ANALYSIS_EXCLUDED_PASTEL_INDICES = {0, 4, 10}
 
 
 def _cap_color_map_values(color_map: dict, active_values) -> dict:
@@ -219,14 +220,14 @@ def _build_color_map(color_df: pd.DataFrame, group_col: str, *, use_sample_color
 
     active_values = [val for val in working[group_col].dropna().unique()]
     missing = [val for val in active_values if val not in color_map]
-    # Optionally force the largest group to a neutral gray for readability
-    if missing and not use_sample_colors:
-        top_group = working[group_col].value_counts().idxmax()
-        if top_group in missing:
-            color_map[top_group] = '#bbbbbb'
-            missing = [val for val in missing if val != top_group]
     if missing:
-        palette = plotly_colors.qualitative.Plotly
+        palette = [
+            color
+            for idx, color in enumerate(plotly_colors.qualitative.Pastel)
+            if idx not in _ANALYSIS_EXCLUDED_PASTEL_INDICES
+        ]
+        if not palette:
+            palette = plotly_colors.qualitative.Plotly
         used_colors = set(color_map.values())
         palette_cycle = cycle(palette)
         for val in sorted(missing, key=lambda v: str(v).lower()):

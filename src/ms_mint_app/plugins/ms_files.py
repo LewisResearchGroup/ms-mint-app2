@@ -75,6 +75,7 @@ home_path = Path.home()
 
 logger = logging.getLogger(__name__)
 EXCLUDED_PASTEL_COLORS = {"#66c5cc"}
+EXCLUDED_PASTEL_INDICES = {0, 4, 10}
 
 # Patterns for detecting sample types from filenames
 # Each entry: (patterns_list, color, sample_type_label)
@@ -652,7 +653,11 @@ def generate_colors(wdir, regenerate=False):
         # Preserve colors explicitly provided by users/metadata; only fill missing ones.
         if len(assigned_colors) != len(sample_keys):
             pastel_palette = colors.qualitative.Pastel
-            pastel_palette_hex = [_rgb_to_hex(c).lower() for c in pastel_palette]
+            pastel_palette_hex = [
+                _rgb_to_hex(c).lower()
+                for idx, c in enumerate(pastel_palette)
+                if idx not in EXCLUDED_PASTEL_INDICES
+            ]
             pastel_palette_hex = [c for c in pastel_palette_hex if c not in EXCLUDED_PASTEL_COLORS]
             if len(sample_keys) <= len(pastel_palette_hex):
                 colors_map = assigned_colors.copy()
