@@ -690,9 +690,9 @@ def _load_exploration_manifest(bundle_path: Path | None) -> dict | None:
 
 def _exploration_workspace_description(manifest: dict | None) -> str:
     if not manifest:
-        return "Auto-generated exploration workspace (synthetic demo data)."
+        return "Auto-generated exploration workspace (synthetic demo data). This workspace is pre-populated with a small dataset for exploration and testing purposes. It is not intended for analysis or processing."
     source = manifest.get("source_label") or "sampled real data"
-    return f"Auto-generated exploration workspace ({source})."
+    return "Auto-generated exploration workspace. This workspace is pre-populated with a small dataset for exploration and testing purposes. It is not intended for analysis or processing."
 
 
 def _seed_exploration_workspace_from_bundle(
