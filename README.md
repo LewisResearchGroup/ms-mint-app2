@@ -7,7 +7,7 @@
 [![DOI](https://zenodo.org/badge/491654035.svg)](https://zenodo.org/doi/10.5281/zenodo.13121148) -->
 
 <p align="center">
-  <img src="docs/image/MINT-logo.png" alt="MINT Logo" width="400">
+  <img src="https://raw.githubusercontent.com/LewisResearchGroup/ms-mint-app2/main/docs/image/MINT-logo.png" alt="MINT Logo" width="400">
 </p>
 
 # MINT (Metabolomics Integrator)
@@ -24,7 +24,7 @@ A powerful post-processing tool for **LC-MS based metabolomics** that simplifies
 - **Desktop App** - Available as standalone Windows and Linux executable
 
 <p align="center">
-  <img src="docs/quickstart/peak-preview.png" alt="Hierarchical Clustering" width="700">
+  <img src="https://raw.githubusercontent.com/LewisResearchGroup/ms-mint-app2/main/docs/quickstart/peak-preview.png" alt="Hierarchical Clustering" width="700">
 </p>
 
 ## Quick Start
