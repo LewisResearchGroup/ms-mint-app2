@@ -52,9 +52,10 @@ class TestMSFilesTable:
         
         data = res[0]
         assert len(data) == 2
-        assert data[0]['ms_file_label'] == 'file1'
-        assert data[0]['color']['content'] == '#ff0000'
-        assert data[1]['ms_file_label'] == 'file2'
+        # Default ordering is sample_type ASC, then label, then ms_file_label.
+        assert data[0]['ms_file_label'] == 'file2'
+        assert data[0]['color']['content'] == '#00ff00'
+        assert data[1]['ms_file_label'] == 'file1'
 
     @patch('ms_mint_app.plugins.ms_files.dash.callback_context')
     def test_ms_files_table_filtering(self, mock_ctx, temp_wdir):

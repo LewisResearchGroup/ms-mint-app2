@@ -67,8 +67,10 @@ def test_get_chromatogram_dataframe_cached():
     assert df is not None
     row = df.to_dicts()[0]
     assert row["ms_file_label"] == "S1"
-    assert row["scan_time_sliced"] == [2.0, 3.0]
-    assert row["intensity_sliced"] == [8.0, 10.0]
+    # Threshold is applied as clamp-to-1 (below threshold points are preserved as baseline),
+    # not as point removal.
+    assert row["scan_time_sliced"] == [1.0, 2.0, 3.0]
+    assert row["intensity_sliced"] == [1.0, 8.0, 10.0]
 
 
 def test_get_chromatogram_dataframe_full_range_from_cache():
