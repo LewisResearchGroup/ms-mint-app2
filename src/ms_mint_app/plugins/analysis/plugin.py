@@ -436,6 +436,13 @@ def _deserialize_bar_series(payload):
     return series_df
 
 
+def _normalize_compound_selection(value):
+    """Normalize legacy list-valued selectors to a single compound value."""
+    if isinstance(value, list):
+        return value[0] if value else None
+    return value
+
+
 def _build_group_context_from_cache(samples_meta_records, selected_group, target_index):
     """Build grouping series/color map from cached sample metadata."""
     samples_meta = pd.DataFrame(samples_meta_records or [])
@@ -594,7 +601,8 @@ def _handle_violin_cached_group_change(
 
 
 def _handle_violin_cached_render(
-    tab_key, triggered_props, violin_cache, violin_cache_key, selected_group, metric, norm_value, wdir
+    tab_key, triggered_props, violin_cache, violin_cache_key, selected_group, metric, norm_value, wdir,
+    current_violin_value=None
 ):
     if not (tab_key == 'raincloud' and violin_cache and violin_cache.get('key') == violin_cache_key):
         return None
@@ -609,6 +617,12 @@ def _handle_violin_cached_render(
     }
     if triggered_props and not all(prop in cache_safe_triggers for prop in triggered_props):
         return None
+    if 'violin-comp-checks.value' in (triggered_props or []):
+        cached_value = _normalize_compound_selection(violin_cache.get('selected_compound'))
+        requested_value = _normalize_compound_selection(current_violin_value)
+        if requested_value and requested_value != cached_value:
+            # Cached payload contains only one compound series, so selector changes need a full recompute.
+            return None
     try:
         series_df = _deserialize_violin_series(violin_cache.get('results', {}))
         if series_df.empty:
@@ -659,7 +673,8 @@ def _handle_bar_cached_group_change(
 
 
 def _handle_bar_cached_render(
-    tab_key, triggered_props, bar_cache, bar_cache_key, selected_group, metric, norm_value, wdir
+    tab_key, triggered_props, bar_cache, bar_cache_key, selected_group, metric, norm_value, wdir,
+    current_bar_value=None
 ):
     if not (tab_key == 'bar' and bar_cache and bar_cache.get('key') == bar_cache_key):
         return None
@@ -674,6 +689,12 @@ def _handle_bar_cached_render(
     }
     if triggered_props and not all(prop in cache_safe_triggers for prop in triggered_props):
         return None
+    if 'bar-comp-checks.value' in (triggered_props or []):
+        cached_value = _normalize_compound_selection(bar_cache.get('selected_compound'))
+        requested_value = _normalize_compound_selection(current_bar_value)
+        if requested_value and requested_value != cached_value:
+            # Cached payload contains only one compound series, so selector changes need a full recompute.
+            return None
     try:
         series_df = _deserialize_bar_series(bar_cache.get('results', {}))
         if series_df.empty:
@@ -1385,7 +1406,7 @@ def _update_content_from_context(ctx: AnalysisUpdateContext):
 
         cached_result = _handle_violin_cached_render(
             ctx.tab_key, triggered_props, ctx.violin_cache, violin_cache_key, selected_group,
-            metric, norm_value, ctx.wdir
+            metric, norm_value, ctx.wdir, ctx.violin_comp_checks
         )
         if cached_result is not None:
             return cached_result
@@ -1399,7 +1420,7 @@ def _update_content_from_context(ctx: AnalysisUpdateContext):
 
         cached_result = _handle_bar_cached_render(
             ctx.tab_key, triggered_props, ctx.bar_cache, bar_cache_key, selected_group,
-            metric, norm_value, ctx.wdir
+            metric, norm_value, ctx.wdir, ctx.bar_comp_checks
         )
         if cached_result is not None:
             return cached_result

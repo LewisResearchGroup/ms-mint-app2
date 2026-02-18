@@ -2,6 +2,7 @@ from types import SimpleNamespace
 
 import duckdb
 import pytest
+import pandas as pd
 
 pytest.importorskip("dash.dependencies")
 pytest.importorskip("feffery_antd_components")
@@ -485,6 +486,117 @@ def test_update_content_bar_user_selection(monkeypatch, tmp_path):
 
     selected = result[8]
     assert selected == "Peak1"
+
+
+def test_update_content_raincloud_selection_change_bypasses_stale_cache(monkeypatch, tmp_path):
+    _patch_callback_context(monkeypatch, triggered=[{"prop_id": "violin-comp-checks.value"}])
+    wdir = _make_workspace(tmp_path)
+
+    with duckdb_connection(wdir, register_activity=False) as conn:
+        _create_tables(conn)
+        _seed_analysis_data(conn)
+
+    cache_key = analysis_plugin._violin_cache_key(str(wdir), "peak_area", "none", "sample_type")
+    cached_series = pd.DataFrame(
+        {"Peak1": [10.0, 11.0, 12.0, 13.0]},
+        index=["S1", "S2", "S3", "S4"],
+    )
+    cached_series.index.name = "ms_file_label"
+    violin_cache = {
+        "key": cache_key,
+        "results": analysis_plugin._serialize_violin_series(cached_series),
+        "selected_compound": "Peak1",
+        "options": [{"label": "Peak1", "value": "Peak1"}, {"label": "Peak2", "value": "Peak2"}],
+        "samples_meta": [
+            {"ms_file_label": "S1", "sample_type": "TypeA", "color": "#ff0000"},
+            {"ms_file_label": "S2", "sample_type": "TypeA", "color": "#ff0000"},
+            {"ms_file_label": "S3", "sample_type": "TypeB", "color": "#00ff00"},
+            {"ms_file_label": "S4", "sample_type": "TypeB", "color": "#00ff00"},
+        ],
+    }
+
+    result = update_content(
+        {"page": "Analysis"},
+        "raincloud",
+        None,
+        None,
+        ["Peak2"],
+        [],
+        "peak_area",
+        "none",
+        "sample_type",
+        0,
+        0,
+        True,
+        True,
+        10,
+        10,
+        str(wdir),
+        None,
+        None,
+        30,
+        None,
+        None,
+        violin_cache,
+    )
+
+    assert result[5] == "Peak2"
+
+
+def test_update_content_bar_selection_change_bypasses_stale_cache(monkeypatch, tmp_path):
+    _patch_callback_context(monkeypatch, triggered=[{"prop_id": "bar-comp-checks.value"}])
+    wdir = _make_workspace(tmp_path)
+
+    with duckdb_connection(wdir, register_activity=False) as conn:
+        _create_tables(conn)
+        _seed_analysis_data(conn)
+
+    cache_key = analysis_plugin._bar_cache_key(str(wdir), "peak_area", "none", "sample_type")
+    cached_series = pd.DataFrame(
+        {"Peak1": [10.0, 11.0, 12.0, 13.0]},
+        index=["S1", "S2", "S3", "S4"],
+    )
+    cached_series.index.name = "ms_file_label"
+    bar_cache = {
+        "key": cache_key,
+        "results": analysis_plugin._serialize_bar_series(cached_series),
+        "selected_compound": "Peak1",
+        "options": [{"label": "Peak1", "value": "Peak1"}, {"label": "Peak2", "value": "Peak2"}],
+        "samples_meta": [
+            {"ms_file_label": "S1", "sample_type": "TypeA", "color": "#ff0000"},
+            {"ms_file_label": "S2", "sample_type": "TypeA", "color": "#ff0000"},
+            {"ms_file_label": "S3", "sample_type": "TypeB", "color": "#00ff00"},
+            {"ms_file_label": "S4", "sample_type": "TypeB", "color": "#00ff00"},
+        ],
+    }
+
+    result = update_content(
+        {"page": "Analysis"},
+        "bar",
+        None,
+        None,
+        [],
+        "Peak2",
+        "peak_area",
+        "none",
+        "sample_type",
+        0,
+        0,
+        True,
+        True,
+        10,
+        10,
+        str(wdir),
+        None,
+        None,
+        30,
+        None,
+        None,
+        None,
+        bar_cache,
+    )
+
+    assert result[8] == "Peak2"
 
 
 def test_default_tsne_metric_is_zscore():
