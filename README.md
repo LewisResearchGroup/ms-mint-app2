@@ -7,7 +7,7 @@
 [![DOI](https://zenodo.org/badge/491654035.svg)](https://zenodo.org/doi/10.5281/zenodo.13121148) -->
 
 <p align="center">
-  <img src="docs/image/MINT-logo.png" alt="MINT Logo" width="400">
+  <img src="https://raw.githubusercontent.com/LewisResearchGroup/ms-mint-app2/main/docs/image/MINT-logo.png" alt="MINT Logo" width="400">
 </p>
 
 # MINT (Metabolomics Integrator)
@@ -24,7 +24,7 @@ A powerful post-processing tool for **LC-MS based metabolomics** that simplifies
 - **Desktop App** - Available as standalone Windows and Linux executable
 
 <p align="center">
-  <img src="docs/quickstart/peak-preview.png" alt="Hierarchical Clustering" width="700">
+  <img src="https://raw.githubusercontent.com/LewisResearchGroup/ms-mint-app2/main/docs/quickstart/peak-preview.png" alt="Hierarchical Clustering" width="700">
 </p>
 
 ## Quick Start
@@ -43,7 +43,7 @@ pip install ms-mint-app2
 Mint
 ```
 
-Builds are provided with all dependencies integrated for [Windows](https://github.com/LewisResearchGroup/ms-mint-app2/releases/download/v2.0.0-rc.1/Mint-Windows-x64.zip) and [Linux](https://github.com/LewisResearchGroup/ms-mint-app2/releases/download/v2.0.0-rc.1/Mint-Linux-x64.tar.gz).
+Builds are provided with all dependencies integrated for [Windows](https://github.com/LewisResearchGroup/ms-mint-app2/releases/download/v2.0.0-rc.2/Mint-Windows-x64.zip) and [Linux](https://github.com/LewisResearchGroup/ms-mint-app2/releases/download/v2.0.0-rc.2/Mint-Linux-x64.tar.gz).
 
 For detailed installation instructions, see the [Installation Guide](https://lewisresearchgroup.github.io/ms-mint-app2/install/).
 

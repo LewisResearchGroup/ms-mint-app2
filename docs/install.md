@@ -26,7 +26,7 @@ Mint
 ```
 
 ## Executables
-Builds are provided with all dependencies integrated for [Windows](https://github.com/LewisResearchGroup/ms-mint-app2/releases/download/v2.0.0-rc.1/Mint-Windows-x64.zip) and [Linux](https://github.com/LewisResearchGroup/ms-mint-app2/releases/download/v2.0.0-rc.1/Mint-Linux-x64.tar.gz) on the [GitHub releases page](https://github.com/LewisResearchGroup/ms-mint-app2/releases).
+Builds are provided with all dependencies integrated for [Windows](https://github.com/LewisResearchGroup/ms-mint-app2/releases/download/v2.0.0-rc.2/Mint-Windows-x64.zip) and [Linux](https://github.com/LewisResearchGroup/ms-mint-app2/releases/download/v2.0.0-rc.2/Mint-Linux-x64.tar.gz) on the [GitHub releases page](https://github.com/LewisResearchGroup/ms-mint-app2/releases).
 
 === "Windows"
     After double-clicking the executable, a terminal window will open, followed by the app in your default web browser. If the browser does not open automatically, navigate to `http://localhost:9999` (or the port printed in the terminal log).
