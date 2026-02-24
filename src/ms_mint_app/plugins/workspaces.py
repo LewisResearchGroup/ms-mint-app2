@@ -106,7 +106,9 @@ _layout = html.Div(
             fac.AntdTable(
                 id='ws-table',
                 columns=[
-                    {'title': 'Name', 'dataIndex': 'name', 'align': 'left', 'width': '30%'},
+                    {'title': '', 'dataIndex': 'open_folder', 'align': 'center', 'width': '5%', 
+                     'renderOptions': {'renderType': 'button'}},
+                    {'title': 'Name', 'dataIndex': 'name', 'align': 'left', 'width': '25%'},
                     {'title': 'Description', 'dataIndex': 'description', 'align': 'left', 'editable': True,
                      'width': '50%'},
                     {'title': 'Created at', 'dataIndex': 'created_at', 'align': 'center', 'width': '10%'},
@@ -329,8 +331,18 @@ _layout = html.Div(
                 },
                 {
                     'title': 'Pick a workspace',
-                    'description': 'Click a row to load the workspace; sort or filter the table if you have many.',
-                    'targetSelector': '#ws-table'
+                    'description': 'Use the radio button entirely on the left to activate a workspace. The table will instantly load that project. You can sort or filter the table by Name/Date.',
+                    'targetSelector': '.ant-table-row:nth-child(2) .ant-radio-wrapper'
+                },
+                {
+                    'title': 'Explore Workspace Info',
+                    'description': 'Click the plus (+) icon to expand the row and view the database summary inside that workspace (how many MS-files, targets, chromatograms, etc.).',
+                    'targetSelector': '.ant-table-row:nth-child(2) .ant-table-row-expand-icon'
+                },
+                {
+                    'title': 'Open Folder',
+                    'description': 'Click the folder (📂) icon to securely open that workspace\'s directory natively in your computer\'s file browser.',
+                    'targetSelector': '.ant-table-row:nth-child(2) td:nth-child(3)'
                 },
                 {
                     'title': 'Create a new one',
@@ -349,7 +361,7 @@ _layout = html.Div(
                 },
                 {
                     'title': 'Tip',
-                    'description': 'Changes are saved automatically after you switch workspaces.',
+                    'description': 'Changes are saved automatically after you switch workspaces. The active workspace is bolded.',
                     'targetSelector': '#ws-table'
                 },
             ],
@@ -1138,6 +1150,14 @@ def callbacks(app, fsc, cache):
                         if note not in desc:
                             desc = f"{desc} {note}".strip()
                         data.at[idx, "description"] = desc
+                    
+            # Add open_folder button
+            data['open_folder'] = [{
+                "content": "", 
+                "icon": "antd-folder-open", 
+                "type": "text", 
+                "style": {"color": "#3B8FA3", "fontSize": "16px"}
+            } for _ in range(len(data))]
 
             cols = ['created_at', 'last_activity']
             data[cols] = data[cols].apply(lambda col: col.dt.strftime("%y-%m-%d %H:%M:%S"))
@@ -1268,6 +1288,39 @@ def callbacks(app, fsc, cache):
     )
     def save_ws_table_on_edit(row_edited, column_edited, tmpdir):
         return _save_ws_table_on_edit(row_edited, column_edited, tmpdir)
+
+    @app.callback(
+        Input("ws-table", "recentlyButtonClickedRow"),
+        State("tmpdir", "data"),
+        prevent_initial_call=True,
+    )
+    def open_workspace_folder(clicked_row, tmpdir):
+        if not clicked_row or not tmpdir:
+            raise PreventUpdate
+        
+        ws_key = clicked_row.get('key')
+        if not ws_key:
+            raise PreventUpdate
+            
+        import os
+        import subprocess
+        import platform
+        
+        ws_path = Path(tmpdir, 'workspaces', str(ws_key))
+        if ws_path.exists():
+            path_str = str(ws_path)
+            system = platform.system()
+            try:
+                if system == 'Darwin':       # macOS
+                    subprocess.run(['open', path_str], check=True)
+                elif system == 'Windows':    # Windows
+                    os.startfile(path_str)
+                else:                        # linux variants
+                    subprocess.run(['xdg-open', path_str], check=True)
+            except Exception as e:
+                logger.error(f"Could not open directory {path_str}: {e}")
+            
+        raise PreventUpdate
 
     @app.callback(
         Output("ws-change-data-dir-modal", "visible"),
