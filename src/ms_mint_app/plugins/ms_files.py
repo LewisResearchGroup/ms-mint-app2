@@ -477,7 +477,7 @@ _layout = html.Div(
                             'use_for_analysis': {'filterMode': 'checkbox',
                                                   'filterCustomItems': ['True', 'False']},
                             'sample_type': {'filterMode': 'checkbox'},
-                            **{col: {'filterMode': 'keyword'} for col in GROUP_COLUMNS},
+                            **{col: {'filterMode': 'checkbox'} for col in GROUP_COLUMNS},
                             'polarity': {'filterMode': 'checkbox',
                                          'filterCustomItems': ['Positive', 'Negative']},
                             'ms_type': {'filterMode': 'checkbox',
