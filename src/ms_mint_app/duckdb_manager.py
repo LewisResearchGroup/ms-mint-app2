@@ -4621,7 +4621,7 @@ def compute_peak_properties(con: duckdb.DuckDBPyConnection,
     logger.info("Peak properties computed and inserted into DuckDB.")
 
 
-def create_pivot(conn, rows=None, cols=None, value='peak_area', table='results'):
+def create_pivot(conn, rows=None, cols=None, value='peak_area', table='results', wdir=None):
     """
     Create pivot from DuckDB for unique per-pair data
     """
@@ -4635,6 +4635,32 @@ def create_pivot(conn, rows=None, cols=None, value='peak_area', table='results')
     """).fetchall()]
 
     group_cols_sql = ",\n                ".join([f"s.{col}" for col in GROUP_COLUMNS])
+    
+    scalir_join = ""
+    value_sql = f"r.{value}"
+    
+    if value.startswith('scalir_') and wdir:
+        from pathlib import Path
+        conc_file = Path(wdir) / "results" / "scalir" / "concentrations.csv"
+        if conc_file.exists():
+            conc_file_sql = str(conc_file).replace("'", "''")
+            sc_desc = conn.execute(f"DESCRIBE SELECT * FROM read_csv_auto('{conc_file_sql}')").fetchall()
+            sc_cols_available = [row[0] for row in sc_desc]
+            
+            join_conds = []
+            if 'ms_file' in sc_cols_available:
+                join_conds.append("TRIM(CAST(sc.ms_file AS VARCHAR)) = TRIM(CAST(r.ms_file_label AS VARCHAR))")
+            if 'peak_label' in sc_cols_available:
+                join_conds.append("CAST(sc.peak_label AS VARCHAR) = CAST(r.peak_label AS VARCHAR)")
+            
+            if join_conds:
+                scalir_join = f"LEFT JOIN read_csv_auto('{conc_file_sql}') sc ON ({' AND '.join(join_conds)})"
+                if value == 'scalir_conc':
+                    value_sql = "sc.pred_conc"
+                elif value == 'scalir_in_range':
+                    value_sql = "sc.in_range"
+                elif value == 'scalir_unit':
+                    value_sql = "sc.unit"
 
     query = f"""
         PIVOT (
@@ -4644,9 +4670,10 @@ def create_pivot(conn, rows=None, cols=None, value='peak_area', table='results')
                 {group_cols_sql},
                 r.ms_file_label,
                 r.peak_label,
-                r.{value}
+                {value_sql} AS {value}
             FROM {table} r
             JOIN samples s ON s.ms_file_label = r.ms_file_label
+            {scalir_join}
             WHERE s.use_for_analysis = TRUE
             ORDER BY s.ms_type, r.peak_label
         )

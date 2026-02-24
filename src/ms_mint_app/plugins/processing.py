@@ -586,7 +586,8 @@ _layout = html.Div(
                                                              'peak_median', 'peak_n_datapoints', 'peak_min', 'peak_max',
                                                              'peak_rt_of_max', 'peak_sigma', 'peak_tau', 'peak_asymmetry',
                                                              'peak_rt_fitted', 'fit_r_squared', 'fit_success', 'total_intensity',
-                                                             'rt_aligned', 'rt_shift', 'peak_mz_of_max', 'scan_time', 'intensity'],
+                                                             'rt_aligned', 'rt_shift', 'peak_mz_of_max', 'scan_time', 'intensity',
+                                                             'scalir_conc', 'scalir_in_range', 'scalir_unit'],
                                                     mode="multiple",
                                                     value=['peak_area', 'peak_area_top3', 'peak_mean',
                                                            'peak_median', 'peak_n_datapoints', 'peak_min', 'peak_max',
@@ -661,7 +662,8 @@ _layout = html.Div(
                                                     options=['peak_area', 'peak_area_fitted', 'peak_area_top3', 'peak_mean', 'peak_median',
                                                              'peak_n_datapoints', 'peak_min', 'peak_max',
                                                              'peak_rt_of_max', 'peak_sigma', 'peak_tau', 'peak_asymmetry',
-                                                             'peak_rt_fitted', 'fit_r_squared', 'fit_success', 'total_intensity'],
+                                                             'peak_rt_fitted', 'fit_r_squared', 'fit_success', 'total_intensity',
+                                                             'scalir_conc', 'scalir_in_range', 'scalir_unit'],
                                                     value=['peak_area'],
                                                     style={"width": "100%"},
                                                     locale="en-us",
@@ -1116,6 +1118,8 @@ def _download_all_results(wdir: str, ws_name: str, selected_columns: list) -> tu
         'rt_aligned', 'rt_shift',
         # m/z of max
         'peak_mz_of_max',
+        # SCALiR columns
+        'scalir_conc', 'scalir_in_range', 'scalir_unit',
     }
     
     if not selected_columns or not isinstance(selected_columns, list):
@@ -1146,7 +1150,7 @@ def _download_all_results(wdir: str, ws_name: str, selected_columns: list) -> tu
     tmp_path = None
     import os
 
-    if backup_path.exists():
+    if backup_path.exists() and not any(c.startswith('scalir_') for c in safe_cols):
         # 1. Use Polars to clean/filter the data first (respecting user column selection)
         logger.info(f"Download request: {filename} (filtering columns with Polars)")
         import polars as pl
@@ -1169,8 +1173,8 @@ def _download_all_results(wdir: str, ws_name: str, selected_columns: list) -> tu
         lf.select(cols_to_select).collect().write_csv(tmp_path)
 
     else:
-        # Fallback: generate from database if backup doesn't exist
-        logger.info(f"Backup missing for {filename}, generating from DB...")
+        # Fallback: generate from database if backup doesn't exist, or if SCALiR columns are requested
+        logger.info(f"Backup missing or SCALiR columns requested for {filename}, generating from DB...")
         tmp_path = _generate_csv_from_db(wdir, ws_name, safe_cols)
 
         if tmp_path is None:
@@ -1231,11 +1235,39 @@ def _generate_csv_from_db(wdir: str, ws_name: str, safe_cols: list) -> str:
         if conn is None:
             return None
         
+        # Check if we need SCALiR columns
+        scalir_cols = [c for c in safe_cols if c.startswith('scalir_')]
+        scalir_join = ""
+        
+        if scalir_cols:
+            conc_file = Path(wdir) / "results" / "scalir" / "concentrations.csv"
+            if conc_file.exists():
+                conc_file_sql = str(conc_file).replace("'", "''")
+                sc_desc = conn.execute(f"DESCRIBE SELECT * FROM read_csv_auto('{conc_file_sql}')").fetchall()
+                sc_cols_available = [row[0] for row in sc_desc]
+                
+                join_conds = []
+                if 'ms_file' in sc_cols_available:
+                    join_conds.append("TRIM(CAST(sc.ms_file AS VARCHAR)) = TRIM(CAST(r.ms_file_label AS VARCHAR))")
+                if 'peak_label' in sc_cols_available:
+                    join_conds.append("CAST(sc.peak_label AS VARCHAR) = CAST(r.peak_label AS VARCHAR)")
+                
+                if join_conds:
+                    scalir_join = f"LEFT JOIN read_csv_auto('{conc_file_sql}') sc ON ({' AND '.join(join_conds)})"
+            else:
+                logger.warning(f"SCALiR columns requested but {conc_file} not found.")
+
         # Build column list, converting arrays to comma-separated strings
         col_list = []
         for c in safe_cols:
             if c in ('scan_time', 'intensity'):
                 col_list.append(f"array_to_string(r.{c}, ',') AS {c}")
+            elif c == 'scalir_conc':
+                col_list.append(f"sc.pred_conc AS {c}")
+            elif c == 'scalir_in_range':
+                col_list.append(f"sc.in_range AS {c}")
+            elif c == 'scalir_unit':
+                col_list.append(f"sc.unit AS {c}")
             elif c not in ('peak_label', 'ms_file_label', 'ms_type'): # Avoid dupes
                 col_list.append(f"r.{c}")
         cols = ', '.join(col_list)
@@ -1256,6 +1288,7 @@ def _generate_csv_from_db(wdir: str, ws_name: str, safe_cols: list) -> str:
                     {cols} 
                 FROM results r 
                 JOIN samples s ON s.ms_file_label = r.ms_file_label 
+                {scalir_join}
                 ORDER BY s.ms_type, r.peak_label, r.ms_file_label
             ) TO ? (HEADER, DELIMITER ',')
         """, (tmp_path,))
@@ -1280,8 +1313,10 @@ def _download_dense_matrix(wdir: str, ws_name: str, rows: list, cols: list, valu
     """
     allowed_rows_cols = {'ms_file_label', 'peak_label', 'ms_type'}
     allowed_values = {
-        'peak_area', 'peak_area_top3', 'peak_mean', 'peak_median',
-        'peak_n_datapoints', 'peak_min', 'peak_max', 'peak_rt_of_max', 'total_intensity',
+        'peak_area', 'peak_area_fitted', 'peak_area_top3', 'peak_mean', 'peak_median',
+        'peak_n_datapoints', 'peak_min', 'peak_max', 'peak_rt_of_max', 'peak_sigma', 'peak_tau', 'peak_asymmetry',
+        'peak_rt_fitted', 'fit_r_squared', 'fit_success', 'total_intensity',
+        'scalir_conc', 'scalir_in_range', 'scalir_unit'
     }
     
     if not rows or not cols or not value:
@@ -1329,7 +1364,7 @@ def _download_dense_matrix(wdir: str, ws_name: str, rows: list, cols: list, valu
                 showProgress=True,
             )
         
-        df = create_pivot(conn, rows[0], cols[0], value[0], table='results')
+        df = create_pivot(conn, rows[0], cols[0], value[0], table='results', wdir=wdir)
         filename = f"{T.today()}-MINT__{ws_name}-{value[0]}_results.csv"
         logger.info(f"Download request (dense matrix): {filename}")
     
