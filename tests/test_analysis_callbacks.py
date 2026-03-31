@@ -270,6 +270,53 @@ def test_update_content_pca_basic(monkeypatch, tmp_path):
     assert len(compound_options) == 2
 
 
+def test_update_content_pca_recomputes_from_visible_groups(monkeypatch, tmp_path):
+    _patch_callback_context(monkeypatch, triggered=[{"prop_id": "analysis-pca-visible-groups.data"}])
+    wdir = _make_workspace(tmp_path)
+
+    with duckdb_connection(wdir, register_activity=False) as conn:
+        _create_tables(conn)
+        _seed_analysis_data(conn)
+
+    result = update_content(
+        {"page": "Analysis"},
+        "pca",
+        "PC1",
+        "PC2",
+        [],
+        [],
+        "peak_area",
+        "none",
+        "sample_type",
+        0,
+        0,
+        True,
+        True,
+        10,
+        10,
+        str(wdir),
+        None,
+        None,
+        30,
+        None,
+        None,
+        None,
+        pca_visible_groups={"group_by": "sample_type", "visible_groups": ["TypeA"]},
+    )
+
+    fig = result[1]
+    assert fig is not None
+
+    traces_by_name = {trace.name: trace for trace in fig.data if getattr(trace, "name", None)}
+    assert "TypeA" in traces_by_name
+    assert len(traces_by_name["TypeA"].x) == 2
+
+    # Hidden groups stay in the legend as empty placeholders so the user can toggle them back on.
+    assert "TypeB" in traces_by_name
+    assert list(traces_by_name["TypeB"].x) == [None]
+    assert traces_by_name["TypeB"].visible == "legendonly"
+
+
 def test_update_content_tsne_basic(monkeypatch, tmp_path):
     _patch_callback_context(monkeypatch)
     wdir = _make_workspace(tmp_path)

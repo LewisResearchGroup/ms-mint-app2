@@ -62,6 +62,7 @@ class AnalysisUpdateContext:
     tsne_cache: dict | None
     violin_cache: dict | None
     bar_cache: dict | None = None
+    pca_visible_groups: dict | None = None
 
 # Analysis menu items for sidebar
 ANALYSIS_MENU_ITEMS = [
@@ -292,6 +293,7 @@ _layout = fac.AntdLayout(
             data={'metric': 'peak_area', 'group_by': 'sample_type'},
         ),
         dcc.Store(id='analysis-pca-cache', data=None),
+        dcc.Store(id='analysis-pca-visible-groups', data=None),
         dcc.Store(id='analysis-tsne-cache', data=None),
         dcc.Store(id='analysis-violin-cache', data=None),
         dcc.Store(id='analysis-bar-cache', data=None),
@@ -327,8 +329,26 @@ def _no_update_outputs():
     # Backward-compatible helper for direct calls/tests.
     return _no_update_outputs_full()[:-1]
 
-def _pca_cache_key(wdir, metric, norm_value, selected_group=None):
-    return f"{wdir}|{metric}|{norm_value}|{selected_group}"
+def _normalize_pca_visible_groups(pca_visible_groups, selected_group):
+    if not isinstance(pca_visible_groups, dict):
+        return None
+    if pca_visible_groups.get('group_by') != selected_group:
+        return None
+    groups = pca_visible_groups.get('visible_groups')
+    if not isinstance(groups, list):
+        return None
+    normalized = [str(group) for group in groups if group is not None and str(group) != ""]
+    return list(dict.fromkeys(normalized))
+
+
+def _pca_cache_key(wdir, metric, norm_value, selected_group=None, visible_groups=None):
+    group_token = 'ALL'
+    if visible_groups is not None:
+        if not visible_groups:
+            group_token = 'EMPTY'
+        else:
+            group_token = ','.join(sorted(str(group) for group in visible_groups))
+    return f"{wdir}|{metric}|{norm_value}|{selected_group}|{group_token}"
 
 def _tsne_cache_key(wdir, metric, norm_value, selected_group, perplexity):
     return f"{wdir}|{metric}|{norm_value}|{selected_group}|{perplexity}"
@@ -478,8 +498,30 @@ def _build_group_context_from_cache(samples_meta_records, selected_group, target
     return group_series, color_map, group_label
 
 
+def _extract_all_groups_from_samples_meta(samples_meta_records, selected_group, fallback_index):
+    samples_meta = pd.DataFrame(samples_meta_records or [])
+    if samples_meta.empty:
+        return list(dict.fromkeys(fallback_index))
+
+    group_field = selected_group if selected_group in samples_meta.columns else (
+        'sample_type' if 'sample_type' in samples_meta.columns else None
+    )
+    if not group_field or group_field not in samples_meta.columns:
+        return list(dict.fromkeys(fallback_index))
+
+    group_label = GROUP_LABELS.get(group_field, 'Group')
+    missing_group_label = f"{group_label} (unset)"
+    values = (
+        samples_meta[group_field]
+        .replace("", pd.NA)
+        .fillna(missing_group_label)
+        .tolist()
+    )
+    return list(dict.fromkeys(str(value) for value in values if value is not None))
+
+
 def _handle_pca_cached_group_change(
-    tab_key, triggered_only_group, pca_cache, cache_key, selected_group, x_comp, y_comp
+    tab_key, triggered_only_group, pca_cache, cache_key, selected_group, x_comp, y_comp, visible_groups
 ):
     if not (tab_key == 'pca' and triggered_only_group and pca_cache and pca_cache.get('key') == cache_key):
         return None
@@ -490,8 +532,14 @@ def _handle_pca_cached_group_change(
             selected_group,
             results['scores'].index,
         )
+        all_groups = _extract_all_groups_from_samples_meta(
+            pca_cache.get('samples_meta', []),
+            selected_group,
+            results['scores'].index,
+        )
         fig = pca.generate_pca_figure(
-            None, group_series, color_map, group_label, x_comp, y_comp, pca_results=results
+            None, group_series, color_map, group_label, x_comp, y_comp,
+            pca_results=results, all_groups=all_groups, visible_groups=visible_groups
         )
         return _return_pca(fig)
     except Exception as exc:
@@ -500,7 +548,7 @@ def _handle_pca_cached_group_change(
 
 
 def _handle_pca_cached_render(
-    tab_key, triggered_props, pca_cache, cache_key, selected_group, x_comp, y_comp
+    tab_key, triggered_props, pca_cache, cache_key, selected_group, x_comp, y_comp, visible_groups
 ):
     """
     Re-render PCA directly from cached PCA results when data matrix inputs are unchanged.
@@ -534,8 +582,14 @@ def _handle_pca_cached_render(
             selected_group,
             results['scores'].index,
         )
+        all_groups = _extract_all_groups_from_samples_meta(
+            pca_cache.get('samples_meta', []),
+            selected_group,
+            results['scores'].index,
+        )
         fig = pca.generate_pca_figure(
-            None, group_series, color_map, group_label, x_comp, y_comp, pca_results=results
+            None, group_series, color_map, group_label, x_comp, y_comp,
+            pca_results=results, all_groups=all_groups, visible_groups=visible_groups
         )
         logger.debug(
             "PCA cache hit for key=%s (triggers=%s)",
@@ -729,10 +783,14 @@ def _handle_clustermap_tab(
     return _return_clustermap(src)
 
 
-def _handle_pca_tab(ndf, color_labels, color_map, group_label, x_comp, y_comp, cache_key, colors_df, compound_options):
+def _handle_pca_tab(
+    ndf, color_labels, color_map, group_label, x_comp, y_comp, cache_key, colors_df,
+    compound_options, all_groups, visible_groups
+):
     pca_results = pca.run_pca_samples_in_cols(ndf, n_components=min(ndf.shape[0], ndf.shape[1], 5))
     fig = pca.generate_pca_figure(
-        ndf, color_labels, color_map, group_label, x_comp, y_comp, pca_results=pca_results
+        ndf, color_labels, color_map, group_label, x_comp, y_comp,
+        pca_results=pca_results, all_groups=all_groups, visible_groups=visible_groups
     )
     pca_cache_data = {
         'key': cache_key,
@@ -1283,6 +1341,7 @@ def callbacks(app, fsc=None, cache=None):
         Input('tsne-x-comp', 'value'),
         Input('tsne-y-comp', 'value'),
         Input('tsne-perplexity-slider', 'value'),
+        Input('analysis-pca-visible-groups', 'data'),
         State('analysis-pca-cache', 'data'),
         State('analysis-tsne-cache', 'data'),
         State('analysis-violin-cache', 'data'),
@@ -1291,19 +1350,20 @@ def callbacks(app, fsc=None, cache=None):
     )
     def update_content_wrapper(section_context, tab_key, x_comp, y_comp, violin_comp_checks, bar_comp_checks, metric_value, norm_value,
                         group_by, regen_clicks, tsne_regen_clicks, cluster_rows, cluster_cols, fontsize_x, fontsize_y, wdir,
-                        tsne_x_comp, tsne_y_comp, tsne_perplexity, pca_cache, tsne_cache, violin_cache, bar_cache=None):
+                        tsne_x_comp, tsne_y_comp, tsne_perplexity, pca_visible_groups, pca_cache, tsne_cache, violin_cache, bar_cache=None):
         return update_content(
             section_context, tab_key, x_comp, y_comp, violin_comp_checks, bar_comp_checks, metric_value, norm_value,
             group_by, regen_clicks, tsne_regen_clicks, cluster_rows, cluster_cols, fontsize_x, fontsize_y, wdir,
             tsne_x_comp, tsne_y_comp, tsne_perplexity, pca_cache, tsne_cache, violin_cache, bar_cache,
             include_bar_cache=True,
+            pca_visible_groups=pca_visible_groups,
         )
 
 
 def update_content(section_context, tab_key, x_comp, y_comp, violin_comp_checks, bar_comp_checks, metric_value, norm_value,
                     group_by, regen_clicks, tsne_regen_clicks, cluster_rows, cluster_cols, fontsize_x, fontsize_y, wdir,
                     tsne_x_comp, tsne_y_comp, tsne_perplexity, pca_cache, tsne_cache, violin_cache, bar_cache=None,
-                    include_bar_cache=False):
+                    include_bar_cache=False, pca_visible_groups=None):
 
         ctx = AnalysisUpdateContext(
             section_context=section_context,
@@ -1329,6 +1389,7 @@ def update_content(section_context, tab_key, x_comp, y_comp, violin_comp_checks,
             tsne_cache=tsne_cache,
             violin_cache=violin_cache,
             bar_cache=bar_cache,
+            pca_visible_groups=pca_visible_groups,
         )
         result = _update_content_from_context(ctx)
         if include_bar_cache:
@@ -1368,7 +1429,8 @@ def _update_content_from_context(ctx: AnalysisUpdateContext):
             metric = ctx.metric_value
 
         norm_value = ctx.norm_value or TAB_DEFAULT_NORM.get(ctx.tab_key, 'zscore')
-        cache_key = _pca_cache_key(ctx.wdir, metric, norm_value, selected_group)
+        visible_groups = _normalize_pca_visible_groups(ctx.pca_visible_groups, selected_group)
+        cache_key = _pca_cache_key(ctx.wdir, metric, norm_value, selected_group, visible_groups)
         tsne_perplexity_value = ctx.tsne_perplexity if ctx.tsne_perplexity else 30
         tsne_cache_key = _tsne_cache_key(ctx.wdir, metric, norm_value, selected_group, tsne_perplexity_value)
         violin_cache_key = _violin_cache_key(ctx.wdir, metric, norm_value, selected_group)
@@ -1379,13 +1441,15 @@ def _update_content_from_context(ctx: AnalysisUpdateContext):
         )
 
         cached_result = _handle_pca_cached_group_change(
-            ctx.tab_key, triggered_only_group, ctx.pca_cache, cache_key, selected_group, ctx.x_comp, ctx.y_comp
+            ctx.tab_key, triggered_only_group, ctx.pca_cache, cache_key, selected_group,
+            ctx.x_comp, ctx.y_comp, visible_groups
         )
         if cached_result is not None:
             return cached_result
 
         cached_result = _handle_pca_cached_render(
-            ctx.tab_key, triggered_props, ctx.pca_cache, cache_key, selected_group, ctx.x_comp, ctx.y_comp
+            ctx.tab_key, triggered_props, ctx.pca_cache, cache_key, selected_group,
+            ctx.x_comp, ctx.y_comp, visible_groups
         )
         if cached_result is not None:
             return cached_result
@@ -1457,6 +1521,25 @@ def _update_content_from_context(ctx: AnalysisUpdateContext):
         color_map = matrix_data['color_map']
         colors_df = matrix_data['colors_df']
         compound_options = matrix_data['compound_options']
+        all_groups = list(dict.fromkeys(color_labels.tolist()))
+
+        if ctx.tab_key == 'pca' and visible_groups is not None:
+            keep_mask = color_labels.isin(visible_groups)
+            filtered_index = color_labels.index[keep_mask]
+            ndf = ndf.loc[filtered_index]
+            color_labels = color_labels.loc[filtered_index]
+
+            if ndf.shape[0] < 2:
+                fig = pca.generate_pca_placeholder_figure(
+                    color_map,
+                    group_label,
+                    ctx.x_comp,
+                    ctx.y_comp,
+                    all_groups=all_groups,
+                    visible_groups=visible_groups,
+                    message="Select at least 2 samples to compute PCA.",
+                )
+                return _return_pca(fig, compound_options=compound_options)
 
         tab_handlers = {
             'clustermap': lambda: _handle_clustermap_tab(
@@ -1465,7 +1548,7 @@ def _update_content_from_context(ctx: AnalysisUpdateContext):
             ),
             'pca': lambda: _handle_pca_tab(
                 ndf, color_labels, color_map, group_label, ctx.x_comp, ctx.y_comp,
-                cache_key, colors_df, compound_options
+                cache_key, colors_df, compound_options, all_groups, visible_groups
             ),
             'tsne': lambda: _handle_tsne_tab(
                 ndf, color_labels, color_map, group_label, ctx.tsne_x_comp, ctx.tsne_y_comp,

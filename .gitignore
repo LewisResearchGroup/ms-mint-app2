@@ -48,3 +48,7 @@ notes.md
 Makefile
 InnoSetup/
 flaskapp/
+
+
+#Ignore vscode AI rules
+.github/instructions/codacy.instructions.md
