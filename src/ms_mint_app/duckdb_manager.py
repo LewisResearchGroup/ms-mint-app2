@@ -4760,7 +4760,15 @@ def compute_and_insert_chromatograms_iteratively(con: duckdb.DuckDBPyConnection,
     logger.info("Iterative chromatogram computation complete.")
 
 
-def get_chromatogram_envelope(conn, target_label, ms_type='ms1', bins=500, full_range=False):
+def get_chromatogram_envelope(
+    conn,
+    target_label,
+    ms_type='ms1',
+    bins=500,
+    full_range=False,
+    window_min=None,
+    window_max=None,
+):
     """
     Computes Min/Max/Mean envelope for chromatograms, binned by time.
     Returns a Polars DataFrame with columns: 
@@ -4788,6 +4796,8 @@ def get_chromatogram_envelope(conn, target_label, ms_type='ms1', bins=500, full_
     except (TypeError, ValueError):
         bins = 500
     bins = max(10, min(bins, 2000))
+
+    use_window = window_min is not None and window_max is not None
 
     query = f"""
     WITH picked_target AS (
@@ -4831,6 +4841,18 @@ def get_chromatogram_envelope(conn, target_label, ms_type='ms1', bins=500, full_
             ) AS pairs
         FROM base
     ),
+    filtered AS (
+        SELECT
+            ms_file_label,
+            sample_type,
+            color,
+            intensity_threshold,
+            CASE
+                WHEN ? THEN list_filter(pairs, p -> p.rt >= ? AND p.rt <= ?)
+                ELSE pairs
+            END AS filtered_pairs
+        FROM zipped
+    ),
     raw_points AS (
         SELECT
             z.ms_file_label,
@@ -4841,8 +4863,8 @@ def get_chromatogram_envelope(conn, target_label, ms_type='ms1', bins=500, full_
                 WHEN u.pair.intens >= z.intensity_threshold THEN u.pair.intens
                 ELSE 1
             END AS intens
-        FROM zipped z
-        CROSS JOIN UNNEST(z.pairs) AS u(pair)
+        FROM filtered z
+        CROSS JOIN UNNEST(z.filtered_pairs) AS u(pair)
     ),
     sample_counts AS (
         SELECT
@@ -4894,12 +4916,15 @@ def get_chromatogram_envelope(conn, target_label, ms_type='ms1', bins=500, full_
     ORDER BY a.sample_type, a.bin_idx
     """
     
-    params = [target_label, target_label, ms_type]
+    params = [target_label, target_label, ms_type, use_window, window_min, window_max]
     df = conn.execute(query, params).pl()
 
     # Fallback: if no MS2 chromatograms exist for this target, try MS1 so UI isn't blank.
     if df.is_empty() and ms_type == 'ms2':
-        df = conn.execute(query, [target_label, target_label, 'ms1']).pl()
+        df = conn.execute(
+            query,
+            [target_label, target_label, 'ms1', use_window, window_min, window_max],
+        ).pl()
         if not df.is_empty():
             logger.warning(
                 "No MS2 chromatograms found for target '%s'; using MS1 envelope instead.",

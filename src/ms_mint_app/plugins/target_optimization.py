@@ -53,6 +53,7 @@ SAVGOL_WINDOW = 10
 SAVGOL_ORDER = 2
 SAVGOL_MIN_RT_SPAN = 30.0
 RT_FALLBACK_PAD_SECONDS = 30.0
+RT_EXPANDED_PAD_SECONDS = 60.0
 PREVIEW_RT_PAD_SECONDS = 2.0
 
 _SESSION_RENDER_REVISIONS = defaultdict(int)
@@ -328,6 +329,11 @@ def _get_rt_span_with_pad(rt_min, rt_max, pad_seconds=RT_FALLBACK_PAD_SECONDS):
     except (TypeError, ValueError):
         return None, None
     return rt_min - pad_seconds, rt_max + pad_seconds
+
+
+def _get_modal_rt_window(rt_min, rt_max, expanded=False):
+    pad_seconds = RT_EXPANDED_PAD_SECONDS if expanded else RT_FALLBACK_PAD_SECONDS
+    return _get_rt_span_with_pad(rt_min, rt_max, pad_seconds=pad_seconds)
 
 
 def _has_visible_points(
@@ -1342,7 +1348,7 @@ _layout = fac.AntdLayout(
                                                     id='chromatogram-preview-pagination',
                                                     defaultPageSize=9,  # Reduced from 20 for faster load with large MS2 data
                                                     showSizeChanger=True,
-                                                    pageSizeOptions=[4, 9, 20, 50],
+                                                    pageSizeOptions=[4, 9, 20],
                                                     locale='en-us',
                                                     align='center',
                                                     showTotalSuffix='targets',
@@ -1724,14 +1730,14 @@ _layout = fac.AntdLayout(
                                             [
                                                 html.Div(
                                                     [
-                                                        html.Span('Full Range:'),
+                                                        html.Span('Range:'),
                                                         fac.AntdTooltip(
                                                             fac.AntdIcon(
                                                                 icon='antd-question-circle',
                                                                 style={'marginLeft': '5px', 'color': 'gray'}
                                                             ),
                                                             id='chromatogram-view-full-range-tooltip',
-                                                            title='Show entire chromatogram (slower) vs 30s window'
+                                                            title='Show a wider chromatogram window (60s padding) instead of the default 30s padding'
                                                         )
                                                     ],
                                                     style={
@@ -1745,7 +1751,7 @@ _layout = fac.AntdLayout(
                                                     fac.AntdSwitch(
                                                         id='chromatogram-view-full-range',
                                                         checked=False,
-                                                        checkedChildren='All',
+                                                        checkedChildren='60s',
                                                         unCheckedChildren='30s',
                                                         style={'width': '60px'}
                                                     ),
@@ -3796,27 +3802,16 @@ def callbacks(app, fsc, cache, cpu=None):
 
             if use_envelope:
                 ms_type_use = target_ms_type or 'ms1'
-                if full_range and ms_type_use == 'ms1':
-                    has_full_ds = conn.execute(
-                        """
-                        SELECT COUNT(*)
-                        FROM chromatograms
-                        WHERE peak_label = ?
-                          AND ms_type = 'ms1'
-                          AND scan_time_full_ds IS NOT NULL
-                        """,
-                        [target_clicked],
-                    ).fetchone()[0]
-                    if not has_full_ds and wdir:
-                        populate_full_range_downsampled_chromatograms_for_target(
-                            wdir,
-                            target_clicked,
-                            n_out=FULL_RANGE_DOWNSAMPLE_POINTS,
-                            conn=conn,
-                        )
-
+                envelope_window_min, envelope_window_max = _get_modal_rt_window(
+                    target_rt_min, target_rt_max, expanded=full_range
+                )
                 chrom_df = get_chromatogram_envelope(
-                    conn, target_clicked, ms_type=ms_type_use, full_range=full_range
+                    conn,
+                    target_clicked,
+                    ms_type=ms_type_use,
+                    full_range=False,
+                    window_min=envelope_window_min,
+                    window_max=envelope_window_max,
                 )
                 if chrom_df is None or chrom_df.is_empty():
                     logger.warning(
@@ -3827,18 +3822,16 @@ def callbacks(app, fsc, cache, cpu=None):
                     )
                     use_envelope = False
                     envelope_output_value = False
-                    window_min, window_max = (None, None)
-                    if not full_range:
-                        window_min, window_max = _get_rt_span_with_pad(target_rt_min, target_rt_max)
+                    window_min, window_max = _get_modal_rt_window(target_rt_min, target_rt_max, expanded=full_range)
                     chrom_df = get_chromatogram_dataframe(
                         conn,
                         target_clicked,
-                        full_range=full_range,
+                        full_range=False,
                         wdir=wdir,
                         window_min=window_min,
                         window_max=window_max,
                     )
-                    if (not full_range) and window_min is not None and window_max is not None:
+                    if window_min is not None and window_max is not None:
                         visible = _has_visible_points(
                             chrom_df,
                             rt_min=window_min,
@@ -3851,7 +3844,7 @@ def callbacks(app, fsc, cache, cpu=None):
                             chrom_df = get_chromatogram_dataframe(
                                 conn,
                                 target_clicked,
-                                full_range=full_range,
+                                full_range=False,
                                 wdir=wdir,
                                 window_min=window_min,
                                 window_max=window_max,
@@ -3866,19 +3859,17 @@ def callbacks(app, fsc, cache, cpu=None):
                                 downsample_n_out=LTTB_TARGET_POINTS,
                             )
             else:
-                window_min, window_max = (None, None)
-                if not full_range:
-                    window_min, window_max = _get_rt_span_with_pad(target_rt_min, target_rt_max)
+                window_min, window_max = _get_modal_rt_window(target_rt_min, target_rt_max, expanded=full_range)
                 chrom_df = get_chromatogram_dataframe(
                     conn,
                     target_clicked,
-                    full_range=full_range,
+                    full_range=False,
                     wdir=wdir,
                     window_min=window_min,
                     window_max=window_max,
                 )
                 visible = True
-                if (not full_range) and window_min is not None and window_max is not None:
+                if window_min is not None and window_max is not None:
                     visible = _has_visible_points(
                         chrom_df,
                         rt_min=window_min,
@@ -3891,7 +3882,7 @@ def callbacks(app, fsc, cache, cpu=None):
                         chrom_df = get_chromatogram_dataframe(
                             conn,
                             target_clicked,
-                            full_range=full_range,
+                            full_range=False,
                             wdir=wdir,
                             window_min=window_min,
                             window_max=window_max,
@@ -3905,10 +3896,10 @@ def callbacks(app, fsc, cache, cpu=None):
                             use_downsample=(target_ms_type == 'ms1'),
                             downsample_n_out=LTTB_TARGET_POINTS,
                         )
-                if (not full_range) and not visible:
+                if not visible:
                     logger.warning(
                         "No signal detected in RT window for target '%s' (rt_min=%.2f, rt_max=%.2f). "
-                        "Consider adjusting the RT range or enabling Full Range mode.",
+                        "Consider adjusting the RT range or enabling the wider 60s view.",
                         target_clicked,
                         target_rt_min if target_rt_min else 0,
                         target_rt_max if target_rt_max else 0,
@@ -3936,8 +3927,14 @@ def callbacks(app, fsc, cache, cpu=None):
                 with duckdb_connection(wdir) as conn:
                     if conn is None:
                         raise PreventUpdate
+                    window_min, window_max = _get_modal_rt_window(target_rt_min, target_rt_max, expanded=full_range)
                     chrom_df = get_chromatogram_dataframe(
-                        conn, target_clicked, full_range=full_range, wdir=wdir
+                        conn,
+                        target_clicked,
+                        full_range=False,
+                        wdir=wdir,
+                        window_min=window_min,
+                        window_max=window_max,
                     )
                 if chrom_df is None or chrom_df.is_empty():
                     logger.warning(
@@ -4155,21 +4152,19 @@ def callbacks(app, fsc, cache, cpu=None):
             if target_ms_type is None:
                 target_ms_type = 'ms1'
 
-            window_min, window_max = (None, None)
-            if not full_range:
-                window_min, window_max = _get_rt_span_with_pad(rt_min, rt_max)
+            window_min, window_max = _get_modal_rt_window(rt_min, rt_max, expanded=full_range)
 
             chrom_df = get_chromatogram_dataframe(
                 conn,
                 target_clicked,
-                full_range=full_range,
+                full_range=False,
                 wdir=wdir,
                 window_min=window_min,
                 window_max=window_max,
             )
 
             visible = True
-            if (not full_range) and window_min is not None and window_max is not None:
+            if window_min is not None and window_max is not None:
                 visible = _has_visible_points(
                     chrom_df,
                     rt_min=window_min,
@@ -4182,7 +4177,7 @@ def callbacks(app, fsc, cache, cpu=None):
                     chrom_df = get_chromatogram_dataframe(
                         conn,
                         target_clicked,
-                        full_range=full_range,
+                        full_range=False,
                         wdir=wdir,
                         window_min=window_min,
                         window_max=window_max,
@@ -4197,10 +4192,10 @@ def callbacks(app, fsc, cache, cpu=None):
                         downsample_n_out=LTTB_TARGET_POINTS,
                     )
 
-            if (not full_range) and not visible:
+            if not visible:
                 logger.warning(
                     "apply_rt_alignment: No signal in RT window for target '%s' (rt_min=%.2f, rt_max=%.2f). "
-                    "Consider adjusting the RT range or enabling Full Range mode.",
+                    "Consider adjusting the RT range or enabling the wider 60s view.",
                     target_clicked,
                     rt_min if rt_min else 0,
                     rt_max if rt_max else 0,
@@ -4551,9 +4546,12 @@ def callbacks(app, fsc, cache, cpu=None):
             # Limit full range to 90 samples to prevent OOM - REMOVED RESTRICTION
             full_range_disabled = False
             if n_samples > 100:
-                full_range_tooltip = f"Show entire chromatogram (Warning: May be slow with {n_samples} optimization samples)"
+                full_range_tooltip = (
+                    f"Show a wider chromatogram window with 60s padding "
+                    f"(still faster than loading the full chromatogram for {n_samples} optimization samples)"
+                )
             else:
-                full_range_tooltip = "Show entire chromatogram (slower) vs 30s window"
+                full_range_tooltip = "Show a wider chromatogram window with 60s padding instead of the default 30s padding"
 
             if modal_already_open and current_full_range is not None:
                 full_range = current_full_range
@@ -4568,26 +4566,16 @@ def callbacks(app, fsc, cache, cpu=None):
 
             if use_envelope:
                 ms_type_use = target_ms_type or 'ms1'
-                if full_range and ms_type_use == 'ms1':
-                    has_full_ds = conn.execute(
-                        """
-                        SELECT COUNT(*)
-                        FROM chromatograms
-                        WHERE peak_label = ?
-                          AND ms_type = 'ms1'
-                          AND scan_time_full_ds IS NOT NULL
-                        """,
-                        [target_clicked],
-                    ).fetchone()[0]
-                    if not has_full_ds and wdir:
-                        populate_full_range_downsampled_chromatograms_for_target(
-                            wdir,
-                            target_clicked,
-                            n_out=FULL_RANGE_DOWNSAMPLE_POINTS,
-                            conn=conn,
-                        )
+                envelope_window_min, envelope_window_max = _get_modal_rt_window(
+                    rt_min, rt_max, expanded=full_range
+                )
                 chrom_df = get_chromatogram_envelope(
-                    conn, target_clicked, ms_type=ms_type_use, full_range=full_range
+                    conn,
+                    target_clicked,
+                    ms_type=ms_type_use,
+                    full_range=False,
+                    window_min=envelope_window_min,
+                    window_max=envelope_window_max,
                 )
                 if chrom_df is None or chrom_df.is_empty():
                     logger.warning(
@@ -4598,18 +4586,16 @@ def callbacks(app, fsc, cache, cpu=None):
                     )
                     use_envelope = False
                 if not use_envelope:
-                    window_min, window_max = (None, None)
-                    if not full_range:
-                        window_min, window_max = _get_rt_span_with_pad(rt_min, rt_max)
+                    window_min, window_max = _get_modal_rt_window(rt_min, rt_max, expanded=full_range)
                     chrom_df = get_chromatogram_dataframe(
                         conn,
                         target_clicked,
-                        full_range=full_range,
+                        full_range=False,
                         wdir=wdir,
                         window_min=window_min,
                         window_max=window_max,
                     )
-                    if (not full_range) and window_min is not None and window_max is not None:
+                    if window_min is not None and window_max is not None:
                         visible = _has_visible_points(
                             chrom_df,
                             rt_min=window_min,
@@ -4622,7 +4608,7 @@ def callbacks(app, fsc, cache, cpu=None):
                             chrom_df = get_chromatogram_dataframe(
                                 conn,
                                 target_clicked,
-                                full_range=full_range,
+                                full_range=False,
                                 wdir=wdir,
                                 window_min=window_min,
                                 window_max=window_max,
@@ -4638,19 +4624,17 @@ def callbacks(app, fsc, cache, cpu=None):
                             )
             else:
                 # Use helper function to fetch data
-                window_min, window_max = (None, None)
-                if not full_range:
-                    window_min, window_max = _get_rt_span_with_pad(rt_min, rt_max)
+                window_min, window_max = _get_modal_rt_window(rt_min, rt_max, expanded=full_range)
                 chrom_df = get_chromatogram_dataframe(
                     conn,
                     target_clicked,
-                    full_range=full_range,
+                    full_range=False,
                     wdir=wdir,
                     window_min=window_min,
                     window_max=window_max,
                 )
                 visible = True
-                if (not full_range) and window_min is not None and window_max is not None:
+                if window_min is not None and window_max is not None:
                     visible = _has_visible_points(
                         chrom_df,
                         rt_min=window_min,
@@ -4663,7 +4647,7 @@ def callbacks(app, fsc, cache, cpu=None):
                         chrom_df = get_chromatogram_dataframe(
                             conn,
                             target_clicked,
-                            full_range=full_range,
+                            full_range=False,
                             wdir=wdir,
                             window_min=window_min,
                             window_max=window_max,
@@ -4677,10 +4661,10 @@ def callbacks(app, fsc, cache, cpu=None):
                             use_downsample=(target_ms_type == 'ms1'),
                             downsample_n_out=LTTB_TARGET_POINTS,
                         )
-                if (not full_range) and (not visible):
+                if not visible:
                     logger.warning(
                         "Modal open: No signal in RT window for target '%s' (rt_min=%.2f, rt_max=%.2f). "
-                        "Consider adjusting the RT range or enabling Full Range mode.",
+                        "Consider adjusting the RT range or enabling the wider 60s view.",
                         target_clicked,
                         rt_min if rt_min else 0,
                         rt_max if rt_max else 0,
@@ -4756,13 +4740,11 @@ def callbacks(app, fsc, cache, cpu=None):
                 with duckdb_connection(wdir) as conn:
                     if conn is None:
                         raise PreventUpdate
-                window_min, window_max = (None, None)
-                if not full_range:
-                    window_min, window_max = _get_rt_span_with_pad(rt_min, rt_max)
+                window_min, window_max = _get_modal_rt_window(rt_min, rt_max, expanded=full_range)
                 chrom_df = get_chromatogram_dataframe(
                     conn,
                     target_clicked,
-                    full_range=full_range,
+                    full_range=False,
                     wdir=wdir,
                     window_min=window_min,
                     window_max=window_max,
@@ -5112,14 +5094,13 @@ def callbacks(app, fsc, cache, cpu=None):
         # Note: If user quickly closes modal, this might still fire, but updating the figure 
         # of a closed modal does nothing usually or might error if component unmounted.
         
-        window_min, window_max = (None, None)
         rt_min = rt_max = None
-        if not full_range:
-            shape = (figure or {}).get('layout', {}).get('shapes') or []
-            if shape:
-                rt_min = shape[0].get('x0')
-                rt_max = shape[0].get('x1')
-                window_min, window_max = _get_rt_span_with_pad(rt_min, rt_max)
+        window_min, window_max = (None, None)
+        shape = (figure or {}).get('layout', {}).get('shapes') or []
+        if shape:
+            rt_min = shape[0].get('x0')
+            rt_max = shape[0].get('x1')
+            window_min, window_max = _get_modal_rt_window(rt_min, rt_max, expanded=full_range)
 
         rt_alignment_data_effective = rt_alignment_data
         with duckdb_connection(wdir) as conn:
@@ -5139,12 +5120,12 @@ def callbacks(app, fsc, cache, cpu=None):
             chrom_df = get_chromatogram_dataframe(
                 conn,
                 target_clicked,
-                full_range=full_range,
+                full_range=False,
                 wdir=wdir,
                 window_min=window_min,
                 window_max=window_max,
             )
-            if (not full_range) and window_min is not None and window_max is not None:
+            if window_min is not None and window_max is not None:
                 visible = _has_visible_points(
                     chrom_df,
                     rt_min=window_min,
@@ -5157,7 +5138,7 @@ def callbacks(app, fsc, cache, cpu=None):
                     chrom_df = get_chromatogram_dataframe(
                         conn,
                         target_clicked,
-                        full_range=full_range,
+                        full_range=False,
                         wdir=wdir,
                         window_min=window_min,
                         window_max=window_max,
@@ -5174,7 +5155,7 @@ def callbacks(app, fsc, cache, cpu=None):
                 if not visible:
                     logger.warning(
                         "load_detailed_traces: No signal in RT window for target '%s' (rt_min=%.2f, rt_max=%.2f). "
-                        "Consider adjusting the RT range or enabling Full Range mode.",
+                        "Consider adjusting the RT range or enabling the wider 60s view.",
                         target_clicked,
                         rt_min if rt_min else 0,
                         rt_max if rt_max else 0,
