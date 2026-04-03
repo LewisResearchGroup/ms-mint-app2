@@ -262,7 +262,7 @@ _layout = html.Div(
             [
                 fac.AntdCenter(
                     fuc.FefferyHexColorPicker(
-                        id='hex-color-picker', showAlpha=True
+                        id='hex-color-picker', showAlpha=False
                     )
                 ),
                 fac.AntdFlex(
