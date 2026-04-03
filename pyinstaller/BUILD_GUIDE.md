@@ -25,7 +25,7 @@ python create_asari_env.py
 
 **What this does:**
 - Creates `pyinstaller/asari_env/` directory
-- Installs `asari-metabolomics` package in isolated environment
+- Installs the pinned `asari-metabolomics==1.13.1` package in isolated environment
 - Verifies installation
 - Reports environment size
 

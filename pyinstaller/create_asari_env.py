@@ -21,8 +21,9 @@ SCRIPT_DIR = Path(__file__).parent.resolve()
 ENV_DIR = SCRIPT_DIR / "asari_env"
 
 # Packages to install in the asari environment
+ASARI_VERSION = "1.13.1"
 PACKAGES = [
-    "asari-metabolomics",  # Main package
+    f"asari-metabolomics=={ASARI_VERSION}",  # Known-good version for the bundled env
 ]
 
 PY_MAJOR_MINOR = f"{sys.version_info.major}.{sys.version_info.minor}"
