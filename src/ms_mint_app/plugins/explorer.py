@@ -73,10 +73,22 @@ class FileExplorer:
                                         html.Div(
                                             [
                                                 # Breadcrumb for current path
-                                                fac.AntdBreadcrumb(
-                                                    id='current-path-modal',
-                                                    items=[],
-                                                    style={'margin': '10px 0', 'height': '24px'}
+                                                html.Div(
+                                                    fac.AntdBreadcrumb(
+                                                        id='current-path-modal',
+                                                        items=[],
+                                                        style={
+                                                            'margin': '0',
+                                                            'whiteSpace': 'nowrap',
+                                                        }
+                                                    ),
+                                                    style={
+                                                        'margin': '10px 0',
+                                                        'maxWidth': '800px',
+                                                        'overflowX': 'auto',
+                                                        'overflowY': 'hidden',
+                                                        'whiteSpace': 'nowrap',
+                                                    }
                                                 ),
                                                 # Table of files and directories
                                                 html.Div(
