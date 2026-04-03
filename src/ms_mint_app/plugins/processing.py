@@ -112,6 +112,8 @@ RESULTS_TABLE_COLUMNS = [
 # Index where SCALiR columns should be inserted (before Intensity)
 SCALIR_COLUMN_INSERT_INDEX = -1  # Insert before last column (Intensity)
 
+RESULTS_DOWNLOAD_TARGET_METADATA_COLS = {'rt', 'formula', 'mz_mean'}
+
 class ProcessingPlugin(PluginInterface):
     def __init__(self):
         self._label = _label
@@ -582,14 +584,16 @@ _layout = html.Div(
                                         fac.AntdFormItem(
                                             [
                                                 fac.AntdSelect(
-                                                    options=['peak_area', 'peak_area_fitted', 'peak_area_top3', 'peak_mean',
+                                                    options=['rt', 'formula', 'mz_mean',
+                                                             'peak_area', 'peak_area_fitted', 'peak_area_top3', 'peak_mean',
                                                              'peak_median', 'peak_n_datapoints', 'peak_min', 'peak_max',
                                                              'peak_rt_of_max', 'peak_sigma', 'peak_tau', 'peak_asymmetry',
                                                              'peak_rt_fitted', 'fit_r_squared', 'fit_success', 'total_intensity',
                                                              'rt_aligned', 'rt_shift', 'peak_mz_of_max', 'scan_time', 'intensity',
                                                              'scalir_conc', 'scalir_in_range', 'scalir_unit'],
                                                     mode="multiple",
-                                                    value=['peak_area', 'peak_area_top3', 'peak_mean',
+                                                    value=['rt', 'formula', 'mz_mean',
+                                                           'peak_area', 'peak_area_top3', 'peak_mean',
                                                            'peak_median', 'peak_n_datapoints', 'peak_min', 'peak_max',
                                                            'peak_rt_of_max', 'total_intensity'],
                                                     style={"width": "100%"},
@@ -1106,6 +1110,8 @@ def _download_all_results(wdir: str, ws_name: str, selected_columns: list) -> tu
     """
     # All columns that can be downloaded (matching the dropdown options in the modal)
     allowed_cols = {
+        # Target metadata columns
+        'rt', 'formula', 'mz_mean',
         # Core result columns
         'peak_area', 'peak_area_top3', 'peak_mean', 'peak_median',
         'peak_n_datapoints', 'peak_min', 'peak_max', 'peak_rt_of_max', 'total_intensity',
@@ -1150,7 +1156,9 @@ def _download_all_results(wdir: str, ws_name: str, selected_columns: list) -> tu
     tmp_path = None
     import os
 
-    if backup_path.exists() and not any(c.startswith('scalir_') for c in safe_cols):
+    requested_target_metadata = any(c in RESULTS_DOWNLOAD_TARGET_METADATA_COLS for c in safe_cols)
+
+    if backup_path.exists() and not any(c.startswith('scalir_') for c in safe_cols) and not requested_target_metadata:
         # 1. Use Polars to clean/filter the data first (respecting user column selection)
         logger.info(f"Download request: {filename} (filtering columns with Polars)")
         import polars as pl
@@ -1262,6 +1270,12 @@ def _generate_csv_from_db(wdir: str, ws_name: str, safe_cols: list) -> str:
         for c in safe_cols:
             if c in ('scan_time', 'intensity'):
                 col_list.append(f"array_to_string(r.{c}, ',') AS {c}")
+            elif c == 'rt':
+                col_list.append("t.rt")
+            elif c == 'formula':
+                col_list.append("t.formula")
+            elif c == 'mz_mean':
+                col_list.append("t.mz_mean")
             elif c == 'scalir_conc':
                 col_list.append(f"sc.pred_conc AS {c}")
             elif c == 'scalir_in_range':
@@ -1288,6 +1302,7 @@ def _generate_csv_from_db(wdir: str, ws_name: str, safe_cols: list) -> str:
                     {cols} 
                 FROM results r 
                 JOIN samples s ON s.ms_file_label = r.ms_file_label 
+                JOIN targets t ON t.peak_label = r.peak_label
                 {scalir_join}
                 ORDER BY s.ms_type, r.peak_label, r.ms_file_label
             ) TO ? (HEADER, DELIMITER ',')
