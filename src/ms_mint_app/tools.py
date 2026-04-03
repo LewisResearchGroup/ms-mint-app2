@@ -125,6 +125,15 @@ COLUMN_MAPPINGS = {
     'id': 'maven_id',
     'groupid': 'maven_id',
     'maven_id': 'maven_id',
+    'category': 'category',
+    'compoundcategory': 'category',
+    'groupcategory': 'category',
+    'class': 'category',
+    'notes': 'notes',
+    'note': 'notes',
+    'comments': 'notes',
+    'comment': 'notes',
+    'description': 'notes',
 }
 
 # Priority order for target columns that can come from multiple source columns.
@@ -136,6 +145,8 @@ PRIORITY_MAPPINGS = {
     'rt': ['meanrt', 'medrt', 'expectedrt', 'row retention time', 'retention_time', 'retentiontime'],
     'formula': ['formula', 'parentformula'],
     'maven_id': ['id', 'groupid', 'maven_id'],
+    'category': ['category', 'compoundcategory', 'groupcategory', 'class'],
+    'notes': ['notes', 'note', 'comments', 'comment', 'description'],
 }
 
 
@@ -1467,6 +1478,7 @@ def get_targets_v2(files_path):
     failed_files = {}
     failed_targets = []
     valid_targets = []
+    ignored_columns_by_file = {}
 
     total_files = len(files_path)
     files_processed = 0
@@ -1479,8 +1491,27 @@ def get_targets_v2(files_path):
         file_name = Path(file_path).name
 
         try:
-            df = read_tabular_file(file_path, dtype=ref_cols)
-            
+            preview = read_tabular_file(file_path, nrows=0)
+            normalized_preview = normalize_column_names(preview.copy())
+            ignored_columns = sorted(
+                col for col in normalized_preview.columns
+                if col not in ref_cols
+            )
+            if ignored_columns:
+                ignored_columns_by_file[file_name] = ignored_columns
+                logging.info(
+                    "Ignoring unsupported target columns in %s: %s",
+                    file_name,
+                    ", ".join(ignored_columns),
+                )
+            dtype_map = {
+                col: ref_cols[col]
+                for col in normalized_preview.columns
+                if col in ref_cols
+            }
+
+            df = read_tabular_file(file_path, dtype=dtype_map if dtype_map else None)
+
             # Normalize column names from external formats (EL-MAVEN, MZmine, etc.)
             df = normalize_column_names(df)
 
@@ -1793,6 +1824,10 @@ def get_targets_v2(files_path):
         'duplicate_peak_labels_list': duplicate_labels,
         'rt_adjusted_count': len(rt_adjusted_labels),
         'rt_adjusted_labels': rt_adjusted_labels,
+        'ignored_columns_by_file': ignored_columns_by_file,
+        'ignored_columns': sorted(
+            {col for cols in ignored_columns_by_file.values() for col in cols}
+        ),
     }
 
     return targets_df[ref_names], failed_files, failed_targets, stats

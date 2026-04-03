@@ -64,3 +64,49 @@ def test_ms_type_derived_from_filterline(tmp_path, row, expected_ms_type):
     assert failed_files == {}
     assert failed_targets == []
     assert targets_df.iloc[0]["ms_type"] == expected_ms_type
+
+
+def test_category_and_notes_columns_are_imported(tmp_path):
+    df = pd.DataFrame(
+        [
+            {
+                "Compound": "Glucose",
+                "meanRt": 2.0,
+                "meanMz": 180.0634,
+                "Category": "Sugar",
+                "Notes": "Imported from El-Maven",
+            },
+        ]
+    )
+
+    targets_df, failed_files, failed_targets, _ = _run_get_targets(tmp_path, df)
+
+    assert failed_files == {}
+    assert failed_targets == []
+    row = targets_df.iloc[0]
+    assert row["peak_label"] == "Glucose"
+    assert row["category"] == "Sugar"
+    assert row["notes"] == "Imported from El-Maven"
+
+
+def test_unknown_target_columns_are_reported_but_do_not_fail_import(tmp_path):
+    df = pd.DataFrame(
+        [
+            {
+                "Compound": "Lactate",
+                "meanRt": 1.5,
+                "meanMz": 89.0244,
+                "Category": "Organic acid",
+                "Notes": "Keep",
+                "Unexpected Column": "ignored",
+            },
+        ]
+    )
+
+    targets_df, failed_files, failed_targets, stats = _run_get_targets(tmp_path, df)
+
+    assert failed_files == {}
+    assert failed_targets == []
+    assert len(targets_df) == 1
+    assert stats["ignored_columns"] == ["Unexpected Column"]
+    assert stats["ignored_columns_by_file"]["targets.csv"] == ["Unexpected Column"]

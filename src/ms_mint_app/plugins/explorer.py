@@ -875,6 +875,7 @@ def _background_processing(set_progress, okCounts, processing_type, selected_fil
     duplicate_targets = stats.get("duplicate_peak_labels", 0) if processing_type['type'] == "targets" else 0
     failed_targets_count = len(failed_targets) if processing_type['type'] == "targets" else 0
     rt_adjusted_count = stats.get("rt_adjusted_count", 0) if processing_type['type'] == "targets" else 0
+    ignored_target_columns = stats.get("ignored_columns", []) if processing_type['type'] == "targets" else []
 
     # Log results
     logger.info(f"Processing finished. Processed: {total_processed}, Failed: {len(failed_files)}, Duplicates: {duplicates_count}")
@@ -894,6 +895,11 @@ def _background_processing(set_progress, okCounts, processing_type, selected_fil
             details.append(f"{duplicate_targets} duplicate target label(s) deduplicated")
         if rt_adjusted_count:
             details.append(f"{rt_adjusted_count} RT value(s) adjusted (outside span)")
+        if ignored_target_columns:
+            shown_columns = ", ".join(ignored_target_columns[:4])
+            if len(ignored_target_columns) > 4:
+                shown_columns += ", ..."
+            details.append(f"ignored unsupported column(s): {shown_columns}")
 
         if details:
             description = f"Processed {total_processed} items. " + ", ".join(details)
