@@ -69,3 +69,26 @@ def test_generate_csv_from_db(tmp_path):
 
     assert csv_path is not None
     assert pd.read_csv(csv_path).shape[0] == 1
+
+
+def test_generate_csv_from_db_preserves_results_without_target_metadata(tmp_path):
+    wdir = tmp_path / "workspace_missing_target"
+    wdir.mkdir()
+
+    with duckdb_connection(wdir) as conn:
+        conn.execute(
+            "INSERT INTO samples (ms_file_label, ms_type) VALUES ('S1', 'ms1')"
+        )
+        conn.execute(
+            "INSERT INTO results (peak_label, ms_file_label, peak_area) VALUES ('Peak1', 'S1', 123.0)"
+        )
+
+    csv_path = _generate_csv_from_db(str(wdir), "TestWS", ["peak_area", "rt", "formula", "mz_mean"])
+    exported = pd.read_csv(csv_path)
+
+    assert csv_path is not None
+    assert exported.shape[0] == 1
+    assert exported.loc[0, "peak_label"] == "Peak1"
+    assert pd.isna(exported.loc[0, "rt"])
+    assert pd.isna(exported.loc[0, "formula"])
+    assert pd.isna(exported.loc[0, "mz_mean"])

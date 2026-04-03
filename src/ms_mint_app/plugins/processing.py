@@ -1302,7 +1302,7 @@ def _generate_csv_from_db(wdir: str, ws_name: str, safe_cols: list) -> str:
                     {cols} 
                 FROM results r 
                 JOIN samples s ON s.ms_file_label = r.ms_file_label 
-                JOIN targets t ON t.peak_label = r.peak_label
+                LEFT JOIN targets t ON t.peak_label = r.peak_label
                 {scalir_join}
                 ORDER BY s.ms_type, r.peak_label, r.ms_file_label
             ) TO ? (HEADER, DELIMITER ',')
