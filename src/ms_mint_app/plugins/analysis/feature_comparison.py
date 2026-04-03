@@ -530,7 +530,10 @@ def register_callbacks(app):
         denom = max_lp - min_lp if max_lp != min_lp else 1.0
         strength = (logp - min_lp) / denom
         strength = np.clip(strength, 0.0, 1.0)
+        strength = np.where(np.isfinite(strength), strength, 0.0)
         alpha_vals = 0.2 + 0.8 * strength
+        alpha_vals = np.where(np.isfinite(alpha_vals), alpha_vals, 0.2)
+        alpha_vals = np.clip(alpha_vals, 0.0, 1.0)
 
         # Size based on absolute difference between group means
         diff_vals = np.abs(plot_df['mean_b'].to_numpy() - plot_df['mean_a'].to_numpy())
@@ -542,7 +545,9 @@ def register_callbacks(app):
         denom_d = max_d - min_d if max_d != min_d else 1.0
         size_strength = (diff_vals - min_d) / denom_d
         size_strength = np.clip(size_strength, 0.0, 1.0)
+        size_strength = np.where(np.isfinite(size_strength), size_strength, 0.0)
         size_vals = 6 + 10 * size_strength
+        size_vals = np.where(np.isfinite(size_vals), size_vals, 6.0)
 
         def build_customdata(frame, cols):
             if frame.empty:
