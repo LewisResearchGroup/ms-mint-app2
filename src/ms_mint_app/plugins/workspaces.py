@@ -1225,6 +1225,7 @@ def callbacks(app, fsc, cache):
         
         if wdir_path:
             from ..duckdb_manager import duckdb_connection, DatabaseCorruptionError
+            from .target_optimization import _infer_samples_ms_type
             try:
                 with duckdb_connection(wdir_path) as conn:
                     if conn is not None:
@@ -1254,6 +1255,7 @@ def callbacks(app, fsc, cache):
                                 'selected_targets_count': counts[5] or 0,
                                 'optimization_samples_count': counts[6] or 0,
                                 'results_count': counts[7] or 0,
+                                'inferred_ms_type': _infer_samples_ms_type(conn),
                                 'n_cpus': n_cpus,
                                 'default_cpus': default_cpus,
                                 'ram_avail': round(ram_avail, 1),

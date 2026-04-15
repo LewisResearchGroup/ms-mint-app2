@@ -1142,7 +1142,7 @@ _layout = fac.AntdLayout(
                                                             {'label': 'MS1', 'value': 'ms1'},
                                                             {'label': 'MS2', 'value': 'ms2'},
                                                         ],
-                                                        value='ms1',
+                                                        value='All',
                                                         placeholder='Select ms_type',
                                                         style={'width': '100%'},
                                                         allowClear=False,
@@ -2739,6 +2739,7 @@ def callbacks(app, fsc, cache, cpu=None):
                             'selected_targets_count': counts[5] or 0,
                             'optimization_samples_count': counts[6] or 0,
                             'results_count': counts[7] or 0,
+                            'inferred_ms_type': inferred_ms_type,
                             'n_cpus': n_cpus,
                             'default_cpus': default_cpus,
                             'ram_avail': round(ram_avail, 1),
@@ -2751,6 +2752,8 @@ def callbacks(app, fsc, cache, cpu=None):
         
         logger.debug(f"workspace-status updated (chromatograms changed): {workspace_status}")
         return workspace_status
+
+
 
     @app.callback(
         Output('optimization-tour-empty', 'current'),
