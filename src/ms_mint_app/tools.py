@@ -311,14 +311,14 @@ def rt_to_seconds(val) -> float:
     return h * 3600.0 + mi * 60.0 + se
 
 
-def get_acquisition_datetime(file_path: str | Path) -> Optional[str]:
+def get_acquisition_datetime_with_source(file_path: str | Path) -> tuple[Optional[str], Optional[str]]:
     """
     Extract acquisition datetime from mzML/mzXML file header.
     
     For mzML: reads startTimeStamp from <run> element
     For mzXML: reads startTime from <msRun> element or falls back to file mtime
     
-    Returns ISO format datetime string or None if not found.
+    Returns `(iso_datetime, source)` where source is `raw_header` or `file_mtime`.
     """
     from datetime import datetime
     import pygixml
@@ -338,7 +338,7 @@ def get_acquisition_datetime(file_path: str | Path) -> Optional[str]:
                 timestamp = run.attribute("startTimeStamp").value
                 if timestamp:
                     # ISO 8601 format: 2024-01-15T10:30:00Z
-                    return timestamp
+                    return timestamp, "raw_header"
         
         elif suffix == ".mzxml":
             # Look for <msRun startTime="..." or <msRun>...<startTime>
@@ -348,14 +348,14 @@ def get_acquisition_datetime(file_path: str | Path) -> Optional[str]:
                 # Check attribute first
                 start_time = run.attribute("startTime").value
                 if start_time and not start_time.startswith('PT'):
-                   return start_time
+                   return start_time, "raw_header"
                 # Check child element
                 child = run.first_child()
                 while child and not child.is_null():
                     if child.name.endswith("startTime"):
                         start_time = child.text(True, "")
                         if start_time and not start_time.startswith('PT'):
-                            return start_time
+                            return start_time, "raw_header"
                     child = child.next_sibling()
     except Exception as e:
         logger.debug(f"Could not extract acquisition datetime from {file_path.name}: {e}")
@@ -363,11 +363,16 @@ def get_acquisition_datetime(file_path: str | Path) -> Optional[str]:
     # Fallback: use file modification time
     try:
         mtime = file_path.stat().st_mtime
-        return datetime.fromtimestamp(mtime).isoformat()
+        return datetime.fromtimestamp(mtime).isoformat(), "file_mtime"
     except Exception:
         pass
     
-    return None
+    return None, None
+
+
+def get_acquisition_datetime(file_path: str | Path) -> Optional[str]:
+    acq_datetime, _source = get_acquisition_datetime_with_source(file_path)
+    return acq_datetime
 
 
 
@@ -1174,9 +1179,9 @@ def convert_mzxml_to_parquet_fast_batches(
             pass
 
     # Extract acquisition datetime from file header
-    acq_datetime = get_acquisition_datetime(file_path)
+    acq_datetime, acq_source = get_acquisition_datetime_with_source(file_path)
 
-    return file_path, file_stem, ms_level, polarity, tmp_fn.as_posix(), acq_datetime
+    return file_path, file_stem, ms_level, polarity, tmp_fn.as_posix(), acq_datetime, acq_source
 
 
 def _scan_id_from_mzml(spectrum: Dict[str, Any]) -> int:
@@ -1342,9 +1347,9 @@ def convert_mzml_to_parquet_fast_batches(
             pass
 
     # Extract acquisition datetime from file header
-    acq_datetime = get_acquisition_datetime(file_path)
+    acq_datetime, acq_source = get_acquisition_datetime_with_source(file_path)
 
-    return file_path, file_stem, ms_level, polarity, tmp_fn.as_posix(), acq_datetime
+    return file_path, file_stem, ms_level, polarity, tmp_fn.as_posix(), acq_datetime, acq_source
 
 
 
@@ -1841,7 +1846,10 @@ def _insert_ms_data(wdir, ms_type, batch_ms, batch_ms_data, n_cpus=None):
 
     pldf = pd.DataFrame(
         batch_ms[ms_type],
-        columns=['ms_file_label', 'label', 'ms_type', 'polarity', 'file_type', 'acquisition_datetime'],
+        columns=[
+            'ms_file_label', 'label', 'ms_type', 'polarity', 'file_type',
+            'acquisition_datetime', 'acquisition_datetime_source'
+        ],
     )
 
     # Auto-detect sample type and color in bulk before insertion
@@ -1870,8 +1878,8 @@ def _insert_ms_data(wdir, ms_type, batch_ms, batch_ms_data, n_cpus=None):
             
             # Insert with all metadata columns populated
             conn.execute(
-                "INSERT INTO samples(ms_file_label, label, ms_type, polarity, file_type, color, sample_type, acquisition_datetime) "
-                "SELECT ms_file_label, label, ms_type, polarity, file_type, color, sample_type, acquisition_datetime FROM pldf"
+                "INSERT INTO samples(ms_file_label, label, ms_type, polarity, file_type, color, sample_type, acquisition_datetime, acquisition_datetime_source) "
+                "SELECT ms_file_label, label, ms_type, polarity, file_type, color, sample_type, acquisition_datetime, acquisition_datetime_source FROM pldf"
             )
             
             ms_data_table = f'{ms_type}_data'
@@ -2020,7 +2028,7 @@ def process_ms_files(wdir, set_progress, selected_files, n_cpus):
                             logger.error(f"Failed: {Path(futures_name[future]).name} ({e})")
                             continue
 
-                        _file_path, _ms_file_label, _ms_level, _polarity, _parquet_df, _acq_datetime = result
+                        _file_path, _ms_file_label, _ms_level, _polarity, _parquet_df, _acq_datetime, _acq_source = result
                         
                         if _parquet_df is None:
                             failed_files.append({_file_path: "No valid data found or conversion failed"})
@@ -2041,7 +2049,10 @@ def process_ms_files(wdir, set_progress, selected_files, n_cpus):
                         else:
                             file_type = suffix.lstrip(".")
                         batch_ms[f'ms{_ms_level}'].append(
-                            (_ms_file_label, _ms_file_label, f'ms{_ms_level}', _polarity, file_type, _acq_datetime)
+                            (
+                                _ms_file_label, _ms_file_label, f'ms{_ms_level}', _polarity, file_type,
+                                _acq_datetime, _acq_source
+                            )
                         )
 
                         batch_ms_data[f'ms{_ms_level}'].append(_parquet_df)

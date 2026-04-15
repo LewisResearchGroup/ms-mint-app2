@@ -38,6 +38,52 @@ QC_LEFT_PANEL_STYLE = {
     'overflowX': 'hidden',
 }
 
+
+def _resolve_qc_x_axis(df):
+    """Return the QC x-axis field/title plus an optional provenance note."""
+    x_col = 'sample_order'
+    x_title = 'Sample Order (by Acquisition Time)'
+    note = None
+
+    if 'acquisition_datetime' not in df.columns:
+        return x_col, x_title, note
+
+    try:
+        dt_series = pd.to_datetime(df['acquisition_datetime'], errors='coerce')
+    except Exception:
+        return x_col, x_title, note
+
+    if not dt_series.notna().any():
+        return x_col, x_title, note
+
+    df['acquisition_time_str'] = dt_series.dt.strftime('%Y-%m-%d %H:%M')
+    x_col = 'acquisition_time_str'
+    x_title = 'Acquisition Time'
+
+    if 'acquisition_datetime_source' in df.columns:
+        source_series = df['acquisition_datetime_source'].fillna('').astype(str).str.strip()
+        if source_series.eq('file_mtime').any():
+            x_title = 'File Time (derived from file timestamp)'
+            note = (
+                "X-axis uses file timestamp because the raw file did not contain "
+                "an acquisition datetime."
+            )
+
+    return x_col, x_title, note
+
+
+QC_TIME_NOTE_STYLE = {
+    'display': 'none',
+    'margin': '0 0 8px 0',
+    'padding': '8px 12px',
+    'borderLeft': '3px solid #3b8fa3',
+    'backgroundColor': '#e1f0f4',
+    'color': '#2f6f7f',
+    'borderRadius': '4px',
+    'fontSize': '12px',
+    'lineHeight': '1.45',
+}
+
 def create_layout():
     """Return the QC tab layout layout component."""
     return html.Div(
@@ -50,6 +96,10 @@ def create_layout():
                             fac.AntdSpin(
                                 fac.AntdFlex(
                                     [
+                                        html.Div(
+                                            id='qc-time-axis-note',
+                                            style=dict(QC_TIME_NOTE_STYLE),
+                                        ),
                                         fac.AntdDivider(
                                             children="RT",
                                             lineColor="#ccc",
@@ -243,6 +293,8 @@ def register_callbacks(app):
     @app.callback(
         Output('qc-rt-graph', 'figure'),
         Output('qc-mz-graph', 'figure'),
+        Output('qc-time-axis-note', 'children'),
+        Output('qc-time-axis-note', 'style'),
         Output('qc-spinner', 'spinning'),
         Input('analysis-sidebar-menu', 'currentKey'),
         Input('qc-target-select', 'value'),
@@ -266,7 +318,7 @@ def register_callbacks(app):
             if conn is None:
                 empty_fig = go.Figure()
                 empty_fig.update_layout(title="No data available", paper_bgcolor='white', plot_bgcolor='white')
-                return empty_fig, empty_fig, False
+                return empty_fig, empty_fig, "", dict(QC_TIME_NOTE_STYLE), False
             
             group_col = ensure_valid_group_field(group_by, allow_none=True, default='sample_type')
 
@@ -279,7 +331,7 @@ def register_callbacks(app):
             if metric in OPTIONAL_METRICS:
                 is_available, _ = check_optional_metric_availability(conn, wdir, metric)
                 if not is_available:
-                    return dash.no_update, dash.no_update, False
+                    return dash.no_update, dash.no_update, dash.no_update, dash.no_update, False
             if metric == 'scalir_conc':
                 try:
                     scalir_path = (Path(wdir) / "results" / "scalir" / "concentrations.csv").as_posix()
@@ -300,7 +352,7 @@ def register_callbacks(app):
                     target_table = 'scalir_results_view'
                 except Exception as e:
                     logger.error(f"Error preparing SCALiR data: {e}")
-                    return dash.no_update, dash.no_update, False
+                    return dash.no_update, dash.no_update, dash.no_update, dash.no_update, False
             
             # Check if peak_mz_of_max exists
             has_peak_mz = False
@@ -326,6 +378,7 @@ def register_callbacks(app):
                     COALESCE(s.{group_col}, 'unset') as group_val,
                     s.color,
                     s.acquisition_datetime,
+                    s.acquisition_datetime_source,
                     ROW_NUMBER() OVER (ORDER BY s.acquisition_datetime NULLS LAST, s.ms_file_label) as sample_order
                 FROM {target_table} r
                 JOIN targets t ON r.peak_label = t.peak_label
@@ -339,17 +392,17 @@ def register_callbacks(app):
             except Exception as e:
                 logger.error(f"QC query error: {e}")
                 if metric in OPTIONAL_METRICS:
-                    return dash.no_update, dash.no_update, False
+                    return dash.no_update, dash.no_update, dash.no_update, dash.no_update, False
                 err_fig = go.Figure()
                 err_fig.update_layout(title=f"Error: {e}", paper_bgcolor='white', plot_bgcolor='white')
-                return err_fig, err_fig, False
+                return err_fig, err_fig, "", dict(QC_TIME_NOTE_STYLE), False
             
             if df.empty:
                 if metric in OPTIONAL_METRICS:
-                    return dash.no_update, dash.no_update, False
+                    return dash.no_update, dash.no_update, dash.no_update, dash.no_update, False
                 empty_fig = go.Figure()
                 empty_fig.update_layout(title="No results for selected target", paper_bgcolor='white', plot_bgcolor='white')
-                return empty_fig, empty_fig, False
+                return empty_fig, empty_fig, "", dict(QC_TIME_NOTE_STYLE), False
             
             # Use cached color map for consistent group colors across tabs
             unique_groups = df['group_val'].unique()
@@ -362,23 +415,7 @@ def register_callbacks(app):
                 use_sample_colors=use_sample_colors,
             )
 
-            # X-axis configuration
-            x_col = 'sample_order'
-            x_title = 'Sample Order (by Acquisition Time)'
-            
-            # Identify valid datetime data
-            if 'acquisition_datetime' in df.columns:
-                 # Ensure datetime type
-                 try:
-                     # Attempt to parse. Coerce errors to NaT
-                     dt_series = pd.to_datetime(df['acquisition_datetime'], errors='coerce')
-                     if dt_series.notna().any():
-                         # We have valid dates. Create a formatted string column for display
-                         df['acquisition_time_str'] = dt_series.dt.strftime('%Y-%m-%d %H:%M')
-                         x_col = 'acquisition_time_str'
-                         x_title = 'Acquisition Time'
-                 except Exception:
-                     pass
+            x_col, x_title, x_axis_note = _resolve_qc_x_axis(df)
             
             # Get bounds
             mz_mean = df['mz_mean'].iloc[0] if pd.notna(df['mz_mean'].iloc[0]) else None
@@ -459,7 +496,7 @@ def register_callbacks(app):
             fig_rt.update_layout(
                 **layout_common,
                 yaxis_title='RT (sec)',
-                xaxis_title="", # Separation of axes, might prefer empty here
+                xaxis_title="",
                 xaxis=dict(showticklabels=True)
             )
 
@@ -470,8 +507,14 @@ def register_callbacks(app):
                 xaxis_title=x_title,
                 xaxis=dict(showticklabels=True)
             )
+
+            note_style = dict(QC_TIME_NOTE_STYLE)
+            note_children = ""
+            if x_axis_note:
+                note_style['display'] = 'block'
+                note_children = x_axis_note
             
-            return fig_rt, fig_mz, False
+            return fig_rt, fig_mz, note_children, note_style, False
 
     @app.callback(
         Output('qc-chromatogram', 'figure', allow_duplicate=True),
