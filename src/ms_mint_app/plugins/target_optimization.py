@@ -1448,19 +1448,19 @@ _layout = fac.AntdLayout(
                                 fac.AntdFormItem(
                                     fac.AntdInputNumber(
                                         id='chromatogram-compute-cpu',
-                                        value=cpu_count() // 2,
+                                        value=calculate_optimal_params()[0],
                                         min=1,
-                                        max=cpu_count() - 2,
+                                        max=cpu_count(),
                                     ),
                                     label='CPU:',
                                     hasFeedback=True,
-                                    help=f"Selected {cpu_count() // 2} / {cpu_count()} cpus",
+                                    help=f"Selected {calculate_optimal_params()[0]} / {cpu_count()} cpus",
                                     id='chromatogram-compute-cpu-item'
                                 ),
                                 fac.AntdFormItem(
                                     fac.AntdInputNumber(
                                         id='chromatogram-compute-ram',
-                                        value=round(psutil.virtual_memory().available * 0.5 / (1024 ** 3), 1),
+                                        value=calculate_optimal_params()[1],
                                         min=1,
                                         precision=1,
                                         step=0.1,
@@ -1470,7 +1470,7 @@ _layout = fac.AntdLayout(
                                     hasFeedback=True,
                                     id='chromatogram-compute-ram-item',
                                     help=f"Selected "
-                                         f"{round(psutil.virtual_memory().available * 0.5 / (1024 ** 3), 1)}GB / "
+                                         f"{calculate_optimal_params()[1]}GB / "
                                          f"{round(psutil.virtual_memory().available / (1024 ** 3), 1)}GB available RAM"
                                 ),
                                 fac.AntdFormItem(
@@ -2570,11 +2570,10 @@ def callbacks(app, fsc, cache, cpu=None):
         if not nClicks and not nClicks_empty:
             raise PreventUpdate
         
-        # Calculate system defaults
+        # Calculate system defaults from the shared optimizer helper
         n_cpus = cpu_count()
-        default_cpus = max(1, n_cpus // 2)
+        default_cpus, default_ram, _ = calculate_optimal_params()
         ram_avail = psutil.virtual_memory().available / (1024 ** 3)
-        default_ram = round(min(float(default_cpus) * 1.5, ram_avail), 1)
         
         status = workspace_status or {}
         chromatograms_count = status.get('chromatograms_count', 0) or 0
