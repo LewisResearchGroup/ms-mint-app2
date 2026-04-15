@@ -66,6 +66,33 @@ def test_ms_type_derived_from_filterline(tmp_path, row, expected_ms_type):
     assert targets_df.iloc[0]["ms_type"] == expected_ms_type
 
 
+def test_maven_ms2_peak_list_maps_isotope_label_and_medrt(tmp_path):
+    df = pd.DataFrame(
+        [
+            {
+                "compound": "355.200134@21.942015",
+                "medRt": 21.942,
+                "isotopeLabel": "+ c ESI SRM ms2 426.320 [355.199-355.201]",
+                "parent": 355.200134,
+            },
+        ]
+    )
+
+    targets_df, failed_files, failed_targets, _ = _run_get_targets(tmp_path, df)
+
+    assert failed_files == {}
+    assert failed_targets == []
+
+    row = targets_df.iloc[0]
+    assert row["peak_label"] == "355.200134@21.942015"
+    assert row["filterLine"] == "+ c ESI SRM ms2 426.320 [355.199-355.201]"
+    assert row["ms_type"] == "ms2"
+    assert row["rt"] == pytest.approx(21.942 * 60)
+    assert row["rt_min"] == pytest.approx((21.942 * 60) - 5.0)
+    assert row["rt_max"] == pytest.approx((21.942 * 60) + 5.0)
+    assert row["mz_mean"] == pytest.approx(355.200134)
+
+
 def test_category_and_notes_columns_are_imported(tmp_path):
     df = pd.DataFrame(
         [

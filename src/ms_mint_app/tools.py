@@ -118,6 +118,7 @@ COLUMN_MAPPINGS = {
     'retentiontime': 'rt',
     'rtmin': 'rt_min',
     'rtmax': 'rt_max',
+    'isotopelabel': 'filterLine',
     
     # Formula and IDs
     'formula': 'formula',
