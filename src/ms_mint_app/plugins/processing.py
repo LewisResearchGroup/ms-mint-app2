@@ -43,6 +43,27 @@ _label = "Processing"
 
 logger = logging.getLogger(__name__)
 
+DOWNLOAD_ALL_RESULTS_SAVE_ALL = "__save_all__"
+DOWNLOAD_ALL_RESULTS_ALLOWED_COLS = [
+    'rt', 'formula', 'mz_mean',
+    'peak_area', 'peak_area_fitted', 'peak_area_top3', 'peak_mean',
+    'peak_median', 'peak_n_datapoints', 'peak_min', 'peak_max',
+    'peak_rt_of_max', 'peak_sigma', 'peak_tau', 'peak_asymmetry',
+    'peak_rt_fitted', 'fit_r_squared', 'fit_success', 'total_intensity',
+    'rt_aligned', 'rt_shift', 'peak_mz_of_max', 'scan_time', 'intensity',
+    'scalir_conc', 'scalir_in_range', 'scalir_unit',
+]
+DOWNLOAD_ALL_RESULTS_DEFAULT_COLS = [
+    'rt', 'formula', 'mz_mean',
+    'peak_area', 'peak_area_top3', 'peak_mean',
+    'peak_median', 'peak_n_datapoints', 'peak_min', 'peak_max',
+    'peak_rt_of_max', 'total_intensity',
+]
+DOWNLOAD_ALL_RESULTS_OPTIONS = (
+    [{'label': 'Save all', 'value': DOWNLOAD_ALL_RESULTS_SAVE_ALL}] +
+    [{'label': col, 'value': col} for col in DOWNLOAD_ALL_RESULTS_ALLOWED_COLS]
+)
+
 def _load_scalir():
     try:
         from . import scalir as scalir_module
@@ -584,18 +605,9 @@ _layout = html.Div(
                                         fac.AntdFormItem(
                                             [
                                                 fac.AntdSelect(
-                                                    options=['rt', 'formula', 'mz_mean',
-                                                             'peak_area', 'peak_area_fitted', 'peak_area_top3', 'peak_mean',
-                                                             'peak_median', 'peak_n_datapoints', 'peak_min', 'peak_max',
-                                                             'peak_rt_of_max', 'peak_sigma', 'peak_tau', 'peak_asymmetry',
-                                                             'peak_rt_fitted', 'fit_r_squared', 'fit_success', 'total_intensity',
-                                                             'rt_aligned', 'rt_shift', 'peak_mz_of_max', 'scan_time', 'intensity',
-                                                             'scalir_conc', 'scalir_in_range', 'scalir_unit'],
+                                                    options=DOWNLOAD_ALL_RESULTS_OPTIONS,
                                                     mode="multiple",
-                                                    value=['rt', 'formula', 'mz_mean',
-                                                           'peak_area', 'peak_area_top3', 'peak_mean',
-                                                           'peak_median', 'peak_n_datapoints', 'peak_min', 'peak_max',
-                                                           'peak_rt_of_max', 'total_intensity'],
+                                                    value=DOWNLOAD_ALL_RESULTS_DEFAULT_COLS,
                                                     style={"width": "100%"},
                                                     locale="en-us",
                                                     id='download-options-all-results'
@@ -1108,25 +1120,7 @@ def _download_all_results(wdir: str, ws_name: str, selected_columns: list) -> tu
         Tuple of (download_data, notification) where download_data is for dcc.Download
         and notification is AntdNotification or None
     """
-    # All columns that can be downloaded (matching the dropdown options in the modal)
-    allowed_cols = {
-        # Target metadata columns
-        'rt', 'formula', 'mz_mean',
-        # Core result columns
-        'peak_area', 'peak_area_top3', 'peak_mean', 'peak_median',
-        'peak_n_datapoints', 'peak_min', 'peak_max', 'peak_rt_of_max', 'total_intensity',
-        # EMG Peak Fitting columns
-        'peak_area_fitted', 'peak_sigma', 'peak_tau', 'peak_asymmetry',
-        'peak_rt_fitted', 'fit_r_squared', 'fit_success',
-        # Raw data arrays (optional - for advanced users)
-        'scan_time', 'intensity',
-        # RT alignment columns
-        'rt_aligned', 'rt_shift',
-        # m/z of max
-        'peak_mz_of_max',
-        # SCALiR columns
-        'scalir_conc', 'scalir_in_range', 'scalir_unit',
-    }
+    allowed_cols = set(DOWNLOAD_ALL_RESULTS_ALLOWED_COLS)
     
     if not selected_columns or not isinstance(selected_columns, list):
         return dash.no_update, fac.AntdNotification(
@@ -1246,6 +1240,7 @@ def _generate_csv_from_db(wdir: str, ws_name: str, safe_cols: list) -> str:
         # Check if we need SCALiR columns
         scalir_cols = [c for c in safe_cols if c.startswith('scalir_')]
         scalir_join = ""
+        sc_cols_available = []
         
         if scalir_cols:
             conc_file = Path(wdir) / "results" / "scalir" / "concentrations.csv"
@@ -1262,6 +1257,11 @@ def _generate_csv_from_db(wdir: str, ws_name: str, safe_cols: list) -> str:
                 
                 if join_conds:
                     scalir_join = f"LEFT JOIN read_csv_auto('{conc_file_sql}') sc ON ({' AND '.join(join_conds)})"
+                else:
+                    logger.warning(
+                        "SCALiR columns requested but no usable join keys were found in %s.",
+                        conc_file,
+                    )
             else:
                 logger.warning(f"SCALiR columns requested but {conc_file} not found.")
 
@@ -1277,11 +1277,20 @@ def _generate_csv_from_db(wdir: str, ws_name: str, safe_cols: list) -> str:
             elif c == 'mz_mean':
                 col_list.append("t.mz_mean")
             elif c == 'scalir_conc':
-                col_list.append(f"sc.pred_conc AS {c}")
+                if scalir_join and 'pred_conc' in sc_cols_available:
+                    col_list.append(f"sc.pred_conc AS {c}")
+                else:
+                    col_list.append(f"NULL AS {c}")
             elif c == 'scalir_in_range':
-                col_list.append(f"sc.in_range AS {c}")
+                if scalir_join and 'in_range' in sc_cols_available:
+                    col_list.append(f"sc.in_range AS {c}")
+                else:
+                    col_list.append(f"NULL AS {c}")
             elif c == 'scalir_unit':
-                col_list.append(f"sc.unit AS {c}")
+                if scalir_join and 'unit' in sc_cols_available:
+                    col_list.append(f"sc.unit AS {c}")
+                else:
+                    col_list.append(f"NULL AS {c}")
             elif c not in ('peak_label', 'ms_file_label', 'ms_type'): # Avoid dupes
                 col_list.append(f"r.{c}")
         cols = ', '.join(col_list)
@@ -2033,6 +2042,20 @@ def callbacks(app, fsc, cache):
             logger.debug("open_download_results: PreventUpdate because n_clicks is None")
             raise PreventUpdate
         return True
+
+    @app.callback(
+        Output('download-options-all-results', 'value'),
+        Input('download-options-all-results', 'value'),
+        prevent_initial_call=True
+    )
+    def normalize_download_all_results_selection(selected_columns):
+        if not selected_columns:
+            raise PreventUpdate
+
+        if DOWNLOAD_ALL_RESULTS_SAVE_ALL not in selected_columns:
+            raise PreventUpdate
+
+        return list(DOWNLOAD_ALL_RESULTS_ALLOWED_COLS)
 
     @app.callback(
         Output('download-all-results-btn', 'disabled'),
