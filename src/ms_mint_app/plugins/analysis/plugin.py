@@ -54,6 +54,7 @@ class AnalysisUpdateContext:
     cluster_cols: bool | None
     fontsize_x: int | None
     fontsize_y: int | None
+    fontsize_aux: int | None
     wdir: str | None
     tsne_x_comp: str | None
     tsne_y_comp: str | None
@@ -773,12 +774,11 @@ def _handle_bar_cached_render(
 
 def _handle_clustermap_tab(
     triggered_props, zdf, color_labels, color_map, group_label, norm_value,
-    cluster_rows, cluster_cols, fontsize_x, fontsize_y, wdir, metric
+    cluster_rows, cluster_cols, fontsize_x, fontsize_y, fontsize_aux, wdir, metric
 ):
-    triggered_prop = triggered_props[0].split('.')[0] if triggered_props else None
     src = clustermap.generate_clustermap(
         zdf, color_labels, color_map, group_label, norm_value, cluster_rows, cluster_cols,
-        fontsize_x, fontsize_y, wdir, metric, triggered_prop, norm_value
+        fontsize_x, fontsize_y, fontsize_aux, wdir, metric
     )
     return _return_clustermap(src)
 
@@ -1333,15 +1333,16 @@ def callbacks(app, fsc=None, cache=None):
         Input('analysis-grouping-select', 'value'),
         Input('clustermap-regenerate-btn', 'nClicks'),
         Input('tsne-regenerate-btn', 'nClicks'),
-        Input('clustermap-cluster-rows', 'checked'),
-        Input('clustermap-cluster-cols', 'checked'),
-        Input('clustermap-fontsize-x-slider', 'value'),
-        Input('clustermap-fontsize-y-slider', 'value'),
         Input('wdir', 'data'),
         Input('tsne-x-comp', 'value'),
         Input('tsne-y-comp', 'value'),
         Input('tsne-perplexity-slider', 'value'),
         Input('analysis-pca-visible-groups', 'data'),
+        State('clustermap-cluster-rows', 'checked'),
+        State('clustermap-cluster-cols', 'checked'),
+        State('clustermap-fontsize-x-slider', 'value'),
+        State('clustermap-fontsize-y-slider', 'value'),
+        State('clustermap-fontsize-aux-slider', 'value'),
         State('analysis-pca-cache', 'data'),
         State('analysis-tsne-cache', 'data'),
         State('analysis-violin-cache', 'data'),
@@ -1349,21 +1350,23 @@ def callbacks(app, fsc=None, cache=None):
         prevent_initial_call=False,
     )
     def update_content_wrapper(section_context, tab_key, x_comp, y_comp, violin_comp_checks, bar_comp_checks, metric_value, norm_value,
-                        group_by, regen_clicks, tsne_regen_clicks, cluster_rows, cluster_cols, fontsize_x, fontsize_y, wdir,
-                        tsne_x_comp, tsne_y_comp, tsne_perplexity, pca_visible_groups, pca_cache, tsne_cache, violin_cache, bar_cache=None):
+                        group_by, regen_clicks, tsne_regen_clicks, wdir, tsne_x_comp, tsne_y_comp, tsne_perplexity,
+                        pca_visible_groups, cluster_rows, cluster_cols, fontsize_x, fontsize_y, fontsize_aux,
+                        pca_cache, tsne_cache, violin_cache, bar_cache=None):
         return update_content(
             section_context, tab_key, x_comp, y_comp, violin_comp_checks, bar_comp_checks, metric_value, norm_value,
             group_by, regen_clicks, tsne_regen_clicks, cluster_rows, cluster_cols, fontsize_x, fontsize_y, wdir,
             tsne_x_comp, tsne_y_comp, tsne_perplexity, pca_cache, tsne_cache, violin_cache, bar_cache,
             include_bar_cache=True,
             pca_visible_groups=pca_visible_groups,
+            fontsize_aux=fontsize_aux,
         )
 
 
 def update_content(section_context, tab_key, x_comp, y_comp, violin_comp_checks, bar_comp_checks, metric_value, norm_value,
                     group_by, regen_clicks, tsne_regen_clicks, cluster_rows, cluster_cols, fontsize_x, fontsize_y, wdir,
                     tsne_x_comp, tsne_y_comp, tsne_perplexity, pca_cache, tsne_cache, violin_cache, bar_cache=None,
-                    include_bar_cache=False, pca_visible_groups=None):
+                    include_bar_cache=False, pca_visible_groups=None, fontsize_aux=None):
 
         ctx = AnalysisUpdateContext(
             section_context=section_context,
@@ -1381,6 +1384,7 @@ def update_content(section_context, tab_key, x_comp, y_comp, violin_comp_checks,
             cluster_cols=cluster_cols,
             fontsize_x=fontsize_x,
             fontsize_y=fontsize_y,
+            fontsize_aux=fontsize_aux,
             wdir=wdir,
             tsne_x_comp=tsne_x_comp,
             tsne_y_comp=tsne_y_comp,
@@ -1544,7 +1548,7 @@ def _update_content_from_context(ctx: AnalysisUpdateContext):
         tab_handlers = {
             'clustermap': lambda: _handle_clustermap_tab(
                 triggered_props, zdf, color_labels, color_map, group_label, norm_value,
-                ctx.cluster_rows, ctx.cluster_cols, ctx.fontsize_x, ctx.fontsize_y, ctx.wdir, metric
+                ctx.cluster_rows, ctx.cluster_cols, ctx.fontsize_x, ctx.fontsize_y, ctx.fontsize_aux, ctx.wdir, metric
             ),
             'pca': lambda: _handle_pca_tab(
                 ndf, color_labels, color_map, group_label, ctx.x_comp, ctx.y_comp,

@@ -3,8 +3,12 @@ import pytest
 import pandas as pd
 import numpy as np
 import dash
+import base64
+import io
+import zipfile
 from unittest.mock import MagicMock, patch
 from ms_mint_app.plugins.analysis._shared import rocke_durbin, TAB_DEFAULT_NORM
+from ms_mint_app.plugins.analysis import clustermap
 from ms_mint_app.plugins.analysis.pca import run_pca_samples_in_cols
 from ms_mint_app.plugins.analysis.plugin import update_content
 from ms_mint_app.plugins.processing import run_scalir
@@ -121,13 +125,55 @@ class TestAnalysisCallbacks:
         assert isinstance(res[0], str)
         assert res[0].startswith('data:image/png;base64,')
 
+    @patch('ms_mint_app.plugins.analysis.plugin.dash.callback_context')
+    @patch('ms_mint_app.plugins.analysis.plugin.duckdb_connection')
+    def test_update_content_clustermap_saves_png_on_tab_open(self, mock_conn, mock_ctx, db_con, tmp_path):
+        mock_conn.return_value.__enter__.return_value = db_con
+        mock_ctx.triggered = [{'prop_id': 'analysis-sidebar-menu.currentKey'}]
+
+        res = update_content(
+            {'page': 'Analysis'}, 'clustermap', 'PC1', 'PC2', [], [], 'peak_area', 'zscore',
+            'sample_type', 0, 0, True, True, 10, 10, str(tmp_path), None, None, None,
+            None, None, None
+        )
+
+        assert isinstance(res[0], str)
+        assert (tmp_path / 'analysis' / 'clustermap' / 'peak_area_zscore_clustermap.png').exists()
+        assert (tmp_path / 'analysis' / 'clustermap' / 'peak_area_zscore_clustermap.csv').exists()
+
+    def test_clustermap_download_bundle_contains_png_and_csv(self, tmp_path):
+        csv_path = tmp_path / 'analysis' / 'clustermap'
+        csv_path.mkdir(parents=True)
+        matrix_path = csv_path / 'peak_area_zscore_clustermap.csv'
+        matrix_path.write_text("feature,sample1\nPeakA,1.0\n", encoding='utf-8')
+
+        img_src = "data:image/png;base64," + base64.b64encode(b"fake-png-bytes").decode("ascii")
+        bundle = clustermap.build_clustermap_download(
+            img_src,
+            str(tmp_path),
+            'peak_area',
+            'zscore',
+            'bundle.zip',
+        )
+
+        assert bundle['filename'] == 'bundle.zip'
+        assert bundle['base64'] is True
+
+        raw = base64.b64decode(bundle['content'])
+        with zipfile.ZipFile(io.BytesIO(raw)) as zf:
+            assert sorted(zf.namelist()) == [
+                'peak_area_zscore_clustermap.csv',
+                'peak_area_zscore_clustermap.png',
+            ]
+            assert zf.read('peak_area_zscore_clustermap.png') == b'fake-png-bytes'
+            assert zf.read('peak_area_zscore_clustermap.csv') == b"feature,sample1\nPeakA,1.0\n"
+
     @patch('ms_mint_app.plugins.processing.duckdb_connection')
     def test_run_scalir_no_overlap(self, mock_conn, db_con):
         mock_conn.return_value.__enter__.return_value = db_con
         
         # Fake standards content
         standards_csv = "peak_label,true_conc\nPeakC,100\nPeakD,200" # No overlap with PeakA/PeakB
-        import base64
         content = base64.b64encode(standards_csv.encode('utf-8')).decode('utf-8')
         contents = f"data:text/csv;base64,{content}"
         
@@ -148,7 +194,6 @@ class TestAnalysisCallbacks:
         
         # PeakA matches
         standards_csv = "peak_label,true_conc\nPeakA,100\nPeakA,200" 
-        import base64
         content = base64.b64encode(standards_csv.encode('utf-8')).decode('utf-8')
         contents = f"data:text/csv;base64,{content}"
         

@@ -11,6 +11,48 @@ from ... import tools as T
 from ...duckdb_manager import get_workspace_name_from_wdir
 
 
+def _artifact_paths(wdir, metric, norm_value):
+    """Return workspace artifact paths for the current clustermap."""
+    cm_dir = Path(wdir) / "analysis" / "clustermap"
+    safe_metric = slugify_label(metric)
+    stem = f"{safe_metric}_{norm_value}_clustermap"
+    return cm_dir, cm_dir / f"{stem}.png", cm_dir / f"{stem}.csv"
+
+
+def build_clustermap_download(img_src, wdir, metric_value, norm_value, filename):
+    """Package the current clustermap PNG and matrix CSV into a zip download."""
+    import base64
+    from io import BytesIO
+    from zipfile import ZIP_DEFLATED, ZipFile
+
+    metric_value = metric_value or 'peak_area'
+    norm_value = norm_value or 'zscore'
+    safe_metric = slugify_label(metric_value)
+    png_name = f"{safe_metric}_{norm_value}_clustermap.png"
+    csv_name = f"{safe_metric}_{norm_value}_clustermap.csv"
+
+    if ',' in img_src:
+        img_data = img_src.split(',')[1]
+    else:
+        img_data = img_src
+    png_bytes = base64.b64decode(img_data)
+
+    csv_bytes = None
+    if wdir:
+        _, _, csv_path = _artifact_paths(wdir, metric_value, norm_value)
+        if csv_path.exists():
+            csv_bytes = csv_path.read_bytes()
+    if csv_bytes is None:
+        raise FileNotFoundError(f"Missing clustermap CSV artifact for {metric_value}/{norm_value} in {wdir}")
+
+    def write_bundle(buffer: BytesIO):
+        with ZipFile(buffer, mode='w', compression=ZIP_DEFLATED) as zf:
+            zf.writestr(png_name, png_bytes)
+            zf.writestr(csv_name, csv_bytes)
+
+    return dcc.send_bytes(write_bundle, filename)
+
+
 def create_layout():
     """Return the Clustermap tab layout component."""
     return html.Div([
@@ -68,6 +110,16 @@ def create_layout():
                             marks={0: '0', 10: '10', 20: '20'},
                             style={'width': '100%', 'marginBottom': '24px'},
                         ),
+                        fac.AntdText("Cbar + legend:", style={'fontWeight': 500, 'fontSize': '12px', 'display': 'block', 'marginBottom': '8px'}),
+                        fac.AntdSlider(
+                            id='clustermap-fontsize-aux-slider',
+                            min=0,
+                            max=20,
+                            step=1,
+                            value=5,
+                            marks={0: '0', 10: '10', 20: '20'},
+                            style={'width': '100%', 'marginBottom': '24px'},
+                        ),
                         fac.AntdFlex(
                             [
                                 fac.AntdButton(
@@ -92,7 +144,7 @@ def create_layout():
                         fac.AntdFlex(
                             [
                                 fac.AntdButton(
-                                    "Save PNG",
+                                    "Save PNG + Data",
                                     id='clustermap-save-png-btn',
                                     type='default',
                                     style={'flex': '1'},
@@ -102,7 +154,7 @@ def create_layout():
                                         icon='antd-question-circle',
                                         style={'marginLeft': '8px', 'color': 'gray', 'fontSize': '14px'}
                                     ),
-                                    title='Download the clustermap as a PNG image',
+                                    title='Download the clustermap PNG and clustered matrix data',
                                     placement='right'
                                 ),
                             ],
@@ -163,7 +215,7 @@ def create_layout():
     ], style={'height': '100%'})
 
 
-def generate_clustermap(zdf, color_labels, color_map, group_label, norm_value, cluster_rows, cluster_cols, fontsize_x, fontsize_y, wdir, metric, triggered_prop, provided_norm):
+def generate_clustermap(zdf, color_labels, color_map, group_label, norm_value, cluster_rows, cluster_cols, fontsize_x, fontsize_y, fontsize_aux, wdir, metric):
     """Generate the clustermap figure."""
     import seaborn as sns
     import matplotlib.pyplot as plt
@@ -203,15 +255,24 @@ def generate_clustermap(zdf, color_labels, color_map, group_label, norm_value, c
     fig.ax_heatmap.set_facecolor('white')
     fig.ax_col_dendrogram.set_facecolor('white')
     fig.ax_row_dendrogram.set_facecolor('white')
-    # Apply custom font sizes to x and y tick labels
+    # Seaborn can recreate tick label artists during clustermap layout, so set
+    # tick-label font sizes explicitly on the final artists.
     x_fontsize = fontsize_x if fontsize_x else 5
     y_fontsize = fontsize_y if fontsize_y else 5
-    fig.ax_heatmap.tick_params(axis='x', labelsize=x_fontsize, length=0, rotation=90)
-    fig.ax_heatmap.tick_params(axis='y', labelsize=y_fontsize, length=0)
+    aux_fontsize = fontsize_aux if fontsize_aux else 5
+    axis_label_fontsize = max(x_fontsize + 1, y_fontsize + 1, 6)  # Ensure axis labels are at least slightly larger than ticks
+    fig.ax_heatmap.tick_params(axis='x', length=0, rotation=90)
+    fig.ax_heatmap.tick_params(axis='y', length=0)
+    for tick in fig.ax_heatmap.get_xticklabels():
+        tick.set_fontsize(x_fontsize)
+    for tick in fig.ax_heatmap.get_yticklabels():
+        tick.set_fontsize(y_fontsize)
     
-    fig.ax_heatmap.set_xlabel('Samples', fontsize=7, labelpad=8)
-    fig.ax_cbar.tick_params(which='both', axis='both', width=0.3, length=2, labelsize=4)
-    fig.ax_cbar.set_title(norm_label, fontsize=6, pad=4)
+    fig.ax_heatmap.set_xlabel('Samples', fontsize=axis_label_fontsize, labelpad=10)
+    if fig.ax_heatmap.get_ylabel():
+        fig.ax_heatmap.set_ylabel(fig.ax_heatmap.get_ylabel(), fontsize=axis_label_fontsize)
+    fig.ax_cbar.tick_params(which='both', axis='both', width=0.3, length=2, labelsize=aux_fontsize - 1)
+    fig.ax_cbar.set_title(norm_label, fontsize=aux_fontsize, pad=4)
     # Legend for grouping colors (top right)
     if color_map:
         used_types = [lbl for lbl in color_labels if lbl in color_map]
@@ -228,8 +289,8 @@ def generate_clustermap(zdf, color_labels, color_map, group_label, norm_value, c
                 loc='upper right',
                 ncol=1,
                 frameon=False,
-                fontsize=5,
-                title_fontsize=5,
+                fontsize=aux_fontsize - 1,
+                title_fontsize=aux_fontsize,
                 labelspacing=0.75,
                 
             )
@@ -237,23 +298,14 @@ def generate_clustermap(zdf, color_labels, color_map, group_label, norm_value, c
     buf = BytesIO()
     # Save a high-resolution copy to disk for durability/exports
     try:
-        # Avoid double-saving when the norm dropdown hasn't populated yet (provided_norm is None)
-        # Also skip the immediate tab-change trigger; wait for the follow-up with the final norm value.
-        if wdir and provided_norm is not None and triggered_prop != 'analysis-sidebar-menu':
-            cm_dir = Path(wdir) / "analysis" / "clustermap"
+        if wdir:
+            cm_dir, png_path, csv_path = _artifact_paths(wdir, metric, norm_value)
             cm_dir.mkdir(parents=True, exist_ok=True)
-            safe_metric = slugify_label(metric)
-            file_name = f"{safe_metric}_{norm_value}_clustermap.png"
-            save_path = cm_dir / file_name
-            should_save = True
-            if save_path.exists():
-                last_write = save_path.stat().st_mtime
-                should_save = (time.time() - last_write) > 30
-            if should_save:
-                fig.savefig(save_path, format="png", dpi=600)
-                logger.info(f"Saved high-res Clustermap: {save_path}")
+            fig.savefig(png_path, format="png", dpi=600)
+            fig.data2d.to_csv(csv_path, index=True)
+            logger.info("Saved clustermap artifacts: %s and %s", png_path, csv_path)
     except Exception:
-        logger.error("Failed to save Clustermap image.", exc_info=True)
+        logger.error("Failed to save clustermap artifacts.", exc_info=True)
         pass
     fig.savefig(buf, format="png", dpi=300)
     # Avoid accumulating open figures across callbacks
@@ -294,25 +346,22 @@ def register_callbacks(app):
         Input('clustermap-save-png-btn', 'nClicks'),
         State('clustermap-image', 'src'),
         State('wdir', 'data'),
+        State('analysis-metric-select', 'value'),
+        State('analysis-normalization-select', 'value'),
         prevent_initial_call=True,
     )
-    def save_clustermap_png(n_clicks, img_src, wdir):
+    def save_clustermap_png(n_clicks, img_src, wdir, metric_value, norm_value):
         if not n_clicks or not img_src:
             raise PreventUpdate
         
         ws_name = get_workspace_name_from_wdir(wdir) if wdir else "workspace"
         date_str = T.today()
-        filename = f"{date_str}-MINT__{ws_name}-Analysis-Clustermap.png"
-
-        # Extract base64 data from src
-        if ',' in img_src:
-            img_data = img_src.split(',')[1]
-        else:
-            img_data = img_src
-            
-        return dict(
-            content=img_data,
-            filename=filename,
-            type='image/png',
-            base64=True,
-        )
+        filename = f"{date_str}-MINT__{ws_name}-Analysis-Clustermap.zip"
+        try:
+            return build_clustermap_download(img_src, wdir, metric_value, norm_value, filename)
+        except FileNotFoundError:
+            logger.warning(
+                "Clustermap CSV artifact missing for download: metric=%s norm=%s wdir=%s",
+                metric_value, norm_value, wdir,
+            )
+            raise PreventUpdate
