@@ -7,6 +7,7 @@ import numpy as np
 
 from ms_mint_app.rt_span_optimizer import (
     optimize_rt_span,
+    optimize_rt_span_ms2,
     combine_chromatograms,
     optimize_rt_spans_batch,
 )
@@ -101,6 +102,48 @@ class TestOptimizeRtSpan:
         assert rt_max is not None
 
 
+class TestOptimizeRtSpanMs2:
+    """Tests for the MS2-specific RT span optimizer."""
+
+    def test_ms2_apex_is_snapped_to_raw_scan(self):
+        """MS2 optimizer should report an apex on a true raw scan, not only on the dense envelope."""
+        scan_time = np.array([
+            100.0, 101.0, 102.0, 103.0, 104.0, 105.0, 106.0, 107.0, 108.0, 109.0
+        ])
+        intensity = np.array([
+            1.0, 5.0, 20.0, 80.0, 300.0, 950.0, 620.0, 240.0, 60.0, 10.0
+        ])
+
+        rt_min, rt_max, apex_rt = optimize_rt_span_ms2(
+            scan_time, intensity, expected_rt=105.2
+        )
+
+        assert apex_rt in scan_time
+        assert apex_rt == 105.0
+        assert rt_min < apex_rt < rt_max
+
+    def test_ms2_preserves_asymmetric_tail_better_than_min_width_floor(self):
+        """MS2 envelope should keep a visible tail instead of collapsing to the minimum-width window."""
+        scan_time = np.arange(1860.0, 1891.0, 1.0)
+        intensity = np.array([
+            1.0, 3.0, 9.0, 20.0, 45.0, 90.0, 170.0, 300.0, 420.0, 470.0,
+            450.0, 380.0, 310.0, 240.0, 180.0, 130.0, 90.0, 62.0, 40.0, 25.0,
+            16.0, 10.0, 6.0, 3.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0
+        ])
+
+        rt_min, rt_max, apex_rt = optimize_rt_span_ms2(
+            scan_time,
+            intensity,
+            expected_rt=1869.5,
+            min_width=5.0,
+            threshold_pct=0.05,
+        )
+
+        assert abs(apex_rt - 1869.0) <= 1.0
+        assert (rt_max - rt_min) > 8.0
+        assert (rt_max - apex_rt) > (apex_rt - rt_min)
+
+
 class TestCombineChromatograms:
     """Tests for the combine_chromatograms function."""
 
@@ -192,6 +235,27 @@ class TestOptimizeRtSpansBatch:
                 INSERT INTO chromatograms (peak_label, ms_file_label, scan_time, intensity)
                 VALUES ('TestTarget1', 'File1', ?, ?)
             """, [scan_times, intensities])
+
+            # Insert MS2 target that also needs optimization
+            conn.execute("""
+                INSERT INTO targets (peak_label, rt, rt_min, rt_max, mz_mean, filterLine, ms_type, rt_auto_adjusted)
+                VALUES ('TestTargetMS2', 1869.5, 1867.0, 1872.0, 355.2, 'test filter', 'ms2', TRUE)
+            """)
+            conn.execute("""
+                INSERT INTO samples (ms_file_label, sample_type, label, use_for_optimization, ms_type)
+                VALUES ('FileMS2', 'TypeB', 'LabelMS2', TRUE, 'ms2')
+            """)
+
+            ms2_scan_times = list(np.arange(1860.0, 1891.0, 1.0))
+            ms2_intensities = [
+                1.0, 3.0, 9.0, 20.0, 45.0, 90.0, 170.0, 300.0, 420.0, 470.0,
+                450.0, 380.0, 310.0, 240.0, 180.0, 130.0, 90.0, 62.0, 40.0, 25.0,
+                16.0, 10.0, 6.0, 3.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0
+            ]
+            conn.execute("""
+                INSERT INTO chromatograms (peak_label, ms_file_label, scan_time, intensity)
+                VALUES ('TestTargetMS2', 'FileMS2', ?, ?)
+            """, [ms2_scan_times, ms2_intensities])
         
         return str(wdir)
 
@@ -201,7 +265,7 @@ class TestOptimizeRtSpansBatch:
             # Run optimization
             updated_count = optimize_rt_spans_batch(conn)
             
-            assert updated_count == 1
+            assert updated_count == 2
             
             # Verify the target was updated
             result = conn.execute("""
@@ -220,6 +284,18 @@ class TestOptimizeRtSpansBatch:
             
             # Flag should be reset
             assert rt_auto_adjusted is False
+
+            ms2_result = conn.execute("""
+                SELECT rt, rt_min, rt_max, rt_auto_adjusted
+                FROM targets
+                WHERE peak_label = 'TestTargetMS2'
+            """).fetchone()
+
+            ms2_rt, ms2_rt_min, ms2_rt_max, ms2_flag = ms2_result
+            assert 1868.0 <= ms2_rt <= 1870.5
+            assert ms2_rt_min < ms2_rt < ms2_rt_max
+            assert (ms2_rt_max - ms2_rt_min) > 8.0
+            assert ms2_flag is False
 
     def test_no_targets_to_optimize(self, temp_wdir):
         """Test when no targets need optimization."""
@@ -243,4 +319,4 @@ class TestOptimizeRtSpansBatch:
             # Should handle gracefully (only optimize the one with data)
             updated_count = optimize_rt_spans_batch(conn)
             
-            assert updated_count == 1  # Only TestTarget1
+            assert updated_count == 2  # TestTarget1 and TestTargetMS2

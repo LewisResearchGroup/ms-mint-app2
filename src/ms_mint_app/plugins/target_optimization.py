@@ -2340,13 +2340,28 @@ def _compute_chromatograms_logic(
     page_load_id: str | None = None,
 ):
     last_percent = 0
+    chromatogram_progress_cap = 90
+
+    def optimization_progress(done, total, detail="Optimizing ROI bounds..."):
+        if total <= 0:
+            progress_adapter(99, "Optimizing ROI bounds", detail)
+            return
+        percent = chromatogram_progress_cap + (done / total) * 9
+        progress_adapter(percent, "Optimizing ROI bounds", detail)
 
     def progress_adapter(percent, stage="", detail=""):
         nonlocal last_percent
         if set_progress:
-            percent = max(last_percent, percent)
+            percent = int(round(max(last_percent, percent)))
             last_percent = percent
             set_progress((percent, stage or "", detail or ""))
+
+    def chromatogram_progress_adapter(percent, stage="", detail=""):
+        try:
+            scaled_percent = (float(percent) / 100.0) * chromatogram_progress_cap
+        except Exception:
+            scaled_percent = 0
+        progress_adapter(scaled_percent, stage or "Chromatograms", detail or "")
 
     activate_workspace_logging(wdir)
     clear_processing_errors(wdir)
@@ -2363,7 +2378,7 @@ def _compute_chromatograms_logic(
             wdir,
             use_for_optimization=True,
             batch_size=batch_size,
-            set_progress=progress_adapter,
+            set_progress=chromatogram_progress_adapter,
             recompute_ms1=recompute_ms1,
             recompute_ms2=recompute_ms2,
             n_cpus=n_cpus,
@@ -2374,10 +2389,22 @@ def _compute_chromatograms_logic(
         
         # Optimize RT spans for targets that had RT auto-adjusted
         # This uses adaptive peak detection to find optimal rt_min, rt_max based on actual data
-        progress_adapter(95, "Chromatograms", "Optimizing RT spans...")
+        progress_adapter(
+            chromatogram_progress_cap,
+            "Optimizing ROI bounds",
+            "Finding ROI targets and loading chromatograms...",
+        )
         try:
             ensure_page_load_active(wdir, page_load_id, where="target_optimization:optimize_rt_spans")
-            updated_count = optimize_rt_spans_batch(con)
+            try:
+                updated_count = optimize_rt_spans_batch(
+                    con,
+                    progress_callback=optimization_progress,
+                )
+            except TypeError as exc:
+                if "progress_callback" not in str(exc):
+                    raise
+                updated_count = optimize_rt_spans_batch(con)
             logger.info(f"Optimized RT spans for {updated_count} auto-adjusted targets")
         except Exception as e:
             logger.warning(f"Could not optimize RT spans: {e}")
