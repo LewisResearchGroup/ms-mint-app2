@@ -633,10 +633,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#7-optimize-retention-times-optional-but-highly-recommended" class="md-nav__link">
+  <a href="#7-optimize-rois-optional-but-highly-recommended" class="md-nav__link">
     <span class="md-ellipsis">
       
-        7. Optimize retention times (Optional, but highly recommended)
+        7. Optimize ROIs (Optional, but highly recommended)
       
     </span>
   </a>
@@ -1084,10 +1084,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#7-optimize-retention-times-optional-but-highly-recommended" class="md-nav__link">
+  <a href="#7-optimize-rois-optional-but-highly-recommended" class="md-nav__link">
     <span class="md-ellipsis">
       
-        7. Optimize retention times (Optional, but highly recommended)
+        7. Optimize ROIs (Optional, but highly recommended)
       
     </span>
   </a>
@@ -1371,14 +1371,14 @@ This snapshot is refreshed on later target uploads (or untargeted generation) an
 </tr>
 </tbody>
 </table>
-<h2 id="7-optimize-retention-times-optional-but-highly-recommended">7. Optimize retention times (Optional, but highly recommended)</h2>
-<p>Switch to the <code>Optimization</code> tab. Traditionally, and especially for large datasets, you select a representative set of samples including standards (with known concentrations of the target metabolites) to perform the optimization. However, in MINT, you can perform the optimization with all samples in most cases (see the files selected for optimization in the tree on the left side).</p>
+<h2 id="7-optimize-rois-optional-but-highly-recommended">7. Optimize ROIs (Optional, but highly recommended)</h2>
+<p>Switch to the <code>Optimization</code> tab. Traditionally, and especially for large datasets, you select a representative set of samples including standards (with known concentrations of the target metabolites) to perform the optimization. However, in MINT, you can perform the optimization with all samples in most cases (see the files selected for optimization in the tree on the left side). In MINT, the <a href="../concepts/#roi">Region of Interest (ROI)</a> is the retention-time interval defined by <code>rt_min</code> and <code>rt_max</code>.</p>
 <p><a class="glightbox" data-type="image" data-width="auto" data-height="auto" href="peak-optimization-1.png" data-desc-position="bottom"><img alt="" src="peak-optimization-1.png"></a></p>
-<p>Peak optimization takes longer as you use more files and define more targets. Click <code>COMPUTE CHROMATOGRAMS</code>. Here you can choose how many resources to allocate to process the files, including CPU, RAM, and batch size. In small datasets the default values should suffice; as the number of files used for optimization grows, tweaking these parameters improves performance. Click <code>Generate</code> to compute the chromatograms.</p>
+<p>Peak optimization takes longer as you use more files and define more targets. Click <code>COMPUTE CHROMATOGRAMS</code>. Here you can choose how many resources to allocate to process the files, including CPU, RAM, and batch size. In small datasets the default values should suffice; as the number of files used for optimization grows, tweaking these parameters improves performance. Click <code>Generate</code> to compute the chromatograms. MINT then refines auto-derived ROI bounds for targets that were imported with incomplete RT information, and optional <a href="../concepts/#rt-alignment">RT Alignment</a> can later align traces inside the ROI.</p>
 <p><a class="glightbox" data-type="image" data-width="auto" data-height="auto" href="peak-optimization-2.png" data-desc-position="bottom"><img alt="" src="peak-optimization-2.png"></a>
 <a class="glightbox" data-type="image" data-width="auto" data-height="auto" href="peak-optimization-3.png" data-desc-position="bottom"><img alt="" src="peak-optimization-3.png"></a></p>
 <p>This shows the shapes of the data in the selected regions as an overview. It is a great way to validate that your target parameters are correct. However, you have to make sure the metabolite you are looking for is present in the files. That is why you should always include some standard samples (samples with the metabolite of interest at different concentrations). The colors in the plots correspond to the sample type colors in the metadata table.</p>
-<p>You can click on a card to use the interactive tool below and manually optimize the region of interest (ROI) or retention time span for each target. Move the borders of the box to select the peak, then click <code>Save</code>. The green area shows the currently selected retention time (RT) range. If the target is not present in any of the files, you can remove it from the target list by clicking <code>Delete target</code>.</p>
+<p>You can click on a card to use the interactive tool below and manually optimize the Region of Interest (ROI) for each target. Move the borders of the box to select the peak, then click <code>Save</code>. The green area shows the currently defined ROI. If the target is not present in any of the files, you can remove it from the target list by clicking <code>Delete target</code>.</p>
 <p><a class="glightbox" data-type="image" data-width="auto" data-height="auto" href="peak-optimization-4.png" data-desc-position="bottom"><img alt="" src="peak-optimization-4.png"></a></p>
 <p>Once the optimization is done, you can proceed to <code>Processing</code>.</p>
 <h2 id="8-process-the-data">8. Process the data</h2>
@@ -1415,7 +1415,7 @@ For the demo data, this should take a few seconds-minutes depending on your mach
 <li><strong>RT Plot</strong>: Retention-time stability across samples, grouped by your selected metadata column.</li>
 <li><strong>Metric Plot</strong>: Observed metric (e.g., peak area, peak area top3, etc.) across samples.</li>
 <li><strong>Chromatogram</strong>: Click a sample in either scatter plot to inspect the chromatogram for that target.</li>
-<li><strong>Progressive Loading</strong>: For large datasets, MINT initially loads a "Shadow Plot" (Envelope) to provide immediate feedback while detailed chromatogram data finishes loading in the background.</li>
+<li><strong>Progressive Loading</strong>: For large datasets, MINT initially loads a <a href="../concepts/#shadow-plots">Shadow Plot</a> (Envelope) to provide immediate feedback while detailed chromatogram data finishes loading in the background. That overview relies on <a href="../concepts/#lttb-downsampling">LTTB downsampling</a> so the UI stays responsive.</li>
 </ul>
 <p><a class="glightbox" data-type="image" data-width="auto" data-height="auto" href="../image/analysis_qc.png" data-desc-position="bottom"><img alt="QC" src="../image/analysis_qc.png" title="QC - Quality Control"></a></p>
 </div>

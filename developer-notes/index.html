@@ -1074,7 +1074,7 @@ Then start MINT with `Mint --host 0.0.0.0 --port 9999` (or your chosen port). --
 <ul>
 <li><strong>CPU &amp; RAM Auto-detection</strong>: The application automatically detects physical CPU cores and available RAM. It targets 50% of available RAM and matches CPU count to a minimum of 1.5GB RAM per core.</li>
 <li><strong>Batch Processing</strong>: Chromatogram extraction and results processing are performed in batches. The optimal batch size is dynamically calculated (typically between 1000 and 5000 pairs for MS1 data, and starting with default 1000 pairs for MS2 data) to balance memory pressure and throughput.</li>
-<li><strong>Progressive Loading</strong>: Large chromatogram datasets use LTTB downsampling and pre-calculated envelopes to ensure the UI remains responsive.</li>
+<li><strong>Progressive Loading</strong>: Large chromatogram datasets use <a href="../concepts/#lttb-downsampling">LTTB downsampling</a> and pre-calculated <a href="../concepts/#shadow-plots">Shadow Plot</a> envelopes to ensure the UI remains responsive.</li>
 </ul>
 
 

@@ -1336,10 +1336,11 @@
 <li><strong>Min Timepoints</strong>: Minimum number of scans required to define a peak shape.</li>
 </ul>
 <h3 id="import-validation-auto-fill">Import Validation and Auto-Fill</h3>
-<p>MINT only strictly requires <code>peak_label</code> plus enough RT information to define a window. For each target row, MINT accepts valid RT input patterns and auto-fills missing values. Below, we explain in detail some of the rules MINT uses to fill missing elements in the targets table. Click the banner to expand.</p>
+<p>MINT only strictly requires <code>peak_label</code> plus enough RT information to define a window. For each target row, MINT accepts valid RT input patterns and auto-fills missing values. In MINT terminology, those bounds define the target <a href="../../concepts/#roi">Region of Interest (ROI)</a>. Below, we explain in detail some of the rules MINT uses to fill missing elements in the targets table. Click the banner to expand.</p>
 <details class="info">
 <summary>RT Auto-Derivation and Validation</summary>
 <h4 id="rt-derivation-and-validation">RT Auto-Derivation and Validation</h4>
+<p>Before MINT derives any missing RT fields, it first normalizes RT values to seconds. This matters when <code>rt_unit = min</code>: for example, <code>rt = 2.0, rt_unit = min</code> is converted to <code>120 s</code> first, and only then does MINT derive bootstrap ROI bounds around that value.</p>
 <ul>
 <li><code>rt_min</code> + <code>rt_max</code> only: MINT derives <code>rt</code> as the midpoint.</li>
 <li><code>rt</code> only: MINT initializes <code>rt_min</code> and <code>rt_max</code> using a temporary symmetric bootstrap window (<code>rt ± 5.0 s</code>) so targets can be processed immediately. The <code>±5.0 s</code> rule is an initial import fallback, not the final recommended span. After chromatograms are computed, refine RT bounds in the <em>Optimization</em> tab using the observed peak shape and apex.</li>
@@ -1358,7 +1359,7 @@
 <li><code>rt_min</code> must be less than <code>rt_max</code></li>
 <li><code>rt_min</code>/<code>rt_max</code>/<code>rt</code> cannot be negative</li>
 <li>If <code>rt</code> is outside <code>[rt_min, rt_max]</code>, MINT resets <code>rt</code> to the span midpoint</li>
-<li><code>rt_unit</code> values in minutes are converted to seconds, and stored as seconds</li>
+<li><code>rt_unit</code> values in minutes are converted to seconds before derivation/validation, and stored as seconds</li>
 </ul>
 </details>
 <details class="info">
@@ -1375,7 +1376,7 @@
 </ul>
 </li>
 <li><strong><code>ms_type</code> conflict handling</strong>: If your file provides <code>ms_type</code> that contradicts <code>filterLine</code>, MINT keeps the derived value and logs a warning.</li>
-<li><strong><code>rt_unit</code> normalization</strong>: Units in minutes are converted to seconds, and stored with <code>rt_unit = s</code>.</li>
+<li><strong><code>rt_unit</code> normalization</strong>: Units in minutes are converted to seconds before RT derivation, and stored with <code>rt_unit = s</code>.</li>
 </ul>
 </details>
 <details class="info">

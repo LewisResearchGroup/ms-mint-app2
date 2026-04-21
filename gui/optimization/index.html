@@ -1060,7 +1060,8 @@
 
   <h1>Optimization</h1>
 
-<p>In the <strong>Optimization</strong> tab, the EICs are computed first based on the parameters defined in the Targets table. Next, target RT windows (<code>rt_min</code>, <code>rt_max</code>) can be refined so downstream extraction in Processing captures the correct peak region.</p>
+<p>In the <strong>Optimization</strong> tab, the EICs are computed first based on the parameters defined in the Targets table. Next, target <a href="../../concepts/#roi">Regions of Interest (ROIs)</a> (<code>rt_min</code>, <code>rt_max</code>) can be refined so downstream extraction in Processing captures the correct peak region.</p>
+<p>A <strong>Region of Interest (ROI)</strong> in MINT is the chromatogram interval defined by <code>rt_min</code> and <code>rt_max</code>. The <code>rt</code> value is the current target RT inside that interval and is used as the reference point for annotations, optimization, and alignment. See <a href="../../concepts/#roi">Concepts: ROI</a> for the full definition.</p>
 <p><a class="glightbox" data-type="image" data-width="auto" data-height="auto" href="../../image/optimization_compute.png" data-desc-position="bottom"><img alt="Optimization" src="../../image/optimization_compute.png" title="Optimization view"></a></p>
 <blockquote>
 <p><strong>Tip</strong>: Click the help icon (small "i" symbol) next to the "Optimization" title to take a guided tour of this section.</p>
@@ -1069,7 +1070,7 @@
 <ol>
 <li><strong>Compute Chromatograms</strong>: Click <code>COMPUTE CHROMATOGRAMS</code> to generate EIC traces.</li>
 <li><strong>Preview Cards</strong>: Inspect chromatogram previews per target.</li>
-<li><strong>Open Manual View</strong>: Click a card (or graph icon) to fine-tune RT ranges.</li>
+<li><strong>Open Manual View</strong>: Click a card (or graph icon) to fine-tune ROI bounds.</li>
 <li><strong>Persist Changes</strong>: Auto-save events.</li>
 </ol>
 <h3 id="compute-chromatograms">1. Compute Chromatograms</h3>
@@ -1079,13 +1080,15 @@
 <li>If chromatograms already exist, MINT shows a warning and enables recompute toggles (<code>MS1</code>, <code>MS2</code>) automatically.</li>
 <li>Default resources are auto-detected from your system (CPU/RAM), and batch size is auto-calculated from workload and resource settings.</li>
 <li>If no targets are selected, MINT computes chromatograms for all targets.</li>
-<li>After chromatograms are generated, MINT runs adaptive RT-span optimization for targets marked as auto-adjusted during import.</li>
+<li>After chromatograms are generated, MINT runs adaptive ROI optimization for targets marked as auto-adjusted during import.</li>
+<li>Targets imported with only <code>rt</code> receive a temporary bootstrap ROI (<code>rt ± 5.0 s</code>) so they can be processed immediately; Optimization is where those provisional bounds are refined from the observed chromatogram shape.</li>
+<li>During this phase, the progress modal first finalizes chromatogram batches and temporary tables, then loads ROI traces and optimizes bounds in stages so long MS2 jobs remain visibly active.</li>
 </ul>
 <h3 id="chromatogram-preview-cards">2. Preview Cards</h3>
 <p>After computation, Optimization cards provide a quick glance at the data before manual edits.</p>
 <p><a class="glightbox" data-type="image" data-width="auto" data-height="auto" href="../../image/optimization_cards.png" data-desc-position="bottom"><img alt="Optimization" src="../../image/optimization_cards.png" title="Optimization"></a></p>
 <ul>
-<li><strong>Card Plot</strong>: per-target chromatogram view over the current RT span.</li>
+<li><strong>Card Plot</strong>: per-target chromatogram view over the current ROI.</li>
 <li><strong>Bookmark toggle</strong>: star targets for later focused processing.</li>
 <li><strong>Delete target</strong>: remove target plus related chromatogram/results entries.</li>
 <li><strong>Pagination and sizing</strong>: browse with pagination and tune card width/height for your screen.</li>
@@ -1100,12 +1103,12 @@
 </ul>
 </details>
 <h3 id="interactive-manual-optimization">3. Interactive Manual Optimization</h3>
-<p>Open a target card to launch the detailed modal and adjust RT spans directly on the plot. Move across targets without closing the modal. Changes are saved automatically.</p>
+<p>Open a target card to launch the detailed modal and adjust ROI bounds directly on the plot. Move across targets without closing the modal. Changes are saved automatically.</p>
 <p><a class="glightbox" data-type="image" data-width="auto" data-height="auto" href="../../image/optimization_modal.png" data-desc-position="bottom"><img alt="Optimization" src="../../image/optimization_modal.png" title="Optimization"></a></p>
 <ul>
-<li><strong>Edit RT-span</strong>: drag/resize the RT window when unlocked.</li>
-<li><strong>Lock range</strong>: prevent accidental RT-window edits.</li>
-<li><strong>Set RT marker</strong>: click within the span to set/update target RT.</li>
+<li><strong>Edit ROI bounds</strong>: drag/resize the ROI when unlocked.</li>
+<li><strong>Lock range</strong>: prevent accidental ROI edits.</li>
+<li><strong>Set RT marker</strong>: click within the ROI to set/update target RT.</li>
 <li><strong>Scale and grouping</strong>: switch linear/log y-axis and group-click legend behavior.</li>
 <li><strong>Notes</strong>: edit target notes while inspecting traces.</li>
 </ul>
@@ -1114,14 +1117,14 @@
 <ul>
 <li><strong>Megatrace</strong>: aggregated rendering mode for large trace sets.</li>
 <li><strong>Full range</strong>: show full chromatogram instead of local window (can be slower).</li>
-<li><strong>RT Alignment</strong>: align traces by apex within current RT span; alignment state is persisted per target.</li>
+<li><strong>RT Alignment</strong>: align traces by apex within the current ROI; alignment state is persisted per target. See <a href="../../concepts/#rt-alignment">Concepts: RT Alignment</a>.</li>
 </ul>
 </details>
 <h3 id="autosave-and-persistence">4. Auto-save and persistence</h3>
 <p>MINT includes persistence and consistency behaviors so optimization work is resilient:</p>
 <ul>
-<li>On target navigation (<code>Prev</code>/<code>Next</code>), changed RT span and RT-alignment state are auto-saved.</li>
-<li>On modal close, changed RT span / RT alignment are auto-saved.</li>
+<li>On target navigation (<code>Prev</code>/<code>Next</code>), changed ROI bounds and RT-alignment state are auto-saved.</li>
+<li>On modal close, changed ROI bounds / RT alignment are auto-saved.</li>
 <li>Notes are persisted in navigation flows.</li>
 <li>Use <strong>Save</strong> when you want immediate explicit commit feedback while staying on the same target.</li>
 </ul>

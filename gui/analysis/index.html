@@ -1239,6 +1239,7 @@
 <li>QC target options are populated from targets that already have results.</li>
 <li>Chromatogram behavior and grouping colors follow the same global <code>Group by</code> setting.</li>
 <li>SCALiR concentration can be used as QC metric when concentration data exists.</li>
+<li>Large chromatogram views use <a href="../../concepts/#shadow-plots">Progressive Loading / Shadow Plots</a> and <a href="../../concepts/#lttb-downsampling">LTTB downsampling</a> to stay responsive.</li>
 </ul>
 </details>
 </div>
@@ -1324,6 +1325,7 @@
 <ul>
 <li>PCA/t-SNE/Violin include cache paths that reduce recomputation for group-only style changes.</li>
 <li>Spinners and staged updates are used across views to keep heavy updates responsive.</li>
+<li>Chromatogram-heavy views rely on <a href="../../concepts/#shadow-plots">Progressive Loading / Shadow Plots</a>, <a href="../../concepts/#lttb-downsampling">LTTB downsampling</a>, and <a href="../../concepts/#sparsification">sparsification</a>.</li>
 </ul>
 </details>
 
