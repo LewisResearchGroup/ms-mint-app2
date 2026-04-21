@@ -3337,10 +3337,22 @@ def compute_chromatograms_in_batches(wdir: str,
                     current_id += batch_size
 
                 # Final checkpoint/commit for this ms_type
+                _send_progress(
+                    set_progress,
+                    100.0,
+                    stage="Chromatograms",
+                    detail=f"Finalizing {ms_type.upper()} batches...",
+                )
                 conn.execute("COMMIT")
                 conn.execute("CHECKPOINT")
 
     ensure_page_load_active(wdir, page_load_id, where="compute_chromatograms_in_batches:cleanup")
+    _send_progress(
+        set_progress,
+        100.0,
+        stage="Chromatograms",
+        detail="Cleaning up temporary tables...",
+    )
     with duckdb_connection(wdir, n_cpus=n_cpus, ram=ram, page_load_id=page_load_id) as conn:
         conn.execute("DROP TABLE IF EXISTS ms_file_scans")
         conn.execute("DROP TABLE IF EXISTS pending_pairs")

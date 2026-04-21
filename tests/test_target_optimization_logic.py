@@ -174,7 +174,7 @@ def test_compute_chromatograms_logic_success(monkeypatch):
     assert calls["optimize"] is conn
     percents = [payload[0] for payload in calls["progress"]]
     assert 0 in percents
-    assert 95 in percents
+    assert 90 in percents
 
 
 def test_compute_chromatograms_logic_missing_db(monkeypatch):

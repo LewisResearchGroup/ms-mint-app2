@@ -1534,6 +1534,23 @@ def get_targets_v2(files_path):
                     if pd.isna(target.get('peak_label')) or target.get('peak_label') == '':
                         raise ValueError("peak_label is empty or null")
 
+                    # Normalize RT values to seconds before deriving missing bounds.
+                    rt_unit_raw = target.get('rt_unit')
+                    rt_factor = 1.0
+                    if not pd.isna(rt_unit_raw):
+                        rt_unit_norm = str(rt_unit_raw).strip().lower()
+                        if rt_unit_norm in ['minutes', 'minute', 'min', 'm']:
+                            rt_factor = 60.0
+                        elif rt_unit_norm in ['seconds', 'second', 'sec', 's', '']:
+                            rt_factor = 1.0
+                        else:
+                            raise ValueError(f"Invalid RT-unit: {target['rt_unit']}")
+
+                    for rt_field in ('rt', 'rt_min', 'rt_max'):
+                        rt_value = target.get(rt_field)
+                        if not pd.isna(rt_value):
+                            target[rt_field] = float(rt_value) * rt_factor
+
                     # ================================================================
                     # SMART RT VALUE DERIVATION
                     # ================================================================
@@ -1640,19 +1657,6 @@ def get_targets_v2(files_path):
                             f"Target '{target['peak_label']}': Large RT window ({window_size:.1f}s). "
                             f"Please verify rt_min and rt_max values."
                         )
-
-                    # check if RT-unit is seconds or minutes
-                    if 'rt_unit' in target:
-                        if target['rt_unit'] in ['minutes', 'min', 'm']:
-                            target['rt'] = target['rt'] * 60
-                            target['rt_max'] = target['rt_max'] * 60
-                            target['rt_min'] = target['rt_min'] * 60
-                        elif target['rt_unit'] in ['seconds', 'sec', 's']:
-                            target['rt'] = target['rt']
-                            target['rt_max'] = target['rt_max']
-                            target['rt_min'] = target['rt_min']
-                        else:
-                            raise ValueError(f"Invalid RT-unit: {target['rt_unit']}")
 
                     target['rt_unit'] = 's'
                     

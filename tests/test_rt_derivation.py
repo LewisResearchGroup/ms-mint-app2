@@ -39,6 +39,26 @@ def test_rt_only_derives_bounds(tmp_path):
     assert bool(row["rt_auto_adjusted"]) is True
 
 
+def test_rt_only_in_minutes_derives_second_based_bounds(tmp_path):
+    df = pd.DataFrame(
+        [
+            {"peak_label": "TestMin", "rt": 2.0, "rt_unit": "min"},
+        ]
+    )
+
+    targets_df, failed_files, failed_targets, _ = _run_get_targets(tmp_path, df)
+
+    assert failed_files == {}
+    assert failed_targets == []
+
+    row = targets_df.iloc[0]
+    assert row["rt"] == pytest.approx(120.0)
+    assert row["rt_min"] == pytest.approx(120.0 - DEFAULT_RT_WINDOW)
+    assert row["rt_max"] == pytest.approx(120.0 + DEFAULT_RT_WINDOW)
+    assert row["rt_unit"] == "s"
+    assert bool(row["rt_auto_adjusted"]) is True
+
+
 def test_rt_min_max_derives_center(tmp_path):
     df = pd.DataFrame(
         [
