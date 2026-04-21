@@ -1,10 +1,8 @@
-<!-- [![Python package](https://github.com/LewisResearchGroup/ms-mint-app2/actions/workflows/pythonpackage.yml/badge.svg)](https://github.com/LewisResearchGroup/ms-mint-app2/actions/workflows/pythonpackage.yml)
-[![CII Best Practices](https://bestpractices.coreinfrastructure.org/projects/5178/badge)](https://bestpractices.coreinfrastructure.org/projects/5178)
-![](images/coverage.svg)
-[![Docker Image CI](https://github.com/LewisResearchGroup/ms-mint-app2/actions/workflows/docker-image.yml/badge.svg)](https://github.com/LewisResearchGroup/ms-mint-app2/actions/workflows/docker-image.yml)
-![PyPI](https://img.shields.io/pypi/v/ms-mint-app2?label=pypi%20package)
-![PyPI - Downloads](https://img.shields.io/pypi/dm/ms-mint-app2)
-[![DOI](https://zenodo.org/badge/491654035.svg)](https://zenodo.org/doi/10.5281/zenodo.13121148) -->
+![Python](https://img.shields.io/badge/python-3.12-blue.svg)
+[![PyPI](https://img.shields.io/pypi/v/ms-mint-app2?label=pypi%20package)](https://pypi.org/project/ms-mint-app2/)
+[![Help forum](https://img.shields.io/badge/Docs-Getting_Started-blue)](https://lewisresearchgroup.github.io/ms-mint-app2/quickstart/)
+[![Ask DeepWiki About this App](https://deepwiki.com/badge.svg)](https://deepwiki.com/LewisResearchGroup/ms-mint-app2)
+[![Issue tracking](https://img.shields.io/badge/Issue_tracking-GitHub-blue)](https://github.com/LewisResearchGroup/ms-mint-app2/issues)
 
 <p align="center">
   <img src="https://raw.githubusercontent.com/LewisResearchGroup/ms-mint-app2/main/docs/image/MINT-logo.png" alt="MINT Logo" width="400">
