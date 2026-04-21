@@ -95,6 +95,8 @@ MINT only strictly requires `peak_label` plus enough RT information to define a 
 
     #### RT Auto-Derivation and Validation {: #rt-derivation-and-validation }
 
+    Before MINT derives any missing RT fields, it first normalizes RT values to seconds. This matters when `rt_unit = min`: for example, `rt = 2.0, rt_unit = min` is converted to `120 s` first, and only then does MINT derive bootstrap ROI bounds around that value.
+
     *   `rt_min` + `rt_max` only: MINT derives `rt` as the midpoint.
     *   `rt` only: MINT initializes `rt_min` and `rt_max` using a temporary symmetric bootstrap window (`rt ± 5.0 s`) so targets can be processed immediately. The `±5.0 s` rule is an initial import fallback, not the final recommended span. After chromatograms are computed, refine RT bounds in the _Optimization_ tab using the observed peak shape and apex.
     *   `rt` + `rt_min`: MINT derives `rt_max` symmetrically around `rt`.
@@ -112,7 +114,7 @@ MINT only strictly requires `peak_label` plus enough RT information to define a 
     *   `rt_min` must be less than `rt_max`
     *   `rt_min`/`rt_max`/`rt` cannot be negative
     *   If `rt` is outside `[rt_min, rt_max]`, MINT resets `rt` to the span midpoint
-    *   `rt_unit` values in minutes are converted to seconds, and stored as seconds
+    *   `rt_unit` values in minutes are converted to seconds before derivation/validation, and stored as seconds
 
 ??? info "Defaults and Overrides"
 
@@ -127,7 +129,7 @@ MINT only strictly requires `peak_label` plus enough RT information to define a 
         *   `filterLine` present -> `ms2`
         *   `filterLine` absent -> `ms1`
     *   **`ms_type` conflict handling**: If your file provides `ms_type` that contradicts `filterLine`, MINT keeps the derived value and logs a warning.
-    *   **`rt_unit` normalization**: Units in minutes are converted to seconds, and stored with `rt_unit = s`.
+    *   **`rt_unit` normalization**: Units in minutes are converted to seconds before RT derivation, and stored with `rt_unit = s`.
 
 ??? info "Duplicate Label Handling"
 

@@ -140,14 +140,14 @@ Switch to the `Optimization` tab. Traditionally, and especially for large datase
 
 ![](quickstart/peak-optimization-1.png)
 
-Peak optimization takes longer as you use more files and define more targets. Click `COMPUTE CHROMATOGRAMS`. Here you can choose how many resources to allocate to process the files, including CPU, RAM, and batch size. In small datasets the default values should suffice; as the number of files used for optimization grows, tweaking these parameters improves performance. Click `Generate` to compute the chromatograms.
+Peak optimization takes longer as you use more files and define more targets. Click `COMPUTE CHROMATOGRAMS`. Here you can choose how many resources to allocate to process the files, including CPU, RAM, and batch size. In small datasets the default values should suffice; as the number of files used for optimization grows, tweaking these parameters improves performance. Click `Generate` to compute the chromatograms. MINT then refines auto-derived ROI bounds for targets that were imported with incomplete RT information.
 
 ![](quickstart/peak-optimization-2.png)
 ![](quickstart/peak-optimization-3.png)
 
 This shows the shapes of the data in the selected regions as an overview. It is a great way to validate that your target parameters are correct. However, you have to make sure the metabolite you are looking for is present in the files. That is why you should always include some standard samples (samples with the metabolite of interest at different concentrations). The colors in the plots correspond to the sample type colors in the metadata table.
 
-You can click on a card to use the interactive tool below and manually optimize the region of interest (ROI) or retention time span for each target. Move the borders of the box to select the peak, then click `Save`. The green area shows the currently selected retention time (RT) range. If the target is not present in any of the files, you can remove it from the target list by clicking `Delete target`.
+You can click on a card to use the interactive tool below and manually optimize the Region of Interest (ROI) for each target. Move the borders of the box to select the peak, then click `Save`. The green area shows the currently defined ROI. If the target is not present in any of the files, you can remove it from the target list by clicking `Delete target`.
 
 ![](quickstart/peak-optimization-4.png)
 

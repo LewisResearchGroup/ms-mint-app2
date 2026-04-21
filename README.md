@@ -16,7 +16,7 @@ A powerful post-processing tool for **LC-MS based metabolomics** that simplifies
 
 - **Targeted Peak Integration** - Extract chromatograms and quantify peaks from mzML/mzXML files
 - **Interactive Visualization** - Explore chromatograms, heatmaps, and clustering results
-- **RT Optimization** - Fine-tune retention time windows with visual feedback
+- **ROI Optimization** - Refine Regions of Interest (ROIs) with interactive feedback
 - **Optional Quantification (SCALiR)** - Available in the Processing tab for absolute quantification when needed
 - **DuckDB Backend** - Fast, efficient storage for large datasets
 - **Desktop App** - Available as standalone Windows and Linux executable
