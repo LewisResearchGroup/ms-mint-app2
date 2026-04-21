@@ -76,6 +76,7 @@ The left sidebar in the Analysis tab allows the user to switch between different
         *   QC target options are populated from targets that already have results.
         *   Chromatogram behavior and grouping colors follow the same global `Group by` setting.
         *   SCALiR concentration can be used as QC metric when concentration data exists.
+        *   Large chromatogram views use [Progressive Loading / Shadow Plots](../concepts.md#shadow-plots) and [LTTB downsampling](../concepts.md#lttb-downsampling) to stay responsive.
 
 === "Violin"
 
@@ -158,3 +159,4 @@ All Plotly-based views can be exported as high resolution figures with standardi
 
     *   PCA/t-SNE/Violin include cache paths that reduce recomputation for group-only style changes.
     *   Spinners and staged updates are used across views to keep heavy updates responsive.
+    *   Chromatogram-heavy views rely on [Progressive Loading / Shadow Plots](../concepts.md#shadow-plots), [LTTB downsampling](../concepts.md#lttb-downsampling), and [sparsification](../concepts.md#sparsification).

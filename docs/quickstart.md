@@ -136,11 +136,11 @@ This file contains important information about the targets.
 
 
 ## 7. Optimize ROIs (Optional, but highly recommended)
-Switch to the `Optimization` tab. Traditionally, and especially for large datasets, you select a representative set of samples including standards (with known concentrations of the target metabolites) to perform the optimization. However, in MINT, you can perform the optimization with all samples in most cases (see the files selected for optimization in the tree on the left side). In MINT, the Region of Interest (ROI) is the retention-time interval defined by `rt_min` and `rt_max`.
+Switch to the `Optimization` tab. Traditionally, and especially for large datasets, you select a representative set of samples including standards (with known concentrations of the target metabolites) to perform the optimization. However, in MINT, you can perform the optimization with all samples in most cases (see the files selected for optimization in the tree on the left side). In MINT, the [Region of Interest (ROI)](concepts.md#roi) is the retention-time interval defined by `rt_min` and `rt_max`.
 
 ![](quickstart/peak-optimization-1.png)
 
-Peak optimization takes longer as you use more files and define more targets. Click `COMPUTE CHROMATOGRAMS`. Here you can choose how many resources to allocate to process the files, including CPU, RAM, and batch size. In small datasets the default values should suffice; as the number of files used for optimization grows, tweaking these parameters improves performance. Click `Generate` to compute the chromatograms. MINT then refines auto-derived ROI bounds for targets that were imported with incomplete RT information.
+Peak optimization takes longer as you use more files and define more targets. Click `COMPUTE CHROMATOGRAMS`. Here you can choose how many resources to allocate to process the files, including CPU, RAM, and batch size. In small datasets the default values should suffice; as the number of files used for optimization grows, tweaking these parameters improves performance. Click `Generate` to compute the chromatograms. MINT then refines auto-derived ROI bounds for targets that were imported with incomplete RT information, and optional [RT Alignment](concepts.md#rt-alignment) can later align traces inside the ROI.
 
 ![](quickstart/peak-optimization-2.png)
 ![](quickstart/peak-optimization-3.png)
@@ -193,7 +193,7 @@ Once the results are generated, there are several analyses you can perform. The 
     *   **RT Plot**: Retention-time stability across samples, grouped by your selected metadata column.
     *   **Metric Plot**: Observed metric (e.g., peak area, peak area top3, etc.) across samples.
     *   **Chromatogram**: Click a sample in either scatter plot to inspect the chromatogram for that target.
-    *   **Progressive Loading**: For large datasets, MINT initially loads a "Shadow Plot" (Envelope) to provide immediate feedback while detailed chromatogram data finishes loading in the background.
+    *   **Progressive Loading**: For large datasets, MINT initially loads a [Shadow Plot](concepts.md#shadow-plots) (Envelope) to provide immediate feedback while detailed chromatogram data finishes loading in the background. That overview relies on [LTTB downsampling](concepts.md#lttb-downsampling) so the UI stays responsive.
 
     ![QC](./image/analysis_qc.png "QC - Quality Control")
 

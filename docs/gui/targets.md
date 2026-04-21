@@ -89,7 +89,7 @@ If you don't have a pre-defined target list, MINT can automatically detect featu
 
 ### Import Validation and Auto-Fill {: #import-validation-auto-fill }
 
-MINT only strictly requires `peak_label` plus enough RT information to define a window. For each target row, MINT accepts valid RT input patterns and auto-fills missing values. Below, we explain in detail some of the rules MINT uses to fill missing elements in the targets table. Click the banner to expand.
+MINT only strictly requires `peak_label` plus enough RT information to define a window. For each target row, MINT accepts valid RT input patterns and auto-fills missing values. In MINT terminology, those bounds define the target [Region of Interest (ROI)](../concepts.md#roi). Below, we explain in detail some of the rules MINT uses to fill missing elements in the targets table. Click the banner to expand.
 
 ??? info "RT Auto-Derivation and Validation"
 

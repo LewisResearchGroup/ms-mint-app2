@@ -76,4 +76,4 @@ MINT includes an automated resource detection system to optimize DuckDB performa
 
 - **CPU & RAM Auto-detection**: The application automatically detects physical CPU cores and available RAM. It targets 50% of available RAM and matches CPU count to a minimum of 1.5GB RAM per core.
 - **Batch Processing**: Chromatogram extraction and results processing are performed in batches. The optimal batch size is dynamically calculated (typically between 1000 and 5000 pairs for MS1 data, and starting with default 1000 pairs for MS2 data) to balance memory pressure and throughput.
-- **Progressive Loading**: Large chromatogram datasets use LTTB downsampling and pre-calculated envelopes to ensure the UI remains responsive.
+- **Progressive Loading**: Large chromatogram datasets use [LTTB downsampling](concepts.md#lttb-downsampling) and pre-calculated [Shadow Plot](concepts.md#shadow-plots) envelopes to ensure the UI remains responsive.

@@ -2,24 +2,7 @@
 
 Understanding the underlying concepts of MINT helps in optimizing workflows and interpreting results.
 
-## Sparsification
-
-Chromatogram data can be extremely dense, especially in high-resolution MS1 measurements. MINT uses **Sparsification** to reduce the number of data points while preserving the essential shape of the peak.
-
-- **How it works**: Instead of keeping every recorded intensity, MINT identifies transition points (e.g., scan times where the signal starts to rise, reaches a peak, or returns to baseline).
-- **Benefits**: 
-    - Dramatically reduces database size.
-    - Speeds up plot rendering in the browser.
-    - Minimizes memory usage during analysis.
-
-## LTTB Downsampling
-
-For real-time visualization of "full-range" chromatograms (before RT slicing), MINT employs the **Largest Triangle Three Buckets (LTTB)** algorithm.
-
-- **Purpose**: LTTB effectively downsamples the data to a fixed number of points (e.g., 1000) for visual representation.
-- **Visual Integrity**: Unlike simple decimation, LTTB preserves visual features like local minima and maxima, ensuring that the "Shadow Plot" accurately reflects the raw data shape.
-
-## Regions of Interest (ROIs)
+## Regions of Interest (ROIs) {: #roi }
 
 In MINT, a **Region of Interest (ROI)** is the retention-time interval used to inspect, optimize, and extract a target signal. In practice, the ROI is defined by the pair `rt_min` and `rt_max`, while `rt` stores the current target apex or reference RT inside that interval.
 
@@ -29,7 +12,24 @@ In MINT, a **Region of Interest (ROI)** is the retention-time interval used to i
 - **Normalization**: If imported RT values are given in minutes, MINT converts them to seconds before deriving or validating ROI bounds.
 - **Refinement**: In the Optimization tab, MINT updates provisional ROI bounds from observed chromatogram shape, apex position, and signal envelope.
 
-## RT Alignment Logic
+## Sparsification {: #sparsification }
+
+Chromatogram data can be extremely dense, especially in high-resolution MS1 measurements. MINT uses **Sparsification** to reduce the number of data points while preserving the essential shape of the peak.
+
+- **How it works**: Instead of keeping every recorded intensity, MINT identifies transition points (e.g., scan times where the signal starts to rise, reaches a peak, or returns to baseline).
+- **Benefits**: 
+    - Dramatically reduces database size.
+    - Speeds up plot rendering in the browser.
+    - Minimizes memory usage during analysis.
+
+## LTTB Downsampling {: #lttb-downsampling }
+
+For real-time visualization of "full-range" chromatograms (before RT slicing), MINT employs the **Largest Triangle Three Buckets (LTTB)** algorithm.
+
+- **Purpose**: LTTB effectively downsamples the data to a fixed number of points (e.g., 1000) for visual representation.
+- **Visual Integrity**: Unlike simple decimation, LTTB preserves visual features like local minima and maxima, ensuring that the "Shadow Plot" accurately reflects the raw data shape.
+
+## RT Alignment Logic {: #rt-alignment }
 
 Retention Time (RT) alignment in MINT is designed for simplicity and robustness.
 
@@ -37,7 +37,7 @@ Retention Time (RT) alignment in MINT is designed for simplicity and robustness.
 - **Authoritative Shifts**: For each sample, the "Shift" is defined as `Reference_RT - Sample_Apex_RT`. These shifts are applied to the chromatogram traces in the Optimization view, effectively "snapping" them together.
 - **Persistence**: Unlike transient visualization-only shifts, MINT alignment state is authoritative and persisted in the database, ensuring that downstream processing uses the corrected ROI bounds.
 
-## Progressive Loading (Shadow Plots)
+## Progressive Loading (Shadow Plots) {: #shadow-plots }
 
 MINT prioritizes UI responsiveness through progressive loading:
 
