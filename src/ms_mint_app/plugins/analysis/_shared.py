@@ -194,6 +194,22 @@ def _cap_color_map_values(color_map: dict, active_values) -> dict:
     return bounded
 
 
+def _normalize_analysis_color(color):
+    """Normalize colors to matplotlib-safe hex strings where possible."""
+    if not isinstance(color, str):
+        return color
+    color = color.strip()
+    if not color:
+        return color
+    if color.startswith("rgb(") and color.endswith(")"):
+        try:
+            r, g, b = plotly_colors.unlabel_rgb(color)
+            return f"#{int(r):02x}{int(g):02x}{int(b):02x}"
+        except Exception:
+            return color
+    return color
+
+
 def _build_color_map(color_df: pd.DataFrame, group_col: str, *, use_sample_colors: bool = True) -> dict:
     if not group_col or group_col not in color_df.columns or color_df.empty:
         return {}
@@ -214,8 +230,12 @@ def _build_color_map(color_df: pd.DataFrame, group_col: str, *, use_sample_color
         .set_index(group_col)['color']
         .to_dict()
     )
+    explicit_map = {key: _normalize_analysis_color(val) for key, val in explicit_map.items()}
 
-    cached_map = _COLOR_MAP_CACHE.pop(group_col, {}).copy()
+    cached_map = {
+        key: _normalize_analysis_color(val)
+        for key, val in _COLOR_MAP_CACHE.pop(group_col, {}).copy().items()
+    }
     color_map = {**cached_map, **explicit_map}
 
     active_values = [val for val in working[group_col].dropna().unique()]
@@ -237,6 +257,7 @@ def _build_color_map(color_df: pd.DataFrame, group_col: str, *, use_sample_color
             while color in used_colors and attempts < len(palette):
                 color = next(palette_cycle)
                 attempts += 1
+            color = _normalize_analysis_color(color)
             color_map[val] = color
             used_colors.add(color)
 
