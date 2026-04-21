@@ -133,7 +133,7 @@ def _format_rt_alignment_auto_note(rt_alignment_data: dict) -> str:
         _RT_ALIGN_NOTE_START,
         "RT alignment: enabled",
         f"Reference RT: {ref_txt}",
-        f"RT span: {span_txt}",
+        f"ROI bounds: {span_txt}",
         "Median shifts by sample type (seconds):",
     ]
 
@@ -1768,13 +1768,13 @@ _layout = fac.AntdLayout(
                                             [
                                                 html.Div(
                                                     [
-                                                        html.Span('Edit RT-span:'),
+                                                        html.Span('Edit ROI:'),
                                                         fac.AntdTooltip(
                                                             fac.AntdIcon(
                                                                 icon='antd-question-circle',
                                                                 style={'marginLeft': '5px', 'color': 'gray'}
                                                             ),
-                                                            title='Unlock to edit RT range'
+                                                            title='Unlock to edit ROI bounds'
                                                         )
                                                     ],
                                                     style={
@@ -1811,7 +1811,7 @@ _layout = fac.AntdLayout(
                                                                 icon='antd-question-circle',
                                                                 style={'marginLeft': '5px', 'color': 'gray'}
                                                             ),
-                                                            title='Align chromatograms by peak apex within the RT span'
+                                                            title='Align chromatograms by peak apex within the current ROI'
                                                         )
                                                     ],
                                                     style={

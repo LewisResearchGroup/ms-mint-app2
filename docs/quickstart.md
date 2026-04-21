@@ -135,8 +135,8 @@ This file contains important information about the targets.
 |`source`                 | Data source or file                                                  |
 
 
-## 7. Optimize retention times (Optional, but highly recommended)
-Switch to the `Optimization` tab. Traditionally, and especially for large datasets, you select a representative set of samples including standards (with known concentrations of the target metabolites) to perform the optimization. However, in MINT, you can perform the optimization with all samples in most cases (see the files selected for optimization in the tree on the left side).
+## 7. Optimize ROIs (Optional, but highly recommended)
+Switch to the `Optimization` tab. Traditionally, and especially for large datasets, you select a representative set of samples including standards (with known concentrations of the target metabolites) to perform the optimization. However, in MINT, you can perform the optimization with all samples in most cases (see the files selected for optimization in the tree on the left side). In MINT, the Region of Interest (ROI) is the retention-time interval defined by `rt_min` and `rt_max`.
 
 ![](quickstart/peak-optimization-1.png)
 

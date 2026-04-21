@@ -1,5 +1,7 @@
 In the **Optimization** tab, the EICs are computed first based on the parameters defined in the Targets table. Next, target Regions of Interest (ROIs; `rt_min`, `rt_max`) can be refined so downstream extraction in Processing captures the correct peak region.
 
+A **Region of Interest (ROI)** in MINT is the chromatogram interval defined by `rt_min` and `rt_max`. The `rt` value is the current target RT inside that interval and is used as the reference point for annotations, optimization, and alignment.
+
 ![Optimization](../image/optimization_compute.png "Optimization view")
 
 > **Tip**: Click the help icon (small "i" symbol) next to the "Optimization" title to take a guided tour of this section.
