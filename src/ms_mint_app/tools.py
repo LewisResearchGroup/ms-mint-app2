@@ -17,7 +17,6 @@ import pandas as pd
 import pyarrow as pa
 from pyarrow import parquet as pq
 from dash.exceptions import PreventUpdate
-import pygixml
 from scipy.ndimage import binary_opening
 
 from .duckdb_manager import duckdb_connection
@@ -28,6 +27,14 @@ logger = logging.getLogger(__name__)
 
 # Supported file extensions for tabular data
 SUPPORTED_TABULAR_EXTENSIONS = {'.csv', '.tsv', '.txt', '.xls', '.xlsx'}
+
+
+def _get_pygixml():
+    try:
+        import pygixml
+    except Exception as exc:
+        raise RuntimeError("pygixml is required for mzML/mzXML parsing") from exc
+    return pygixml
 
 
 def read_tabular_file(file_path: str | Path, dtype: dict = None, nrows: int = None) -> pd.DataFrame:
@@ -322,7 +329,7 @@ def get_acquisition_datetime_with_source(file_path: str | Path) -> tuple[Optiona
     Returns `(iso_datetime, source)` where source is `raw_header` or `file_mtime`.
     """
     from datetime import datetime
-    import pygixml
+    pygixml = _get_pygixml()
     
     file_path = Path(file_path)
     suffix = file_path.suffix.lower()
@@ -461,6 +468,7 @@ def _decode_peaks_optimized(attrs: Dict[str, str], text: Optional[str]) -> tuple
 
 def iter_mzxml_fast(path: str | Path, *, decode_binary: bool = True) -> Iterator[Dict[str, Any]]:
     path = Path(path)
+    pygixml = _get_pygixml()
     # pygixml implementation
     doc = pygixml.parse_file(str(path))
     
@@ -887,6 +895,7 @@ def write_mzml_from_spectra(
 
 def iter_mzml_fast(path: str | Path, *, decode_binary: bool = True) -> Iterator[Dict[str, Any]]:
     path = Path(path)
+    pygixml = _get_pygixml()
     # pygixml implementation
     doc = pygixml.parse_file(str(path))
     

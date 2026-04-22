@@ -1,9 +1,17 @@
 import importlib
 import sys
 import types
+import builtins
+
+
+def _stub_optional_modules(monkeypatch):
+    if importlib.util.find_spec("duckdb") is None:
+        monkeypatch.setitem(sys.modules, "duckdb", types.ModuleType("duckdb"))
 
 
 def test_analysis_shared_import_does_not_eager_import_plugin(monkeypatch):
+    _stub_optional_modules(monkeypatch)
+
     if importlib.util.find_spec("dash") is None:
         dash_stub = types.ModuleType("dash")
         dash_stub.html = object()
@@ -89,3 +97,21 @@ def test_analysis_shared_import_does_not_eager_import_plugin(monkeypatch):
 
     assert shared_module is not None
     assert "ms_mint_app.plugins.analysis.plugin" not in sys.modules
+
+
+def test_tools_import_does_not_eager_import_pygixml(monkeypatch):
+    _stub_optional_modules(monkeypatch)
+
+    original_import = builtins.__import__
+
+    def guarded_import(name, globals=None, locals=None, fromlist=(), level=0):
+        if name == "pygixml":
+            raise AssertionError("pygixml should not be imported during module import")
+        return original_import(name, globals, locals, fromlist, level)
+
+    monkeypatch.delitem(sys.modules, "ms_mint_app.tools", raising=False)
+    monkeypatch.setattr(builtins, "__import__", guarded_import)
+
+    tools_module = importlib.import_module("ms_mint_app.tools")
+
+    assert tools_module is not None
