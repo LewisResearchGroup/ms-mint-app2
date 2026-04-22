@@ -37,6 +37,10 @@ jobs:
           pip install -e . --no-cache-dir
           pip install -r requirements-dev.txt
 
+      - name: Probe pygixml import
+        run: |
+          python -c "import pygixml; print('pygixml import ok')"
+
       - name: Run tests with pytest
         run: |
           pytest tests/ -v --tb=short --cov=ms_mint_app --cov-report=term-missing --cov-report=xml
