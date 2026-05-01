@@ -26,7 +26,7 @@ classifiers = [
   "Operating System :: OS Independent"
 ]
 dependencies = [
-  "asari-metabolomics",
+  "asari-metabolomics==1.13.1",
   "dash==3.3.0",
   "dash-bootstrap-components",
   "dash[diskcache]==3.3.0",
