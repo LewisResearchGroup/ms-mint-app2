@@ -28,6 +28,18 @@ def _seed_target_rows(conn):
     )
 
 
+def test_batch_ms_type_uses_inferred_ms1_when_filter_is_all():
+    status = {"inferred_ms_type": "ms1"}
+
+    assert topt._batch_ms_type_from_filter("All", status) == "ms1"
+
+
+def test_batch_ms_type_explicit_filter_wins_over_inferred():
+    status = {"inferred_ms_type": "ms1"}
+
+    assert topt._batch_ms_type_from_filter("ms2", status) == "ms2"
+
+
 def test_delete_target_logic_success(monkeypatch):
     conn = duckdb.connect(":memory:")
     _create_tables(conn)

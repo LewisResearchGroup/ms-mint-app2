@@ -2318,13 +2318,10 @@ def callbacks(app, fsc, cache):
 
         recompute = bool(computed_results)
 
-        # Smart Default CPU/RAM
-        from os import cpu_count
+        # Smart default CPU/RAM using the same shared resource helper as Optimization.
         n_cpus_total = cpu_count()
-        default_cpus = max(1, n_cpus_total // 2)
-        
+        default_cpus, default_ram, _ = calculate_optimal_params()
         available_ram_gb = psutil.virtual_memory().available / (1024 ** 3)
-        default_ram = round(min(float(default_cpus) * 1.5, available_ram_gb), 1)
         available_ram_gb_rounded = round(available_ram_gb, 1)
 
         help_cpu = f"Selected {default_cpus} / {n_cpus_total} cpus"
@@ -2518,9 +2515,8 @@ def callbacks(app, fsc, cache):
                 """).fetchone()
                 if counts:
                     n_cpus_count = cpu_count()
-                    default_cpus = max(1, n_cpus_count // 2)
+                    default_cpus, default_ram, _ = calculate_optimal_params()
                     ram_avail = psutil.virtual_memory().available / (1024 ** 3)
-                    default_ram = round(min(float(default_cpus), ram_avail), 1)
 
                     workspace_status = {
                         'ms_files_count': counts[0] or 0,
@@ -2596,7 +2592,7 @@ def callbacks(app, fsc, cache):
         help_ram = _get_ram_help_text(ram)
         # Auto-calculate optimal batch size based on current CPU and RAM
         optimal_batch = calculate_optimal_batch_size(
-            round(ram) if ram else 8,
+            ram if ram else 8,
             100000,  # Estimate for total pairs
             int(cpu) if cpu else max(1, cpu_count() // 2),
             ms_type='ms1'  # Assume MS1 for optimized batch size

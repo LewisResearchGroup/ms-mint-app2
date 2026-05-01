@@ -69,6 +69,18 @@ def _normalize_ms_type(ms_type):
     return value or None
 
 
+def _batch_ms_type_from_filter(ms_type, workspace_status):
+    normalized = _normalize_ms_type(ms_type)
+    if normalized in {"ms1", "ms2"}:
+        return normalized
+
+    inferred = _normalize_ms_type((workspace_status or {}).get("inferred_ms_type"))
+    if inferred in {"ms1", "ms2"}:
+        return inferred
+
+    return None
+
+
 def _infer_samples_ms_type(conn, use_for_optimization=True):
     if conn is None:
         return None
@@ -2609,7 +2621,7 @@ def callbacks(app, fsc, cache, cpu=None):
         selected_targets_count = status.get('selected_targets_count', 0) or 0
         total_targets_count = status.get('targets_count', 0) or 0
         optimization_samples_count = status.get('optimization_samples_count', 0) or 0
-        ms_type_for_batch = _normalize_ms_type(ms_type)
+        ms_type_for_batch = _batch_ms_type_from_filter(ms_type, status)
         total_pairs = max(selected_targets_count * optimization_samples_count, 100000)
         batch_size = calculate_optimal_batch_size(
             default_ram,
@@ -2671,7 +2683,7 @@ def callbacks(app, fsc, cache, cpu=None):
         optimization_samples_count = status.get('optimization_samples_count', 0) or 0
         target_count = selected_targets_count if selected_targets_count > 0 else total_targets_count
         total_pairs = max(target_count * optimization_samples_count, 100000)
-        ms_type_for_batch = _normalize_ms_type(ms_type)
+        ms_type_for_batch = _batch_ms_type_from_filter(ms_type, status)
         return calculate_optimal_batch_size(
             ram_gb=ram_gb,
             n_cpus=n_cpus,
