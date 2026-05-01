@@ -7,7 +7,13 @@ import struct
 import tempfile
 import os
 from pathlib import Path
-from ms_mint_app.tools import iter_mzml_fast, iter_mzxml_fast, _decode_binary_mzml, _decode_peaks_optimized
+from ms_mint_app.tools import (
+    iter_mzml_fast,
+    iter_mzxml_fast,
+    convert_mzxml_to_parquet_fast_batches,
+    _decode_binary_mzml,
+    _decode_peaks_optimized,
+)
 
 # Helpers to create valid XML content
 def encode_array(arr, dtype, compression=None):
@@ -139,6 +145,29 @@ def test_iter_mzxml_fast(synthetic_data):
         assert p["polarity"] == e["polarity"]
         assert np.allclose(p["m/z array"], e["mz"], atol=1e-4) # 32-bit vs 64-bit precision issues may arise
         assert np.allclose(p["intensity array"], e["intensity"], atol=1e-4)
+
+
+def test_convert_mzxml_preserves_positive_polarity(tmp_path):
+    mzxml_file = tmp_path / "positive.mzXML"
+    scans = [
+        {
+            "num": 1,
+            "msLevel": 1,
+            "rt": 10.0,
+            "polarity": "Positive",
+            "mz": np.array([100.1, 200.2]),
+            "intensity": np.array([1000.0, 500.0]),
+        },
+    ]
+    create_mzxml(mzxml_file, scans)
+
+    _, _, _, polarity, parquet_path, _, _ = convert_mzxml_to_parquet_fast_batches(
+        str(mzxml_file),
+        tmp_dir=str(tmp_path),
+    )
+
+    assert polarity == "Positive"
+    assert parquet_path is not None
 
 def test_parsers_consistency(synthetic_data):
     mzml_path, mzxml_path, _ = synthetic_data

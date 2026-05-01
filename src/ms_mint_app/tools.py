@@ -1134,7 +1134,13 @@ def convert_mzxml_to_parquet_fast_batches(
 
             if first_scan:
                 ms_level = int(data.get("msLevel", 0))
-                polarity = "Positive" if data.get("polarity") == "+" else "Negative"
+                scan_polarity = data.get("polarity")
+                if scan_polarity in ("Positive", "Negative"):
+                    polarity = scan_polarity
+                elif scan_polarity == "+":
+                    polarity = "Positive"
+                elif scan_polarity == "-":
+                    polarity = "Negative"
                 first_scan = False
 
             scan_id = int(data.get("num", 0))
