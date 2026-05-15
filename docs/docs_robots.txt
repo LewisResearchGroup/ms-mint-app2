@@ -1,0 +1,3 @@
+User-agent: *
+Allow: /
+Sitemap: https://lewisresearchgroup.github.io/ms-mint-app2/sitemap.xml
