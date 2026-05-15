@@ -63,6 +63,3 @@ markdown_extensions:
 plugins:
   - glightbox
   - search
-  - sitemap:
-      changefreq: weekly
-      priority: 0.5

@@ -1,7 +1,6 @@
 mkdocs
 mkdocs-material
 mkdocs-glightbox
-mkdocs-sitemap-plugin
 flake8
 pytest
 pytest-cov
