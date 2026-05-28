@@ -10,7 +10,16 @@
 
 # MINT (Metabolomics Integrator)
 
+<a href="https://www.scimagojr.com/journalsearch.php?q=23915&amp;tip=sid&amp;exact=no" title="SCImago Journal &amp; Country Rank"><img border="0" align="right" src="https://www.scimagojr.com/journal_img.php?id=23915" alt="SCImago Journal &amp; Country Rank"  /></a>
+
 A powerful post-processing tool for **LC-MS based metabolomics** that simplifies peak integration, quality control, and data analysis.
+
+**Cite MINT:**
+
+MS-MINT: An Open-Source Data Analysis Software for Large-Scale Metabolomics Studies
+
+Mario E. Valdés-Tresanco, Mario S. Valdés-Tresanco, Soren Wacker, Nicholas I. Brodie, Luis F. Ponce, Raied Aburashed, Alikhan Mansuri, Ryan A. Groves, Annegret Ulke-Lemée, and Ian A. Lewis. Analytical Chemistry (2026). DOI: 10.1021/acs.analchem.6c01083
+
 
 ## Key Features
 
