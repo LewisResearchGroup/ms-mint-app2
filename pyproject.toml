@@ -49,7 +49,7 @@ dependencies = [
   "plotly==6.3.1",
   "polars==1.33.1",
   "psutil",
-  "pyarrow==18.0.0",
+  "pyarrow==23.0.1",
   "pygixml==0.5.1",
   "PyYAML",
   "pyteomics",
