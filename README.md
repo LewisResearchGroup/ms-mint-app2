@@ -14,11 +14,12 @@
 
 A powerful post-processing tool for **LC-MS based metabolomics** that simplifies peak integration, quality control, and data analysis.
 
-**Cite MINT:**
+**If you find MS-MINT useful, please cite:**
 
 MS-MINT: An Open-Source Data Analysis Software for Large-Scale Metabolomics Studies
 
-Mario E. Valdés-Tresanco, Mario S. Valdés-Tresanco, Soren Wacker, Nicholas I. Brodie, Luis F. Ponce, Raied Aburashed, Alikhan Mansuri, Ryan A. Groves, Annegret Ulke-Lemée, and Ian A. Lewis. Analytical Chemistry (2026). [DOI: 10.1021/acs.analchem.6c01083](https://pubs.acs.org/doi/10.1021/acs.analchem.6c01083)
+Mario E. Valdés-Tresanco, Mario S. Valdés-Tresanco, Soren Wacker, Nicholas I. Brodie, Luis F. Ponce, Raied Aburashed, Alikhan Mansuri, Ryan A. Groves, Annegret Ulke-Lemée, and Ian A. Lewis
+Analytical Chemistry 2026 98 (22), 15988-15994 [DOI: 10.1021/acs.analchem.6c01083](https://pubs.acs.org/doi/10.1021/acs.analchem.6c01083)
 
 
 ## Key Features
