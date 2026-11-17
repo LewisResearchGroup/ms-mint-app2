@@ -1,26 +1,31 @@
-![Python](https://img.shields.io/badge/python-3.12-blue.svg)
-[![PyPI](https://img.shields.io/pypi/v/ms-mint-app2?label=pypi%20package)](https://pypi.org/project/ms-mint-app2/)
-[![Help forum](https://img.shields.io/badge/Docs-Getting_Started-blue)](https://lewisresearchgroup.github.io/ms-mint-app2/quickstart/)
-[![Ask DeepWiki About this App](https://deepwiki.com/badge.svg)](https://deepwiki.com/LewisResearchGroup/ms-mint-app2)
-[![Issue tracking](https://img.shields.io/badge/Issue_tracking-GitHub-blue)](https://github.com/LewisResearchGroup/ms-mint-app2/issues)
+
+[![Python](https://img.shields.io/badge/python-3.12%2B-blue.svg)](https://pypi.org/project/ms-mint-app2/)
+[![PyPI](https://img.shields.io/pypi/v/ms-mint-app2?label=PyPI)](https://pypi.org/project/ms-mint-app2/)
+[![Documentation](https://img.shields.io/badge/Docs-Quickstart-blue)](https://lewisresearchgroup.github.io/ms-mint-app2/quickstart/)
+[![Ask DeepWiki](https://img.shields.io/badge/Ask-DeepWiki-blue)](https://deepwiki.com/LewisResearchGroup/ms-mint-app2)
+[![GitHub Issues](https://img.shields.io/badge/Issues-GitHub-blue)](https://github.com/LewisResearchGroup/ms-mint-app2/issues)
+
 
 <p align="center">
   <img src="https://raw.githubusercontent.com/LewisResearchGroup/ms-mint-app2/main/docs/image/MINT-logo.png" alt="MINT Logo" width="400">
 </p>
 
-# MINT (Metabolomics Integrator)
-
-<a href="https://www.scimagojr.com/journalsearch.php?q=23915&amp;tip=sid&amp;exact=no" title="SCImago Journal &amp; Country Rank"><img border="0" align="right" src="https://www.scimagojr.com/journal_img.php?id=23915" alt="SCImago Journal &amp; Country Rank"  /></a>
+## MINT (Metabolomics Integrator)
 
 A powerful post-processing tool for **LC-MS based metabolomics** that simplifies peak integration, quality control, and data analysis.
 
-**If you find MS-MINT useful, please cite:**
+- **[Full Documentation](https://LewisResearchGroup.github.io/ms-mint-app2/)** - Complete user guide
+- **[Quick Start Tutorial](https://LewisResearchGroup.github.io/ms-mint-app2/quickstart/)** - Get up and running in 5 minutes
 
-MS-MINT: An Open-Source Data Analysis Software for Large-Scale Metabolomics Studies
+## Cite us
 
-Mario E. Valdés-Tresanco, Mario S. Valdés-Tresanco, Soren Wacker, Nicholas I. Brodie, Luis F. Ponce, Raied Aburashed, Alikhan Mansuri, Ryan A. Groves, Annegret Ulke-Lemée, and Ian A. Lewis
-Analytical Chemistry 2026 98 (22), 15988-15994 [DOI: 10.1021/acs.analchem.6c01083](https://pubs.acs.org/doi/10.1021/acs.analchem.6c01083)
+<a href="https://www.scimagojr.com/journalsearch.php?q=23915&amp;tip=sid&amp;clean=0" title="SCImago Journal &amp; Country Rank"><img border="0" align="right" src="https://www.scimagojr.com/journal_img.php?id=23915" alt="SCImago Journal &amp; Country Rank"  /></a>
 
+If you use MINT in your research, please cite the original paper:
+
+Mario E. Valdés-Tresanco, Mario S. Valdés-Tresanco, Soren Wacker, Nicholas I. Brodie, Luis F. Ponce, Raied Aburashed, Alikhan Mansuri, Ryan A. Groves, Annegret Ulke-Lemée, Ian A. Lewis.
+
+MS-MINT: An Open-Source Data Analysis Software for Large-Scale Metabolomics Studies. Anal. Chem. 9 June 2026; 98 (22): 15988-15994. [https://doi.org/10.1021/acs.analchem.6c01083](https://doi.org/10.1021/acs.analchem.6c01083)
 
 ## Key Features
 
@@ -54,11 +59,6 @@ Mint
 Builds are provided with all dependencies integrated for [Windows](https://github.com/LewisResearchGroup/ms-mint-app2/releases/download/v2.0.0-rc.2/Mint-Windows-x64.zip) and [Linux](https://github.com/LewisResearchGroup/ms-mint-app2/releases/download/v2.0.0-rc.2/Mint-Linux-x64.tar.gz).
 
 For detailed installation instructions, see the [Installation Guide](https://lewisresearchgroup.github.io/ms-mint-app2/install/).
-
-## Documentation
-
-- **[Full Documentation](https://LewisResearchGroup.github.io/ms-mint-app2/)** - Complete user guide
-- **[Quick Start Tutorial](https://LewisResearchGroup.github.io/ms-mint-app2/quickstart/)** - Get up and running in 5 minutes
 
 ## Publications Using MINT
 
