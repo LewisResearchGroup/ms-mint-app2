@@ -17,15 +17,17 @@ A powerful post-processing tool for **LC-MS based metabolomics** that simplifies
 - **[Full Documentation](https://LewisResearchGroup.github.io/ms-mint-app2/)** - Complete user guide
 - **[Quick Start Tutorial](https://LewisResearchGroup.github.io/ms-mint-app2/quickstart/)** - Get up and running in 5 minutes
 
+
 ## Cite us
 
 <a href="https://www.scimagojr.com/journalsearch.php?q=23915&amp;tip=sid&amp;clean=0" title="SCImago Journal &amp; Country Rank"><img border="0" align="right" src="https://www.scimagojr.com/journal_img.php?id=23915" alt="SCImago Journal &amp; Country Rank"  /></a>
 
 If you use MINT in your research, please cite the original paper:
 
-Mario E. Valdés-Tresanco, Mario S. Valdés-Tresanco, Soren Wacker, Nicholas I. Brodie, Luis F. Ponce, Raied Aburashed, Alikhan Mansuri, Ryan A. Groves, Annegret Ulke-Lemée, Ian A. Lewis.
+Mario E. Valdés-Tresanco, Mario S. Valdés-Tresanco, Soren Wacker, Nicholas I. Brodie, Luis F. Ponce, Raied Aburashed, Alikhan Mansuri, Ryan A. Groves, Annegret Ulke-Lemée, Ian A. Lewis; MS-MINT: An Open-Source Data Analysis Software for Large-Scale Metabolomics Studies. Anal. Chem. 9 June 2026; 98 (22): 15988-15994.
+[https://doi.org/10.1021/acs.analchem.6c01083](https://doi.org/10.1021/acs.analchem.6c01083)
 
-MS-MINT: An Open-Source Data Analysis Software for Large-Scale Metabolomics Studies. Anal. Chem. 9 June 2026; 98 (22): 15988-15994. [https://doi.org/10.1021/acs.analchem.6c01083](https://doi.org/10.1021/acs.analchem.6c01083)
+<br clear="right">
 
 ## Key Features
 
